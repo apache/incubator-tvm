@@ -9544,6 +9544,109 @@ def test_resize_5d_emits_relax_resize3d():
     assert seen_resize3d
 
 
+@pytest.mark.parametrize("input_shape", [[1, 3, 4, 5], ["N", 3, 4, 5]])
+def test_resize_sizes_with_empty_scales_tensor(input_shape):
+    # PyTorch (opset <= 12) exports size-based interpolation with `roi` and `scales`
+    # given as empty constant tensors rather than omitted inputs.
+    nodes = [
+        helper.make_node(
+            "Constant", [], ["roi"], value=helper.make_tensor("", TensorProto.FLOAT, [0], [])
+        ),
+        helper.make_node(
+            "Constant", [], ["scales"], value=helper.make_tensor("", TensorProto.FLOAT, [0], [])
+        ),
+        helper.make_node(
+            "Resize",
+            ["X", "roi", "scales", "sizes"],
+            ["Y"],
+            mode="nearest",
+            coordinate_transformation_mode="asymmetric",
+            nearest_mode="floor",
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "resize_empty_scales",
+        inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, input_shape)],
+        initializer=[helper.make_tensor("sizes", TensorProto.INT64, [4], [1, 3, 8, 10])],
+        outputs=[helper.make_tensor_value_info("Y", TensorProto.FLOAT, None)],
+    )
+    model = helper.make_model(graph, producer_name="resize_empty_scales")
+    check_correctness(
+        model, inputs={"X": generate_random_value([1, 3, 4, 5], TensorProto.FLOAT)}, opset=13
+    )
+
+
+def _make_resize_sizes_from_shape_model(input_shape, shape_source_shape=None):
+    """Resize whose `sizes` is Concat(Shape(X)[:2], spatial) as exporters emit it.
+
+    When `shape_source_shape` is given, the spatial sizes are taken from a second
+    input's shape instead of constants, so they are symbolic when it is.
+    """
+    inputs = [helper.make_tensor_value_info("X", TensorProto.FLOAT, input_shape)]
+    nodes = [
+        helper.make_node("Shape", ["X"], ["x_shape"]),
+        helper.make_node("Slice", ["x_shape", "zero", "two", "zero"], ["nc"]),
+    ]
+    initializers = [
+        helper.make_tensor("zero", TensorProto.INT64, [1], [0]),
+        helper.make_tensor("two", TensorProto.INT64, [1], [2]),
+    ]
+    if shape_source_shape is None:
+        initializers.append(helper.make_tensor("hw", TensorProto.INT64, [2], [8, 10]))
+    else:
+        inputs.append(helper.make_tensor_value_info("S", TensorProto.FLOAT, shape_source_shape))
+        nodes += [
+            helper.make_node("Shape", ["S"], ["s_shape"]),
+            helper.make_node("Slice", ["s_shape", "two", "four", "zero"], ["hw"]),
+        ]
+        initializers.append(helper.make_tensor("four", TensorProto.INT64, [1], [4]))
+    nodes += [
+        helper.make_node("Concat", ["nc", "hw"], ["sizes"], axis=0),
+        helper.make_node(
+            "Resize",
+            ["X", "", "", "sizes"],
+            ["Y"],
+            mode="nearest",
+            coordinate_transformation_mode="asymmetric",
+            nearest_mode="floor",
+        ),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "resize_sizes_from_shape",
+        inputs=inputs,
+        initializer=initializers,
+        outputs=[helper.make_tensor_value_info("Y", TensorProto.FLOAT, None)],
+    )
+    return helper.make_model(graph, producer_name="resize_sizes_from_shape")
+
+
+def test_resize_sizes_from_shape_symbolic_batch():
+    model = _make_resize_sizes_from_shape_model(["N", 3, 4, 5])
+    func = from_onnx(model, opset=18, keep_params_in_input=True)["main"]
+    n = func.params[0].ty.shape.values[0]
+    out_shape = func.ret_ty.shape.values
+    tvm.ir.assert_structural_equal(out_shape[0], n)
+    assert [int(v) for v in out_shape[1:]] == [3, 8, 10]
+
+    x = generate_random_value([2, 3, 4, 5], TensorProto.FLOAT)
+    check_correctness(model, inputs={"X": x}, opset=18)
+
+
+def test_resize_sizes_from_shape_symbolic_spatial():
+    model = _make_resize_sizes_from_shape_model(["N", 3, 4, 5], ["N", 3, "H", "W"])
+    func = from_onnx(model, opset=18, keep_params_in_input=True)["main"]
+    _, _, h, w = func.params[1].ty.shape.values
+    out_shape = func.ret_ty.shape.values
+    tvm.ir.assert_structural_equal(out_shape[2], h)
+    tvm.ir.assert_structural_equal(out_shape[3], w)
+
+    x = generate_random_value([2, 3, 4, 5], TensorProto.FLOAT)
+    s = generate_random_value([2, 3, 8, 10], TensorProto.FLOAT)
+    check_correctness(model, inputs={"X": x, "S": s}, opset=18)
+
+
 def test_einsum():
     eqn = "ij->i"
     einsum_node = helper.make_node("Einsum", ["x"], ["y"], equation=eqn)

@@ -56,6 +56,7 @@ except ImportError as err:
 
 import tvm_ffi
 
+import tvm
 import tvm_tirx
 from tvm import relax, topi
 from tvm.topi.utils import get_const_tuple
@@ -3736,6 +3737,13 @@ class Dropout(OnnxOpConverter):
         return relax.op.nn.dropout(inputs[0], ratio)
 
 
+def _none_if_empty_constant(value):
+    """Return None for a zero-element constant, which stands for an omitted input."""
+    if isinstance(value, tvm.ir.GenericConst) and value.value.numpy().size == 0:
+        return None
+    return value
+
+
 def _onnx_resize_spatial_roi_vector(roi_full: relax.Expr, rank: int) -> relax.Expr:
     """Map ONNX ROI [starts..., ends...] to TOPI spatial ROI (drop N/C axes)."""
     return relax.op.concat(
@@ -3863,6 +3871,10 @@ class Resize(OnnxOpConverter):
         ndims = len(x.ty.shape)
         assert ndims in (3, 4, 5), "Only resize1d/resize2d/resize3d are supported."
 
+        # Some exporters (e.g. PyTorch at opset <= 12) pass an empty tensor instead of
+        # omitting an optional input, which the ONNX spec treats as "not provided".
+        scales = _none_if_empty_constant(scales)
+        sizes = _none_if_empty_constant(sizes)
         assert scales is None or sizes is None, (
             "Only one of scales and sizes can be provided in Resize."
         )
@@ -3906,7 +3918,13 @@ class Resize(OnnxOpConverter):
             if isinstance(sizes, tvm_tirx.ir.GenericConst):
                 sizes = sizes.value.numpy().astype("int64").tolist()[2:]
             elif isinstance(sizes, relax.expr.ShapeExpr):
-                sizes = [int(val.value) for val in sizes.values][2:]
+                # Sizes computed from Shape/Slice/Concat may carry symbolic batch or
+                # channel dims; only the spatial dims are needed, and the relax resize
+                # ops accept symbolic spatial extents.
+                sizes = [
+                    int(val.value) if isinstance(val, tirx.IntImm) else val
+                    for val in list(sizes.values)[2:]
+                ]
             else:
                 raise ValueError(f"Type {type(sizes)} for size is currently unsupported.")
 
