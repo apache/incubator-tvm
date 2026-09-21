@@ -10111,6 +10111,98 @@ def test_pool():
             )
 
 
+def _make_same_pool_model(pool_name, input_shape, auto_pad, kernel_shape, strides, dilations=None):
+    attrs = {"kernel_shape": kernel_shape, "strides": strides, "auto_pad": auto_pad}
+    if dilations is not None:
+        attrs["dilations"] = dilations
+    node = helper.make_node(pool_name, ["x"], ["y"], **attrs)
+    graph = helper.make_graph(
+        [node],
+        "same_pool_test",
+        inputs=[helper.make_tensor_value_info("x", TensorProto.FLOAT, input_shape)],
+        outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, None)],
+    )
+    return helper.make_model(graph, producer_name="same_pool_test")
+
+
+@pytest.mark.parametrize("pool_name", ["MaxPool", "AveragePool"])
+@pytest.mark.parametrize("auto_pad", ["SAME_UPPER", "SAME_LOWER"])
+@pytest.mark.parametrize(
+    "input_shape, kernel_shape, strides",
+    [
+        # Spatial extents not divisible by the strides.
+        ([1, 2, 7], [2], [2]),
+        ([1, 2, 7, 9], [3, 3], [2, 3]),
+        ([1, 2, 5, 7, 6], [2, 3, 3], [3, 2, 4]),
+    ],
+)
+def test_pool_same_padding_numerical(pool_name, auto_pad, input_shape, kernel_shape, strides):
+    model = _make_same_pool_model(pool_name, input_shape, auto_pad, kernel_shape, strides)
+    check_correctness(model, opset=18)
+
+
+def _get_pool2d_call(func):
+    pool_calls = []
+
+    def visit(expr):
+        if (
+            isinstance(expr, relax.Call)
+            and isinstance(expr.op, tvm.ir.Op)
+            and expr.op.name in ("relax.nn.max_pool2d", "relax.nn.avg_pool2d")
+        ):
+            pool_calls.append(expr)
+
+    relax.analysis.post_order_visit(func.body, visit)
+    assert len(pool_calls) == 1
+    return pool_calls[0]
+
+
+@pytest.mark.parametrize("pool_name", ["MaxPool", "AveragePool"])
+@pytest.mark.parametrize(
+    "auto_pad, expected_padding", [("SAME_UPPER", (2, 1, 2, 2)), ("SAME_LOWER", (2, 2, 2, 1))]
+)
+def test_pool_same_padding_dilation(pool_name, auto_pad, expected_padding):
+    # The padding must account for the dilated kernel so that the output extent is
+    # ceil(input / stride), matching ONNX shape inference. onnxruntime ignores the
+    # dilation when resolving auto_pad, so this is checked structurally.
+    model = _make_same_pool_model(
+        pool_name, [1, 2, 9, 10], auto_pad, kernel_shape=[3, 2], strides=[2, 3], dilations=[2, 3]
+    )
+    func = from_onnx(model, opset=19, keep_params_in_input=True)["main"]
+
+    pool_call = _get_pool2d_call(func)
+    assert tuple(int(value) for value in pool_call.attrs.padding) == expected_padding
+    assert tuple(int(value) for value in func.ret_ty.shape.values) == (1, 2, 5, 4)
+
+
+@pytest.mark.parametrize("pool_name", ["MaxPool", "AveragePool", "LpPool"])
+@pytest.mark.parametrize(
+    "auto_pad, expected_padding", [("SAME_UPPER", (0, 0, 1, 1)), ("SAME_LOWER", (1, 1, 0, 0))]
+)
+def test_pool_same_padding_symbolic_unit_stride(pool_name, auto_pad, expected_padding):
+    # With unit strides the SAME padding does not depend on the input extent,
+    # so it can be computed for symbolic spatial dimensions.
+    model = _make_same_pool_model(pool_name, ["N", 3, 48, "W"], auto_pad, [2, 2], [1, 1])
+    func = from_onnx(model, opset=18, keep_params_in_input=True)["main"]
+
+    pool_call = _get_pool2d_call(func)
+    assert tuple(int(value) for value in pool_call.attrs.padding) == expected_padding
+    n, _, _, w = func.params[0].ty.shape.values
+    out_n, out_c, out_h, out_w = func.ret_ty.shape.values
+    tvm.ir.assert_structural_equal(out_n, n)
+    tvm.ir.assert_structural_equal(out_w, w)
+    assert (int(out_c), int(out_h)) == (3, 48)
+
+    x = rg.standard_normal(size=[2, 3, 48, 17]).astype("float32")
+    check_correctness(model, inputs={"x": x}, opset=18)
+
+
+def test_pool_same_padding_symbolic_non_unit_stride():
+    model = _make_same_pool_model("MaxPool", [1, 3, 48, "W"], "SAME_UPPER", [2, 2], [2, 2])
+    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="symbolic spatial dimension"):
+        from_onnx(model, opset=18)
+
+
 @pytest.mark.parametrize("p", [1, 3])
 def test_lppool_negative_input(p: int):
     input_data = np.array([[[-1.0, 2.0, -3.0, 4.0]]], dtype="float32")
