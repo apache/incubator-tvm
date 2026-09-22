@@ -9544,6 +9544,97 @@ def test_resize_5d_emits_relax_resize3d():
     assert seen_resize3d
 
 
+def _make_legacy_upsample_model(op_name, opset, input_shape, scales, mode):
+    """Upsample-7 takes scales as an attribute; Upsample-9 and Resize-10 take an input."""
+    inputs, initializer, attrs = ["X"], [], {"mode": mode}
+    if op_name == "Upsample" and opset < 9:
+        attrs["scales"] = [float(s) for s in scales]
+    else:
+        inputs.append("scales")
+        initializer.append(helper.make_tensor("scales", TensorProto.FLOAT, [len(scales)], scales))
+    node = helper.make_node(op_name, inputs, ["Y"], **attrs)
+    graph = helper.make_graph(
+        [node],
+        "legacy_upsample",
+        inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, input_shape)],
+        initializer=initializer,
+        outputs=[helper.make_tensor_value_info("Y", TensorProto.FLOAT, None)],
+    )
+    return helper.make_model(graph, producer_name="legacy_upsample")
+
+
+@pytest.mark.parametrize("op_name, opset", [("Upsample", 7), ("Upsample", 9), ("Resize", 10)])
+@pytest.mark.parametrize(
+    "input_shape, scales, mode",
+    [
+        ([1, 2, 4, 5], [1.0, 1.0, 2.0, 2.0], "nearest"),
+        ([1, 2, 4, 5], [1.0, 1.0, 3.0, 2.0], "nearest"),
+        # floor(5 * 2.5) = 12: the nearest source index uses the given scale.
+        ([1, 2, 4, 5], [1.0, 1.0, 1.5, 2.5], "nearest"),
+        ([1, 2, 4, 5], [1.0, 1.0, 2.0, 3.0], "linear"),
+        ([1, 2, 5], [1.0, 1.0, 2.0], "nearest"),
+        ([1, 2, 3, 4, 5], [1.0, 1.0, 2.0, 1.0, 3.0], "nearest"),
+        ([1, 2, 3, 4, 5], [1.0, 1.0, 2.0, 2.0, 2.0], "linear"),
+    ],
+)
+def test_legacy_upsample(op_name, opset, input_shape, scales, mode):
+    model = _make_legacy_upsample_model(op_name, opset, input_shape, scales, mode)
+    check_correctness(model, opset=opset)
+
+
+@pytest.mark.parametrize("mode", ["nearest", "linear"])
+def test_resize_v10_downsample(mode):
+    # Resize-10 allows scales below one; nearest then rounds the source index up.
+    model = _make_legacy_upsample_model("Resize", 10, [1, 2, 6, 5], [1.0, 1.0, 0.5, 0.6], mode)
+    check_correctness(model, opset=10)
+
+
+@pytest.mark.parametrize("op_name, opset", [("Upsample", 7), ("Upsample", 9), ("Resize", 10)])
+def test_legacy_upsample_symbolic_shape(op_name, opset):
+    model = _make_legacy_upsample_model(
+        op_name, opset, ["N", 2, "H", "W"], [1.0, 1.0, 2.0, 1.5], "nearest"
+    )
+    func = from_onnx(model, opset=opset, keep_params_in_input=True)["main"]
+    n, _, h, _ = func.params[0].ty.shape.values
+    out_n, out_c, out_h, _ = func.ret_ty.shape.values
+    tvm.ir.assert_structural_equal(out_n, n)
+    assert int(out_c) == 2
+    # Integer scales keep the output extent an exact integer expression.
+    assert tvm.sym.Analyzer().can_prove_equal(out_h, h * 2)
+
+    x = generate_random_value([2, 2, 4, 6], TensorProto.FLOAT)
+    check_correctness(model, inputs={"X": x}, opset=opset)
+
+
+def test_resize_v11_still_uses_roi_scales_sizes_signature():
+    # Adding Resize-10 must not change which converter handles opsets 11-17.
+    node = helper.make_node("Resize", ["X", "roi", "scales"], ["Y"], mode="nearest")
+    graph = helper.make_graph(
+        [node],
+        "resize_v11",
+        inputs=[helper.make_tensor_value_info("X", TensorProto.FLOAT, [1, 2, 4, 5])],
+        initializer=[
+            helper.make_tensor("roi", TensorProto.FLOAT, [0], []),
+            helper.make_tensor("scales", TensorProto.FLOAT, [4], [1.0, 1.0, 2.0, 2.0]),
+        ],
+        outputs=[helper.make_tensor_value_info("Y", TensorProto.FLOAT, None)],
+    )
+    model = helper.make_model(graph, producer_name="resize_v11")
+    check_correctness(model, opset=11)
+
+
+def test_legacy_upsample_unsupported_scales():
+    model = _make_legacy_upsample_model(
+        "Upsample", 9, [1, 2, 4, 5], [1.0, 2.0, 2.0, 2.0], "nearest"
+    )
+    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="unit batch and channel"):
+        from_onnx(model, opset=9)
+
+    model = _make_legacy_upsample_model("Resize", 10, [1, 2, 4, 5], [1.0, 1.0, 0.5, 2.0], "nearest")
+    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="cannot mix"):
+        from_onnx(model, opset=10)
+
+
 def test_einsum():
     eqn = "ij->i"
     einsum_node = helper.make_node("Einsum", ["x"], ["y"], equation=eqn)

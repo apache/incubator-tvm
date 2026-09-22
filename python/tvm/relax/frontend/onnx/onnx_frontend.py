@@ -56,6 +56,7 @@ except ImportError as err:
 
 import tvm_ffi
 
+import tvm
 import tvm_tirx
 from tvm import relax, topi
 from tvm.topi.utils import get_const_tuple
@@ -3839,6 +3840,13 @@ class Resize(OnnxOpConverter):
     """Converts an onnx Resize node into an equivalent Relax expression."""
 
     @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        # Resize-10 takes (X, scales) and has the same semantics as Upsample-9.
+        scales = _get_constant_scales(inputs[1], params, "Resize")
+        mode = attr.get("mode", b"nearest")
+        return _legacy_upsample(bb, inputs[0], scales, mode, "Resize")
+
+    @classmethod
     def _impl_v18(cls, bb, inputs, attr, params):
         # Extract the many attributes of resize.
         coord_mode = attr.get("coordinate_transformation_mode", b"half_pixel").decode("ascii")
@@ -3966,6 +3974,9 @@ class Resize(OnnxOpConverter):
                 cubic_exclude=exclude_outside,
                 extrapolation_value=extrapolation_value,
             )
+
+    # Resize-11 through Resize-18 share the (X, roi, scales, sizes) signature.
+    _impl_v11 = _impl_v18
 
 
 class AffineGrid(OnnxOpConverter):
@@ -5477,33 +5488,98 @@ class NonZero(OnnxOpConverter):
         )
 
 
+def _legacy_upsample(bb, data, scales, mode, op_name):
+    """Lower Upsample (opset 7-9) and Resize-10, which share the same semantics.
+
+    Each output extent is ``floor(input * scale)`` and coordinates are mapped with
+    ``x_in = x_out / scale`` (asymmetric). In nearest mode the source index is
+    rounded down when upsampling and up when downsampling.
+    """
+    mode = mode.decode("ascii") if isinstance(mode, bytes) else mode
+    if mode not in ("nearest", "linear"):
+        raise tvm.error.OpAttributeInvalid(
+            f'Value {mode} in attribute "mode" of operator {op_name} is not valid.'
+        )
+    scales = [float(s) for s in scales]
+    shape = list(data.ty.shape)
+    ndims = len(shape)
+    if len(scales) != ndims:
+        raise tvm.error.OpAttributeInvalid(
+            f"{op_name} expects {ndims} scales for a rank-{ndims} input, got {len(scales)}."
+        )
+    if ndims not in (3, 4, 5) or scales[0] != 1.0 or scales[1] != 1.0:
+        raise tvm.error.OpAttributeUnImplemented(
+            f"{op_name} is only supported for 3-D/4-D/5-D inputs with unit batch and "
+            f"channel scales, got scales {scales} for a rank-{ndims} input."
+        )
+
+    sizes = []
+    for dim, scale in zip(shape[2:], scales[2:]):
+        if isinstance(dim, tirx.IntImm):
+            sizes.append(math.floor(int(dim) * scale))
+        elif scale.is_integer():
+            sizes.append(dim * int(scale))
+        else:
+            sizes.append((dim.astype("float32") * scale).astype("int64"))
+
+    spatial_scales = scales[2:]
+    if mode == "linear":
+        method, rounding_method = "linear", ""
+    elif all(s >= 1.0 for s in spatial_scales):
+        method, rounding_method = "nearest_neighbor", "floor"
+    elif all(s < 1.0 for s in spatial_scales):
+        method, rounding_method = "nearest_neighbor", "ceil"
+    else:
+        raise tvm.error.OpAttributeUnImplemented(
+            f"{op_name} nearest mode cannot mix upsampling and downsampling axes, "
+            f"got scales {scales}."
+        )
+
+    if ndims == 3:
+        return bb.emit_te(
+            topi.image.resize1d,
+            data,
+            [0.0, 0.0],
+            sizes,
+            "NCW",
+            method,
+            "asymmetric",
+            rounding_method,
+        )
+    resize_op = relax.op.image.resize2d if ndims == 4 else relax.op.image.resize3d
+    return resize_op(
+        data,
+        size=relax.ShapeExpr(sizes),
+        layout="NCHW" if ndims == 4 else "NCDHW",
+        method=method,
+        coordinate_transformation_mode="asymmetric",
+        rounding_method=rounding_method,
+    )
+
+
+def _get_constant_scales(scales, params, op_name):
+    scales = get_constant(scales, params)
+    if not isinstance(scales, tvm.ir.GenericConst):
+        raise tvm.error.OpAttributeUnImplemented(
+            f"{op_name} with non-constant scales is not supported."
+        )
+    return scales.value.numpy().tolist()
+
+
 class Upsample(OnnxOpConverter):
-    """Operator converter for Upsample (nearest mode)."""
+    """Converts an onnx Upsample node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v7(cls, bb, inputs, attr, params):
+        mode = attr.get("mode", b"nearest")
+        return _legacy_upsample(bb, inputs[0], attr["scales"], mode, "Upsample")
 
     @classmethod
     def _impl_v9(cls, bb, inputs, attr, params):
-        scales = attr.get("scales")
-        assert len(scales) == 4
-        assert scales[0] == scales[1] == 1
-
-        inp_shape = [int(x) for x in inputs[0].ty.shape]
-        assert len(inp_shape) == 4
-        out_shape2d = [int(dim * scale) for dim, scale in zip(inp_shape[2:], scales[2:])]
-
-        mode = attr.get("mode", b"nearest").decode("ascii")
-        if mode == "nearest":
-            mode = "nearest_neighbor"
-        msg = f'Value {mode} in attribute "mode" of operator Upsample is not valid.'
-        assert mode in ("linear", "nearest_neighbor", "cubic"), msg
-
-        return relax.op.image.resize2d(
-            data=inputs[0],
-            roi=None,
-            size=relax.ShapeExpr(out_shape2d),  # (H, W)
-            layout="NCHW",
-            method=mode,
-            coordinate_transformation_mode="asymmetric",  # Align with Upsample
-        )
+        # Since opset 9 the scales are an input rather than an attribute.
+        scales = _get_constant_scales(inputs[1], params, "Upsample")
+        mode = attr.get("mode", b"nearest")
+        return _legacy_upsample(bb, inputs[0], scales, mode, "Upsample")
 
 
 class HardSigmoid(OnnxOpConverter):
