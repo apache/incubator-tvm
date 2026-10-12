@@ -470,26 +470,35 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 //  Python function call support
 //-------------------------------------
 
-// Global registry for Python functions
-static std::unordered_map<std::string, ffi::Function> py_func_registry;
+/*!
+ * \brief Global registry for Python functions.
+ *
+ * The registry is heap-allocated and intentionally never destroyed. Its entries hold Python
+ * callables, and releasing them from a static destructor after the Python interpreter has
+ * been finalized corrupts the heap at process exit.
+ */
+static std::unordered_map<std::string, ffi::Function>& PyFuncRegistry() {
+  static auto* registry = new std::unordered_map<std::string, ffi::Function>();
+  return *registry;
+}
 
 /*!
- * \brief Clear the Python function registry on shutdown
+ * \brief Clear the Python function registry
  */
-void ClearPyFuncRegistry() { py_func_registry.clear(); }
+void ClearPyFuncRegistry() { PyFuncRegistry().clear(); }
 
 /*!
  * \brief Register a Python function for call_py_func
  * \param name The function name
  * \param func The Python function wrapped as ffi::Function
  */
-void RegisterPyFunc(const std::string& name, ffi::Function func) { py_func_registry[name] = func; }
+void RegisterPyFunc(const std::string& name, ffi::Function func) { PyFuncRegistry()[name] = func; }
 
 /*!
  * \brief Unregister a Python function registered with RegisterPyFunc
  * \param name The function name
  */
-void UnregisterPyFunc(const std::string& name) { py_func_registry.erase(name); }
+void UnregisterPyFunc(const std::string& name) { PyFuncRegistry().erase(name); }
 
 /*!
  * \brief Get a registered Python function
@@ -497,8 +506,9 @@ void UnregisterPyFunc(const std::string& name) { py_func_registry.erase(name); }
  * \return The Python function
  */
 ffi::Function GetPyFunc(const std::string& name) {
-  auto it = py_func_registry.find(name);
-  if (it == py_func_registry.end()) {
+  auto& registry = PyFuncRegistry();
+  auto it = registry.find(name);
+  if (it == registry.end()) {
     TVM_FFI_THROW(InternalError) << "Python function '" << name << "' not found in registry";
   }
   return it->second;

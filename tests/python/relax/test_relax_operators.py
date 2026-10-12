@@ -731,6 +731,18 @@ def test_py_func_registry_is_scoped_to_its_module():
     tvm_ffi.get_global_func("vm.builtin.unregister_py_func")("registry_probe")
 
 
+def test_py_func_registry_exit_with_registered_function():
+    """Exiting with a Python function still registered must not crash the process."""
+    import subprocess
+
+    code = (
+        "import tvm\n"
+        "tvm.get_global_func('vm.builtin.register_py_func')('py_identity', lambda x: x)\n"
+    )
+    result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
+    assert result.returncode == 0, result.stderr
+
+
 def test_op_to_device():
     @tvm_tirx.script.ir_module
     class CallToDevice:
