@@ -295,7 +295,8 @@ std::vector<BranchInfo> GetBranchInfo(Function f) {
       if (!match) return;
 
       auto matmul_call = match.value()[matmul_pat].as_or_throw<Call>();
-      auto matmul_lhs = matmul_call->args[0].as_or_throw<Var>();
+      const auto* matmul_lhs = matmul_call->args[0].as<VarNode>();
+      if (matmul_lhs == nullptr) return;
 
       std::optional<int> bias_dim = std::nullopt;
       std::optional<std::string> activation = std::nullopt;
@@ -310,7 +311,7 @@ std::vector<BranchInfo> GetBranchInfo(Function f) {
         }
       }
 
-      if (auto it = groups.find(matmul_lhs.get()); it != groups.end()) {
+      if (auto it = groups.find(matmul_lhs); it != groups.end()) {
         // Create a new branch in the existing parallel matmul subtree, and
         // invalidate bias and activation information when needed.
         BranchInfo* branch = &it->second;
@@ -326,7 +327,7 @@ std::vector<BranchInfo> GetBranchInfo(Function f) {
         }
       } else {
         // Create a new subgraph with one matmul
-        groups[matmul_lhs.get()] = {1, bias_dim, activation};
+        groups[matmul_lhs] = {1, bias_dim, activation};
       }
     });
 

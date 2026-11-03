@@ -743,5 +743,18 @@ def test_skip_matmuls_with_different_output_dtypes(float32_branch):
     tvm_tirx.ir.assert_structural_equal(after, before)
 
 
+def test_skip_matmul_with_constant_lhs():
+    @R.function(private=True)
+    def before(x: R.Tensor((2, 2), "float32")) -> R.Tensor((2, 2), "float32"):
+        with R.dataflow():
+            out = R.matmul(R.const([[1.0, 2.0], [3.0, 4.0]], "float32"), x)
+            R.output(out)
+        return out
+
+    after = CombineParallelMatmul()(tvm_tirx.IRModule.from_expr(before))["main"]
+
+    tvm_tirx.ir.assert_structural_equal(after, before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
