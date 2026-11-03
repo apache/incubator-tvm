@@ -239,6 +239,12 @@ Pass RemoveUnusedOutputs() {
         if (auto func = base_func.as<Function>()) {
           if (auto it = usage.find(gvar); it != usage.end()) {
             const auto& usage_mask = it->second;
+            if (!func.value()->is_pure && std::none_of(usage_mask.begin(), usage_mask.end(),
+                                                       [](bool used) { return used; })) {
+              // With no used outputs, the callsite rewrite would drop the call
+              // entirely.  Preserve impure calls for their side effects.
+              continue;
+            }
             auto new_func = UpdateCallee(func.value(), usage_mask);
 
             GlobalVar new_gvar(gvar->name_hint);
