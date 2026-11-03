@@ -402,6 +402,17 @@ class GEMV(GPUScheduleRule):
             LOAD_V_VEC = -1
             UNROLL = 64
             TS, TR = 1, 64
+        elif target.kind.name == "webgpu":
+            VEC_C = 1
+            LOAD_V_SHARED = False
+            LOAD_V_VEC = -1
+            UNROLL = 64
+            if isinstance(len_S, int):
+                # Note that the following tile size is tuned on Apple M4 Max for q4f16_1
+                TS, TR = 8, 16
+            else:
+                # symbolic S: TS > 1 writes past the last row when S % TS != 0
+                TS, TR = 1, 64
         else:
             VEC_C = 1
             LOAD_V_SHARED = False
