@@ -4091,6 +4091,68 @@ class MaxRoiPool(OnnxOpConverter):
         )
 
 
+class _Window(OnnxOpConverter):
+    """Compose the ONNX cosine-sum window functions using float32 arithmetic."""
+
+    @classmethod
+    def _impl_v17(cls, bb, inputs, attr, params):
+        size = get_constant(inputs[0], params)
+        periodic = attr.get("periodic", 1)
+        if periodic not in (0, 1):
+            raise ValueError(f"{cls.__name__} periodic must be 0 or 1, got {periodic}")
+        output_dtype = get_type(attr.get("output_datatype", 1))
+        if isinstance(size, tvm_tirx.ir.GenericConst):
+            length = int(size.value.numpy().item())
+            if length <= 0:
+                raise ValueError(f"{cls.__name__} size must be positive, got {length}")
+            size_float = relax.const(length, "float32")
+        else:
+            size_tensor = size
+            if size.ty.dtype != "int64":
+                size_tensor = bb.normalize(relax.op.astype(size, "int64"))
+            size_tensor = bb.normalize(relax.op.reshape(size_tensor, (1,)))
+            length = _tensor_to_shape_expr(bb, size_tensor, 1, "window_size").values[0]
+            size_float = relax.op.astype(size, "float32")
+
+        denominator = size_float
+        if not periodic:
+            denominator = relax.op.subtract(denominator, relax.const(1, "float32"))
+        increment = relax.op.divide(relax.const(2 * _np.pi, "float32"), denominator)
+        positions = relax.op.astype(relax.op.arange(0, length, 1, "int64"), "float32")
+        angles = bb.emit(relax.op.multiply(positions, increment))
+        a0, a1, a2 = cls.coefficients
+        result = relax.op.multiply(relax.const(-a1, "float32"), relax.op.cos(angles))
+        if a2:
+            result = relax.op.add(
+                result,
+                relax.op.multiply(
+                    relax.const(a2, "float32"),
+                    relax.op.cos(relax.op.multiply(angles, relax.const(2, "float32"))),
+                ),
+            )
+        # Add the offset last to preserve native window-kernel rounding before integer casts.
+        result = relax.op.add(result, relax.const(a0, "float32"))
+        return result if output_dtype == "float32" else relax.op.astype(result, output_dtype)
+
+
+class HannWindow(_Window):
+    """Converts an onnx HannWindow node into an equivalent Relax expression."""
+
+    coefficients = (0.5, 0.5, 0.0)
+
+
+class HammingWindow(_Window):
+    """Converts an onnx HammingWindow node into an equivalent Relax expression."""
+
+    coefficients = (25 / 46, 21 / 46, 0.0)
+
+
+class BlackmanWindow(_Window):
+    """Converts an onnx BlackmanWindow node into an equivalent Relax expression."""
+
+    coefficients = (0.42, 0.5, 0.08)
+
+
 class Range(OnnxOpConverter):
     """Converts an onnx Range node into an equivalent Relax expression."""
 
@@ -6254,6 +6316,9 @@ def _get_convert_map():
         "Resize": Resize,
         "Einsum": Einsum,
         "Range": Range,
+        "HannWindow": HannWindow,
+        "HammingWindow": HammingWindow,
+        "BlackmanWindow": BlackmanWindow,
         "OneHot": OneHot,
         "Unique": Unique,
         "NonZero": NonZero,

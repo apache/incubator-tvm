@@ -9583,6 +9583,117 @@ def test_einsum():
     tvm_tirx.ir.assert_structural_equal(tvm_model, expected)
 
 
+def make_window_model(op_name, size, size_dtype, output_dtype, periodic, constant):
+    attrs = {}
+    if periodic is not None:
+        attrs["periodic"] = periodic
+    if output_dtype is not None:
+        attrs["output_datatype"] = helper.np_dtype_to_tensor_dtype(np.dtype(output_dtype))
+    size_value = np.array(size, dtype=size_dtype)
+    graph = helper.make_graph(
+        [helper.make_node(op_name, ["size"], ["output"], **attrs)],
+        "window",
+        []
+        if constant
+        else [
+            helper.make_tensor_value_info(
+                "size", helper.np_dtype_to_tensor_dtype(size_value.dtype), []
+            )
+        ],
+        [
+            helper.make_tensor_value_info(
+                "output",
+                helper.np_dtype_to_tensor_dtype(np.dtype(output_dtype or "float32")),
+                [size],
+            )
+        ],
+        initializer=[numpy_helper.from_array(size_value, name="size")] if constant else [],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 17)], ir_version=8)
+    onnx.checker.check_model(model, full_check=True)
+    return model, {} if constant else {"size": size_value}
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("periodic", [None, 0, 1])
+@pytest.mark.parametrize("constant", [False, True])
+@pytest.mark.parametrize(
+    "size_dtype, output_dtype",
+    [("int32", None), ("int64", "float16"), ("int32", "float64"), ("int64", "int32")],
+)
+def test_window_functions(op_name, periodic, constant, size_dtype, output_dtype):
+    model, inputs = make_window_model(op_name, 7, size_dtype, output_dtype, periodic, constant)
+    check_correctness(model, inputs=inputs, opset=17, check_dtypes=True, atol=1e-6)
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("size", [1, 2])
+@pytest.mark.parametrize("periodic", [0, 1])
+@pytest.mark.parametrize("constant", [False, True])
+def test_window_functions_small_size(op_name, size, periodic, constant):
+    model, inputs = make_window_model(op_name, size, "int64", None, periodic, constant)
+    check_correctness(model, inputs=inputs, opset=17, check_dtypes=True, atol=1e-6)
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("constant", [False, True])
+def test_window_functions_bfloat16(op_name, constant):
+    dtype = helper.tensor_dtype_to_np_dtype(TensorProto.BFLOAT16)
+    model, inputs = make_window_model(op_name, 7, "int64", dtype, 1, constant)
+    reference_model, _ = make_window_model(op_name, 7, "int64", None, 1, constant)
+    expected = (
+        onnxruntime.InferenceSession(
+            reference_model.SerializeToString(), providers=["CPUExecutionProvider"]
+        )
+        .run(None, inputs)[0]
+        .astype(dtype)
+    )
+    actual = run_in_tvm(model, inputs=inputs, opset=17).numpy()
+    assert actual.dtype == dtype
+    tvm_tirx.testing.assert_allclose(
+        actual.astype("float32"), expected.astype("float32"), rtol=1e-2, atol=1e-7
+    )
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("size", [0, -1])
+def test_window_functions_invalid_size(op_name, size):
+    model, _ = make_window_model(op_name, 1, "int64", None, 1, True)
+    model.graph.initializer[0].CopyFrom(
+        numpy_helper.from_array(np.array(size, dtype="int64"), name="size")
+    )
+    with pytest.raises(ValueError, match="size must be positive"):
+        from_onnx(model, opset=17)
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("periodic", [-1, 2])
+def test_window_functions_invalid_periodic(op_name, periodic):
+    model, _ = make_window_model(op_name, 7, "int64", None, 1, True)
+    model.graph.node[0].attribute[0].i = periodic
+    with pytest.raises(ValueError, match="periodic must be 0 or 1"):
+        from_onnx(model, opset=17)
+
+
+@pytest.mark.parametrize("op_name", ["HannWindow", "HammingWindow", "BlackmanWindow"])
+@pytest.mark.parametrize("periodic", [0, 1])
+def test_window_functions_reuse_dynamic_length(op_name, periodic):
+    model, _ = make_window_model(op_name, 7, "int32", None, periodic, False)
+    model.graph.output[0].type.tensor_type.shape.dim[0].dim_param = "window_length"
+    onnx.checker.check_model(model, full_check=True)
+    session = onnxruntime.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    )
+    executable = tvm.compile(from_onnx(model), target="llvm")
+    vm = relax.VirtualMachine(executable, tvm_tirx.cpu())
+    for length in [1, 2, 7, 10]:
+        size = np.array(length, dtype="int32")
+        expected = session.run(None, {"size": size})[0]
+        actual = vm["main"](tvm_tirx.runtime.tensor(size)).numpy()
+        assert actual.dtype == expected.dtype
+        tvm_tirx.testing.assert_allclose(actual, expected, atol=1e-6)
+
+
 def test_range():
     range_node = helper.make_node(
         "Range",
