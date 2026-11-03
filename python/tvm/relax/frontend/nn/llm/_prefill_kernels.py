@@ -838,7 +838,16 @@ def _attention_prefill_ragged(h_kv, h_q, d_qk, d_v, dtype, rope_scaling: dict[st
                                                 Q_smem[i, j] = 0.0
                                     T.gpu_storage_sync("shared")
 
-                                    for iterator in T.serial(T.ceildiv(kv_chunk_len[0], tile_z)):
+                                    # Query rows are packed with GQA heads. Keep the diagonal tile
+                                    # and let the elementwise mask handle its partially visible keys.
+                                    q_len: T.let[T.int32] = q_indptr[b_idx + 1] - q_indptr[b_idx]
+                                    q_end: T.let[T.int32] = T.min(q_len, T.ceildiv(LH_start + tile_x, group_size))
+                                    kv_stop: T.let[T.int32] = T.if_then_else(
+                                        causal > 0,
+                                        T.max(0, T.min(kv_chunk_len[0], kv_chunk_len[0] - q_len + q_end)),
+                                        kv_chunk_len[0],
+                                    )
+                                    for iterator in T.serial(T.ceildiv(kv_stop, tile_z)):
                                         L_kv_start: T.let[T.int32] = iterator * tile_z
                                         L_kv_base: T.let[T.int32] = kv_indptr[b_idx]
                                         for lz, ly in T.grid(tile_z, tile_y):
