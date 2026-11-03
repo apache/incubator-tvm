@@ -83,7 +83,8 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
         weights_ty->IsUnknownNdim())
       return expr;
 
-    if (indices_ty->ndim == 1 && axis + 1 == weights_ty->ndim) {
+    // The sole axis of vector weights is a reduction axis.
+    if (weights_ty->ndim >= 2 && indices_ty->ndim == 1 && axis + 1 == weights_ty->ndim) {
       // Simpler case.  The activations may have batch dimensions, but
       // the weights do not.
 
