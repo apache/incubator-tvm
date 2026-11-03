@@ -7633,6 +7633,29 @@ def test_slice():
             return gv
 
     @I.ir_module
+    class ExpectedSliceEmptyNegativeStep:
+        @R.function
+        def main(
+            x: R.Tensor((10,), dtype="float32"),
+            starts: R.Tensor((1,), dtype="int64"),
+            ends: R.Tensor((1,), dtype="int64"),
+            axes: R.Tensor((1,), dtype="int64"),
+            steps: R.Tensor((1,), dtype="int64"),
+        ) -> R.Tensor((0,), dtype="float32"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                gv: R.Tensor((0,), dtype="float32") = R.strided_slice(
+                    x,
+                    axes=[0],
+                    begin=[0],
+                    end=[0],
+                    strides=[-1],
+                    assume_inbound=False,
+                )
+                R.output(gv)
+            return gv
+
+    @I.ir_module
     class ExpectedSliceAxesOnly:
         @R.function
         def main(
@@ -7681,6 +7704,16 @@ def test_slice():
         steps=[-1, -3, -2],
         axes=[0, 1, 2],
         expected=ExpectedSliceNegativeSteps,
+    )
+    # A negative step moving away from the end bound produces an empty tensor.
+    verify_slice(
+        [10],
+        [0],
+        starts=[0],
+        ends=[5],
+        axes=[0],
+        steps=[-1],
+        expected=ExpectedSliceEmptyNegativeStep,
     )
     verify_slice(
         [20, 10, 5],
