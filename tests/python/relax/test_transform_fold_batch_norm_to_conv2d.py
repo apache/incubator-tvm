@@ -142,5 +142,40 @@ def test_fold_batchnorm_info_conv2d_transform():
     VerifyFolding().visit(mod)
 
 
+def test_fold_batchnorm_iohw_kernel_layout():
+    @I.ir_module
+    class Module:
+        @R.function
+        def main(
+            x: R.Tensor((1, 1, 2, 2), "float32"),
+            weight: R.Tensor((1, 2, 1, 1), "float32"),
+            gamma: R.Tensor((2,), "float32"),
+            beta: R.Tensor((2,), "float32"),
+            mean: R.Tensor((2,), "float32"),
+            variance: R.Tensor((2,), "float32"),
+        ):
+            conv = R.nn.conv2d(
+                x,
+                weight,
+                data_layout="NCHW",
+                kernel_layout="IOHW",
+                out_layout="NCHW",
+                out_dtype="float32",
+            )
+            return R.nn.batch_norm(conv, gamma, beta, mean, variance, axis=1, training=False)[0]
+
+    params = {
+        "weight": tvm.runtime.tensor(np.array([[[[1.5]], [[-2.0]]]], "float32")),
+        "gamma": tvm.runtime.tensor(np.array([2.0, 3.0], "float32")),
+        "beta": tvm.runtime.tensor(np.array([5.0, 7.0], "float32")),
+        "mean": tvm.runtime.tensor(np.array([1.0, -1.0], "float32")),
+        "variance": tvm.runtime.tensor(np.array([4.0, 9.0], "float32")),
+    }
+    source = relax.transform.BindParams("main", params)(Module)
+    folded = relax.transform.FoldBatchnormToConv2D()(source)
+    assert relax.analysis.check_well_formed(folded, check_ty=True)
+    VerifyFolding().visit(folded)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

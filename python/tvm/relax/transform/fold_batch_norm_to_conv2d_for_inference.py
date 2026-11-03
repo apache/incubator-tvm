@@ -91,7 +91,7 @@ class FoldBatchnormToConv2D:
             if conv_attrs["kernel_layout"] == "OIHW":
                 wt = relax.op.reshape(wt, shape=(bn_weight.ty.shape[0], 1, 1, 1))
             elif conv_attrs["kernel_layout"] == "IOHW":
-                wt = wt.reshape(1, bn_weight.ty.shape[0], 1, 1)
+                wt = relax.op.reshape(wt, shape=(1, bn_weight.ty.shape[0], 1, 1))
             else:
                 return expr
             wt_conv = relax.op.multiply(conv_weight, wt)
