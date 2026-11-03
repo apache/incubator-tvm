@@ -5712,6 +5712,83 @@ def test_const():
     tvm_tirx.ir.assert_structural_equal(tvm_model, Expected)
 
 
+@pytest.mark.parametrize("opset", [13, 22])
+@pytest.mark.parametrize("symbolic", [False, True])
+@pytest.mark.parametrize("dtype", ["float16", "float32", "float64"])
+@pytest.mark.parametrize("axis", [0, 1, -1, None])
+@pytest.mark.parametrize("p", [1, 2, None])
+def test_lp_normalization(opset, symbolic, dtype, axis, p):
+    attrs = {}
+    if axis is not None:
+        attrs["axis"] = axis
+    if p is not None:
+        attrs["p"] = p
+    tensor_type = helper.np_dtype_to_tensor_dtype(np.dtype(dtype))
+    model = make_unary_model(
+        "LpNormalization",
+        ["N", "C", "W"] if symbolic else [2, 3, 4],
+        attrs=attrs,
+        input_dtype=tensor_type,
+        output_dtype=tensor_type,
+    )
+    model.ir_version = 8
+    model.opset_import[0].version = opset
+    onnx.checker.check_model(model, full_check=True)
+
+    values = (np.arange(24).reshape(2, 3, 4) % 7 - 3).astype(dtype)
+    values[0, 0, :] = 0
+    values[:, 0, 0] = 0
+    values[0, :, 0] = 0
+    if dtype == "float16":
+        values *= 256
+    reference_values = values.astype("float64")
+    norm = np.linalg.norm(
+        reference_values,
+        ord=2 if p is None else p,
+        axis=-1 if axis is None else axis,
+        keepdims=True,
+    )
+    expected = np.divide(
+        reference_values, norm, out=np.zeros_like(reference_values), where=norm != 0
+    ).astype(dtype)
+    actual = run_in_tvm(model, inputs={"x": values}, opset=opset).numpy()
+    assert actual.dtype == values.dtype
+    tolerance = 2e-3 if dtype == "float16" else 1e-6
+    tvm_tirx.testing.assert_allclose(actual, expected, rtol=tolerance, atol=1e-7)
+    ort_output = onnxruntime.InferenceSession(
+        model.SerializeToString(), providers=["CPUExecutionProvider"]
+    ).run(None, {"x": values})[0]
+    tvm_tirx.testing.assert_allclose(actual, ort_output, rtol=tolerance, atol=1e-7)
+
+
+@pytest.mark.parametrize("p", [0, 3])
+def test_lp_normalization_invalid_p(p):
+    model = make_unary_model("LpNormalization", [2, 3], attrs={"p": p})
+    model.opset_import[0].version = 13
+    with pytest.raises(ValueError, match="LpNormalization.*p.*1 or 2"):
+        from_onnx(model, opset=13)
+
+
+@pytest.mark.parametrize("p", [1, 2])
+def test_lp_normalization_bfloat16(p):
+    dtype = helper.tensor_dtype_to_np_dtype(TensorProto.BFLOAT16)
+    model = make_unary_model(
+        "LpNormalization",
+        [2, 3],
+        attrs={"p": p},
+        input_dtype=TensorProto.BFLOAT16,
+        output_dtype=TensorProto.BFLOAT16,
+    )
+    values = np.array([[1, -1, 0], [0, 0, 0]], dtype=dtype)
+    norm = np.linalg.norm(values.astype("float32"), ord=p, axis=-1, keepdims=True)
+    expected = (values.astype("float32") / np.where(norm == 0, 1, norm)).astype(dtype)
+    actual = run_in_tvm(model, inputs={"x": values}, opset=22).numpy()
+    assert actual.dtype == values.dtype
+    tvm_tirx.testing.assert_allclose(
+        actual.astype("float32"), expected.astype("float32"), rtol=1e-2, atol=1e-7
+    )
+
+
 def test_instance_norm():
     def verify_instance_norm(input_shape, scale_shape, bias_shape, expected):
         node = helper.make_node("InstanceNormalization", ["a", "b", "c"], ["d"], epsilon=1e-12)
