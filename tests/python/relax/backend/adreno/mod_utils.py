@@ -88,9 +88,16 @@ def get_relax_conv2d_mod(
                     mean = R.arg_("mean", R.Tensor((weight_shape[0],), dtype))
                     variance = R.arg_("variance", R.Tensor((weight_shape[0],), dtype))
                     output = R.emit(
-                        R.nn.batch_norm(output, gamma, beta, mean, variance, axis=1, epsilon=1e-5)[
-                            0
-                        ]
+                        R.nn.batch_norm(
+                            output,
+                            gamma,
+                            beta,
+                            mean,
+                            variance,
+                            axis=1,
+                            epsilon=1e-5,
+                            training=False,
+                        )[0]
                     )
                 if has_activation:
                     output = R.emit(R.nn.relu(output))

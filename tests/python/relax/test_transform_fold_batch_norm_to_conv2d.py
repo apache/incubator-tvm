@@ -56,7 +56,16 @@ def get_conv2d_batchnorm_sample():
                 mean = R.arg_("mean", R.Tensor((32,), "float32"))
                 variance = R.arg_("variance", R.Tensor((32,), "float32"))
                 output = R.emit(
-                    R.nn.batch_norm(output, gamma, beta, mean, variance, axis=1, epsilon=1e-5)[0]
+                    R.nn.batch_norm(
+                        output,
+                        gamma,
+                        beta,
+                        mean,
+                        variance,
+                        axis=1,
+                        epsilon=1e-5,
+                        training=False,
+                    )[0]
                 )
                 R.output(output)
 
@@ -104,6 +113,40 @@ def test_fold_batchnorm_info_conv2d():
     out_fold = vm_fold["main"](data_in)
 
     tvm_tirx.testing.assert_allclose(out.numpy(), out_fold.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_fold_batchnorm_skips_training_batch_norm():
+    @I.ir_module
+    class Module:
+        @R.function
+        def main(
+            x: R.Tensor((1, 1, 2, 2), "float32"),
+            weight: R.Tensor((2, 1, 1, 1), "float32"),
+            gamma: R.Tensor((2,), "float32"),
+            beta: R.Tensor((2,), "float32"),
+            mean: R.Tensor((2,), "float32"),
+            variance: R.Tensor((2,), "float32"),
+        ):
+            conv = R.nn.conv2d(
+                x,
+                weight,
+                data_layout="NCHW",
+                kernel_layout="OIHW",
+                out_layout="NCHW",
+                out_dtype="float32",
+            )
+            return R.nn.batch_norm(conv, gamma, beta, mean, variance, axis=1, training=True)[0]
+
+    params = {
+        "weight": tvm.runtime.tensor(np.array([[[[1.5]]], [[[-2.0]]]], "float32")),
+        "gamma": tvm.runtime.tensor(np.array([2.0, 3.0], "float32")),
+        "beta": tvm.runtime.tensor(np.array([5.0, 7.0], "float32")),
+        "mean": tvm.runtime.tensor(np.array([4.0, -3.0], "float32")),
+        "variance": tvm.runtime.tensor(np.array([6.0, 8.0], "float32")),
+    }
+    source = relax.transform.BindParams("main", params)(Module)
+    transformed = relax.transform.FoldBatchnormToConv2D()(source)
+    tvm.ir.assert_structural_equal(transformed, source)
 
 
 @visitor

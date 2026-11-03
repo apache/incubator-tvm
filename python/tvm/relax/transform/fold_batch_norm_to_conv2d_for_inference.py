@@ -81,6 +81,9 @@ class FoldBatchnormToConv2D:
             conv_attrs = conv_op.attrs
             bn_attrs = bn_op.attrs
 
+            if bn_attrs["training"]:
+                return expr
+
             bn_variance = relax.op.add(
                 bn_variance,
                 relax.prim_value(tvm_tirx.ir.FloatImm("float32", bn_attrs["epsilon"])),
