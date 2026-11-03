@@ -21,8 +21,10 @@ import tvm_ffi
 
 from tvm.relax import Expr
 from tvm.relax.dpl import TuplePattern, is_op, rewrite_call, wildcard
+from tvm_tirx.ir import Range
 from tvm_tirx.ir.module import IRModule
 from tvm_tirx.ir.transform import PassContext
+from tvm_tirx.sym import Analyzer
 
 from . import function_pass
 
@@ -37,6 +39,7 @@ class OptimizeLayoutTransform:
     def __init__(self):
         self.input = wildcard()
         pattern_transform_layout = is_op("relax.layout_transform")(self.input)
+        self.inner_transform = pattern_transform_layout
         pattern_1 = is_op("relax.layout_transform")(pattern_transform_layout)
 
         self.gv_ = wildcard()
@@ -80,7 +83,20 @@ class OptimizeLayoutTransform:
                     arg2 = matches[self.input]
             if hasattr(arg1.ty, "shape") and hasattr(arg2.ty, "shape"):
                 if tvm_ffi.structural_equal(arg1.ty.shape, arg2.ty.shape):
-                    return arg2
+                    # Equal shapes do not imply inverse index maps.  Prove that
+                    # their composition is identity over the input domain.
+                    inner_map = matches[self.inner_transform].attrs.index_map
+                    analyzer = Analyzer()
+                    for index, extent in zip(inner_map.initial_indices, arg2.ty.shape):
+                        analyzer.bind(index, Range.from_min_extent(0, extent))
+                    mapped_indices = arg1.attrs.index_map.map_indices(
+                        inner_map.final_indices, analyzer=analyzer
+                    )
+                    if all(
+                        analyzer.can_prove_equal(index, mapped)
+                        for index, mapped in zip(inner_map.initial_indices, mapped_indices)
+                    ):
+                        return arg2
             return expr
 
         updated_func = rewrite_call(self.pattern, rewriter, func)

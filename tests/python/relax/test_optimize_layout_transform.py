@@ -14,7 +14,6 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# ruff: noqa: F401
 """Tests to validate relax optimize layout tranform pass."""
 
 import numpy as np
@@ -404,6 +403,60 @@ def test_tranform_layout_tir_remove_pad_transform_layout():
             return gv
 
     _run_pass_compare_output(Before, Expected)
+
+
+@pytest.mark.parametrize("symbolic", [False, True])
+@pytest.mark.parametrize("inverse", [False, True])
+@pytest.mark.parametrize("layout", ["transpose", "split"])
+def test_index_map_composition(layout, inverse, symbolic):
+    extent = T.dynamic("n", "int64") if symbolic else 3
+    if layout == "transpose":
+        shape = (extent, extent)
+
+        def inner_map(i, j):
+            return (j, i)
+
+        def outer_map(i, j):
+            return (j, i) if inverse else (i, j)
+
+        values = np.arange(9, dtype="float32").reshape(3, 3)
+        expected = values if inverse else values.T
+    else:
+        shape = (extent, 4)
+
+        def inner_map(i, j):
+            return (4 * i + j,)
+
+        def outer_map(i):
+            return (i // 4, i % 4) if inverse else (i % extent, i // extent)
+
+        values = np.arange(12, dtype="float32").reshape(3, 4)
+        expected = values if inverse else values.reshape(4, 3).T
+
+    bb = relax.BlockBuilder()
+    x = relax.Var("x", relax.TensorType(shape, "float32"))
+    with bb.function("main", [x]):
+        intermediate = bb.emit(relax.op.layout_transform(x, index_map=inner_map))
+        output = bb.emit(relax.op.layout_transform(intermediate, index_map=outer_map))
+        bb.emit_func_output(output)
+    Before = bb.get()
+    After = DeadCodeElimination()(OptimizeLayoutTransform()(Before))
+    relax.analysis.check_well_formed(After, check_ty=True)
+
+    for mod in [Before, After]:
+        executable = tvm.compile(mod, target="c")
+        vm = relax.VirtualMachine(executable, tvm_tirx.cpu())
+        output = vm["main"](tvm_tirx.runtime.tensor(values)).numpy()
+        np.testing.assert_array_equal(output, expected)
+        assert output.dtype == expected.dtype
+
+    if inverse:
+        expected_bb = relax.BlockBuilder()
+        with expected_bb.function("main", [x]):
+            expected_bb.emit_func_output(x)
+        assert_structural_equal(After, expected_bb.get())
+    else:
+        assert_structural_equal(After, Before)
 
 
 if __name__ == "__main__":
