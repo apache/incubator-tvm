@@ -49,6 +49,24 @@ def _assert_print(obj, expected):
     assert obj == expected.strip(), "\n" + obj
 
 
+def test_reshape_resolved_zero_roundtrip():
+    x = relax.Var("x", TensorType((2, 0, 3), "float32"))
+    # A raw Call already carries resolved extents, rather than reshape instructions.
+    call = tvm.ir.Call(
+        "relax.reshape",
+        [x, relax.ShapeExpr((0, 3))],
+        ty=TensorType((0, 3), "float32"),
+    )
+    bb = relax.BlockBuilder()
+    with bb.function("main", [x]):
+        with bb.dataflow():
+            output = bb.emit_output(call)
+        bb.emit_func_output(output)
+    mod = bb.get()
+    restored = tvm.script.from_source(mod.script(), extra_vars={"I": I, "R": R, "T": T})
+    tvm.ir.assert_structural_equal(mod, restored)
+
+
 def test_constant():
     constant = R.dist.const(
         1,

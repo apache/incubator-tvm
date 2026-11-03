@@ -1226,6 +1226,48 @@ def test_multi_input_broadcasting_symbolic_shapes():
     )
 
 
+@pytest.mark.parametrize("constant_inputs", [False, True])
+def test_multi_input_broadcasting_zero_extent(constant_inputs):
+    # Both orders exercise zero/unit, zero/zero and rank-padding in the shared
+    # MultiInputBase shape calculation used by Min, Max, Sum and Mean.
+    inputs = {
+        name: np.zeros(shape, dtype="float32")
+        for name, shape in [("empty", (0, 3)), ("unit", (1, 3)), ("vector", (3,))]
+    }
+    graph = helper.make_graph(
+        [
+            helper.make_node("Sum", ["empty", "unit", "vector", "empty"], ["forward"]),
+            helper.make_node("Sum", ["vector", "unit", "empty", "empty"], ["reverse"]),
+        ],
+        "multi_input_broadcasting_zero_extent",
+        []
+        if constant_inputs
+        else [
+            helper.make_tensor_value_info(name, TensorProto.FLOAT, list(value.shape))
+            for name, value in inputs.items()
+        ],
+        [
+            helper.make_tensor_value_info(name, TensorProto.FLOAT, [0, 3])
+            for name in ["forward", "reverse"]
+        ],
+        initializer=[numpy_helper.from_array(value, name) for name, value in inputs.items()]
+        if constant_inputs
+        else [],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    onnx.checker.check_model(model)
+    actual_inputs = {} if constant_inputs else inputs
+    check_correctness(model, actual_inputs, opset=18, check_dtypes=True)
+    if constant_inputs:
+        # Exercise constant folding as well as initializer parameters kept in the VM ABI.
+        mod = from_onnx(model, keep_params_in_input=False)
+        executable = tvm.compile(mod, target="llvm")
+        outputs = relax.VirtualMachine(executable, tvm.cpu())["main"]()
+        for output in outputs:
+            assert tuple(output.shape) == (0, 3)
+            assert output.numpy().dtype == np.dtype("float32")
+
+
 @pytest.mark.parametrize("op_name", ["Min", "Max", "Sum", "Mean"])
 @pytest.mark.parametrize("shape", [[], [5], [2, 3]])
 def test_multi_input_constant_single_input(op_name, shape):
@@ -4050,6 +4092,39 @@ def test_shape():
             return gv
 
     tvm_tirx.ir.assert_structural_equal(tvm_model, Expected)
+
+
+def test_shape_zero_extent_input():
+    # Zero must remain concrete alongside named/unknown dimensions, and must
+    # not bind another input's unknown dimension to zero.
+    annotations = {"empty": [0], "data": [None], "mixed": [2, 0, "N", None]}
+    inputs = {
+        "empty": np.empty((0,), dtype="float32"),
+        "data": np.zeros((5,), dtype="float32"),
+        "mixed": np.empty((2, 0, 3, 5), dtype="float32"),
+    }
+    graph = helper.make_graph(
+        [helper.make_node("Shape", [name], [f"{name}_shape"]) for name in annotations],
+        "shape_zero_extent_input",
+        [
+            helper.make_tensor_value_info(name, TensorProto.FLOAT, shape)
+            for name, shape in annotations.items()
+        ],
+        [
+            helper.make_tensor_value_info(f"{name}_shape", TensorProto.INT64, [len(shape)])
+            for name, shape in annotations.items()
+        ],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    onnx.checker.check_model(model)
+
+    mod = from_onnx(model)
+    for param in mod["main"].params:
+        for index, extent in enumerate(annotations[param.name]):
+            if extent == 0:
+                assert isinstance(param.ty.shape[index], tirx.IntImm)
+                assert int(param.ty.shape[index]) == 0
+    check_correctness(model, inputs, opset=18, check_dtypes=True)
 
 
 def test_shape_scalar_input():
@@ -10657,6 +10732,33 @@ def test_dropout():
             return gv
 
     tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedDropoutRatioInput)
+
+
+@pytest.mark.parametrize(
+    "annotation, input_shape, axis, expected_shape",
+    [
+        ([0, 0], (0, 0), 0, (1, 0)),
+        (["N", 0, 3], (5, 0, 3), 3, (0, 1)),
+        ([2, 3, 0], (2, 3, 0), 2, (6, 0)),
+        ([0, "N", 3], (0, 5, 3), 1, (0, 15)),
+        (["N", 0, 3], (5, 0, 3), -2, (5, 0)),
+    ],
+)
+def test_flatten_zero_extent(annotation, input_shape, axis, expected_shape):
+    graph = helper.make_graph(
+        [helper.make_node("Flatten", ["data"], ["output"], axis=axis)],
+        "flatten_zero_extent",
+        [helper.make_tensor_value_info("data", TensorProto.FLOAT, annotation)],
+        [helper.make_tensor_value_info("output", TensorProto.FLOAT, list(expected_shape))],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    onnx.checker.check_model(model)
+    mod = from_onnx(model)
+    for candidate in [mod, relax.transform.FoldConstant()(mod)]:
+        restored = tvm.script.from_source(candidate.script(), extra_vars={"I": I, "R": R, "T": T})
+        tvm.ir.assert_structural_equal(candidate, restored)
+    inputs = {"data": np.empty(input_shape, dtype="float32")}
+    check_correctness(model, inputs, opset=18, check_dtypes=True)
 
 
 def test_flatten():

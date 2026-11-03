@@ -84,6 +84,24 @@ ffi::Optional<ExprDoc> LogicalCallDocTranslate(DocTranslatorObj* d, ffi::AnyView
   return RawCallDocTranslate(d, call);
 }
 
+// Reshape calls carry resolved extents. The semantic wrapper treats literal zero
+// as a copy instruction, so use raw construction to preserve empty shapes.
+ffi::Optional<ExprDoc> ReshapeCallDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                               const ffi::Object*) {
+  const auto* call =
+      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const CallNode>(input);
+  if (call->args.size() == 2) {
+    if (const auto* shape = call->args[1].as<relax::ShapeExprNode>()) {
+      for (const auto& dim : shape->values) {
+        if (const auto* imm = dim.as<IntImmNode>(); imm && imm->value == 0)
+          return RawCallDocTranslate(d, call);
+      }
+    }
+  }
+  if (auto doc = StandardCallDocTranslate(d, call)) return doc;
+  return RawCallDocTranslate(d, call);
+}
+
 // VM allocation wrappers convert bare integer offsets/device indices to int64.
 // Keep explicit construction when the renderer would hide a different width.
 ffi::Optional<ExprDoc> VMAllocCallDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
@@ -106,6 +124,9 @@ ffi::Optional<ExprDoc> VMAllocCallDocTranslate(DocTranslatorObj* d, ffi::AnyView
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
+  OpDef("relax.reshape")
+      .set_attr<FDocTranslate>(tvm::script::printer::op_attr::kDocTranslateOpCall,
+                               FDocTranslate::FromNative<&ReshapeCallDocTranslate>());
   for (const char* name : {"relax.logical_and", "relax.logical_or", "relax.logical_not"}) {
     OpDef(name).set_native_fn_attr<&LogicalCallDocTranslate>(
         tvm::script::printer::op_attr::kDocTranslateOpCall);

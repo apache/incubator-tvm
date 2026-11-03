@@ -246,7 +246,8 @@ def get_info(
     for dim in info_proto.type.tensor_type.shape.dim:
         name = dim.dim_param
         value = dim.dim_value
-        if value is None or value == 0:
+        # An explicitly present zero is a concrete extent, not an unknown dimension.
+        if not dim.HasField("dim_value"):
             value = parse_shape_name(name, value_dict)
             shape_name.append(name)
         else:
@@ -2712,9 +2713,9 @@ def _broadcast_shape_dims(ai: int | tirx.Expr, bi: int | tirx.Expr) -> int | tir
     bi_is_expr = isinstance(bi, TvmExpr)
 
     if not ai_is_expr and not bi_is_expr:
-        # Both are constants: unchanged from original
         if ai == bi or ai == 1 or bi == 1:
-            return max(ai, bi)
+            # Broadcasting a unit extent to zero must preserve the zero extent.
+            return bi if ai == 1 else ai
         else:
             raise ValueError(f"Cannot broadcast {ai} and {bi}")
     elif ai_is_expr and bi_is_expr:
@@ -4582,6 +4583,13 @@ class Flatten(OnnxOpConverter):
                 f"Flatten axis {attr.get('axis', 1)} is out of range [-{rank}, {rank}] "
                 f"for an input of rank {rank}"
             )
+
+        if any(isinstance(dim, tirx.IntImm) and dim.value == 0 for dim in data_shape):
+            # The element count cannot determine the other extent of an empty matrix.
+            # A raw Call preserves the resolved shape without interpreting literal
+            # zeros as instructions to copy dimensions from the input.
+            shape = relax.ShapeExpr([math.prod(data_shape[:axis]), math.prod(data_shape[axis:])])
+            return relax.Call("relax.reshape", [inputs[0], shape])
 
         if axis == 0:
             new_shape = (1, -1)
