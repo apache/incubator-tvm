@@ -11335,8 +11335,8 @@ def test_dequantize_float16_uses_astype():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
-def test_quantized_avg_pool2d_uses_astype():
-    """Quantized AVERAGE_POOL_2D casts through int32 with R.astype."""
+def test_quantized_avg_pool2d_rounds_half_away_from_zero():
+    """Quantized AVERAGE_POOL_2D takes the window sum and rounds like TFLite."""
     builder = flatbuffers.Builder(1024)
 
     qparams = _build_quantization_parameters(
@@ -11419,22 +11419,401 @@ def test_quantized_avg_pool2d_uses_astype():
         ):
             with R.dataflow():
                 lv: R.Tensor((1, 2, 2, 1), dtype="int32") = R.astype(tvmgen_tensor_0, dtype="int32")
-                lv1: R.Tensor((1, 1, 1, 1), dtype="int32") = R.nn.avg_pool2d(
-                    lv,
+                # scaling by the window size makes avg_pool2d's own division
+                # exact, so what comes back is the window SUM
+                lv1: R.Tensor((1, 2, 2, 1), dtype="int32") = R.multiply(lv, R.const(4, "int32"))
+                lv2: R.Tensor((1, 1, 1, 1), dtype="int32") = R.nn.avg_pool2d(
+                    lv1,
                     pool_size=[2, 2],
                     strides=[1, 1],
                     dilation=[1, 1],
                     padding=[0, 0, 0, 0],
                     ceil_mode=False,
-                    count_include_pad=False,
+                    count_include_pad=True,
                     layout="NHWC",
                     out_layout="NHWC",
                 )
-                gv: R.Tensor((1, 1, 1, 1), dtype="int8") = R.astype(lv1, dtype="int8")
+                lv3: R.Tensor((1, 1, 1, 1), dtype="int32") = R.astype(lv2, dtype="int32")
+                # acc > 0 ? (acc + count/2) / count : (acc - count/2) / count
+                lv4: R.Tensor((1, 1, 1, 1), dtype="bool") = R.greater(lv3, R.const(0, "int32"))
+                lv5: R.Tensor((1, 1, 1, 1), dtype="int32") = R.add(
+                    lv3, R.const(np.full((1, 1, 1, 1), 2, dtype="int32"))
+                )
+                lv6: R.Tensor((1, 1, 1, 1), dtype="int32") = R.subtract(
+                    lv3, R.const(np.full((1, 1, 1, 1), 2, dtype="int32"))
+                )
+                lv7: R.Tensor((1, 1, 1, 1), dtype="int32") = R.where(lv4, lv5, lv6)
+                lv8: R.Tensor((1, 1, 1, 1), dtype="int32") = R.divide(
+                    lv7, R.const(np.full((1, 1, 1, 1), 4, dtype="int32"))
+                )
+                gv: R.Tensor((1, 1, 1, 1), dtype="int8") = R.astype(lv8, dtype="int8")
                 R.output(gv)
             return gv
 
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
+
+
+def test_quantized_avg_pool2d_matches_tflite_rounding_numerically():
+    """The pooled values must match TFLite's reference integer average pool.
+
+    The structural test above pins the shape of the lowering; this one pins the
+    ANSWER, which is what actually regressed: a truncating division looks
+    reasonable and is wrong on about half of all inputs. The reference is
+    tensorflow/lite/kernels/internal/reference/integer_ops/pooling.h,
+
+        acc = acc > 0 ? (acc + count / 2) / count : (acc - count / 2) / count
+
+    and the inputs below are chosen so the window sums land on and around the
+    .5 boundaries where truncation and round-half-away disagree.
+
+    The activation was also tested with resnet.
+    """
+    builder = flatbuffers.Builder(1024)
+
+    qparams = _build_quantization_parameters(
+        builder, scale=[0.5], zero_point=[0], quantized_dimension=0
+    )
+    input_tensor = _build_tensor(
+        builder, 0, [1, 2, 2, 8], tensor_type=_tfl_tensor_type.INT8, quantization=qparams
+    )
+    output_tensor = _build_tensor(
+        builder, 1, [1, 1, 1, 8], tensor_type=_tfl_tensor_type.INT8, quantization=qparams
+    )
+
+    _tfl_pool2d_options.Pool2DOptionsStart(builder)
+    _tfl_pool2d_options.Pool2DOptionsAddPadding(builder, _tfl_padding.VALID)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideH(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideW(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterHeight(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterWidth(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFusedActivationFunction(builder, _tfl_activation_fn.NONE)
+    pool_opts = _tfl_pool2d_options.Pool2DOptionsEnd(builder)
+
+    avg_pool_op = _build_operator(
+        builder,
+        0,
+        [0],
+        [1],
+        builtin_options_type=_tfl_builtin_options.Pool2DOptions,
+        builtin_options=pool_opts,
+    )
+    subgraph = _build_subgraph(
+        builder,
+        tensors=[input_tensor, output_tensor],
+        operators=[avg_pool_op],
+        inputs=[0],
+        outputs=[1],
+    )
+    operator_codes = [_build_operator_code(builder, _tfl_builtin_operator.AVERAGE_POOL_2D)]
+    buf = _finish_tflite_model(
+        builder,
+        subgraph=subgraph,
+        operator_codes=operator_codes,
+        buffers=[_build_buffer(builder), _build_buffer(builder)],
+    )
+
+    if hasattr(tflite.Model, "Model"):
+        tflite_model = tflite.Model.Model.GetRootAsModel(buf, 0)
+    else:
+        tflite_model = tflite.Model.GetRootAsModel(buf, 0)
+    mod = from_tflite(tflite_model)
+
+    dev = tvm.cpu(0)
+    vm = relax.VirtualMachine(tvm.compile(mod, target=tvm.target.Target("llvm")), dev)
+
+    # one channel per window sum in [-7, 7]: +-1.5, +-1.75 and the exact halves
+    # are where a truncating divide diverges from round-half-away
+    sums = [5, 6, 7, -5, -6, -7, 2, -2]
+    x = np.zeros((1, 2, 2, 8), dtype="int8")
+    for c, total in enumerate(sums):
+        x[0, 0, 0, c] = total
+    got = vm["main"](tvm.runtime.tensor(x, dev)).numpy().reshape(-1)
+
+    count = 4
+    want = np.array(
+        [(t + count // 2) // count if t > 0 else -((-t + count // 2) // count) for t in sums],
+        dtype="int8",
+    )
+    np.testing.assert_array_equal(got, want)
+
+
+@pytest.mark.parametrize(
+    "tensor_type, dtype, value",
+    [
+        # The pre-scaled window sum is max|x| * window^2: for int16 17x17 that is
+        # 2.7e9, past int32, and an int32 accumulator returned -18657 / 18656.
+        (_tfl_tensor_type.INT16, "int16", 32767),
+        (_tfl_tensor_type.INT16, "int16", -32768),
+        (_tfl_tensor_type.INT8, "int8", 127),
+        (_tfl_tensor_type.INT8, "int8", -128),
+        (_tfl_tensor_type.UINT8, "uint8", 255),
+    ],
+)
+def test_quantized_avg_pool2d_large_window_does_not_overflow(tensor_type, dtype, value):
+    """A 17x17 VALID average pool of a constant input must return that constant.
+
+    The lowering computes the exact window sum by pre-scaling the input by the
+    window size, so its accumulator has to hold max|x| * window^2 -- which
+    depends on the INPUT type, not just the window. A constant input makes the
+    answer obvious (the average of N copies of v is v) and puts the sum at its
+    extreme.
+    """
+    size = 17
+    builder = flatbuffers.Builder(1024)
+    qparams = _build_quantization_parameters(
+        builder, scale=[0.5], zero_point=[0], quantized_dimension=0
+    )
+    input_tensor = _build_tensor(
+        builder, 0, [1, size, size, 1], tensor_type=tensor_type, quantization=qparams
+    )
+    output_tensor = _build_tensor(
+        builder, 1, [1, 1, 1, 1], tensor_type=tensor_type, quantization=qparams
+    )
+
+    _tfl_pool2d_options.Pool2DOptionsStart(builder)
+    _tfl_pool2d_options.Pool2DOptionsAddPadding(builder, _tfl_padding.VALID)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideH(builder, 1)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideW(builder, 1)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterHeight(builder, size)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterWidth(builder, size)
+    _tfl_pool2d_options.Pool2DOptionsAddFusedActivationFunction(builder, _tfl_activation_fn.NONE)
+    pool_opts = _tfl_pool2d_options.Pool2DOptionsEnd(builder)
+
+    avg_pool_op = _build_operator(
+        builder,
+        0,
+        [0],
+        [1],
+        builtin_options_type=_tfl_builtin_options.Pool2DOptions,
+        builtin_options=pool_opts,
+    )
+    subgraph = _build_subgraph(
+        builder,
+        tensors=[input_tensor, output_tensor],
+        operators=[avg_pool_op],
+        inputs=[0],
+        outputs=[1],
+    )
+    operator_codes = [_build_operator_code(builder, _tfl_builtin_operator.AVERAGE_POOL_2D)]
+    buf = _finish_tflite_model(
+        builder,
+        subgraph=subgraph,
+        operator_codes=operator_codes,
+        buffers=[_build_buffer(builder), _build_buffer(builder)],
+    )
+
+    if hasattr(tflite.Model, "Model"):
+        tflite_model = tflite.Model.Model.GetRootAsModel(buf, 0)
+    else:
+        tflite_model = tflite.Model.GetRootAsModel(buf, 0)
+    mod = from_tflite(tflite_model)
+
+    dev = tvm.cpu(0)
+    vm = relax.VirtualMachine(tvm.compile(mod, target=tvm.target.Target("llvm")), dev)
+    x = np.full((1, size, size, 1), value, dtype=dtype)
+    got = vm["main"](tvm.runtime.tensor(x, dev)).numpy().reshape(-1)
+    np.testing.assert_array_equal(got, np.array([value], dtype=dtype))
+
+
+def _tflite_int_avg_pool2d_reference(x, filter_hw, stride_hw, same_padding):
+    """TFLite's reference integer AveragePool on an NHWC array: divide the sum over
+    the NON-PADDED taps, rounding half away from zero (reference/integer_ops/pooling.h)."""
+    n, in_h, in_w, c = x.shape
+    (f_h, f_w), (s_h, s_w) = filter_hw, stride_hw
+
+    def axis(extent, f, s):
+        if not same_padding:
+            return (extent - f) // s + 1, 0
+        out = -(-extent // s)
+        return out, max((out - 1) * s + f - extent, 0) // 2
+
+    out_h, pad_h = axis(in_h, f_h, s_h)
+    out_w, pad_w = axis(in_w, f_w, s_w)
+    y = np.zeros((n, out_h, out_w, c), dtype=x.dtype)
+    for oy in range(out_h):
+        for ox in range(out_w):
+            y0, x0 = oy * s_h - pad_h, ox * s_w - pad_w
+            win = x[:, max(y0, 0) : min(y0 + f_h, in_h), max(x0, 0) : min(x0 + f_w, in_w), :]
+            count = win.shape[1] * win.shape[2]
+            acc = win.astype("int64").sum(axis=(1, 2))
+            y[:, oy, ox, :] = np.where(
+                acc > 0, (acc + count // 2) // count, -((-acc + count // 2) // count)
+            )
+    return y
+
+
+def _build_pool2d_model(padding, op_code=None, quantized=True):
+    """A one-op TFLite model: a 2x2, stride-2 Pool2D serialized as [1,4,4,1] -> [1,2,2,1].
+
+    int8 with scale 0.5 / zero point 0 when `quantized`, else float32. Returns the
+    model and its input tensor name, for overriding the input with shape_dict."""
+    if op_code is None:
+        op_code = _tfl_builtin_operator.AVERAGE_POOL_2D
+    builder = flatbuffers.Builder(1024)
+    if quantized:
+        qparams = _build_quantization_parameters(
+            builder, scale=[0.5], zero_point=[0], quantized_dimension=0
+        )
+        tensor_kw = {"tensor_type": _tfl_tensor_type.INT8, "quantization": qparams}
+    else:
+        tensor_kw = {"tensor_type": _tfl_tensor_type.FLOAT32}
+    input_tensor = _build_tensor(builder, 0, [1, 4, 4, 1], **tensor_kw)
+    output_tensor = _build_tensor(builder, 1, [1, 2, 2, 1], **tensor_kw)
+
+    _tfl_pool2d_options.Pool2DOptionsStart(builder)
+    _tfl_pool2d_options.Pool2DOptionsAddPadding(builder, padding)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideH(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddStrideW(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterHeight(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFilterWidth(builder, 2)
+    _tfl_pool2d_options.Pool2DOptionsAddFusedActivationFunction(builder, _tfl_activation_fn.NONE)
+    pool_opts = _tfl_pool2d_options.Pool2DOptionsEnd(builder)
+
+    pool_op = _build_operator(
+        builder,
+        0,
+        [0],
+        [1],
+        builtin_options_type=_tfl_builtin_options.Pool2DOptions,
+        builtin_options=pool_opts,
+    )
+    subgraph = _build_subgraph(
+        builder,
+        tensors=[input_tensor, output_tensor],
+        operators=[pool_op],
+        inputs=[0],
+        outputs=[1],
+    )
+    operator_codes = [_build_operator_code(builder, op_code)]
+    buf = _finish_tflite_model(
+        builder,
+        subgraph=subgraph,
+        operator_codes=operator_codes,
+        buffers=[_build_buffer(builder), _build_buffer(builder)],
+    )
+
+    if hasattr(tflite.Model, "Model"):
+        tflite_model = tflite.Model.Model.GetRootAsModel(buf, 0)
+    else:
+        tflite_model = tflite.Model.GetRootAsModel(buf, 0)
+    from tvm.relax.frontend.tflite.tflite_frontend import _input_type
+
+    return tflite_model, next(iter(_input_type(tflite_model)[0]))
+
+
+@pytest.mark.parametrize(
+    "padding, override, want_hw",
+    [
+        # the review's cases: the serialized model is 4x4 -> 2x2
+        (_tfl_padding.VALID, (1, 2, 2, 1), (1, 1)),  # counts tensor used to broadcast to 2x2
+        (_tfl_padding.VALID, (1, 6, 6, 1), (3, 3)),  # used to fail: 3x3 vs a 2x2 counts tensor
+        # SAME: the border windows see fewer taps, and the padding itself must be
+        # derived from the overridden extent, not the serialized 4
+        (_tfl_padding.SAME, (1, 5, 5, 1), (3, 3)),
+        (_tfl_padding.SAME, (1, 7, 3, 1), (4, 2)),
+    ],
+)
+def test_quantized_avg_pool2d_follows_shape_dict_override(padding, override, want_hw):
+    """The quantized AVERAGE_POOL_2D divisor must come from the Relax shapes.
+
+    The per-position counts (and SAME padding) are folded to constants. They used
+    to be built from the SERIALIZED TFLite shapes, which are stale once
+    from_tflite(..., shape_dict=...) overrides the input: a smaller input got a
+    counts tensor that silently broadcast the result back to the old output
+    shape, and a larger one failed to import.
+    """
+    tflite_model, input_name = _build_pool2d_model(padding)
+    mod = from_tflite(tflite_model, shape_dict={input_name: override})
+
+    dev = tvm.cpu(0)
+    vm = relax.VirtualMachine(tvm.compile(mod, target=tvm.target.Target("llvm")), dev)
+    x = np.random.default_rng(0).integers(-128, 128, size=override, dtype=np.int64).astype("int8")
+    got = vm["main"](tvm.runtime.tensor(x, dev)).numpy()
+
+    assert got.shape == (1, *want_hw, 1)
+    want = _tflite_int_avg_pool2d_reference(
+        x, (2, 2), (2, 2), same_padding=padding == _tfl_padding.SAME
+    )
+    np.testing.assert_array_equal(got, want)
+
+
+def _max_pool2d_reference(x, filter_hw, stride_hw):
+    """VALID max pool on an NHWC array."""
+    n, in_h, in_w, c = x.shape
+    (f_h, f_w), (s_h, s_w) = filter_hw, stride_hw
+    out_h, out_w = (in_h - f_h) // s_h + 1, (in_w - f_w) // s_w + 1
+    y = np.empty((n, out_h, out_w, c), dtype=x.dtype)
+    for oy in range(out_h):
+        for ox in range(out_w):
+            win = x[:, oy * s_h : oy * s_h + f_h, ox * s_w : ox * s_w + f_w, :]
+            y[:, oy, ox, :] = win.max(axis=(1, 2))
+    return y
+
+
+@pytest.mark.parametrize("symbolic_axis", [0, 3], ids=["batch", "channel"])
+@pytest.mark.parametrize(
+    "op, quantized, padding",
+    [
+        ("AVERAGE_POOL_2D", True, _tfl_padding.VALID),
+        ("AVERAGE_POOL_2D", True, _tfl_padding.SAME),
+        ("MAX_POOL_2D", False, _tfl_padding.VALID),
+    ],
+)
+def test_pool2d_symbolic_batch_or_channel(op, quantized, padding, symbolic_axis):
+    """Pool2D must keep importing with a symbolic batch or channel dimension.
+
+    Only H and W have to be static (for SAME padding and the quantized average's
+    per-position divisor); N and C pass straight through. Requiring all four to
+    be integers broke imports such as shape_dict={"input": (n, 4, 4, 1)} that
+    worked before, and on every Pool2D path, not just the quantized average.
+    """
+    tflite_model, input_name = _build_pool2d_model(
+        padding, op_code=getattr(_tfl_builtin_operator, op), quantized=quantized
+    )
+    sym = tvm.tirx.Var("n" if symbolic_axis == 0 else "c", ty="int64")
+    in_shape = [1, 4, 4, 1]
+    in_shape[symbolic_axis] = sym
+    mod = from_tflite(tflite_model, shape_dict={input_name: tuple(in_shape)})
+
+    # the symbolic extent survives into the output: [n, 2, 2, 1] / [1, 2, 2, c]
+    out_shape = list(mod["main"].ret_ty.shape)
+    static = [int(v) for i, v in enumerate(out_shape) if i != symbolic_axis]
+    assert static == [d for i, d in enumerate([1, 2, 2, 1]) if i != symbolic_axis]
+    assert isinstance(out_shape[symbolic_axis], tvm.tirx.Var)
+
+    # and it runs at a concrete extent other than the serialized 1
+    concrete = [1, 4, 4, 1]
+    concrete[symbolic_axis] = 3
+    dev = tvm.cpu(0)
+    vm = relax.VirtualMachine(tvm.compile(mod, target=tvm.target.Target("llvm")), dev)
+    rng = np.random.default_rng(0)
+    if quantized:
+        x = rng.integers(-128, 128, size=concrete, dtype=np.int64).astype("int8")
+        want = _tflite_int_avg_pool2d_reference(
+            x, (2, 2), (2, 2), same_padding=padding == _tfl_padding.SAME
+        )
+    else:
+        x = rng.standard_normal(concrete).astype("float32")
+        want = _max_pool2d_reference(x, (2, 2), (2, 2))
+    got = vm["main"](tvm.runtime.tensor(x, dev)).numpy()
+    np.testing.assert_array_equal(got, want)
+
+
+def test_max_pool2d_valid_symbolic_hw():
+    """A VALID float Pool2D folds nothing from the input extents, so it must keep
+    accepting a symbolic H and W; only SAME padding and the quantized average's
+    divisor need them static."""
+    tflite_model, input_name = _build_pool2d_model(
+        _tfl_padding.VALID, op_code=_tfl_builtin_operator.MAX_POOL_2D, quantized=False
+    )
+    h, w = tvm.tirx.Var("h", ty="int64"), tvm.tirx.Var("w", ty="int64")
+    mod = from_tflite(tflite_model, shape_dict={input_name: (1, h, w, 1)})
+
+    dev = tvm.cpu(0)
+    vm = relax.VirtualMachine(tvm.compile(mod, target=tvm.target.Target("llvm")), dev)
+    x = np.random.default_rng(0).standard_normal((1, 6, 8, 1)).astype("float32")
+    got = vm["main"](tvm.runtime.tensor(x, dev)).numpy()
+    np.testing.assert_array_equal(got, _max_pool2d_reference(x, (2, 2), (2, 2)))
 
 
 def test_quantized_conv2d_per_tensor_uses_qdq():
