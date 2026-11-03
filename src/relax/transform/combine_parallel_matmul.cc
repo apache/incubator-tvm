@@ -146,9 +146,14 @@ ffi::TypedFunction<ffi::Map<Var, Expr>(ffi::Map<DFPattern, Var>, ffi::Map<Var, E
     ffi::Map<Var, Expr> replacements;
 
     for (const auto& [rhs_dim, indices] : GroupShapes(rhs_shapes)) {
-      if (indices.size() == 1 || !batch_dims_compatible(rhs_dim, indices, rhs_shapes)) continue;
+      if (rhs_dim < 2 || indices.size() == 1 ||
+          !batch_dims_compatible(rhs_dim, indices, rhs_shapes)) {
+        continue;
+      }
 
       auto lhs = matchings[patterns.input];
+      int lhs_dim = GetTensorType(lhs)->ndim;
+      if (lhs_dim < 2) continue;
 
       const auto& patterns_to_replace = [&patterns, &branch_info]() {
         if (branch_info.activation) return patterns.activation;
@@ -244,7 +249,6 @@ ffi::TypedFunction<ffi::Map<Var, Expr>(ffi::Map<DFPattern, Var>, ffi::Map<Var, E
         sections.push_back(IntImm::Int64(split_index));
       }
 
-      int lhs_dim = GetTensorType(lhs)->ndim;
       int split_axis = std::max<int>(lhs_dim, rhs_dim) - 1;
       auto chunks = split(matmul_combined, sections, split_axis);
 

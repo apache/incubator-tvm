@@ -743,5 +743,43 @@ def test_skip_matmuls_with_different_output_dtypes(float32_branch):
     tvm_tirx.ir.assert_structural_equal(after, before)
 
 
+def test_skip_vector_lhs():
+    @R.function(private=True)
+    def before(
+        x: R.Tensor((16,), "float32"),
+        w0: R.Tensor((16, 32), "float32"),
+        w1: R.Tensor((16, 32), "float32"),
+    ):
+        with R.dataflow():
+            y0 = R.matmul(x, w0)
+            y1 = R.matmul(x, w1)
+            out = (y0, y1)
+            R.output(out)
+        return out
+
+    after = CombineParallelMatmul()(tvm.IRModule.from_expr(before))["main"]
+
+    tvm.ir.assert_structural_equal(after, before)
+
+
+def test_skip_vector_rhs():
+    @R.function(private=True)
+    def before(
+        x: R.Tensor((8, 16), "float32"),
+        w0: R.Tensor((16,), "float32"),
+        w1: R.Tensor((16,), "float32"),
+    ):
+        with R.dataflow():
+            y0 = R.matmul(x, w0)
+            y1 = R.matmul(x, w1)
+            out = (y0, y1)
+            R.output(out)
+        return out
+
+    after = CombineParallelMatmul()(tvm.IRModule.from_expr(before))["main"]
+
+    tvm.ir.assert_structural_equal(after, before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
