@@ -392,7 +392,7 @@ def test_fold_multiple_relax_ops_with_data_dependent_reshape():
 
 
 def test_fold_constant_skips_data_dependent_reshape_with_unknown_shape():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
         @R.function
         def before(data: R.Tensor((256,), "float32"), c0: R.Tensor((2,), "int64")):
@@ -407,7 +407,7 @@ def test_fold_constant_skips_data_dependent_reshape_with_unknown_shape():
     before = gen_mod(Module, "before", {})
 
     after = relax.transform.FoldConstant()(before)
-    tvm.ir.assert_structural_equal(after, before)
+    tvm_tirx.ir.assert_structural_equal(after, before)
 
 
 def test_unsupported_fold_ops_legalized_to_multiple_calls():

@@ -368,15 +368,15 @@ class ConstantFolder : public ExprMutator {
         if (CanLegalizeCall(op, post_call_normalized)) {
           Expr legalized_expr =
               builder_->Normalize(legalize_map[op](builder_, post_call_normalized));
-              // If the legalized expression is call_tir, try to fold it.
-              const CallObj* call = legalized_expr.as<CallObj>();
-              if (call && call->op.same_as(call_tir_op)) {
-                return VisitCallTIR(ffi::GetRef<Call>(call)).value_or(post_call);
-              } else {
-                 // Restore the original (well-formed) type instead of the `Missing` type set above.
-                 return Call(original_ty, post_call->op, post_call->args, post_call->attrs,
-                  post_call->ty_args, post_call->span);
-              }
+          // If the legalized expression is call_tir, try to fold it.
+          const CallObj* call = legalized_expr.as<CallObj>();
+          if (call && call->op.same_as(call_tir_op)) {
+            return VisitCallTIR(ffi::GetRef<Call>(call)).value_or(post_call);
+          } else {
+            // Restore the original (well-formed) type instead of the `Missing` type set above.
+            return Call(original_ty, post_call->op, post_call->args, post_call->attrs,
+                        post_call->ty_args, post_call->span);
+          }
         }
       } else if (op->name == "relax.tensor_to_shape") {
         // Special handling for composite op "relax.tensor_to_shape"

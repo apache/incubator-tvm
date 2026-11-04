@@ -765,7 +765,7 @@ def test_data_dependent_reshape():
 
 def test_data_dependent_reshape_without_decompose_ops_is_skipped():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class DDReshape:
         @R.function
         def main(
@@ -779,7 +779,7 @@ def test_data_dependent_reshape_without_decompose_ops_is_skipped():
 
     relax.analysis.well_formed(DDReshape)
     out_mod = relax.transform.LegalizeOps()(DDReshape)
-    tvm.ir.assert_structural_equal(out_mod, DDReshape)
+    tvm_tirx.ir.assert_structural_equal(out_mod, DDReshape)
 
 
 def test_split_by_indices():
