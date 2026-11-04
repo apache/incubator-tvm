@@ -104,6 +104,7 @@ def _te_median(
 ) -> te.Tensor | tuple[te.Tensor, te.Tensor]:
     # currently only supports one axis or no axis ~ same pytorch
     # todo: support multiple axis ~ same numpy
+    input_ndim = len(x.shape)
     shape_prod = _compute_shape_prod(x, axis)
     mid_index = (shape_prod - 1) // 2
 
@@ -123,6 +124,9 @@ def _te_median(
     median_idx = topi.gather(index_sorted, axis=ax, indices=indices)
 
     if axis is None or len(axis) == 0:
+        if axis is None and keepdims:
+            # Flattening for the sort must not change the rank of the result.
+            return topi.reshape(median_val, [1] * input_ndim)
         return median_val if keepdims else topi.squeeze(median_val, axis=axis)
 
     val = median_val
