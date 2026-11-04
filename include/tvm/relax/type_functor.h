@@ -37,7 +37,7 @@ namespace relax {
 template <typename FType>
 class TypeFunctor;
 
-// functions to be overriden.
+// functions to be overridden.
 #define RELAX_TYPE_FUNCTOR_DEFAULT                             \
   {                                                            \
     return VisitTypeDefault_(op, std::forward<Args>(args)...); \
