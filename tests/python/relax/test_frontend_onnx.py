@@ -10778,7 +10778,8 @@ def test_flatten_dynamic():
     verify_flatten_dynamic_ir(2, ExpectedDynamicAxis2)
 
 
-def test_onehot():
+@pytest.mark.parametrize("depth_dtype", [TensorProto.INT64, TensorProto.FLOAT])
+def test_onehot(depth_dtype):
     one_hot_node = helper.make_node("OneHot", ["indices", "depth", "values"], ["y"], axis=1)
     graph = helper.make_graph(
         [one_hot_node],
@@ -10787,7 +10788,7 @@ def test_onehot():
             helper.make_tensor_value_info("indices", TensorProto.INT64, [2, 2]),
         ],
         initializer=[
-            helper.make_tensor("depth", TensorProto.INT64, [], [10]),
+            helper.make_tensor("depth", depth_dtype, [], [10]),
             helper.make_tensor("values", TensorProto.FLOAT, [2], [3, 1]),
         ],
         outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, [2, 10, 2])],
