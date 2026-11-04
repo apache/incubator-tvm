@@ -46,7 +46,7 @@ class LoopCanonicalizer : public StmtExprMutator {
   LoopCanonicalizer() = default;
 
  private:
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     if (IsZero(op->begin) && op->HasTrivialStep()) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
     }
@@ -67,14 +67,14 @@ class LoopCanonicalizer : public StmtExprMutator {
     PrimExpr extent =
         analyzer_->Simplify(ceildiv(Range::GetExtentFromBeginEnd(op->begin, op->end), step));
     if (inplace_mode == InplaceMode::kAllow) {
-      auto* writable = const_cast<ForNode*>(op);
+      auto* writable = const_cast<ForObj*>(op);
       writable->body = std::move(body);
       writable->begin = std::move(min);
       writable->end = std::move(extent);
       writable->step = IntImm(loop_var_ty, 1);
       return ffi::Unchanged();
     } else {
-      auto copy = ffi::make_object<ForNode>(*op);
+      auto copy = ffi::make_object<ForObj>(*op);
       copy->body = std::move(body);
       copy->begin = std::move(min);
       copy->end = std::move(extent);
@@ -90,7 +90,7 @@ namespace transform {
 
 Pass CanonicalizeLoop() {
   auto pass_func = [=](Function func, IRModule m, PassContext ctx) {
-    FunctionNode* fptr = func.CopyOnWrite();
+    FunctionObj* fptr = func.CopyOnWrite();
     fptr->body = ffi::make_object<LoopCanonicalizer>()
                      ->Mutate(fptr->body, InplaceMode::kAllow)
                      .ValueOrUnchanged(std::move(fptr->body));

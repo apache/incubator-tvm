@@ -32,28 +32,28 @@ namespace {
 
 ffi::Optional<ExprDoc> PlacementDocTranslate(DocTranslatorObj*, ffi::AnyView input,
                                              const ffi::Object*) {
-  const auto* placement = ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
-      const relax::distributed::PlacementNode>(input);
+  const auto* placement = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::PlacementObj>(input);
   return LiteralDoc::Str(placement->ToString(), std::nullopt);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::distributed::PlacementNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::distributed::PlacementObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&PlacementDocTranslate>());
 }
 
 ffi::Optional<ExprDoc> DTensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                const ffi::Object*) {
-  const auto* ty = ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
-      const relax::distributed::DTensorTypeNode>(input);
+  const auto* ty = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::DTensorTypeObj>(input);
   ffi::Array<ExprDoc> args;
   ffi::Array<ffi::String> keys;
   ffi::Array<ExprDoc> values;
   const relax::TensorType& tensor = ty->tensor_ty;
   bool require_keywords = !tensor->shape.has_value();
   if (tensor->shape.has_value()) {
-    if (auto shape = tensor->shape.value().as<relax::ShapeExprNode>()) {
+    if (auto shape = tensor->shape.value().as<relax::ShapeExprObj>()) {
       ffi::Array<ExprDoc> dimensions;
       for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
       args.push_back(TupleDoc(dimensions));
@@ -94,15 +94,15 @@ ffi::Optional<ExprDoc> DTensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::distributed::DTensorTypeNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::distributed::DTensorTypeObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&DTensorTypeDocTranslate>());
 }
 
 ffi::Optional<ExprDoc> DeviceMeshDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                               const ffi::Object*) {
-  const auto* mesh = ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
-      const relax::distributed::DeviceMeshNode>(input);
+  const auto* mesh = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::DeviceMeshObj>(input);
   ffi::Array<ExprDoc> dimensions;
   for (int64_t value : mesh->shape) {
     dimensions.push_back(LiteralDoc::Int(value, std::nullopt));
@@ -119,7 +119,7 @@ ffi::Optional<ExprDoc> DeviceMeshDocTranslate(DocTranslatorObj* d, ffi::AnyView 
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::distributed::DeviceMeshNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::distributed::DeviceMeshObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&DeviceMeshDocTranslate>());
 }

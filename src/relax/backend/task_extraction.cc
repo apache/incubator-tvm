@@ -54,7 +54,7 @@ using s_tir::meta_schedule::ModuleHash;
 class BlockCounter : public s_tir::StmtExprVisitor {
  public:
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<tvm::ExprNode>()) return std::nullopt;
+    if (value.as<tvm::ExprObj>()) return std::nullopt;
     return s_tir::StmtExprVisitor::Visit(value);
   }
 
@@ -65,7 +65,7 @@ class BlockCounter : public s_tir::StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     ++count;
     return s_tir::StmtExprVisitor::Visit_(op);
   }
@@ -79,7 +79,7 @@ class TaskExtractor : public ExprVisitor {
     TaskExtractor extractor(mod, target, mod_eq_name);
     // We go through each Relax function in the module.
     for (const auto& kv : mod->functions) {
-      if (const auto* func = kv.second.as<FunctionNode>()) {
+      if (const auto* func = kv.second.as<FunctionObj>()) {
         extractor(ffi::GetRef<Function>(func));
       }
     }
@@ -100,7 +100,7 @@ class TaskExtractor : public ExprVisitor {
     TVM_FFI_ICHECK(normalize_mod_func_.has_value()) << "Normalization function is not found.";
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
 
     // TODO(@tvm-team): When we differentiate the call for tirx function and packed function,

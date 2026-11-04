@@ -60,7 +60,7 @@ class StmtSRefObj : public ffi::Object {
    * \note Non-owned reference (raw pointer) is used here, so that we can perform copy-on-write
    * optimization on statements when possible. The strong reference is held in the ScheduleState.
    */
-  const StmtNode* stmt;
+  const StmtObj* stmt;
   /*! \brief The parent sref. */
   StmtSRefObj* parent;
   /*!
@@ -89,7 +89,7 @@ class StmtSRefObj : public ffi::Object {
    * It serves the same purpose as `ffi::ObjectRef::as`, but does not acquire strong reference to
    * `stmt`
    * \tparam StmtType The type that `this->stmt` to be downcasted to. Presumably
-   * tvm::s_tir::SBlockNode or tvm::ForNode
+   * tvm::s_tir::SBlockObj or tvm::ForObj
    * \return nullptr if type check fails, otherwise the casted result for `this->stmt`
    */
   template <typename StmtType>
@@ -115,7 +115,7 @@ class StmtSRef : public ffi::ObjectRef {
    * \param seq_index The location in an array if the parent of the stmt contains multiple children.
    * -1 if the parent does not contain multiple children.
    */
-  TVM_DLL explicit StmtSRef(const StmtNode* stmt, StmtSRefObj* parent, int64_t seq_index);
+  TVM_DLL explicit StmtSRef(const StmtObj* stmt, StmtSRefObj* parent, int64_t seq_index);
 
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(StmtSRef, ffi::ObjectRef, StmtSRefObj);
 
@@ -151,7 +151,7 @@ class SRefTreeCreator : public s_tir::StmtExprVisitor {
   using s_tir::StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return s_tir::StmtExprVisitor::Visit(value);
   }
 
@@ -160,8 +160,8 @@ class SRefTreeCreator : public s_tir::StmtExprVisitor {
    * \param mod The module being scheduled.
    * \param include_loops Ignore ForNodes if this value is false
    */
-  static std::unordered_map<const StmtNode*, StmtSRef> Create(IRModule mod,
-                                                              bool include_loops = true) {
+  static std::unordered_map<const StmtObj*, StmtSRef> Create(IRModule mod,
+                                                             bool include_loops = true) {
     auto creator = ffi::make_object<SRefTreeCreator>(include_loops);
     for (const auto& kv : mod->functions) {
       const BaseFunc& base_func = kv.second;
@@ -180,20 +180,20 @@ class SRefTreeCreator : public s_tir::StmtExprVisitor {
    * \brief Add a new statement to the stack, which becomes the current scope
    * \param stmt A for-loop statement or a block statement
    */
-  void PushSRef(const StmtNode* stmt);
+  void PushSRef(const StmtObj* stmt);
 
   /*! \brief Pop the top of the scope and record it in stmt2ref map */
   void PopAndRecordSRef();
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final;
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final;
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeNode* realize) final;
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeObj* realize) final;
 
-  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtNode* seq_stmt) final;
+  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtObj* seq_stmt) final;
 
   bool include_loops_;
   /*! \brief The result ScheduleStateObj */
-  std::unordered_map<const StmtNode*, StmtSRef> stmt2ref_;
+  std::unordered_map<const StmtObj*, StmtSRef> stmt2ref_;
   /*! \brief The stack frame used to indicate the current scope */
   std::vector<StmtSRef> srefs_;
 };

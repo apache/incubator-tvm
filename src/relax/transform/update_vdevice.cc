@@ -44,7 +44,7 @@ class VDeviceMutator : public ExprMutator {
   Expr VisitExpr(const Expr& expr) final {
     auto visited_expr = ExprMutator::VisitExpr(expr);
     if (!visited_expr->ty.as<MissingType>().has_value()) {
-      auto* tinfo = GetTypeAs<TensorTypeNode>(visited_expr);
+      auto* tinfo = GetTypeAs<TensorTypeObj>(visited_expr);
       bool unchanged = true;
       if (tinfo != nullptr) {
         if (tinfo->vdevice.has_value()) {
@@ -68,7 +68,7 @@ class VDeviceMutator : public ExprMutator {
 
   IRModule Run() {
     for (const auto& [gv, func] : mod_->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         relax::Function update_func = VisitExpr(func).as_or_throw<Function>();
         builder_->UpdateFunction(gv, update_func);
       }

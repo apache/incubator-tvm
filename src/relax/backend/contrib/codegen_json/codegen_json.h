@@ -112,8 +112,8 @@ class OpAttrExtractor {
       bool can_be_double = true;
       for (size_t i = 0; i < an->size(); ++i) {
         const auto& elem = (*an)[i];
-        bool is_int = elem.try_cast<int64_t>() || elem.as<IntImmNode>();
-        bool is_float = elem.try_cast<double>() || elem.as<FloatImmNode>();
+        bool is_int = elem.try_cast<int64_t>() || elem.as<IntImmObj>();
+        bool is_float = elem.try_cast<double>() || elem.as<FloatImmObj>();
         if (!is_int) {
           can_be_int = false;
         }
@@ -127,7 +127,7 @@ class OpAttrExtractor {
         for (size_t i = 0; i < an->size(); ++i) {
           if (auto opt_int = (*an)[i].try_cast<int64_t>()) {
             attr.push_back(opt_int.value());
-          } else if (const auto* im = (*an)[i].as<IntImmNode>()) {
+          } else if (const auto* im = (*an)[i].as<IntImmObj>()) {
             attr.push_back(static_cast<int64_t>(im->value));
           }
         }
@@ -139,11 +139,11 @@ class OpAttrExtractor {
           const auto& elem = (*an)[i];
           if (auto opt_float = elem.try_cast<double>()) {
             attr.push_back(opt_float.value());
-          } else if (const auto* fm = elem.as<FloatImmNode>()) {
+          } else if (const auto* fm = elem.as<FloatImmObj>()) {
             attr.push_back(fm->value);
           } else if (auto opt_int = elem.try_cast<int64_t>()) {
             attr.push_back(static_cast<double>(opt_int.value()));
-          } else if (const auto* im = elem.as<IntImmNode>()) {
+          } else if (const auto* im = elem.as<IntImmObj>()) {
             attr.push_back(static_cast<double>(im->value));
           }
         }
@@ -162,9 +162,9 @@ class OpAttrExtractor {
       }
     } else if (*value == nullptr) {  // Skip NullValue
       SetNodeAttr(key, ffi::String(""));
-    } else if (const auto* im = (*value).as<IntImmNode>()) {
+    } else if (const auto* im = (*value).as<IntImmObj>()) {
       SetNodeAttr(key, static_cast<int64_t>(im->value));
-    } else if (const auto* fm = (*value).as<FloatImmNode>()) {
+    } else if (const auto* fm = (*value).as<FloatImmObj>()) {
       SetNodeAttr(key, static_cast<double>(fm->value));
     } else if (const auto opt_str = (*value).as<ffi::String>()) {
       SetNodeAttr(key, *opt_str);
@@ -242,7 +242,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     // First we convert all the parameters into input nodes.
     for (const auto& param : func->params) {
       auto node_ptr = std::make_shared<JSONGraphNode>(param->name, "input" /* op_type_ */);
-      memo_[param] = AddNode(node_ptr, param);
+      memo_[param] = AddObj(node_ptr, param);
     }
     heads_ = VisitExpr(func->body);
   }
@@ -267,7 +267,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
    * \return A list of graph entry nodes. It the relax expr is a tuple type, we
    *         will flatten it.
    */
-  NodeEntries AddNode(JSONGraphObjectPtr node, const Expr& expr) {
+  NodeEntries AddObj(JSONGraphObjectPtr node, const Expr& expr) {
     auto ty = GetType(expr);
     auto node_id = nodes_.size();
     nodes_.push_back(node);
@@ -276,9 +276,9 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     TypeVector dtype;
 
     // Flatten tuple node.
-    if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       for (size_t i = 0; i < tuple_ty->fields.size(); ++i) {
-        const auto* tensor_ty = tuple_ty->fields[i].as<TensorTypeNode>();
+        const auto* tensor_ty = tuple_ty->fields[i].as<TensorTypeObj>();
         TVM_FFI_ICHECK(tensor_ty) << "Expect TensorType, but received: ."
                                   << tuple_ty->fields[i]->GetTypeKey();
         TVM_FFI_ICHECK(tensor_ty->shape.has_value()) << "Expect shape to be defined.";
@@ -289,7 +289,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
       }
       node->SetNumOutput(tuple_ty->fields.size());
     } else {
-      const auto* tensor_ty = ty.as<TensorTypeNode>();
+      const auto* tensor_ty = ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK(tensor_ty) << "Expect TensorType, but received: " << ty->GetTypeKey();
       TVM_FFI_ICHECK(tensor_ty->shape.has_value()) << "Expect shape to be defined.";
       ShapeExpr output_shape = tensor_ty->shape.value().as_or_throw<ShapeExpr>();
@@ -309,12 +309,12 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return ret;
   }
 
-  void SetCallNodeAttribute(JSONGraphObjectPtr node, const CallNode* cn) {
-    if (cn->op.as<OpNode>()) {
+  void SetCallNodeAttribute(JSONGraphObjectPtr node, const CallObj* cn) {
+    if (cn->op.as<OpObj>()) {
       OpAttrExtractor extractor(node);
       const ffi::Object* call_attr = cn->attrs.get();
       extractor.Extract(const_cast<ffi::Object*>(call_attr));
-    } else if (const auto* fn = cn->op.as<FunctionNode>()) {
+    } else if (const auto* fn = cn->op.as<FunctionObj>()) {
       TVM_FFI_ICHECK(false);
       auto pattern = fn->GetAttr(tvm::relax::attr::kPartitionedFromPattern);
       TVM_FFI_ICHECK(pattern.has_value());
@@ -322,17 +322,17 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     }
   }
 
-  NodeEntries VisitBinding_(const MatchCastNode* binding) {
+  NodeEntries VisitBinding_(const MatchCastObj* binding) {
     TVM_FFI_THROW(InternalError) << "JSON runtime currently doesn't match cast\n";
     return {};
   }
 
   NodeEntries VisitBinding(const Binding& binding) {
     NodeEntries nodes;
-    if (const auto* node = binding.as<VarBindingNode>()) {
+    if (const auto* node = binding.as<VarBindingObj>()) {
       auto from_b = VisitBinding_(node);
       nodes.insert(nodes.end(), from_b.begin(), from_b.end());
-    } else if (const auto* node = binding.as<MatchCastNode>()) {
+    } else if (const auto* node = binding.as<MatchCastObj>()) {
       auto from_b = VisitBinding_(node);
       nodes.insert(nodes.end(), from_b.begin(), from_b.end());
     } else {
@@ -343,10 +343,10 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
 
   NodeEntries VisitBindingBlock(const BindingBlock& block) {
     NodeEntries nodes;
-    if (const auto* node = block.as<DataflowBlockNode>()) {
+    if (const auto* node = block.as<DataflowBlockObj>()) {
       auto from_bb = VisitBindingBlock_(node);
       nodes.insert(nodes.end(), from_bb.begin(), from_bb.end());
-    } else if (const auto* node = block.as<BindingBlockNode>()) {
+    } else if (const auto* node = block.as<BindingBlockObj>()) {
       auto from_bb = VisitBindingBlock_(node);
       nodes.insert(nodes.end(), from_bb.begin(), from_bb.end());
     } else {
@@ -355,7 +355,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return nodes;
   }
 
-  NodeEntries VisitBindingBlock_(const BindingBlockNode* block) {
+  NodeEntries VisitBindingBlock_(const BindingBlockObj* block) {
     NodeEntries nodes;
     for (Binding binding : block->bindings) {
       auto from_b = VisitBinding(binding);
@@ -364,7 +364,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return nodes;
   }
 
-  NodeEntries VisitBindingBlock_(const DataflowBlockNode* block) {
+  NodeEntries VisitBindingBlock_(const DataflowBlockObj* block) {
     NodeEntries nodes;
     for (Binding binding : block->bindings) {
       auto from_b = VisitBinding(binding);
@@ -373,7 +373,7 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return nodes;
   }
 
-  NodeEntries VisitExpr_(const SeqExprNode* op) {
+  NodeEntries VisitExpr_(const SeqExprObj* op) {
     NodeEntries nodes;
     for (BindingBlock block : op->blocks) {
       VisitBindingBlock(block);
@@ -388,16 +388,16 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return {};
   }
 
-  NodeEntries VisitExpr_(const GenericConstNode* cn) {
+  NodeEntries VisitExpr_(const GenericConstObj* cn) {
     auto name = constant_names_.find(ffi::GetRef<GenericConst>(cn));
     TVM_FFI_ICHECK(name != constant_names_.end())
         << "Cannot find the name of the constant: " << ffi::GetRef<GenericConst>(cn);
     constants_used_.push_back((*name).second);
     auto node = std::make_shared<JSONGraphNode>((*name).second, "const" /* op_type_ */);
-    return AddNode(node, ffi::GetRef<Expr>(cn));
+    return AddObj(node, ffi::GetRef<Expr>(cn));
   }
 
-  NodeEntries VisitExpr_(const TupleNode* tn) {
+  NodeEntries VisitExpr_(const TupleObj* tn) {
     NodeEntries fields;
     for (const auto& field : tn->fields) {
       auto ref = VisitExpr(field);
@@ -406,12 +406,12 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
     return fields;
   }
 
-  NodeEntries VisitExpr_(const CallNode* cn) {
+  NodeEntries VisitExpr_(const CallObj* cn) {
     Expr expr = ffi::GetRef<Expr>(cn);
     std::string name;
-    if (const auto* op_node = cn->op.as<OpNode>()) {
+    if (const auto* op_node = cn->op.as<OpObj>()) {
       name = op_node->name;
-    } else if (const auto* fn = cn->op.as<FunctionNode>()) {
+    } else if (const auto* fn = cn->op.as<FunctionObj>()) {
       auto comp = fn->GetAttr(tvm::relax::attr::kComposite);
       TVM_FFI_ICHECK(comp.has_value()) << "JSON runtime only supports composite functions.";
       name = comp.value();
@@ -433,19 +433,19 @@ class JSONSerializer : public relax::MemoizedExprTranslator<NodeEntries> {
                                                 "kernel", /* op_type_ */
                                                 inputs, 1 /* num_outputs_ */);
     SetCallNodeAttribute(node, cn);
-    return AddNode(node, ffi::GetRef<Expr>(cn));
+    return AddObj(node, ffi::GetRef<Expr>(cn));
   }
 
-  NodeEntries VisitExpr_(const TupleGetItemNode* gtn) {
+  NodeEntries VisitExpr_(const TupleGetItemObj* gtn) {
     auto vtuple = VisitExpr(gtn->tuple);
     return {vtuple[gtn->index]};
   }
 
-  NodeEntries VisitExpr_(const FunctionNode* fn) {
+  NodeEntries VisitExpr_(const FunctionObj* fn) {
     TVM_FFI_ICHECK(fn->GetAttr(tvm::relax::attr::kComposite).has_value())
         << "JSON runtime only supports composite functions";
 
-    // FunctionNode should be handled by the caller.
+    // FunctionObj should be handled by the caller.
     return {};
   }
 

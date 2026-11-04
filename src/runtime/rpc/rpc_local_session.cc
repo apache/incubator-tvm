@@ -38,7 +38,7 @@ RPCSession::PackedFuncHandle LocalSession::GetFunction(const std::string& name) 
   if (auto fp = tvm::ffi::Function::GetGlobal(name)) {
     // return raw handle because the remote need to explicitly manage it.
     Any ret = *fp;
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(ret));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(ret));
     return ret_any.v_obj;
   } else {
     return nullptr;
@@ -58,7 +58,7 @@ void LocalSession::EncodeReturn(ffi::Any rv, const FEncodeReturn& encode_return)
     // We follow a special protocol to return Tensor to client side
     // The first pack value is the Tensor handle as DLTensor
     // The second pack value is a customized deleter that deletes the Tensor.
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
     void* opaque_handle = ret_any.v_obj;
     packed_args[1] = TVMFFITensorGetDLTensorPtr(opaque_handle);
     packed_args[2] = opaque_handle;
@@ -75,7 +75,7 @@ void LocalSession::EncodeReturn(ffi::Any rv, const FEncodeReturn& encode_return)
     packed_args[1] = (*opt_str).data();
     encode_return(ffi::PackedArgs(packed_args, 2));
   } else if (rv.as<ffi::ObjectRef>()) {
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
     void* opaque_handle = ret_any.v_obj;
     packed_args[1] = opaque_handle;
     encode_return(ffi::PackedArgs(packed_args, 2));
@@ -142,7 +142,7 @@ void LocalSession::CopyFromRemote(DLTensor* from, void* to_bytes, uint64_t nbyte
 
 void LocalSession::FreeHandle(void* handle) {
   // NOTE: the type code is no longer need during free handle.
-  ffi::details::ObjectUnsafe::DecRefObjectHandle(handle);
+  ffi::detail::ObjectUnsafe::DecRefObjectHandle(handle);
 }
 
 void LocalSession::SetDevice(Device dev) { DeviceAPI::Get(dev)->SetDevice(dev); }

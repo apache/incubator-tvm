@@ -316,11 +316,11 @@ ffi::Array<Var> Remap(ffi::String kinds, ffi::Array<PrimExpr> bindings, PrimType
 }  // namespace axis
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  tvm::script::ir_builder::details::Namer::vtable().SetDispatch<tvm::s_tir::IterVarNode>(
+  tvm::script::ir_builder::detail::Namer::vtable().SetDispatch<tvm::s_tir::IterVarObj>(
       [](const ffi::ObjectRef& node, ffi::String name) -> void {
         using namespace tvm::s_tir;
-        IterVarNode* var = const_cast<IterVarNode*>(node.as<IterVarNode>());
-        tvm::script::ir_builder::details::Namer::Name(var->var, name);
+        IterVarObj* var = const_cast<IterVarObj*>(node.as<IterVarObj>());
+        tvm::script::ir_builder::detail::Namer::Name(var->var, name);
       });
 }
 

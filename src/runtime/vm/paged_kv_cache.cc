@@ -600,7 +600,7 @@ class PagedAttentionKVCacheObj : public AttentionKVCacheObj {
     } else {
       aux_data_manager_ = std::make_unique<PlainPagedKVCacheAuxDataManager>(
           reserved_num_seqs, num_total_pages, prefill_chunk_size, dtype_aux_, device,
-          preferred_host_device, copy_stream_);
+          preferred_host_device, copy_stream_, support_layer_sliding_window_);
     }
 
     // Right now only the "normal" RoPE mode supports the RoPE extention factors.
@@ -3171,7 +3171,7 @@ class PagedAttentionKVCacheObj : public AttentionKVCacheObj {
                           qo_indptr_on_depths_host_[d].size());
         page_indptr_sliding_window_on_depths_view_[d] =
             aux_data_manager_->CopyPageIndptrOnDepthAsync(
-                &page_indptr_sliding_window_on_depths_host_[d], d);
+                &page_indptr_sliding_window_on_depths_host_[d], d, /*layer_sliding_window=*/true);
       }
       // 6. page_indices_sliding_window_on_depths
       for (int d = 0; d < num_depths_; ++d) {
@@ -3179,7 +3179,7 @@ class PagedAttentionKVCacheObj : public AttentionKVCacheObj {
                           page_indptr_sliding_window_on_depths_host_[d].back());
         page_indices_sliding_window_on_depths_view_[d] =
             aux_data_manager_->CopyPageIndicesOnDepthAsync(
-                &page_indices_sliding_window_on_depths_host_[d], d);
+                &page_indices_sliding_window_on_depths_host_[d], d, /*layer_sliding_window=*/true);
       }
     }
     // 7. length_info_on_depths
@@ -3206,7 +3206,8 @@ class PagedAttentionKVCacheObj : public AttentionKVCacheObj {
         layer_sliding_window_length_info_on_depths_view_[d] =
             aux_data_manager_->CopyLengthInfoOnDepthAsync(&last_page_len_on_depths_host_[d],
                                                           &sliding_window_offset_on_depths_host_[d],
-                                                          &sink_size_on_depths_host_[d], d);
+                                                          &sink_size_on_depths_host_[d], d,
+                                                          /*layer_sliding_window=*/true);
       }
     }
     // 6. k_rope_pos_offset_on_depths

@@ -205,7 +205,9 @@ class BlockBuilderImpl : public BlockBuilderObj {
         // of shape inference.  In many cases, knowning that the
         // shape variable is non-negative allows for simpler
         // expressions for dynamic shapes.
-        analyzer_->MarkGlobalNonNegValue(shape_var);
+        auto context = analyzer_->GetConstraintContext();
+        context->Append(sym::PredicateConstraint(shape_var >= 0));
+        analyzer_->SyncConstraintContext(context);
       } else {
         const PrimExpr& old_shape_expr = (*it).second;
         TVM_FFI_ICHECK(old_shape_expr.same_as(shape_expr) ||
@@ -265,9 +267,9 @@ class BlockBuilderImpl : public BlockBuilderObj {
   void EmitNormalized(Binding binding) final {
     BindingBlockFrame* cur_frame = CurrentBindingBlockFrame();
 
-    if (const auto* var_binding = binding.as<VarBindingNode>()) {
+    if (const auto* var_binding = binding.as<VarBindingObj>()) {
       if (!cur_frame->is_dataflow) {
-        TVM_FFI_ICHECK(!var_binding->var.as<DataflowVarNode>())
+        TVM_FFI_ICHECK(!var_binding->var.as<DataflowVarObj>())
             << "Cannot emit dataflow var in non-dataflow block";
       }
       // normalized check
@@ -275,9 +277,9 @@ class BlockBuilderImpl : public BlockBuilderObj {
       TVM_FFI_ICHECK(!var_binding->value->ty.as<MissingType>().has_value());
       cur_frame->bindings.push_back(binding);
       binding_table_.insert_or_assign(var_binding->var, var_binding->value);
-    } else if (const auto* match_cast = binding.as<MatchCastNode>()) {
+    } else if (const auto* match_cast = binding.as<MatchCastObj>()) {
       if (!cur_frame->is_dataflow) {
-        TVM_FFI_ICHECK(!match_cast->var.as<DataflowVarNode>())
+        TVM_FFI_ICHECK(!match_cast->var.as<DataflowVarObj>())
             << "Cannot emit dataflow var in non-dataflow block";
       }
       // normalized check
@@ -408,7 +410,7 @@ class BlockBuilderImpl : public BlockBuilderObj {
     }
     name_hint = GetUniqueName(name_hint);
     return is_dataflow ? DataflowVar(name_hint, /*ty_annotation=*/std::nullopt)
-                       : Var(name_hint, /*ty_annotation=*/std::nullopt);
+                       : Var(name_hint, Type::Missing());
   }
 
  private:
@@ -476,8 +478,8 @@ class BlockBuilderImpl : public BlockBuilderObj {
     }
 
    private:
-    void VisitType_(const TensorTypeNode* op) final {
-      if (const auto* shape_expr = op->shape.as<ShapeExprNode>()) {
+    void VisitType_(const TensorTypeObj* op) final {
+      if (const auto* shape_expr = op->shape.as<ShapeExprObj>()) {
         for (const PrimExpr& s : shape_expr->values) {
           // Only collect single var defined shape. Ignore something like `R.Tensor((m + 1, n + 1))
           if (auto var = s.as<PrimVar>()) {
@@ -487,7 +489,7 @@ class BlockBuilderImpl : public BlockBuilderObj {
       }
     }
 
-    void VisitType_(const ShapeTypeNode* op) final {
+    void VisitType_(const ShapeTypeObj* op) final {
       for (const PrimExpr& s : op->values.value_or(ffi::Array<PrimExpr>())) {
         // Only collect single var defined shape. Ignore something like `R.Shape((m + 1, n + 1))
         if (auto var = s.as<PrimVar>()) {
@@ -527,9 +529,9 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     // Invariant:
     // After Normalize: an Expr always have
     // ty (with the exception of Op).
-    if (!normalized->IsInstance<OpNode>()) {
+    if (!normalized->IsInstance<OpObj>()) {
       TVM_FFI_ICHECK(!normalized->ty.as<MissingType>().has_value())
-          << "The ty of an Expr except OpNode after "
+          << "The ty of an Expr except OpObj after "
              "normalization must not be missing. However, this Expr does not have ty: "
           << normalized;
     }
@@ -568,16 +570,16 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     }
   }
 
-  RELAX_EXPR_NORMALIZER_LEAF(ExternFuncNode);
-  RELAX_EXPR_NORMALIZER_LEAF(GlobalVarNode);
-  RELAX_EXPR_NORMALIZER_LEAF(OpNode);
-  RELAX_EXPR_NORMALIZER_LEAF(GenericConstNode);
-  RELAX_EXPR_NORMALIZER_LEAF(ShapeExprNode);
-  RELAX_EXPR_NORMALIZER_LEAF(StringImmNode);
-  RELAX_EXPR_NORMALIZER_LEAF(DataTypeImmNode);
+  RELAX_EXPR_NORMALIZER_LEAF(ExternFuncObj);
+  RELAX_EXPR_NORMALIZER_LEAF(GlobalVarObj);
+  RELAX_EXPR_NORMALIZER_LEAF(OpObj);
+  RELAX_EXPR_NORMALIZER_LEAF(GenericConstObj);
+  RELAX_EXPR_NORMALIZER_LEAF(ShapeExprObj);
+  RELAX_EXPR_NORMALIZER_LEAF(StringImmObj);
+  RELAX_EXPR_NORMALIZER_LEAF(DataTypeImmObj);
 
   Expr VisitExprDefault_(const ffi::Object* op) final {
-    Expr expr = ffi::GetRef<Expr>(static_cast<const ExprNode*>(op));
+    Expr expr = ffi::GetRef<Expr>(static_cast<const ExprObj*>(op));
     if (expr.as<PrimExpr>() || expr.as<OpaqueExpr>()) return expr;
     return ExprFunctor::VisitExprDefault_(op);
   }
@@ -591,7 +593,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return ffi::GetRef<Var>(var);
   }
 
-  Expr VisitExpr_(const VarNode* var_ptr) final {
+  Expr VisitExpr_(const VarObj* var_ptr) final {
     auto var = VisitVar_<Var>(var_ptr);
     if (HasVoidType(var)) {
       return VisitExpr(Tuple(ffi::Array<Expr>{}));
@@ -600,7 +602,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     }
   }
 
-  Expr VisitExpr_(const DataflowVarNode* var) final { return VisitVar_<DataflowVar>(var); }
+  Expr VisitExpr_(const DataflowVarObj* var) final { return VisitVar_<DataflowVar>(var); }
 
   Expr VisitExpr(const Expr& expr) final {
     // lookup normalize map
@@ -614,7 +616,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return ExprFunctor::VisitExpr(expr);
   }
 
-  Expr VisitExpr_(const TupleNode* op) final {
+  Expr VisitExpr_(const TupleObj* op) final {
     bool unchanged = true;
     ffi::Array<Expr> new_fields;
 
@@ -636,7 +638,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return tuple;
   }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     Expr new_body = this->VisitWithNewScope(op->body, op->params);
 
     if (new_body.same_as(op->body)) {
@@ -646,8 +648,8 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     }
   }
 
-  Expr VisitExpr_(const CallNode* op) final {
-    TVM_FFI_CHECK(op->op.as<OpNode>() || !op->op->ty.as<tvm::FuncTypeNode>(), TypeError)
+  Expr VisitExpr_(const CallObj* op) final {
+    TVM_FFI_CHECK(op->op.as<OpObj>() || !op->op->ty.as<tvm::FuncTypeObj>(), TypeError)
         << "Ordinary Relax calls cannot invoke a native TIRx function; "
         << "use R.call_tir for destination passing or R.call_tir_packed for a direct result";
     Expr new_op = this->NormalizeArgument(op->op);
@@ -689,7 +691,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return call;
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) final {
+  Expr VisitExpr_(const SeqExprObj* op) final {
     bool unchanged = true;
     ffi::Array<BindingBlock> new_blocks;
     for (BindingBlock block : op->blocks) {
@@ -738,7 +740,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return seq_expr;
   }
 
-  Expr VisitExpr_(const IfExprNode* op) final {
+  Expr VisitExpr_(const IfExprObj* op) final {
     Expr new_cond = this->NormalizeArgument(op->cond);
     Expr new_true = this->VisitWithNewScope(op->true_branch);
     Expr new_false = this->VisitWithNewScope(op->false_branch);
@@ -759,7 +761,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     return if_node;
   }
 
-  Expr VisitExpr_(const TupleGetItemNode* op) final {
+  Expr VisitExpr_(const TupleGetItemObj* op) final {
     Expr new_tuple = this->NormalizeArgument(op->tuple);
 
     TupleGetItem node = new_tuple.same_as(op->tuple) ? ffi::GetRef<TupleGetItem>(op)
@@ -776,10 +778,10 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
   }
 
   Binding VisitBinding(const Binding& binding) {
-    if (auto* var_binding = binding.as<VarBindingNode>()) {
+    if (auto* var_binding = binding.as<VarBindingObj>()) {
       return this->VisitVarBinding(ffi::GetRef<VarBinding>(var_binding));
     } else {
-      auto* match_cast = binding.as<MatchCastNode>();
+      auto* match_cast = binding.as<MatchCastObj>();
       TVM_FFI_ICHECK(match_cast) << "Unsupported binding type: " << binding->GetTypeKey();
       return this->VisitMatchCast(ffi::GetRef<MatchCast>(match_cast));
     }
@@ -808,7 +810,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
   }
 
   BindingBlock VisitBindingBlock(const BindingBlock& block) {
-    if (block.as<DataflowBlockNode>()) {
+    if (block.as<DataflowBlockObj>()) {
       this->BeginDataflowBlock();
     } else {
       this->BeginBindingBlock();
@@ -832,19 +834,19 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
  private:
   // Helper function to infer the type of a Call.
   Type InferType(const Call& call) {
-    if (auto* op_ptr = call->op.as<OpNode>()) {
+    if (auto* op_ptr = call->op.as<OpObj>()) {
       // Case 1: the op field is a primitive op, look up FInferTypeWithBuilder attribute
       Op op = ffi::GetRef<Op>(op_ptr);
       bool is_dist_op = false;
       for (const auto& arg : call->args) {
-        if (arg->ty.as<distributed::DTensorTypeNode>()) {
+        if (arg->ty.as<distributed::DTensorTypeObj>()) {
           is_dist_op = true;
           break;
         }
       }
       if (is_dist_op) {
         for (const auto& arg : call->args) {
-          TVM_FFI_ICHECK(!arg->ty.as<TensorTypeNode>())
+          TVM_FFI_ICHECK(!arg->ty.as<TensorTypeObj>())
               << "Distributed operator must take DTensor instead of Tensor as input";
         }
         TVM_FFI_ICHECK(op_map_dist_infer_ty.count(op))
@@ -900,7 +902,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
 
     Expr ret = [&]() -> Expr {
       // SeqExpr do not need to prepare for normalization.
-      if (expr.as<SeqExprNode>()) {
+      if (expr.as<SeqExprObj>()) {
         return this->VisitExpr(expr);
       } else {
         this->BeginBindingBlock();
@@ -908,7 +910,7 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
         BindingBlock prologue = this->EndBlock();
         // "New scopes" (function bodies, if/else clauses) must be wrapped in seq exprs.
         // Don't wrap if it's already a seq and there are no bindings to add
-        if (post.as<SeqExprNode>() && prologue->bindings.empty()) {
+        if (post.as<SeqExprObj>() && prologue->bindings.empty()) {
           return post;
         }
         ffi::Array<BindingBlock> bindings;
@@ -933,13 +935,13 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
     ffi::Array<BindingBlock> ret;
     bool changed = false;
     for (const BindingBlock& block : blocks) {
-      bool is_dataflow = block->IsInstance<DataflowBlockNode>();
+      bool is_dataflow = block->IsInstance<DataflowBlockObj>();
       ffi::Array<Binding> current;
       for (const Binding& binding : block->bindings) {
         Expr value = [&]() -> Expr {
-          if (const auto* var_binding = binding.as<VarBindingNode>()) {
+          if (const auto* var_binding = binding.as<VarBindingObj>()) {
             return var_binding->value;
-          } else if (const auto* match_cast = binding.as<MatchCastNode>()) {
+          } else if (const auto* match_cast = binding.as<MatchCastObj>()) {
             return match_cast->value;
           } else {
             TVM_FFI_THROW(InternalError) << "Unknown binding type: " << binding->GetTypeKey();
@@ -952,14 +954,14 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
         //   3. Append the inner blocks
         //   4. Add a binding of the current var to the seq expr's body to the current block
         // then continue
-        if (auto seq = value.as<SeqExprNode>()) {
+        if (auto seq = value.as<SeqExprObj>()) {
           changed = true;
           ret.push_back(is_dataflow ? DataflowBlock(current) : BindingBlock(current));
           current = {};
           // We do not need to flatten recursively because the normalizer will have normalized
           // and thus flattened the inner SeqExprs already
           for (const BindingBlock& block : seq->blocks) {
-            if (is_dataflow && !block->IsInstance<DataflowBlockNode>()) {
+            if (is_dataflow && !block->IsInstance<DataflowBlockObj>()) {
               // A DataflowBlock occurring within a non-DataflowBlock
               // usually is an error, resulting from return of a
               // `BindingBlock`.  However, it may still be well-formed
@@ -993,9 +995,9 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
             ret.push_back(block);
           }
 
-          if (const auto* var_binding = binding.as<VarBindingNode>()) {
+          if (const auto* var_binding = binding.as<VarBindingObj>()) {
             current.push_back(VarBinding(var_binding->var, seq->body));
-          } else if (const auto* match_cast = binding.as<MatchCastNode>()) {
+          } else if (const auto* match_cast = binding.as<MatchCastObj>()) {
             current.push_back(MatchCast(match_cast->var, seq->body, match_cast->ty));
           } else {
             TVM_FFI_THROW(InternalError) << "Unknown binding type: " << binding->GetTypeKey();
@@ -1024,13 +1026,13 @@ class Normalizer : public BlockBuilderImpl, private ExprFunctor<Expr(const Expr&
       } else if (!ret.empty() && ret.back()->type_index() == block->type_index()) {
         // Case 2. Merge with previous block if possible
         BindingBlock merged(ffi::UnsafeInit{});
-        // NOTE: should check DataflowBlockNode first.
-        if (const auto* dataflow_block = ret.back().as<DataflowBlockNode>()) {
-          auto n = ffi::make_object<DataflowBlockNode>(*dataflow_block);
+        // NOTE: should check DataflowBlockObj first.
+        if (const auto* dataflow_block = ret.back().as<DataflowBlockObj>()) {
+          auto n = ffi::make_object<DataflowBlockObj>(*dataflow_block);
           n->bindings.insert(n->bindings.end(), block->bindings.begin(), block->bindings.end());
           merged = DataflowBlock(ffi::UnsafeInit{}, std::move(n));
-        } else if (const auto* binding_block = ret.back().as<BindingBlockNode>()) {
-          auto n = ffi::make_object<BindingBlockNode>(*binding_block);
+        } else if (const auto* binding_block = ret.back().as<BindingBlockObj>()) {
+          auto n = ffi::make_object<BindingBlockObj>(*binding_block);
           n->bindings.insert(n->bindings.end(), block->bindings.begin(), block->bindings.end());
           merged = BindingBlock(ffi::UnsafeInit{}, std::move(n));
         } else {

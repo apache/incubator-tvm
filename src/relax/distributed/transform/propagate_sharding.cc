@@ -41,7 +41,7 @@ namespace tvm {
 namespace relax {
 namespace distributed {
 
-void CollectAxisGraphBinary(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphBinary(const VarBindingObj* binding, const CallObj* call,
                             AxisGroupGraph* axis_group_graph) {
   const std::vector<std::string> binary_op_names = {
       "add",     "subtract",      "multiply", "divide",     "power",     "floor_divide", "equal",
@@ -55,7 +55,7 @@ void CollectAxisGraphBinary(const VarBindingNode* binding, const CallNode* call,
   }
 }
 
-void CollectAxisGraphUnary(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphUnary(const VarBindingObj* binding, const CallObj* call,
                            AxisGroupGraph* axis_group_graph) {
   const std::vector<std::string> unary_op_names = {
       "abs",    "acos",     "acosh",
@@ -77,7 +77,7 @@ void CollectAxisGraphUnary(const VarBindingNode* binding, const CallNode* call,
   }
 }
 
-void CollectAxisGraphReduce(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphReduce(const VarBindingObj* binding, const CallObj* call,
                             AxisGroupGraph* axis_group_graph) {
   const std::vector<std::string> reduction_op_names = {"sum",  "max", "min",      "prod",
                                                        "mean", "std", "variance", "nn.softmax"};
@@ -90,7 +90,7 @@ void CollectAxisGraphReduce(const VarBindingNode* binding, const CallNode* call,
   }
 }
 
-void CollectAxisGraphMatmul(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphMatmul(const VarBindingObj* binding, const CallObj* call,
                             AxisGroupGraph* axis_group_graph) {
   static const Op matmul_op = Op::Get("relax.matmul");
   if (call->op.same_as(matmul_op)) {
@@ -98,7 +98,7 @@ void CollectAxisGraphMatmul(const VarBindingNode* binding, const CallNode* call,
   }
 }
 
-void CollectAxisGraphPermuteDims(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphPermuteDims(const VarBindingObj* binding, const CallObj* call,
                                  AxisGroupGraph* axis_group_graph) {
   static const Op permute_dims_op = Op::Get("relax.permute_dims");
   if (call->op.same_as(permute_dims_op)) {
@@ -106,7 +106,7 @@ void CollectAxisGraphPermuteDims(const VarBindingNode* binding, const CallNode* 
   }
 }
 
-void CollectAxisGraphReshape(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphReshape(const VarBindingObj* binding, const CallObj* call,
                              AxisGroupGraph* axis_group_graph) {
   static const Op reshape_op = Op::Get("relax.reshape");
   if (call->op.same_as(reshape_op)) {
@@ -114,7 +114,7 @@ void CollectAxisGraphReshape(const VarBindingNode* binding, const CallNode* call
   }
 }
 
-void CollectAxisGraphForDeviceMesh(const VarBindingNode* binding, const CallNode* call,
+void CollectAxisGraphForDeviceMesh(const VarBindingObj* binding, const CallObj* call,
                                    AxisGroupGraph* axis_group_graph) {
   ffi::Array<Expr> tensor_list;
   static const Op call_tir_op = Op::Get("relax.call_tir");
@@ -125,7 +125,7 @@ void CollectAxisGraphForDeviceMesh(const VarBindingNode* binding, const CallNode
     args = call->args;
   }
   for (const auto& arg : args) {
-    if (arg->ty.as<TensorTypeNode>()) {
+    if (arg->ty.as<TensorTypeObj>()) {
       tensor_list.push_back(arg);
     }
   }
@@ -150,7 +150,7 @@ class AxisGroupGraphBuilder : public ExprVisitor {
   explicit AxisGroupGraphBuilder(AxisGroupGraph* axis_group_graph, IRModule mod)
       : axis_group_graph_(axis_group_graph), mod_(mod) {}
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* val) {
     CollectAxisGraphBinary(binding, val, axis_group_graph_);
     CollectAxisGraphUnary(binding, val, axis_group_graph_);
     CollectAxisGraphReduce(binding, val, axis_group_graph_);
@@ -168,10 +168,10 @@ class AxisGroupGraphBuilder : public ExprVisitor {
     ExprVisitor::VisitBinding_(binding, val);
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* val) {
     axis_group_graph_->JoinAxis(Axis(val->tuple.get(), -1, val->index), {binding->var.get(), -1},
                                 distributed::AxisGroupGraph::EdgeType::kDescend);
-    const auto* tensor_ty = GetTypeAs<TensorTypeNode>(binding->var);
+    const auto* tensor_ty = GetTypeAs<TensorTypeObj>(binding->var);
     if (!tensor_ty) {
       ExprVisitor::VisitBinding_(binding, val);
       return;
@@ -184,11 +184,11 @@ class AxisGroupGraphBuilder : public ExprVisitor {
     ExprVisitor::VisitBinding_(binding, val);
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const VarNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const VarObj* val) {
     ffi::Array<TensorType> tensor_tys;
-    if (const auto* tensor_ty = binding->var->ty.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = binding->var->ty.as<TensorTypeObj>()) {
       tensor_tys.push_back(ffi::GetRef<TensorType>(tensor_ty));
-    } else if (const auto* tuple_ty = binding->var->ty.as<TupleTypeNode>()) {
+    } else if (const auto* tuple_ty = binding->var->ty.as<TupleTypeObj>()) {
       TVM_FFI_ICHECK(tuple_ty);
       for (const auto& field_ty : tuple_ty->fields) {
         tensor_tys.push_back(field_ty.as_or_throw<TensorType>());
@@ -224,7 +224,7 @@ class ShardingAnnotationCollector : public ExprVisitor {
  private:
   explicit ShardingAnnotationCollector(AxisGroupGraph* axis_group_graph)
       : axis_group_graph_(axis_group_graph) {}
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* val) {
     static const Op annotate_sharding_op = Op::Get("relax.dist.annotate_sharding");
     if (val->op.same_as(annotate_sharding_op)) {
       const auto* attrs = val->attrs.as<DistributionAttrs>();
@@ -255,7 +255,7 @@ class ShardingConflictHandler : public ExprVisitor {
     ShardingConflictHandler handler(axis_group_graph);
     handler.VisitExpr(function);
     for (const Var& var : function->params) {
-      if (GetTypeAs<TensorTypeNode>(var)) {
+      if (GetTypeAs<TensorTypeObj>(var)) {
         handler.CheckTensorShardingCompatible(var);
       }
     }
@@ -267,9 +267,9 @@ class ShardingConflictHandler : public ExprVisitor {
       : axis_group_graph_(axis_group_graph) {}
 
   void CheckTensorShardingCompatible(Var var) {
-    const auto* tensor_ty = GetTypeAs<TensorTypeNode>(var);
+    const auto* tensor_ty = GetTypeAs<TensorTypeObj>(var);
     TVM_FFI_ICHECK(tensor_ty);
-    const auto* shape = tensor_ty->shape.as<ShapeExprNode>();
+    const auto* shape = tensor_ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK(shape);
     int ndim = tensor_ty->ndim;
     std::unordered_set<int> sharded_mesh_dim;
@@ -297,7 +297,7 @@ class ShardingConflictHandler : public ExprVisitor {
             << ": Replicate sharding device mesh axis " << sharding_dim
             << ". Conflict Handling logic will be added in the future.";
         sharded_mesh_dim.insert(sharding_dim);
-        if (const auto* val = shape->values[i].as<IntImmNode>()) {
+        if (const auto* val = shape->values[i].as<IntImmObj>()) {
           if (val->value < device_mesh.value()->shape[sharding_spec->second]) {
             axis_group_graph_->AddPropagationCutPoint({var.get(), i}, sharding_spec.value());
           }
@@ -307,7 +307,7 @@ class ShardingConflictHandler : public ExprVisitor {
   }
 
   void CheckConstantNoSharding(GenericConst constant) {
-    const auto* tensor_ty = GetTypeAs<TensorTypeNode>(constant);
+    const auto* tensor_ty = GetTypeAs<TensorTypeObj>(constant);
     for (int i = 0; i < tensor_ty->ndim; i++) {
       std::optional<AxisShardingSpec> sharding_spec;
       int has_sharding_spec;
@@ -318,18 +318,18 @@ class ShardingConflictHandler : public ExprVisitor {
     }
   }
 
-  void VisitExpr_(const CallNode* op) final {
+  void VisitExpr_(const CallObj* op) final {
     ffi::Array<Expr> args = GetCallArgs(ffi::GetRef<Call>(op));
     for (const auto& arg : args) {
-      if (arg.as<GenericConstNode>() && arg->ty.as<TensorTypeNode>()) {
+      if (arg.as<GenericConstObj>() && arg->ty.as<TensorTypeObj>()) {
         CheckConstantNoSharding(arg.as_or_throw<GenericConst>());
       }
     }
     ExprVisitor::VisitExpr_(op);
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
-    if (GetTypeAs<TensorTypeNode>(binding->var)) {
+  void VisitBinding_(const VarBindingObj* binding) final {
+    if (GetTypeAs<TensorTypeObj>(binding->var)) {
       CheckTensorShardingCompatible(binding->var);
     }
     ExprVisitor::VisitBinding_(binding);
@@ -348,7 +348,7 @@ class DistributedIRBuilder : public ExprMutator {
   IRModule BuildDistributedIR() {
     auto mod = builder_->GetContextIRModule();
     for (const auto& [gv, base_func] : mod->functions) {
-      const auto* func_ = base_func.as<FunctionNode>();
+      const auto* func_ = base_func.as<FunctionObj>();
       if (func_ == nullptr || !IsShardingAnnotatedFunc(ffi::GetRef<Function>(func_))) {
         continue;
       }
@@ -385,12 +385,12 @@ class DistributedIRBuilder : public ExprMutator {
 
   Expr RewriteInputTensorAndConstant(Expr tensor) {
     Type new_ty = Type::Missing();
-    if (tensor->ty.as<TensorTypeNode>()) {
+    if (tensor->ty.as<TensorTypeObj>()) {
       new_ty = ConvertToDTensorType(tensor->ty.as_or_throw<TensorType>(), tensor);
-    } else if (const auto* tuple = tensor->ty.as<TupleTypeNode>()) {
+    } else if (const auto* tuple = tensor->ty.as<TupleTypeObj>()) {
       ffi::Array<Type> tuple_ty_fields;
       for (int i = 0; i < static_cast<int>(tuple->fields.size()); i++) {
-        if (tuple->fields[i].as<TensorTypeNode>()) {
+        if (tuple->fields[i].as<TensorTypeObj>()) {
           tuple_ty_fields.push_back(
               ConvertToDTensorType(tuple->fields[i].as_or_throw<TensorType>(), tensor, i));
         } else {
@@ -400,10 +400,10 @@ class DistributedIRBuilder : public ExprMutator {
       new_ty = TupleType(tuple_ty_fields);
     }
 
-    if (const auto* var = tensor.as<VarNode>()) {
+    if (const auto* var = tensor.as<VarObj>()) {
       Var new_param(var->name, new_ty);
       return new_param;
-    } else if (const auto* constant = tensor.as<GenericConstNode>()) {
+    } else if (const auto* constant = tensor.as<GenericConstObj>()) {
       GenericConst new_constant(new_ty, constant->value.cast<ffi::Tensor>());
       return new_constant;
     } else {
@@ -422,7 +422,7 @@ class DistributedIRBuilder : public ExprMutator {
     // Step 4. Rewrite Function
     ffi::Array<Var> new_params;
     for (const Var& var : func->params) {
-      if (GetTypeAs<TensorTypeNode>(var) || GetTypeAs<TupleTypeNode>(var)) {
+      if (GetTypeAs<TensorTypeObj>(var) || GetTypeAs<TupleTypeObj>(var)) {
         Var new_param = RewriteInputTensorAndConstant(var).as_or_throw<Var>();
         input_tensor_remap_.Set(var, new_param);
         new_params.push_back(new_param);
@@ -435,7 +435,7 @@ class DistributedIRBuilder : public ExprMutator {
     return new_func;
   }
 
-  Expr VisitExpr_(const CallNode* call) final {
+  Expr VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     FBuildAxisGraph f = [&](const Var& var, const Call& call, AxisGroupGraph* axis_group_graph) {
       ffi::Optional<tirx::Function> function =
@@ -446,12 +446,12 @@ class DistributedIRBuilder : public ExprMutator {
     Call new_call = ExprMutator::VisitExpr_(call).as_or_throw<Call>();
     ffi::Array<Expr> args = GetCallArgs(new_call);
     for (int i = 0; i < static_cast<int>(args.size()); i++) {
-      if (args[i].as<GenericConstNode>() && args[i]->ty.as<TensorTypeNode>()) {
+      if (args[i].as<GenericConstObj>() && args[i]->ty.as<TensorTypeObj>()) {
         args.Set(i, RewriteInputTensorAndConstant(args[i]));
       }
     }
 
-    ffi::ObjectPtr<CallNode> n = ffi::make_object<CallNode>(*new_call.get());
+    ffi::ObjectPtr<CallObj> n = ffi::make_object<CallObj>(*new_call.get());
     if (new_call->op.same_as(call_tir_op)) {
       // do not infer output type when arg size is 0
       if (!args.empty()) {
@@ -462,7 +462,7 @@ class DistributedIRBuilder : public ExprMutator {
       n->args = args;
     }
 
-    if (const auto* extern_func = new_call->op.as<ExternFuncNode>()) {
+    if (const auto* extern_func = new_call->op.as<ExternFuncObj>()) {
       if (extern_func->global_symbol == "vm.builtin.attention_kv_cache_append") {
         n->op = ExternFunc("vm.builtin.distributed.attention_kv_cache_append");
       } else if (extern_func->global_symbol == "vm.builtin.attention_kv_cache_view") {
@@ -489,9 +489,9 @@ class DistributedIRBuilder : public ExprMutator {
     // In cases when inference fails (for example, arg size is 0), use the propagated output type.
     Call new_call = call;
     static Op call_tir_op = Op::Get("relax.call_tir");
-    if (const auto* extern_func = call->op.as<ExternFuncNode>()) {
+    if (const auto* extern_func = call->op.as<ExternFuncObj>()) {
       if (extern_func->global_symbol == "vm.builtin.distributed.attention_kv_cache_view") {
-        ffi::ObjectPtr<CallNode> new_call_node = ffi::make_object<CallNode>(*call.get());
+        ffi::ObjectPtr<CallObj> new_call_node = ffi::make_object<CallObj>(*call.get());
         Type new_dtensor_ty =
             DTensorType(call->ty_args[0].as_or_throw<TensorType>(), device_mesh, placements[0]);
         new_call_node->ty_args = {new_dtensor_ty};
@@ -501,12 +501,12 @@ class DistributedIRBuilder : public ExprMutator {
     } else if (call->op.same_as(call_tir_op)) {
       TVM_FFI_ICHECK(call->ty_args.size() == 1);
       if (!TypeCompatibleWithDistIR(call->ty_args)) {
-        ffi::ObjectPtr<CallNode> new_call_node = ffi::make_object<CallNode>(*call.get());
+        ffi::ObjectPtr<CallObj> new_call_node = ffi::make_object<CallObj>(*call.get());
         if (placements.size() == 1) {
           new_call_node->ty_args = {
               DTensorType(call->ty_args[0].as_or_throw<TensorType>(), device_mesh, placements[0])};
         } else {
-          const auto* tuple_ty = call->ty_args[0].as<TupleTypeNode>();
+          const auto* tuple_ty = call->ty_args[0].as<TupleTypeObj>();
           TVM_FFI_ICHECK(placements.size() == tuple_ty->fields.size());
           ffi::Array<Type> new_tuple_ty_fields;
           for (int i = 0; i < static_cast<int>(placements.size()); i++) {
@@ -522,11 +522,11 @@ class DistributedIRBuilder : public ExprMutator {
     return new_call;
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* val) {
     ffi::Array<TensorType> orig_output_tys;
-    if (const auto* tensor_ty = GetTypeAs<TensorTypeNode>(binding->var)) {
+    if (const auto* tensor_ty = GetTypeAs<TensorTypeObj>(binding->var)) {
       orig_output_tys.push_back(ffi::GetRef<TensorType>(tensor_ty));
-    } else if (const auto* tuple_ty = GetTypeAs<TupleTypeNode>(binding->var)) {
+    } else if (const auto* tuple_ty = GetTypeAs<TupleTypeObj>(binding->var)) {
       for (const auto& field_ty : tuple_ty->fields) {
         orig_output_tys.push_back(field_ty.as_or_throw<TensorType>());
       }
@@ -558,20 +558,20 @@ class DistributedIRBuilder : public ExprMutator {
     new_call =
         builder_->Normalize(RewriteOutType(new_call, device_mesh, placements)).as_or_throw<Call>();
 
-    if (const auto* inferred_dtensor_ty = new_call->ty.as<DTensorTypeNode>()) {
+    if (const auto* inferred_dtensor_ty = new_call->ty.as<DTensorTypeObj>()) {
       Expr new_value = RemoveAnnotateSharding(new_call);
       if (!ffi::StructuralEqual()(
               DTensorType(inferred_dtensor_ty->tensor_ty, device_mesh, placements[0]),
               new_call->ty)) {
         new_value = InsertRedistribute(new_value, device_mesh, placements[0]);
       }
-      if (const auto* var = new_value.as<VarNode>()) {
+      if (const auto* var = new_value.as<VarObj>()) {
         var_remap_.insert_or_assign(binding->var, ffi::GetRef<Var>(var));
       } else {
         ReEmitBinding(binding, builder_->Normalize(new_value));
       }
     } else {
-      const auto* inferred_tuple_ty = new_call->ty.as<TupleTypeNode>();
+      const auto* inferred_tuple_ty = new_call->ty.as<TupleTypeObj>();
       TVM_FFI_ICHECK(inferred_tuple_ty) << new_call;
       Var new_var = builder_->Emit(new_call);
       var_remap_.insert_or_assign(binding->var, new_var);
@@ -588,7 +588,7 @@ class DistributedIRBuilder : public ExprMutator {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* val) {
+  void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* val) {
     if (tuple_getitem_remap_.count(ffi::GetRef<TupleGetItem>(val))) {
       var_remap_.insert_or_assign(binding->var,
                                   tuple_getitem_remap_.at(ffi::GetRef<TupleGetItem>(val)));
@@ -597,7 +597,7 @@ class DistributedIRBuilder : public ExprMutator {
     }
   }
 
-  Expr VisitExpr_(const VarNode* var) final {
+  Expr VisitExpr_(const VarObj* var) final {
     Var var_ref = ffi::GetRef<Var>(var);
     auto it = input_tensor_remap_.find(var_ref);
     if (it != input_tensor_remap_.end()) {

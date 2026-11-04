@@ -56,7 +56,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.unique", unique);
 }
 
-Type InferTypeUnique(const CallNode* call_node) {
+Type InferTypeUnique(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = call->args[0]->ty.as_or_throw<TensorType>();
   ffi::Optional<PrimExpr> axis;
@@ -67,7 +67,7 @@ Type InferTypeUnique(const CallNode* call_node) {
   }
   if (!data_ty->IsUnknownNdim() && axis.has_value()) {
     // Normalize the axis for sanity check purpose.
-    if (const auto* axis_int = axis.as<IntImmNode>()) {
+    if (const auto* axis_int = axis.as<IntImmObj>()) {
       NormalizeAxis(call, data_ty->ndim, axis_int->value.as<int>().value());
     }
   }
@@ -80,9 +80,9 @@ Type InferTypeUnique(const CallNode* call_node) {
   PrimExpr return_counts = call->args[4].as_or_throw<PrimExpr>();
 
   auto f_convert_to_int64 = [](const PrimExpr& value) {
-    TVM_FFI_ICHECK(value->IsInstance<IntImmNode>())
+    TVM_FFI_ICHECK(value->IsInstance<IntImmObj>())
         << value << " expects to be IntImm, but gets " << value->GetTypeKey();
-    const auto* val_node = value.as<IntImmNode>();
+    const auto* val_node = value.as<IntImmObj>();
     auto val_imm = ffi::GetRef<IntImm>(val_node);
     return static_cast<int64_t>(val_imm->value);
   };
@@ -176,7 +176,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.nonzero", nonzero);
 }
 
-Type InferTypeNonzero(const CallNode* call_node) {
+Type InferTypeNonzero(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetInputTensorType(call, 0);
   return TensorType(PrimType::Int(64), 2, data_ty->vdevice);

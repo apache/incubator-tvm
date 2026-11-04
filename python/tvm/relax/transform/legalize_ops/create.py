@@ -34,9 +34,7 @@ from .common import LegalizeFunc, _try_convert_to_scalar_const, register_legaliz
 def _full(is_like: bool, fill_value: float | None, function_name: str) -> LegalizeFunc:
     def full_call_te(bb: BlockBuilder, call: Call) -> Expr:
         _fill_value = (
-            _try_convert_to_scalar_const(call.args[1], python_native=True)
-            if fill_value is None
-            else fill_value
+            _try_convert_to_scalar_const(call.args[1]) if fill_value is None else fill_value
         )
         shape = call.args[0].ty.shape if is_like else call.args[0]
 

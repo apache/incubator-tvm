@@ -36,7 +36,7 @@ namespace {
 ffi::Optional<ExprDoc> MatchCastDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                              const ffi::Object* destination) {
   const auto* binding =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::MatchCastNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::MatchCastObj>(input);
   TVM_FFI_CHECK(destination == nullptr, TypeError)
       << "printer statement-only node cannot fulfill a destination";
   ExprDoc rhs =
@@ -53,7 +53,7 @@ ffi::Optional<ExprDoc> MatchCastDocTranslate(DocTranslatorObj* d, ffi::AnyView i
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::MatchCastNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::MatchCastObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&MatchCastDocTranslate>());
 }
@@ -61,11 +61,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> VarBindingDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                               const ffi::Object* destination) {
   const auto* binding =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::VarBindingNode>(
-          input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::VarBindingObj>(input);
   TVM_FFI_CHECK(destination == nullptr, TypeError)
       << "printer statement-only node cannot fulfill a destination";
-  if (auto func = binding->value.as<relax::FunctionNode>()) {
+  if (auto func = binding->value.as<relax::FunctionObj>()) {
     IdDoc lhs = VarDoc(d, binding->var);
     d->Translate(binding->value);
     FunctionDoc function = d->CurrentScopeDocs().back().as_or_throw<FunctionDoc>();
@@ -88,14 +87,14 @@ ffi::Optional<ExprDoc> VarBindingDocTranslate(DocTranslatorObj* d, ffi::AnyView 
   if (!rhs.has_value()) return std::nullopt;
   ffi::Optional<ExprDoc> annotation = std::nullopt;
   bool infer_vdevice = false;
-  if (auto tensor = binding->var->ty.as<relax::TensorTypeNode>();
+  if (auto tensor = binding->var->ty.as<relax::TensorTypeObj>();
       tensor && tensor->vdevice.has_value()) {
-    if (auto call = binding->value.as<CallNode>()) {
+    if (auto call = binding->value.as<CallObj>()) {
       if (auto op = call->op.as<Op>()) infer_vdevice = op.value()->name == "relax.to_vdevice";
     }
   }
   bool show_all_ty = d->GetExtraConfig<bool>("relax.show_all_ty", true);
-  const auto* call = binding->value.as<CallNode>();
+  const auto* call = binding->value.as<CallObj>();
   bool output_type_argument = call && call->ty_args.size() == 1 &&
                               ffi::StructuralEqual()(binding->var->ty, call->ty_args[0]);
   ffi::Optional<Type> inferred = std::nullopt;
@@ -116,7 +115,7 @@ ffi::Optional<ExprDoc> VarBindingDocTranslate(DocTranslatorObj* d, ffi::AnyView 
   // Primitive aliases need their annotation. Without context-free inference,
   // keep the binding type and let the parser's deferred inference use it.
   bool elide_annotation = infer_vdevice || explicit_output_type ||
-                          (!show_all_ty && !binding->var->ty.as<PrimTypeNode>() && inferable);
+                          (!show_all_ty && !binding->var->ty.as<PrimTypeObj>() && inferable);
   if (!binding->var->ty.as<MissingType>().has_value() && !elide_annotation) {
     annotation = d->Translate(binding->var->ty).value();
   }
@@ -125,7 +124,7 @@ ffi::Optional<ExprDoc> VarBindingDocTranslate(DocTranslatorObj* d, ffi::AnyView 
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::VarBindingNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::VarBindingObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&VarBindingDocTranslate>());
 }
@@ -133,7 +132,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> IfDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                       const ffi::Object* destination) {
   const auto* branch =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::IfExprNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::IfExprObj>(input);
   // A value context needs a usable expression after the conditional.  A
   // destination supplied by a binding is completed directly on both arms.
   ffi::Optional<Var> temporary = std::nullopt;
@@ -142,9 +141,9 @@ ffi::Optional<ExprDoc> IfDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
     VarDoc(d, temporary.value());
     destination = temporary.value().get();
   }
-  TVM_FFI_CHECK(destination->IsInstance<VarNode>(), TypeError)
+  TVM_FFI_CHECK(destination->IsInstance<VarObj>(), TypeError)
       << "printer Relax IfExpr destination must be a Var";
-  Var var = ffi::GetRef<Var>(static_cast<const VarNode*>(destination));
+  Var var = ffi::GetRef<Var>(static_cast<const VarObj*>(destination));
   ffi::Optional<IdDoc> lhs = VarDoc(d, var);
   ffi::Optional<ExprDoc> annotation = std::nullopt;
   if (!var->ty.as<MissingType>().has_value()) annotation = d->Translate(var->ty).value();
@@ -156,7 +155,7 @@ ffi::Optional<ExprDoc> IfDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::IfExprNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::IfExprObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&IfDocTranslate>());
 }

@@ -69,7 +69,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.vision.roi_pool", roi_pool);
 }
 
-Type InferTypeROIPool(const CallNode* call_node) {
+Type InferTypeROIPool(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call)
@@ -77,8 +77,8 @@ Type InferTypeROIPool(const CallNode* call_node) {
         << call->args.size();
   }
 
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* rois_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* rois_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "ROIPool expects the input data to be a Tensor, while the given data is "
@@ -107,9 +107,9 @@ Type InferTypeROIPool(const CallNode* call_node) {
         << "ROIPool only supports NCHW layout, but got " << attrs->layout;
   }
 
-  const auto* rois_shape = rois_ty->shape.as<ShapeExprNode>();
+  const auto* rois_shape = rois_ty->shape.as<ShapeExprObj>();
   if (rois_shape != nullptr) {
-    const auto* last_dim = rois_shape->values[1].as<IntImmNode>();
+    const auto* last_dim = rois_shape->values[1].as<IntImmObj>();
     if (last_dim != nullptr && last_dim->value != 5) {
       TVM_FFI_VISIT_THROW(ValueError, call)
           << "ROIPool expects rois to have shape (num_roi, 5), but got last "
@@ -118,11 +118,11 @@ Type InferTypeROIPool(const CallNode* call_node) {
     }
   }
 
-  if (data_ty->shape.as<ShapeExprNode>() == nullptr || rois_shape == nullptr) {
+  if (data_ty->shape.as<ShapeExprObj>() == nullptr || rois_shape == nullptr) {
     return TensorType(data_ty->dtype, 4, data_ty->vdevice);
   }
 
-  ffi::Array<PrimExpr> data_shape = data_ty->shape.as<ShapeExprNode>()->values;
+  ffi::Array<PrimExpr> data_shape = data_ty->shape.as<ShapeExprObj>()->values;
   ffi::Array<PrimExpr> out_shape = {rois_shape->values[0], data_shape[1],
                                     IntImm::Int32(attrs->pooled_size[0]),
                                     IntImm::Int32(attrs->pooled_size[1])};

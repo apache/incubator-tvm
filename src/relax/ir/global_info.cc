@@ -28,21 +28,21 @@ namespace tvm {
 namespace relax {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  VDeviceNode::RegisterReflection();
-  DummyGlobalInfoNode::RegisterReflection();
+  VDeviceObj::RegisterReflection();
+  DummyGlobalInfoObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   auto make_dummy = []() {
-    return DummyGlobalInfo(ffi::UnsafeInit{}, ffi::make_object<DummyGlobalInfoNode>());
+    return DummyGlobalInfo(ffi::UnsafeInit{}, ffi::make_object<DummyGlobalInfoObj>());
   };
   refl::GlobalDef().def("relax.DummyGlobalInfo", make_dummy);
 }
 
 VDevice::VDevice(ffi::Optional<Target> tgt, int dev_id, MemoryScope mem_scope)
     : GlobalInfo(ffi::UnsafeInit{}) {
-  ffi::ObjectPtr<VDeviceNode> n = ffi::make_object<VDeviceNode>();
+  ffi::ObjectPtr<VDeviceObj> n = ffi::make_object<VDeviceObj>();
   n->target = std::move(tgt);
   n->vdevice_id = std::move(dev_id);
   n->memory_scope = std::move(mem_scope);

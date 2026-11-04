@@ -100,7 +100,7 @@ inline TensorType GetUnaryInputTensorType(const Call& call) { return GetInputTen
 inline bool RequiresTensorInputNormalization(const Call& call) {
   CheckNumArguments(call);
   for (const Expr& arg : call->args) {
-    if (arg->ty.as<MissingTypeNode>() || arg->ty.as<distributed::DTensorTypeNode>()) return true;
+    if (arg->ty.as<MissingTypeObj>() || arg->ty.as<distributed::DTensorTypeObj>()) return true;
   }
   return false;
 }
@@ -214,10 +214,10 @@ inline Type InferTypeUnary(const Call& call, FType f_compute_out_dtype) {
                      computed_dtype.value()->dtype == input_ty->dtype.value()->dtype);
   TensorType inferred = input_ty;
   if (!call->ty_args.empty() || !same_dtype) {
-    auto output_ty = ffi::make_object<TensorTypeNode>(*input_ty.get());
+    auto output_ty = ffi::make_object<TensorTypeObj>(*input_ty.get());
     output_ty->dtype = computed_dtype;
     if (call->ty_args.size() > 0) {
-      auto defined_ty = call->ty_args[0].as<TensorTypeNode>();
+      auto defined_ty = call->ty_args[0].as<TensorTypeObj>();
       TVM_FFI_ICHECK(defined_ty);
       auto shape = output_ty->GetShape();
       TVM_FFI_ICHECK(shape.has_value());
@@ -228,7 +228,7 @@ inline Type InferTypeUnary(const Call& call, FType f_compute_out_dtype) {
       inferred = TensorType(output_ty);
     }
   }
-  if (const auto* old = call->ty.as<TensorTypeNode>()) {
+  if (const auto* old = call->ty.as<TensorTypeObj>()) {
     auto same_optional_ref = [](const auto& lhs, const auto& rhs) {
       return lhs.has_value() == rhs.has_value() &&
              (!lhs.has_value() || lhs.value().same_as(rhs.value()));
@@ -278,7 +278,7 @@ Type ReturnTypeFromArg(const Call& call, const BlockBuilder& ctx) {
 }
 
 template <int arg_index>
-Type ReturnTypeFromArgContextFree(const CallNode* call_node) {
+Type ReturnTypeFromArgContextFree(const CallObj* call_node) {
   Call call = ffi::GetRef<Call>(call_node);
   Op op = call->op.as_or_throw<Op>();
   CheckNumArguments(call);
@@ -306,7 +306,7 @@ Type InferTypeUnaryArith(const Call& call, const BlockBuilder& ctx) {
 }
 
 template <bool require_float_dtype>
-Type InferTypeUnaryArithContextFree(const CallNode* call_node) {
+Type InferTypeUnaryArithContextFree(const CallObj* call_node) {
   Call call = ffi::GetRef<Call>(call_node);
   return InferTypeUnary<require_float_dtype>(
       call, [](const TensorType& input_ty) { return input_ty->dtype; });
@@ -331,9 +331,9 @@ InferLayoutOutput InferLayoutUnaryEwise(
  * \throw Throw exception if the Type doesn't have an element type.
  */
 inline std::optional<PrimType> GetElementDType(const Type& ty) {
-  if (const auto* prim = ty.as<PrimTypeNode>()) {
+  if (const auto* prim = ty.as<PrimTypeObj>()) {
     return ffi::GetRef<PrimType>(prim);
-  } else if (const auto* tensor = ty.as<TensorTypeNode>()) {
+  } else if (const auto* tensor = ty.as<TensorTypeObj>()) {
     if (tensor->dtype.has_value()) {
       return tensor->dtype.value();
     } else {
@@ -362,7 +362,7 @@ inline ffi::Optional<PrimType> InferBinaryArithOpOutDtype(const Call& call, cons
   // and reenter the same inference hook before the exception is thrown.
   auto opt_lhs_dtype = GetElementDType(lhs_ty);
   if (!opt_lhs_dtype) {
-    if (const auto* lhs_tensor = lhs_ty.as<TensorTypeNode>()) {
+    if (const auto* lhs_tensor = lhs_ty.as<TensorTypeObj>()) {
       if (lhs_tensor->IsUnknownDtype()) return std::nullopt;
     }
     TVM_FFI_VISIT_THROW(TypeError, call)
@@ -374,7 +374,7 @@ inline ffi::Optional<PrimType> InferBinaryArithOpOutDtype(const Call& call, cons
 
   auto opt_rhs_dtype = GetElementDType(rhs_ty);
   if (!opt_rhs_dtype) {
-    if (const auto* rhs_tensor = rhs_ty.as<TensorTypeNode>()) {
+    if (const auto* rhs_tensor = rhs_ty.as<TensorTypeObj>()) {
       if (rhs_tensor->IsUnknownDtype()) return std::nullopt;
     }
     TVM_FFI_VISIT_THROW(TypeError, call)
@@ -411,7 +411,7 @@ inline ffi::Optional<PrimType> InferBinaryArithOpOutDtype(const Call& call, cons
 inline ffi::Optional<VDevice> InferBinaryArithOpOutVDevice(const Call& call, const Type& lhs_ty,
                                                            const Type& rhs_ty) {
   auto get_vdevice = [&](const Type& ty) -> ffi::Optional<VDevice> {
-    if (const auto* tensor = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor = ty.as<TensorTypeObj>()) {
       return tensor->vdevice;
     } else {
       return std::nullopt;
@@ -676,7 +676,7 @@ inline ffi::Optional<ShapeExpr> CheckNdimPerLayoutAndGetShape(const Call& call,
         << "In " << call->op << ", layout " << layout << " requires the input to be "
         << layout.ndim() << "-dim tensor. However, the given input has ndim " << ty->ndim;
   }
-  if (const auto* shape_expr = ty->shape.as<ShapeExprNode>()) {
+  if (const auto* shape_expr = ty->shape.as<ShapeExprObj>()) {
     return ffi::GetRef<ShapeExpr>(shape_expr);
   }
   return std::nullopt;

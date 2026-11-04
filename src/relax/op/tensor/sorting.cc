@@ -103,7 +103,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.sort", sort);
 }
 
-Type InferTypeSort(const CallNode* call_node) {
+Type InferTypeSort(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetUnaryInputTensorType(call);
 }
@@ -132,7 +132,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.argsort", argsort);
 }
 
-Type InferTypeArgsort(const CallNode* call_node) {
+Type InferTypeArgsort(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<ArgsortAttrs>();
@@ -172,11 +172,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.topk", topk);
 }
 
-Type InferTypeTopK(const CallNode* call_node) {
+Type InferTypeTopK(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (RequiresTensorInputNormalization(call)) return Type::Missing();
   TensorType data_ty = GetUnaryInputTensorType(call);
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   const auto* attrs = call->attrs.as<TopKAttrs>();
   ffi::Optional<PrimType> indices_type =
       attrs->dtype.has_value() ? ffi::Optional<PrimType>(PrimType(attrs->dtype.value()))
@@ -196,7 +196,7 @@ Type InferTypeTopK(const CallNode* call_node) {
     output_tys.push_back(TensorType(indices_type, data_ty->ndim, data_ty->vdevice));
   } else {
     ffi::Array<PrimExpr> out_shape = data_shape->values;
-    const auto* int_dim = out_shape[axis].as<IntImmNode>();
+    const auto* int_dim = out_shape[axis].as<IntImmObj>();
     if (k > 0 && (int_dim == nullptr || k < int_dim->value)) {
       out_shape.Set(axis, k);
     }

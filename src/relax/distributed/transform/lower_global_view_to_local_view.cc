@@ -55,17 +55,17 @@ class DistTensorReplacer : public s_tir::StmtExprMutator {
 
 class DistSBlockInfoCollector : public s_tir::StmtExprVisitor {
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     tensor_access_indices[op->dest.as_or_throw<tvm::tirx::TensorVar>()].push_back(op->indices);
     return s_tir::StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     tensor_access_indices[op->source.as_or_throw<tvm::tirx::TensorVar>()].push_back(op->indices);
     return s_tir::StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     for (const auto& iter_var : op->iter_vars) {
       if (iter_var->iter_type == s_tir::kCommReduce) {
         TVM_FFI_ICHECK(op->writes.size() == 1);
@@ -76,7 +76,7 @@ class DistSBlockInfoCollector : public s_tir::StmtExprVisitor {
   }
 
   bool IsReduceTensorAccess(const PrimExpr& expr) {
-    if (const auto* tensor_load = expr.as<TensorLoadNode>()) {
+    if (const auto* tensor_load = expr.as<TensorLoadObj>()) {
       return reduce_tensor_.has_value() &&
              tensor_load->source.as_or_throw<tvm::tirx::TensorVar>().same_as(
                  reduce_tensor_.value());
@@ -84,28 +84,28 @@ class DistSBlockInfoCollector : public s_tir::StmtExprVisitor {
     return false;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const prim::AddNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const prim::AddObj* op) final {
     if (IsReduceTensorAccess(op->a) || IsReduceTensorAccess(op->b)) {
       reduce_kind = "sum";
     }
     return s_tir::StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const prim::MulNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const prim::MulObj* op) final {
     if (IsReduceTensorAccess(op->a) || IsReduceTensorAccess(op->b)) {
       reduce_kind = "prod";
     }
     return s_tir::StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const prim::MinNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const prim::MinObj* op) final {
     if (IsReduceTensorAccess(op->a) || IsReduceTensorAccess(op->b)) {
       reduce_kind = "min";
     }
     return s_tir::StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const prim::MaxNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const prim::MaxObj* op) final {
     if (IsReduceTensorAccess(op->a) || IsReduceTensorAccess(op->b)) {
       reduce_kind = "max";
     }
@@ -134,7 +134,7 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
     ffi::Array<Var> new_params;
     ffi::Map<TensorVar, TensorVar> replace_tensor_map;
     for (const Var& param : function->params) {
-      if (!param->ty.as<TensorTypeNode>()) {
+      if (!param->ty.as<TensorTypeObj>()) {
         new_params.push_back(param);
         continue;
       }
@@ -169,7 +169,7 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
     std::unordered_set<TensorAxis, TensorAxisHash> visited;
     for (int i = 0, j = 0; i < static_cast<int>(function->params.size()); i++) {
       Var param_var = function->params[i];
-      if (!param_var->ty.as<TensorTypeNode>()) {
+      if (!param_var->ty.as<TensorTypeObj>()) {
         continue;
       }
       TensorVar param_tensor = param_var.as_or_throw<TensorVar>();
@@ -260,13 +260,13 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
         shape.push_back(tensor.shape()[i]);
       }
     }
-    auto new_type_node = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+    auto new_type_node = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
     new_type_node->shape = std::move(shape);
     TensorType new_type(std::move(new_type_node));
     return TensorVar(tensor->name, std::move(new_type), tensor->loc);
   }
 
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlock block = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                               .as_or_throw<s_tir::SBlock>();
@@ -292,8 +292,8 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
         break;
       }
     }
-    ffi::ObjectPtr<s_tir::SBlockNode> new_block =
-        ffi::make_object<s_tir::SBlockNode>(*block.operator->());
+    ffi::ObjectPtr<s_tir::SBlockObj> new_block =
+        ffi::make_object<s_tir::SBlockObj>(*block.operator->());
     new_block->iter_vars = new_iter_vars;
     new_block->alloc_tensors = new_alloc_tensors;
     if (new_block->name_hint == "root") {
@@ -307,7 +307,7 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
 
   void AddAllReduceBlock(std::string reduce_kind) { add_allreduce_kind_ = reduce_kind; }
 
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockRealizeNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockRealizeObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlockRealize realize = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                                        .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                                        .as_or_throw<s_tir::SBlockRealize>();
@@ -325,7 +325,7 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
     return realize;
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     For new_loop = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                        .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                        .as_or_throw<For>();
@@ -368,12 +368,12 @@ class LowerTIRToLocalView : public ExprMutator {
   IRModule Lower() {
     auto mod = builder_->GetContextIRModule();
     for (const auto& [gv, base_func] : mod->functions) {
-      const auto* func_ = base_func.as<FunctionNode>();
+      const auto* func_ = base_func.as<FunctionObj>();
       if (func_ == nullptr || !IsDistIRFunc(ffi::GetRef<Function>(func_))) {
         continue;
       }
       Expr new_func_body = this->VisitExpr(func_->body);
-      ffi::ObjectPtr<FunctionNode> new_func = ffi::make_object<FunctionNode>(*func_);
+      ffi::ObjectPtr<FunctionObj> new_func = ffi::make_object<FunctionObj>(*func_);
       new_func->body = new_func_body;
       builder_->UpdateFunction(gv, Function(new_func));
     }
@@ -382,9 +382,9 @@ class LowerTIRToLocalView : public ExprMutator {
 
  private:
   inline ffi::Array<DTensorType> ExtractDTensorType(Var var) {
-    if (const auto* dtensor_ty = GetTypeAs<DTensorTypeNode>(var)) {
+    if (const auto* dtensor_ty = GetTypeAs<DTensorTypeObj>(var)) {
       return {ffi::GetRef<DTensorType>(dtensor_ty)};
-    } else if (const auto* tuple_ty = GetTypeAs<TupleTypeNode>(var)) {
+    } else if (const auto* tuple_ty = GetTypeAs<TupleTypeObj>(var)) {
       ffi::Array<DTensorType> ret;
       for (const auto& field : tuple_ty->fields) {
         ret.push_back(field.as_or_throw<DTensorType>());
@@ -396,7 +396,7 @@ class LowerTIRToLocalView : public ExprMutator {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* val) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* val) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     if (!val->op.same_as(call_tir_op)) {
       ExprMutator::VisitBinding_(binding, val);
@@ -410,8 +410,8 @@ class LowerTIRToLocalView : public ExprMutator {
     for (size_t i = 0; i < args.size(); ++i) {
       const Expr& arg = args[i];
       const tvm::Var& param = function->params[i];
-      if (param->ty.as<tirx::TensorTypeNode>()) {
-        const auto* ty = GetTypeAs<DTensorTypeNode>(arg);
+      if (param->ty.as<tirx::TensorTypeObj>()) {
+        const auto* ty = GetTypeAs<DTensorTypeObj>(arg);
         TVM_FFI_CHECK(ty, TypeError)
             << "Expected tensor parameter " << param << " to receive a distributed tensor, but "
             << arg << " has type " << GetType(arg);
@@ -432,7 +432,7 @@ class LowerTIRToLocalView : public ExprMutator {
         tirx::DistributedTensorCompactor::DistTensorCompact(sharding_specs, function);
     auto new_gvar = builder_->AddFunction(new_function, gvar->name_hint);
     Call call = this->VisitExpr(binding->value).as_or_throw<Call>();
-    ffi::ObjectPtr<CallNode> new_call_node = ffi::make_object<CallNode>(*call.get());
+    ffi::ObjectPtr<CallObj> new_call_node = ffi::make_object<CallObj>(*call.get());
     new_call_node->op = Op::Get("relax.dist.call_tir_local_view");
     new_call_node->args.Set(0, new_gvar);
     Call new_call(new_call_node);

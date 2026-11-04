@@ -28,11 +28,11 @@ namespace tvm {
 namespace s_tir {
 using namespace tvm::tirx;
 
-Stmt CopyLoopChain(const std::vector<const ForNode*> loops, const Stmt& inner_body, int ith = -1,
+Stmt CopyLoopChain(const std::vector<const ForObj*> loops, const Stmt& inner_body, int ith = -1,
                    ffi::Optional<For>* ith_loop = nullptr) {
   Stmt ret = inner_body;
   for (int i = static_cast<int>(loops.size() - 1); i >= 0; i--) {
-    ffi::ObjectPtr<ForNode> new_loop = ffi::make_object<ForNode>(*loops[i]);
+    ffi::ObjectPtr<ForObj> new_loop = ffi::make_object<ForObj>(*loops[i]);
     new_loop->body = ret;
     ret = For(new_loop);
     if (ith == i) {
@@ -49,10 +49,10 @@ Stmt CopyLoopChain(const std::vector<const ForNode*> loops, const Stmt& inner_bo
  *         The second is the lowest thread binding loop.
  */
 std::pair<Stmt, ffi::Optional<For>> LiftThreadBindingLoops(Stmt stmt) {
-  std::vector<const ForNode*> normal_loops;
-  std::vector<const ForNode*> thread_binding_loops;
+  std::vector<const ForObj*> normal_loops;
+  std::vector<const ForObj*> thread_binding_loops;
   Stmt body = stmt;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  while (const ForObj* loop = body.as<ForObj>()) {
     if (tvm::s_tir::GetThreadBinding(loop).has_value()) {
       thread_binding_loops.push_back(loop);
     } else {
@@ -123,13 +123,13 @@ class IndexPatternFinder : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (!success_) {
       return std::nullopt;
     }
     if (ffi::Optional<Range> range = var_range_.Get(ffi::GetRef<Var>(op))) {
       PrimExpr index = ffi::GetRef<Var>(op).as_or_throw<PrimExpr>();
-      int64_t max = static_cast<int64_t>(range.value()->extent.as<IntImmNode>()->value);
+      int64_t max = static_cast<int64_t>(range.value()->extent.as<IntImmObj>()->value);
       int64_t extent = max;
       for (int i = static_cast<int>(operator_stack.size()) - 1; i >= 0; i--) {
         Operator o = operator_stack[i];
@@ -178,24 +178,24 @@ class IndexPatternFinder : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const FloorDivNode* op) final {
-    int64_t b = static_cast<int64_t>(op->b.as<IntImmNode>()->value);
+  ffi::Optional<VisitInterrupt> Visit_(const FloorDivObj* op) final {
+    int64_t b = static_cast<int64_t>(op->b.as<IntImmObj>()->value);
     operator_stack.push_back(Operator{Operator::OpKind::FloorDiv, b});
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
     operator_stack.pop_back();
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const FloorModNode* op) final {
-    int64_t b = static_cast<int64_t>(op->b.as<IntImmNode>()->value);
+  ffi::Optional<VisitInterrupt> Visit_(const FloorModObj* op) final {
+    int64_t b = static_cast<int64_t>(op->b.as<IntImmObj>()->value);
     operator_stack.push_back(Operator{Operator::OpKind::FloorMod, b});
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
     operator_stack.pop_back();
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const MulNode* op) final {
-    int64_t b = static_cast<int64_t>(op->b.as<IntImmNode>()->value);
+  ffi::Optional<VisitInterrupt> Visit_(const MulObj* op) final {
+    int64_t b = static_cast<int64_t>(op->b.as<IntImmObj>()->value);
     operator_stack.push_back(Operator{Operator::OpKind::Mul, b});
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
     operator_stack.pop_back();
@@ -217,7 +217,7 @@ class TensorLoadReplacer : public StmtExprMutator {
   TensorLoadReplacer(const TensorVar& tgt_tensor, const TensorLoad& new_tensor_load)
       : tgt_tensor_(tgt_tensor), new_tensor_load_(new_tensor_load) {}
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) {
     if (op->source.as_or_throw<tvm::tirx::TensorVar>().same_as(tgt_tensor_)) {
       return new_tensor_load_;
     }
@@ -248,16 +248,16 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
   static const auto scope_mma_matrixC = runtime::MemoryScope::Get("mma.matrixC");
 
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  std::vector<const ForNode*> loops_under_compute_location;
-  std::vector<const ForNode*> relaxed_thread_loops;
+  std::vector<const ForObj*> loops;
+  std::vector<const ForObj*> loops_under_compute_location;
+  std::vector<const ForObj*> relaxed_thread_loops;
   bool need_relax = !compute_location.has_value();
   ffi::Map<Var, Range> var_range;
   PrimExpr vector_bytes = -1;
   // Step 1. Perform rank promotion on the tensor access, turning a strided-changing dimension into
   // several contiguous-changing dimensions
   // Step 1.1 collect loop var range for rank promotion
-  while (const ForNode* loop = body.as<ForNode>()) {
+  while (const ForObj* loop = body.as<ForObj>()) {
     if (need_relax) {
       var_range.Set(loop->var, Range(loop->begin, loop->end));
       loops_under_compute_location.push_back(loop);
@@ -273,7 +273,7 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
   ffi::Optional<PrimExpr> predicate;
-  if (const auto* op = body.as<IfNode>()) {
+  if (const auto* op = body.as<IfObj>()) {
     // the predicate is generated by coalescing
     predicate = op->condition;
     TVM_FFI_ICHECK_EQ(op->then_case->size(), 1);
@@ -296,7 +296,7 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
   }
 
   sym::Analyzer analyzer;
-  const TensorLoadNode* target_tensor_load = nullptr;
+  const TensorLoadObj* target_tensor_load = nullptr;
   if (is_write_cache) {
     auto walk_fn = [&](const TensorLoad& tensor_load) -> ffi::Expected<ffi::WalkResult> {
       if (tensor_load->source.as_or_throw<tvm::tirx::TensorVar>().scope() ==
@@ -321,13 +321,13 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
     TVM_FFI_ICHECK(target_tensor_load);
   }
 
-  const TensorStoreNode* tensor_store = TVM_TYPE_AS(body, TensorStoreNode);
+  const TensorStoreObj* tensor_store = TVM_TYPE_AS(body, TensorStoreObj);
   ffi::Array<PrimExpr> cache_indices;
   ffi::Array<PrimExpr> new_shape;
   bool use_rank_promotion = false;
-  if (!is_write_cache && tensor_store->value.as<TensorLoadNode>()) {
+  if (!is_write_cache && tensor_store->value.as<TensorLoadObj>()) {
     ffi::Array<PrimExpr> indices =
-        is_write_cache ? tensor_store->indices : tensor_store->value.as<TensorLoadNode>()->indices;
+        is_write_cache ? tensor_store->indices : tensor_store->value.as<TensorLoadObj>()->indices;
     new_shape = IndexPatternFinder::getRankPromotedShape(indices, var_range, &cache_indices);
     // write cache disabled for now
     // rank promotion for write cache cannot guarantee the shape fits wmma.accumulator
@@ -339,16 +339,16 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
   ffi::Map<Var, PrimExpr> subst_map;
   if (!use_rank_promotion) {
     cache_indices.clear();
-    for (const ForNode* loop : relaxed_thread_loops) {
+    for (const ForObj* loop : relaxed_thread_loops) {
       new_shape.push_back(Range::GetExtentFromBeginEnd(loop->begin, loop->end));
     }
-    for (const ForNode* loop : loops_under_compute_location) {
+    for (const ForObj* loop : loops_under_compute_location) {
       new_shape.push_back(Range::GetExtentFromBeginEnd(loop->begin, loop->end));
     }
   }
 
   for (int i = 0; i < static_cast<int>(relaxed_thread_loops.size()); i++) {
-    const ForNode* loop = relaxed_thread_loops[i];
+    const ForObj* loop = relaxed_thread_loops[i];
     PrimVar new_loop_var = loop->var.CopyWithSuffix("_cache");
     new_loop_vars.push_back(new_loop_var);
     subst_map.Set(loop->var, new_loop_var);
@@ -357,7 +357,7 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
     }
   }
   for (int i = 0; i < static_cast<int>(loops_under_compute_location.size()); i++) {
-    const ForNode* loop = loops_under_compute_location[i];
+    const ForObj* loop = loops_under_compute_location[i];
     PrimVar new_loop_var = loop->var.CopyWithSuffix("_cache");
     new_loop_vars.push_back(new_loop_var);
     subst_map.Set(loop->var, new_loop_var);
@@ -392,8 +392,8 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
     new_tensor = WithScope(tensor_store->dest.as_or_throw<TensorVar>(),
                            runtime::MemoryScope::Get(storage_scope));
   }
-  ffi::ObjectPtr<TensorTypeNode> tensor_type =
-      ffi::make_object<TensorTypeNode>(*new_tensor.ty().get());
+  ffi::ObjectPtr<TensorTypeObj> tensor_type =
+      ffi::make_object<TensorTypeObj>(*new_tensor.ty().get());
   tensor_type->shape = new_shape;
   new_tensor = TensorVar(new_tensor->name, TensorType(std::move(tensor_type)), new_tensor->loc);
   *alloc_tensor = new_tensor;
@@ -427,15 +427,15 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
   }
 
   for (int i = static_cast<int>(loops_under_compute_location.size()) - 1; i >= 0; i--) {
-    const ForNode* orig_loop = loops_under_compute_location[i];
-    ffi::ObjectPtr<ForNode> new_loop = ffi::make_object<ForNode>(*orig_loop);
+    const ForObj* orig_loop = loops_under_compute_location[i];
+    ffi::ObjectPtr<ForObj> new_loop = ffi::make_object<ForObj>(*orig_loop);
     new_loop->var = new_loop_vars[i + relaxed_thread_loops.size()];
     new_loop->body = generate_body;
     generate_body = For(new_loop);
   }
   for (int i = static_cast<int>(relaxed_thread_loops.size()) - 1; i >= 0; i--) {
-    const ForNode* orig_loop = relaxed_thread_loops[i];
-    ffi::ObjectPtr<ForNode> new_loop = ffi::make_object<ForNode>(*orig_loop);
+    const ForObj* orig_loop = relaxed_thread_loops[i];
+    ffi::ObjectPtr<ForObj> new_loop = ffi::make_object<ForObj>(*orig_loop);
     new_loop->var = new_loop_vars[i];
     new_loop->body = generate_body;
     new_loop->kind = ForKind::kDefault;
@@ -455,8 +455,8 @@ std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::S
     rewrite_body = If(predicate.value(), rewrite_body);
   }
   for (int i = static_cast<int>(loops_under_compute_location.size()) - 1; i >= 0; i--) {
-    const ForNode* orig_loop = loops_under_compute_location[i];
-    ffi::ObjectPtr<ForNode> new_loop = ffi::make_object<ForNode>(*orig_loop);
+    const ForObj* orig_loop = loops_under_compute_location[i];
+    ffi::ObjectPtr<ForObj> new_loop = ffi::make_object<ForObj>(*orig_loop);
     new_loop->body = rewrite_body;
     rewrite_body = For(new_loop);
   }

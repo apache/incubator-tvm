@@ -51,7 +51,7 @@ class GlobalVarReplacer : public ExprMutator {
   explicit GlobalVarReplacer(ffi::Map<GlobalVar, GlobalVar> gvar_map) : gvar_map_(gvar_map) {}
 
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const GlobalVarNode* op) override {
+  Expr VisitExpr_(const GlobalVarObj* op) override {
     auto gvar = ffi::GetRef<GlobalVar>(op);
     if (auto opt = gvar_map_.Get(gvar)) {
       gvar = opt.value();
@@ -597,7 +597,7 @@ std::optional<std::vector<Expr>> TupleRewriterObj::TryMatchByBindingIndex(
   }
 
   std::vector<Expr> rewrites;
-  if (auto inline_tuple = rewritten.as<TupleNode>()) {
+  if (auto inline_tuple = rewritten.as<TupleObj>()) {
     const auto& fields = inline_tuple->fields;
     TVM_FFI_ICHECK_EQ(fields.size(), indices.size())
         << "Expected to receive " << indices.size() << " values to replace TuplePattern with "
@@ -640,14 +640,14 @@ PatternMatchingRewriter PatternMatchingRewriter::FromPattern(
     ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func,
     ffi::Optional<ffi::Array<DFPattern>> additional_bindings,
     ffi::Map<GlobalVar, BaseFunc> new_subroutines) {
-  if (auto or_pattern = pattern.as<OrPatternNode>()) {
+  if (auto or_pattern = pattern.as<OrPatternObj>()) {
     auto new_additional_bindings = additional_bindings.value_or({});
     new_additional_bindings.push_back(pattern);
     return OrRewriter(PatternMatchingRewriter::FromPattern(
                           or_pattern->left, func, new_additional_bindings, new_subroutines),
                       PatternMatchingRewriter::FromPattern(
                           or_pattern->right, func, new_additional_bindings, new_subroutines));
-  } else if (auto tuple_pattern = pattern.as<TuplePatternNode>()) {
+  } else if (auto tuple_pattern = pattern.as<TuplePatternObj>()) {
     auto new_additional_bindings = additional_bindings.value_or({});
     new_additional_bindings.push_back(pattern);
     // If the Tuple appears as a Relax binding, apply it first.  As a
@@ -667,7 +667,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
         << "a Relax function defining the pattern to be matched, "
         << "but the module did not contain a 'pattern' function.";
     auto base_func = mod->Lookup("pattern");
-    TVM_FFI_CHECK(base_func->IsInstance<FunctionNode>(), TypeError)
+    TVM_FFI_CHECK(base_func->IsInstance<FunctionObj>(), TypeError)
         << "Expected module to contain 'pattern', "
         << "a Relax function defining the pattern to be matched, "
         << "but the 'pattern' function was of type " << base_func->GetTypeKey() << ".";
@@ -679,7 +679,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
         << "a Relax function defining the replacement to be matched, "
         << "but the module did not contain a 'replacement' function.";
     auto base_func = mod->Lookup("replacement");
-    TVM_FFI_CHECK(base_func->IsInstance<FunctionNode>(), TypeError)
+    TVM_FFI_CHECK(base_func->IsInstance<FunctionObj>(), TypeError)
         << "Expected module to contain 'replacement', "
         << "a Relax function defining the replacement to be made on a successful match, "
         << "but the 'replacement' function was of type " << base_func->GetTypeKey() << ".";
@@ -718,23 +718,23 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
     if (auto var = expr.as<Var>()) {
       return pattern_lookup[var.value()];
 
-    } else if (auto call = expr.as<CallNode>()) {
+    } else if (auto call = expr.as<CallObj>()) {
       auto op = make_pattern(call->op);
       auto args = call->args.Map(make_pattern);
       return CallPattern(op, args);
 
-    } else if (auto tuple = expr.as<TupleNode>()) {
+    } else if (auto tuple = expr.as<TupleObj>()) {
       auto fields = tuple->fields.Map(make_pattern);
       return TuplePattern(fields);
 
-    } else if (auto tuple_get_item = expr.as<TupleGetItemNode>()) {
+    } else if (auto tuple_get_item = expr.as<TupleGetItemObj>()) {
       auto tuple = make_pattern(tuple_get_item->tuple);
       return TupleGetItemPattern(tuple, tuple_get_item->index);
 
     } else if (auto op = expr.as<Op>()) {
       return ExprPattern(op.value());
 
-    } else if (auto func = expr.as<ExternFuncNode>()) {
+    } else if (auto func = expr.as<ExternFuncObj>()) {
       return ExternFuncPattern(func->global_symbol);
 
     } else if (auto prim = expr.as<PrimExpr>()) {
@@ -749,7 +749,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
   for (const auto& block : func_pattern->body->blocks) {
     for (const auto& binding : block->bindings) {
       auto value_pattern = make_pattern(GetBoundValue(binding));
-      if (auto match_cast = binding.as<MatchCastNode>()) {
+      if (auto match_cast = binding.as<MatchCastObj>()) {
         value_pattern = TypePattern(value_pattern, match_cast->ty);
       }
       pattern_lookup.Set(binding->var, value_pattern);
@@ -832,7 +832,7 @@ class PatternMatchingMutator : public ExprMutator {
 
   ffi::Map<GlobalVar, BaseFunc> GetNewSubroutines() const { return new_subroutines_; }
 
-  Expr VisitExpr_(const SeqExprNode* seq) override {
+  Expr VisitExpr_(const SeqExprObj* seq) override {
     SeqExpr prev = ExprMutator::VisitExpr_(seq).as_or_throw<SeqExpr>();
 
     ffi::StructuralEqual struct_equal;
@@ -875,7 +875,7 @@ class PatternMatchingMutator : public ExprMutator {
     // were the last variable binding of the last block.  This
     // simplifies the special handling of the SeqExpr's body.
     ffi::Optional<Var> dummy_output_var = std::nullopt;
-    if (!seq->body->IsInstance<VarNode>()) {
+    if (!seq->body->IsInstance<VarObj>()) {
       dummy_output_var = Var("dummy_output_var", GetType(seq->body));
       VarBinding dummy_binding(dummy_output_var.value(), seq->body);
 
@@ -903,7 +903,7 @@ class PatternMatchingMutator : public ExprMutator {
 
       auto bindings = orig_bindings.Map([&](Binding binding) -> Binding {
         if (auto new_expr = rewrites.variable_rewrites.Get(binding->var)) {
-          if (auto match_cast = binding.as<MatchCastNode>()) {
+          if (auto match_cast = binding.as<MatchCastObj>()) {
             return MatchCast(binding->var, new_expr.value(), match_cast->ty);
           } else {
             return VarBinding(binding->var, new_expr.value());
@@ -929,7 +929,7 @@ class PatternMatchingMutator : public ExprMutator {
     // Utility function to return the rewrites that should be applied
     // to a given block.
     auto get_rewrites = [&](BindingBlock block) -> ffi::Array<Binding> {
-      if (block.as<DataflowBlockNode>()) {
+      if (block.as<DataflowBlockObj>()) {
         // Early return for DataflowBlock.  Since neither control flow
         // nor impure functions are allowed within the dataflow block,
         // all bindings may be considered at the same time.
@@ -957,8 +957,8 @@ class PatternMatchingMutator : public ExprMutator {
 
       for (const auto& binding : block->bindings) {
         auto value = GetBoundValue(binding);
-        bool is_dataflow = (!value.as<IfExprNode>()) &&
-                           (!(value.as<CallNode>() && IsImpureCall(value.as_or_throw<Call>())));
+        bool is_dataflow = (!value.as<IfExprObj>()) &&
+                           (!(value.as<CallObj>() && IsImpureCall(value.as_or_throw<Call>())));
         if (is_dataflow) {
           // This binding satisfies the dataflow constraints.
           collected_bindings.push_back(binding);
@@ -986,7 +986,7 @@ class PatternMatchingMutator : public ExprMutator {
         return old_block;
       }
 
-      if (old_block.as<DataflowBlockNode>()) {
+      if (old_block.as<DataflowBlockObj>()) {
         builder_->BeginDataflowBlock();
       } else {
         builder_->BeginBindingBlock();
@@ -995,9 +995,9 @@ class PatternMatchingMutator : public ExprMutator {
       for (const auto& binding : new_bindings) {
         auto value = builder_->Normalize(GetBoundValue(binding));
 
-        if (binding.as<VarBindingNode>()) {
+        if (binding.as<VarBindingObj>()) {
           builder_->EmitNormalized(VarBinding(binding->var, value));
-        } else if (auto match_cast = binding.as<MatchCastNode>()) {
+        } else if (auto match_cast = binding.as<MatchCastObj>()) {
           builder_->EmitNormalized(MatchCast(binding->var, value, match_cast->ty));
         } else {
           TVM_FFI_THROW(InternalError) << "Binding must be either VarBinding or MatchCast";

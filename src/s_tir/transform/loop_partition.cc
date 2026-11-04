@@ -111,13 +111,13 @@ using Partition = std::unordered_map<PartitionKey, IntSet, PartitionKeyHash, Par
 using ExpressionSet = std::unordered_set<PrimExpr, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>;
 
 // Virtual threads are lowered separately and are not hardware partition scopes.
-static bool IsVirtualThread(const ForNode* op) {
+static bool IsVirtualThread(const ForObj* op) {
   if (!tvm::s_tir::GetThreadBinding(op).has_value()) return false;
   const auto tag = tvm::s_tir::GetThreadBinding(op).value();
   return tag.starts_with("vthread");
 }
 
-static bool HasPartitionHint(const ForNode* op) {
+static bool HasPartitionHint(const ForObj* op) {
   auto it = op->annotations.find(tvm::s_tir::attr::kLoopPartitionHint.name);
   return it != op->annotations.end() && IsOne((*it).second.as_or_throw<PrimExpr>());
 }
@@ -129,7 +129,7 @@ class NormalizePartitionHints : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     For loop = StmtExprMutator::Mutate_(op, inplace_mode)
                    .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                    .as_or_throw<For>();
@@ -162,9 +162,9 @@ class CandidateSelector final : public StmtExprVisitor {
   explicit CandidateSelector(bool partition_const_loop)
       : partition_const_loop_(partition_const_loop) {}
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     if (IsVirtualThread(op)) return StmtExprVisitor::Visit_(op);
-    const VarNode* var = op->var.get();
+    const VarObj* var = op->var.get();
     if (HasPartitionHint(op)) {
       candidates.insert(ffi::GetRef<Stmt>(op));
       return StmtExprVisitor::Visit_(op);
@@ -188,7 +188,7 @@ class CandidateSelector final : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     if (op->op.same_as(tirx::launch_thread_op()) &&
         !op->args[0].as_or_throw<StringImm>()->value.starts_with("vthread")) {
       Var var = op->body_params[0].as_or_throw<PrimVar>();
@@ -208,7 +208,7 @@ class CandidateSelector final : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtObj* op) final {
     bool init_no_split = no_split_;
     for (Stmt stmt : op->seq) {
       // erase the no split state of before visiting the next one.
@@ -221,7 +221,7 @@ class CandidateSelector final : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(prim::likely_op())) {
       in_likely_ = true;
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
@@ -236,7 +236,7 @@ class CandidateSelector final : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (in_likely_ && record_.count(op)) {
       record_.at(op) = true;
     }
@@ -249,7 +249,7 @@ class CandidateSelector final : public StmtExprVisitor {
   bool in_likely_{false};
   bool no_split_{false};
   bool partition_const_loop_{false};
-  std::unordered_map<const VarNode*, VarIsUsed> record_;
+  std::unordered_map<const VarObj*, VarIsUsed> record_;
 };
 
 // Finder try best to find partitions for hinted vars
@@ -281,9 +281,9 @@ class PartitionFinder : public StmtExprVisitor {
     }
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     if (IsVirtualThread(op)) return StmtExprVisitor::Visit_(op);
-    auto f_vset_contains = [this](const VarNode* var) { return out_vars_.count(var); };
+    auto f_vset_contains = [this](const VarObj* var) { return out_vars_.count(var); };
     auto walkfn = [&](const Var& var) -> ffi::Expected<ffi::WalkResult> {
       return f_vset_contains(var.get()) ? ffi::WalkResult::Interrupt(ffi::VisitInterrupt(var))
                                         : ffi::WalkResult::Advance();
@@ -304,7 +304,7 @@ class PartitionFinder : public StmtExprVisitor {
     return result;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     // handle thread_axis
     if (op->op.same_as(tirx::launch_thread_op()) &&
         !op->args[0].as_or_throw<StringImm>()->value.starts_with("vthread")) {
@@ -323,7 +323,7 @@ class PartitionFinder : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(prim::likely_op())) {
       DeduceCondition(op->args[0].as_or_throw<PrimExpr>());
     } else if (op->op.same_as(tirx::ignore_loop_partition_op())) {
@@ -334,12 +334,12 @@ class PartitionFinder : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(GENode);
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(GTNode);
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(LENode);
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(LTNode);
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(EQNode);
-  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(NENode);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(GEObj);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(GTObj);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(LEObj);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(LTObj);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(EQObj);
+  DEFINE_PARTITION_FINDER_VISIT_CMP_OP(NEObj);
 
   Partition partitions;
 
@@ -363,7 +363,7 @@ class PartitionFinder : public StmtExprVisitor {
       if (interval.IsNothing()) {
         // `DeduceBound` do not support NE now, thus when
         // deduce l==r failed, just only try (l<=r && l>=r)
-        if (const EQNode* op = cond.as<EQNode>()) {
+        if (const EQObj* op = cond.as<EQObj>()) {
           IntSet part1 = DeduceBound(current_var_.as_or_throw<PrimExpr>(), GE(op->a, op->b),
                                      hint_map_, relax_map_);
           IntSet part2 = DeduceBound(current_var_.as_or_throw<PrimExpr>(), LE(op->a, op->b),
@@ -391,23 +391,23 @@ class PartitionFinder : public StmtExprVisitor {
 
   ffi::Optional<PrimExpr> InverseCond(const PrimExpr& cond) {
     ffi::Optional<PrimExpr> inverse_cond;
-    if (const LTNode* op = cond.as<LTNode>()) {
+    if (const LTObj* op = cond.as<LTObj>()) {
       // a < b -> a >= b
       inverse_cond = GE(op->a, op->b);
-    } else if (const GTNode* op = cond.as<GTNode>()) {
+    } else if (const GTObj* op = cond.as<GTObj>()) {
       // a > b -> a <= b
       inverse_cond = LE(op->a, op->b);
-    } else if (const LENode* op = cond.as<LENode>()) {
+    } else if (const LEObj* op = cond.as<LEObj>()) {
       // a <= b -> a > b
       inverse_cond = GT(op->a, op->b);
-    } else if (const GENode* op = cond.as<GENode>()) {
+    } else if (const GEObj* op = cond.as<GEObj>()) {
       // a >= b -> a < b
       inverse_cond = LT(op->a, op->b);
-    } else if (const EQNode* op = cond.as<EQNode>()) {
+    } else if (const EQObj* op = cond.as<EQObj>()) {
       // a == b -> a != b
       inverse_cond = NE(op->a, op->b);
       // a != b -> a == b
-    } else if (const NENode* op = cond.as<NENode>()) {
+    } else if (const NEObj* op = cond.as<NEObj>()) {
       inverse_cond = EQ(op->a, op->b);
     }
     return inverse_cond;
@@ -415,7 +415,7 @@ class PartitionFinder : public StmtExprVisitor {
 
   Var current_var_;
   bool has_partition_hint_;
-  std::unordered_set<const VarNode*> out_vars_;
+  std::unordered_set<const VarObj*> out_vars_;
   // Borrow the caller's maps; each visit restores its scoped bindings.
   ffi::Map<Var, IntSet>& hint_map_;
   ffi::Map<Var, IntSet>& relax_map_;
@@ -450,14 +450,14 @@ class ThreadPartitionInserter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
   explicit ThreadPartitionInserter(const ExpressionSet& ps, PrimExpr cond)
       : ps_(ps), cond_(cond), innermost_thread_scope_(false) {}
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     if (!tvm::s_tir::GetThreadBinding(op).has_value() || IsVirtualThread(op)) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
     }
@@ -476,7 +476,7 @@ class ThreadPartitionInserter : public StmtExprMutator {
     return loop;
   }
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
     if (op->op.same_as(tirx::launch_thread_op()) &&
         !op->args[0].as_or_throw<StringImm>()->value.starts_with("vthread")) {
       innermost_thread_scope_ = true;
@@ -511,7 +511,7 @@ class LoopPartitioner : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
@@ -526,10 +526,23 @@ class LoopPartitioner : public StmtExprMutator {
     return Mutate(stmt, InplaceMode::kAllow).ValueOrUnchanged(std::move(stmt));
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     if (IsVirtualThread(op)) return StmtExprMutator::Mutate_(op, inplace_mode);
     bool thread_scope = tvm::s_tir::GetThreadBinding(op).has_value();
-    analyzer_->Bind(op->var, Range(op->begin, op->end), true);
+    {
+      sym::ConstraintContext context;
+      analyzer_->GetConstraintContext()->ForEach([&](const sym::Constraint& premise) {
+        if (auto binding = premise.as<sym::BindingConstraintObj>();
+            binding && binding->var.same_as(op->var))
+          return;
+        if (auto range = premise.as<sym::RangeConstraintObj>();
+            range && range->var.same_as(op->var))
+          return;
+        context->Append(premise);
+      });
+      context->Append(sym::RangeConstraint(op->var, Range(op->begin, op->end)));
+      analyzer_->SyncConstraintContext(context);
+    }
     auto fs = ffi::GetRef<Stmt>(op);
     if (selector->candidates.count(fs)) {
       auto s = TryPartition(fs, op->var, op->begin, op->end - 1, op->body, thread_scope);
@@ -547,7 +560,7 @@ class LoopPartitioner : public StmtExprMutator {
     return res;
   }
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
     if (!op->op.same_as(tirx::launch_thread_op()) ||
         op->args[0].as_or_throw<StringImm>()->value.starts_with("vthread")) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
@@ -702,7 +715,7 @@ ffi::Optional<Stmt> LoopPartitioner::TryPartition(const Stmt& stmt, Var var, Pri
   // include hint of var.
   hint_map_.Set(var, IntSet::Interval(min, max));
 
-  const auto* loop = stmt.as<ForNode>();
+  const auto* loop = stmt.as<ForObj>();
   bool has_partition_hint_ = loop && HasPartitionHint(loop);
   auto finder = ffi::make_object<PartitionFinder>(var, hint_map_, relax_map_, has_partition_hint_);
   finder->Visit(body);
@@ -778,7 +791,7 @@ ffi::Optional<Stmt> LoopPartitioner::TryPartition(const Stmt& stmt, Var var, Pri
     if (!partition_thread_scope && has_partition_hint_ &&
         unroll_loop_with_partition_hint_no_interval_ && analyzer_->CanProve(max - min > 0)) {
       auto new_body = VisitAndMutate(body);
-      auto unrolled = ffi::make_object<ForNode>(*loop);
+      auto unrolled = ffi::make_object<ForObj>(*loop);
       unrolled->kind = ForKind::kUnrolled;
       unrolled->body = std::move(new_body);
       return For(unrolled);
@@ -914,7 +927,7 @@ ffi::Optional<Stmt> LoopPartitioner::TryPartition(const Stmt& stmt, Var var, Pri
 }
 
 inline Stmt LoopPartitioner::MakeFor(const ffi::Object* node, PrimExpr extent, Stmt body) {
-  const ForNode* for_node = static_cast<const ForNode*>(node);
+  const ForObj* for_node = static_cast<const ForObj*>(node);
   TVM_FFI_ICHECK(for_node);
 
   if (analyzer_->CanProve(extent == IntImm::Int32(1)) && !no_unroll_loop_with_extent_one_ &&
@@ -929,7 +942,7 @@ inline Stmt LoopPartitioner::MakeFor(const ffi::Object* node, PrimExpr extent, S
     return ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(body, f_substitute).as_or_throw<Stmt>();
   } else {
     TVM_FFI_ICHECK(!tvm::s_tir::GetThreadBinding(for_node).has_value());
-    auto new_loop = ffi::make_object<ForNode>(*for_node);
+    auto new_loop = ffi::make_object<ForObj>(*for_node);
     new_loop->begin = IntImm(for_node->begin.ty(), 0);
     new_loop->end = extent;
     new_loop->body = body;
@@ -942,7 +955,7 @@ class RemoveLikelyTagsAndHints : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) final {
     if (op->op.same_as(prim::likely_op())) {
       TVM_FFI_ICHECK_EQ(op->args.size(), 1);
       return StmtExprMutator::Mutate(op->args[0]).ValueOrUnchanged(op->args[0]).as_or_throw<Expr>();
@@ -954,7 +967,7 @@ class RemoveLikelyTagsAndHints : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     For loop = StmtExprMutator::Mutate_(op, inplace_mode)
                    .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                    .as_or_throw<For>();

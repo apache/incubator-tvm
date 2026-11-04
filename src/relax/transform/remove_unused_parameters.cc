@@ -157,7 +157,7 @@ class CallSiteMutator : public ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto node = ExprMutator::VisitExpr_(op);
 
     // If a function was modified, that means it called into a private
@@ -170,7 +170,7 @@ class CallSiteMutator : public ExprMutator {
     return node;
   }
 
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     auto node = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     if (auto gvar = node->op.as<GlobalVar>()) {

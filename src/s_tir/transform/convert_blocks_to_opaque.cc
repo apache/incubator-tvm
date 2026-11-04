@@ -49,7 +49,7 @@ class OpaqueBlockConverter : public StmtExprMutator {
   OpaqueBlockConverter() = default;
 
  private:
-  UnchangedOr<Expr> Mutate_(const VarNode* var, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const VarObj* var, InplaceMode inplace_mode) final {
     if (def_region_kind() == kTVMFFIDefRegionKindNone) {
       TVM_FFI_ICHECK(!forbidden_iter_vars_.count(var))
           << "Variable " << var->name << " occurs in the predicate or iter_values of a block, "
@@ -58,16 +58,16 @@ class OpaqueBlockConverter : public StmtExprMutator {
     return StmtExprMutator::Mutate_(var, inplace_mode);
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) final {
     TVM_FFI_ICHECK(!block->init.has_value())
         << "Block Init part is not allowed in pass ConvertBlocksToOpaque";
-    auto node = ffi::make_object<SBlockNode>(*block);
+    auto node = ffi::make_object<SBlockObj>(*block);
     node->iter_vars.clear();
     return StmtExprMutator::Mutate_(node.get(), inplace_mode)
         .ValueOrUnchanged(SBlock(std::move(node)));
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockRealizeNode* realize, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockRealizeObj* realize, InplaceMode inplace_mode) final {
     const auto* block_op = realize->block.get();
     TVM_FFI_ICHECK(!block_op->init.has_value());
 
@@ -105,14 +105,14 @@ class OpaqueBlockConverter : public StmtExprMutator {
   }
 
   /* \brief Variables that may not occur in the current context */
-  std::unordered_set<const VarNode*> forbidden_iter_vars_;
+  std::unordered_set<const VarObj*> forbidden_iter_vars_;
 };
 
 namespace transform {
 
 Pass ConvertBlocksToOpaque() {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    FunctionNode* fptr = f.CopyOnWrite();
+    FunctionObj* fptr = f.CopyOnWrite();
     fptr->body = OpaqueBlockConverter::Convert(f);
     return f;
   };

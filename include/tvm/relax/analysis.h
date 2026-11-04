@@ -544,7 +544,7 @@ VarUsageInfo CollectVarUsage(const Expr& expr);
  *
  * \return A set of variable nodes that are used in the expression
  */
-TVM_DLL std::set<const VarNode*> GetUsedVars(const Expr& expr);
+TVM_DLL std::set<const VarObj*> GetUsedVars(const Expr& expr);
 
 /*!
  * \brief Remove unused statements inside DataflowBlocks.

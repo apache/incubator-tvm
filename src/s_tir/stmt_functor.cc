@@ -32,89 +32,94 @@ using namespace tirx;
 
 void StmtExprVisitor::InitVTable(VTable* vtable) {
   tirx::StmtExprVisitor::InitVTable(vtable);
-  SetDispatch<StmtExprVisitor, SBlockNode>(vtable);
-  SetDispatch<StmtExprVisitor, SBlockRealizeNode>(vtable);
+  SetDispatch<StmtExprVisitor, SBlockObj>(vtable);
+  SetDispatch<StmtExprVisitor, SBlockRealizeObj>(vtable);
 }
 
 void StmtExprMutator::InitVTable(VTable* vtable) {
   tirx::StmtExprMutator::InitVTable(vtable);
-  SetDispatch<StmtExprMutator, SBlockNode>(vtable);
-  SetDispatch<StmtExprMutator, SBlockRealizeNode>(vtable);
+  SetDispatch<StmtExprMutator, SBlockObj>(vtable);
+  SetDispatch<StmtExprMutator, SBlockRealizeObj>(vtable);
 }
 
-ffi::Optional<VisitInterrupt> StmtExprVisitor::Visit_(const SBlockNode* op) {
+ffi::Optional<VisitInterrupt> StmtExprVisitor::Visit_(const SBlockObj* op) {
   return VisitBlock(this, op);
 }
 
-ffi::Optional<VisitInterrupt> StmtExprVisitor::VisitBlock(tirx::StmtExprVisitor* visitor,
-                                                          const SBlockNode* op) {
+ffi::Optional<VisitInterrupt> StmtExprVisitor::VisitBlock(ffi::StructuralVisitorObj* visitor,
+                                                          const SBlockObj* op) {
   for (const IterVar& iter_var : op->iter_vars) {
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(iter_var->dom.value()->begin));
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(iter_var->dom.value()->extent));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(
+        visitor->VisitExpected(iter_var->dom.value()->begin).value());
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(
+        visitor->VisitExpected(iter_var->dom.value()->extent).value());
   }
   for (const TensorVar& tensor : op->alloc_tensors) {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->WithDefRegionKind(
-        kTVMFFIDefRegionKindSimple, [&]() { return visitor->Visit(tensor); }));
+        kTVMFFIDefRegionKindSimple, [&]() { return visitor->VisitExpected(tensor).value(); }));
   }
   // Define match-tensor targets before visiting reads/writes that may use them.
   // This differs from the old TIRX native order (reads/writes before matches)
   // and agrees with structural traversal's definition-before-use contract.
   for (const MatchTensorRegion& match_tensor_region : op->match_tensors) {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->WithDefRegionKind(
-        kTVMFFIDefRegionKindSimple, [&]() { return visitor->Visit(match_tensor_region->tensor); }));
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(match_tensor_region->source));
+        kTVMFFIDefRegionKindSimple,
+        [&]() { return visitor->VisitExpected(match_tensor_region->tensor).value(); }));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(match_tensor_region->source).value());
   }
   if (auto addresses = op->annotations.Get(attr::kTensorAllocatedAddr.name)) {
     // The owner reference identifies the allocation; it is not a data access.
     for (const auto& entry : addresses.value().cast<TensorAllocatedAddresses>()) {
-      TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(entry.get<1>()));
+      TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(entry.get<1>()).value());
     }
   }
   for (const TensorRegion& region : op->reads) {
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(region));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(region).value());
   }
   for (const TensorRegion& region : op->writes) {
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(region));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(region).value());
   }
   if (op->init.has_value()) {
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(op->init.value()));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(op->init.value()).value());
   }
-  return visitor->Visit(op->body);
+  return visitor->VisitExpected(op->body).value();
 }
 
-ffi::Optional<VisitInterrupt> StmtExprVisitor::Visit_(const SBlockRealizeNode* op) {
+ffi::Optional<VisitInterrupt> StmtExprVisitor::Visit_(const SBlockRealizeObj* op) {
   return VisitBlockRealize(this, op);
 }
 
-ffi::Optional<VisitInterrupt> StmtExprVisitor::VisitBlockRealize(tirx::StmtExprVisitor* visitor,
-                                                                 const SBlockRealizeNode* op) {
+ffi::Optional<VisitInterrupt> StmtExprVisitor::VisitBlockRealize(ffi::StructuralVisitorObj* visitor,
+                                                                 const SBlockRealizeObj* op) {
   for (const auto& child : op->iter_values) {
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(child));
+    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(child).value());
   }
-  TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->Visit(op->predicate));
-  return visitor->Visit(op->block);
+  TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(op->predicate).value());
+  return visitor->VisitExpected(op->block).value();
 }
 
-UnchangedOr<Stmt> StmtExprMutator::Mutate_(const SBlockNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> StmtExprMutator::Mutate_(const SBlockObj* op, InplaceMode inplace_mode) {
   return MutateBlock(this, op, inplace_mode);
 }
 
-UnchangedOr<Stmt> StmtExprMutator::MutateBlock(tirx::StmtExprMutator* mutator, const SBlockNode* op,
-                                               InplaceMode inplace_mode) {
+UnchangedOr<Stmt> StmtExprMutator::MutateBlock(ffi::StructuralMutatorObj* mutator,
+                                               const SBlockObj* op, InplaceMode inplace_mode) {
   // SBlock iteration variables keep their binders; only their domains are expressions here.
   const auto* iters = op->iter_vars.GetArrayObj();
   InplaceMode iter_mode = iters->unique() ? inplace_mode : InplaceMode::kDisallow;
   std::vector<std::pair<size_t, IterVar>> replacements;
   for (size_t i = 0; i < iters->size(); ++i) {
-    const auto* iter = (*iters)[i].as<IterVarNode>();
+    const auto* iter = (*iters)[i].as<IterVarObj>();
     if (!iter->dom.has_value()) continue;
     InplaceMode domain_mode = iter->unique() ? iter_mode : InplaceMode::kDisallow;
-    auto domain = mutator->Mutate(iter->dom.value(), domain_mode).as_or_throw<UnchangedOr<Range>>();
+    auto domain = mutator->MutateExpected(iter->dom.value(), domain_mode)
+                      .value()
+                      .as_or_throw<UnchangedOr<Range>>();
     if (domain.UnchangedOrSameAs(iter->dom.value())) continue;
     if (domain_mode == InplaceMode::kAllow) {
-      const_cast<IterVarNode*>(iter)->dom = std::move(domain).ValueUnchecked();
+      const_cast<IterVarObj*>(iter)->dom = std::move(domain).ValueUnchecked();
     } else {
-      auto updated = ffi::make_object<IterVarNode>(*iter);
+      auto updated = ffi::make_object<IterVarObj>(*iter);
       updated->dom = std::move(domain).ValueUnchecked();
       replacements.emplace_back(i, IterVar(std::move(updated)));
     }
@@ -133,24 +138,31 @@ UnchangedOr<Stmt> StmtExprMutator::MutateBlock(tirx::StmtExprMutator* mutator, c
   }
   auto alloc_tensors =
       mutator
-          ->WithDefRegionKind(kTVMFFIDefRegionKindSimple,
-                              [&] { return mutator->Mutate(op->alloc_tensors, inplace_mode); })
+          ->WithDefRegionKind(
+              kTVMFFIDefRegionKindSimple,
+              [&] { return mutator->MutateExpected(op->alloc_tensors, inplace_mode).value(); })
           .as_or_throw<UnchangedOr<ffi::Array<TensorVar>>>();
-  auto match_tensors = mutator->Mutate(op->match_tensors, inplace_mode)
+  auto match_tensors = mutator->MutateExpected(op->match_tensors, inplace_mode)
+                           .value()
                            .as_or_throw<UnchangedOr<ffi::Array<MatchTensorRegion>>>();
   auto annotations = op->annotations;
   if (auto addresses = annotations.Get(attr::kTensorAllocatedAddr.name)) {
-    auto updated = mutator->Mutate(addresses.value(), InplaceMode::kDisallow);
+    auto updated = mutator->MutateExpected(addresses.value(), InplaceMode::kDisallow).value();
     if (!updated.IsUnchanged()) {
       annotations.Set(attr::kTensorAllocatedAddr.name, std::move(updated).ValueUnchecked());
     }
   }
-  auto reads =
-      mutator->Mutate(op->reads, inplace_mode).as_or_throw<UnchangedOr<ffi::Array<TensorRegion>>>();
-  auto writes = mutator->Mutate(op->writes, inplace_mode)
+  auto reads = mutator->MutateExpected(op->reads, inplace_mode)
+                   .value()
+                   .as_or_throw<UnchangedOr<ffi::Array<TensorRegion>>>();
+  auto writes = mutator->MutateExpected(op->writes, inplace_mode)
+                    .value()
                     .as_or_throw<UnchangedOr<ffi::Array<TensorRegion>>>();
-  auto init = mutator->Mutate(op->init, inplace_mode);
-  auto body = mutator->Mutate(op->body, inplace_mode);
+  auto init = mutator->MutateExpected(op->init, inplace_mode)
+                  .value()
+                  .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>();
+  auto body =
+      mutator->MutateExpected(op->body, inplace_mode).value().as_or_throw<UnchangedOr<SeqStmt>>();
   if (iter_vars.UnchangedOrSameAs(op->iter_vars) &&
       alloc_tensors.UnchangedOrSameAs(op->alloc_tensors) && reads.UnchangedOrSameAs(op->reads) &&
       writes.UnchangedOrSameAs(op->writes) && match_tensors.UnchangedOrSameAs(op->match_tensors) &&
@@ -158,7 +170,7 @@ UnchangedOr<Stmt> StmtExprMutator::MutateBlock(tirx::StmtExprMutator* mutator, c
       annotations.same_as(op->annotations))
     return ffi::Unchanged();
   if (inplace_mode == InplaceMode::kAllow) {
-    auto* writable = const_cast<SBlockNode*>(op);
+    auto* writable = const_cast<SBlockObj*>(op);
     writable->annotations = std::move(annotations);
     if (!iter_vars.IsUnchanged()) writable->iter_vars = std::move(iter_vars).ValueUnchecked();
     if (!alloc_tensors.IsUnchanged())
@@ -171,7 +183,7 @@ UnchangedOr<Stmt> StmtExprMutator::MutateBlock(tirx::StmtExprMutator* mutator, c
     if (!body.IsUnchanged()) writable->body = std::move(body).ValueUnchecked();
     return ffi::Unchanged();
   }
-  auto copy = ffi::make_object<SBlockNode>(*op);
+  auto copy = ffi::make_object<SBlockObj>(*op);
   copy->annotations = std::move(annotations);
   if (!iter_vars.IsUnchanged()) copy->iter_vars = std::move(iter_vars).ValueUnchecked();
   if (!alloc_tensors.IsUnchanged()) copy->alloc_tensors = std::move(alloc_tensors).ValueUnchecked();
@@ -183,28 +195,32 @@ UnchangedOr<Stmt> StmtExprMutator::MutateBlock(tirx::StmtExprMutator* mutator, c
   return Stmt(std::move(copy));
 }
 
-UnchangedOr<Stmt> StmtExprMutator::Mutate_(const SBlockRealizeNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> StmtExprMutator::Mutate_(const SBlockRealizeObj* op, InplaceMode inplace_mode) {
   return MutateBlockRealize(this, op, inplace_mode);
 }
 
-UnchangedOr<Stmt> StmtExprMutator::MutateBlockRealize(tirx::StmtExprMutator* mutator,
-                                                      const SBlockRealizeNode* op,
+UnchangedOr<Stmt> StmtExprMutator::MutateBlockRealize(ffi::StructuralMutatorObj* mutator,
+                                                      const SBlockRealizeObj* op,
                                                       InplaceMode inplace_mode) {
-  auto iter_values = mutator->Mutate(op->iter_values, inplace_mode)
+  auto iter_values = mutator->MutateExpected(op->iter_values, inplace_mode)
+                         .value()
                          .as_or_throw<UnchangedOr<ffi::Array<PrimExpr>>>();
-  auto predicate = mutator->Mutate(op->predicate, inplace_mode);
-  auto block = mutator->Mutate(op->block, inplace_mode).as_or_throw<UnchangedOr<SBlock>>();
+  auto predicate = mutator->MutateExpected(op->predicate, inplace_mode)
+                       .value()
+                       .as_or_throw<UnchangedOr<PrimExpr>>();
+  auto block =
+      mutator->MutateExpected(op->block, inplace_mode).value().as_or_throw<UnchangedOr<SBlock>>();
   if (iter_values.UnchangedOrSameAs(op->iter_values) &&
       predicate.UnchangedOrSameAs(op->predicate) && block.UnchangedOrSameAs(op->block))
     return ffi::Unchanged();
   if (inplace_mode == InplaceMode::kAllow) {
-    auto* writable = const_cast<SBlockRealizeNode*>(op);
+    auto* writable = const_cast<SBlockRealizeObj*>(op);
     if (!iter_values.IsUnchanged()) writable->iter_values = std::move(iter_values).ValueUnchecked();
     if (!predicate.IsUnchanged()) writable->predicate = std::move(predicate).ValueUnchecked();
     if (!block.IsUnchanged()) writable->block = std::move(block).ValueUnchecked();
     return ffi::Unchanged();
   }
-  auto copy = ffi::make_object<SBlockRealizeNode>(*op);
+  auto copy = ffi::make_object<SBlockRealizeObj>(*op);
   if (!iter_values.IsUnchanged()) copy->iter_values = std::move(iter_values).ValueUnchecked();
   if (!predicate.IsUnchanged()) copy->predicate = std::move(predicate).ValueUnchecked();
   if (!block.IsUnchanged()) copy->block = std::move(block).ValueUnchecked();

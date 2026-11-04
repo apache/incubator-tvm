@@ -102,24 +102,24 @@ class FlopEstimator : private tvm::ExprFunctor<TResult(const Expr& n)>,
     result.Add(op->ty.as_or_throw<PrimType>()->dtype); \
     return result;                                     \
   }
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::AddNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::SubNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MulNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::DivNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::ModNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::FloorDivNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::FloorModNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MinNode);
-  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MaxNode);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::AddObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::SubObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MulObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::DivObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::ModObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::FloorDivObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::FloorModObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MinObj);
+  TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY(prim::MaxObj);
 #undef TVM_TIR_ESTIMATE_FLOP_VISIT_BINARY
-  TResult Dispatch_(const prim::EQNode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::NENode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::LTNode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::LENode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::GTNode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::GENode* op) override { return TResult(); }
+  TResult Dispatch_(const prim::EQObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::NEObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::LTObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::LEObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::GTObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::GEObj* op) override { return TResult(); }
 
-  int64_t GetLoopExtent(const ForNode* node, const sym::Analyzer& ana) {
+  int64_t GetLoopExtent(const ForObj* node, const sym::Analyzer& ana) {
     int64_t bound =
         ana->const_int_bound(Range::GetExtentFromBeginEnd(node->begin, node->end))->max_value;
     if (bound == sym::ConstIntBound::kPosInf) {
@@ -129,55 +129,53 @@ class FlopEstimator : private tvm::ExprFunctor<TResult(const Expr& n)>,
     }
   }
 
-  TResult Dispatch_(const prim::LShiftNode* op) final {
+  TResult Dispatch_(const prim::LShiftObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::RShiftNode* op) final {
+  TResult Dispatch_(const prim::RShiftObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::BitwiseAndNode* op) final {
+  TResult Dispatch_(const prim::BitwiseAndObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::BitwiseOrNode* op) final {
+  TResult Dispatch_(const prim::BitwiseOrObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::BitwiseXorNode* op) final {
+  TResult Dispatch_(const prim::BitwiseXorObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::BitwiseNotNode* op) final { return Dispatch(op->a); }
-  TResult Dispatch_(const prim::NotNode* op) override { return Dispatch(op->a); }
-  TResult Dispatch_(const prim::AndNode* op) final {
+  TResult Dispatch_(const prim::BitwiseNotObj* op) final { return Dispatch(op->a); }
+  TResult Dispatch_(const prim::NotObj* op) override { return Dispatch(op->a); }
+  TResult Dispatch_(const prim::AndObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
-  TResult Dispatch_(const prim::OrNode* op) final {
+  TResult Dispatch_(const prim::OrObj* op) final {
     TResult result = Dispatch(op->a);
     result += Dispatch(op->b);
     return result;
   }
 
-  TResult Dispatch_(const TensorLoadNode* op) override { return TResult(); }
-  TResult Dispatch_(const RegionStmtNode* op) override {
+  TResult Dispatch_(const TensorLoadObj* op) override { return TResult(); }
+  TResult Dispatch_(const RegionStmtObj* op) override {
     TResult result = Dispatch(op->body);
     for (const Expr& arg : op->args) result += Dispatch(arg);
     return result;
   }
-  TResult Dispatch_(const TensorStoreNode* store) override { return Dispatch(store->value); }
-  TResult Dispatch_(const SBlockRealizeNode* block) override {
-    return Dispatch(block->block->body);
-  }
-  TResult Dispatch_(const SBlockNode* block) override {
+  TResult Dispatch_(const TensorStoreObj* store) override { return Dispatch(store->value); }
+  TResult Dispatch_(const SBlockRealizeObj* block) override { return Dispatch(block->block->body); }
+  TResult Dispatch_(const SBlockObj* block) override {
     TResult result;
     if (block->init.has_value()) {
       result += Dispatch(block->init.value());
@@ -185,15 +183,19 @@ class FlopEstimator : private tvm::ExprFunctor<TResult(const Expr& n)>,
     result += Dispatch(block->body);
     return result;
   }
-  TResult Dispatch_(const ForNode* loop) override {
-    ana->Bind(loop->var, Range(loop->begin, loop->end));
+  TResult Dispatch_(const ForObj* loop) override {
+    auto outer_context = ana->GetConstraintContext();
+    auto context = outer_context->Snapshot();
+    context->Append(sym::RangeConstraint(loop->var, Range(loop->begin, loop->end)));
+    ana->SyncConstraintContext(context);
     const auto int_imm = GetLoopExtent(loop, ana);
     TResult result = Dispatch(loop->body);
+    ana->SyncConstraintContext(outer_context);
     result *= int_imm;
     return result;
   }
 
-  TResult Dispatch_(const IfNode* branch) override {
+  TResult Dispatch_(const IfObj* branch) override {
     TResult cond = Dispatch(branch->condition);
     if (branch->else_case) {
       cond += Dispatch(branch->then_case).MaxWith(Dispatch(branch->else_case.value()));
@@ -203,37 +205,37 @@ class FlopEstimator : private tvm::ExprFunctor<TResult(const Expr& n)>,
     return cond;
   }
 
-  TResult Dispatch_(const WhileNode* op) override {
+  TResult Dispatch_(const WhileObj* op) override {
     // TODO(jikechao): Improve while loop FLOP estimation with loop bound analysis
     TResult result = Dispatch(op->condition);
     result += Dispatch(op->body);
     return result;
   }
 
-  TResult Dispatch_(const BindNode* let) override {
+  TResult Dispatch_(const BindObj* let) override {
     if (auto value = let->value.as<PrimExpr>()) return Dispatch(value.value());
     return TResult();
   }
 
-  TResult Dispatch_(const prim::SelectNode* op) override {
+  TResult Dispatch_(const prim::SelectObj* op) override {
     TResult cond = Dispatch(op->condition);
     cond += Dispatch(op->true_value).MaxWith(Dispatch(op->false_value));
     return cond;
   }
 
-  TResult Dispatch_(const AssertStmtNode* op) override {
+  TResult Dispatch_(const AssertStmtObj* op) override {
     TResult result = Dispatch(op->condition);
     return result;
   }
 
-  TResult Dispatch_(const VarNode* op) override { return TResult(); }
-  TResult Dispatch_(const IntImmNode* op) override { return TResult(); }
-  TResult Dispatch_(const FloatImmNode* op) override { return TResult(); }
-  TResult Dispatch_(const StringImmNode* op) override { return TResult(); }
-  TResult Dispatch_(const prim::CastNode* op) override { return Dispatch(op->value); }
-  TResult Dispatch_(const EvaluateNode* op) override { return TResult(); }
+  TResult Dispatch_(const VarObj* op) override { return TResult(); }
+  TResult Dispatch_(const IntImmObj* op) override { return TResult(); }
+  TResult Dispatch_(const FloatImmObj* op) override { return TResult(); }
+  TResult Dispatch_(const StringImmObj* op) override { return TResult(); }
+  TResult Dispatch_(const prim::CastObj* op) override { return Dispatch(op->value); }
+  TResult Dispatch_(const EvaluateObj* op) override { return TResult(); }
 
-  TResult Dispatch_(const SeqStmtNode* seq) override {
+  TResult Dispatch_(const SeqStmtObj* seq) override {
     TResult result;
     for (const Stmt& stmt : seq->seq) {
       result += Dispatch(stmt);
@@ -241,7 +243,7 @@ class FlopEstimator : private tvm::ExprFunctor<TResult(const Expr& n)>,
     return result;
   }
 
-  TResult Dispatch_(const CallNode* op) override {
+  TResult Dispatch_(const CallObj* op) override {
     TResult ret;
     for (const Expr& arg : op->args) {
       ret += Dispatch(arg);
@@ -268,7 +270,7 @@ double EstimateTIRFlops(const IRModule& mod) {
   TResult result;
   double cached_result = 0;
   for (const auto& [_, base_func] : mod->functions) {
-    if (const auto* func = base_func.as<FunctionNode>()) {
+    if (const auto* func = base_func.as<FunctionObj>()) {
       if (auto cached = func->attrs.GetAttr(tvm::s_tir::attr::kEstimatedFlops)) {
         cached_result += cached.value();
       } else if (func->body.has_value()) {

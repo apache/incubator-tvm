@@ -33,7 +33,7 @@ class UnboundBlockFinder : public StmtExprVisitor {
   using StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
@@ -42,7 +42,7 @@ class UnboundBlockFinder : public StmtExprVisitor {
     for (const auto& kv : self->mod->functions) {
       GlobalVar g_var = kv.first;
       BaseFunc base_func = kv.second;
-      if (const auto* function = base_func.as<FunctionNode>()) {
+      if (const auto* function = base_func.as<FunctionObj>()) {
         finder->global_var_name_ = g_var->name_hint;
         TVM_FFI_ICHECK(function->body.has_value());
         TVM_FFI_ICHECK_EQ(function->body.value()->size(), 1);
@@ -53,7 +53,7 @@ class UnboundBlockFinder : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
     support::GPUThreadTag thread_scope = GetThreadBindingTag(loop);
     if (IsBlockIdx(thread_scope)) {
       ++n_block_idx_;
@@ -71,7 +71,7 @@ class UnboundBlockFinder : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) final {
     blocks_.emplace_back(self_->stmt2ref.at(block), global_var_name_);
     return std::nullopt;
   }

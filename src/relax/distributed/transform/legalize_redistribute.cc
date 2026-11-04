@@ -50,25 +50,25 @@ class RedistributeLegalizer : public ExprMutator {
   IRModule Legalize() {
     auto mod = builder_->GetContextIRModule();
     for (const auto& [gv, base_func] : mod->functions) {
-      const auto* func_ = base_func.as<FunctionNode>();
+      const auto* func_ = base_func.as<FunctionObj>();
       if (func_ == nullptr) {
         continue;
       }
       Expr new_func_body = VisitExpr(func_->body);
-      auto new_func = ffi::make_object<FunctionNode>(*func_);
+      auto new_func = ffi::make_object<FunctionObj>(*func_);
       new_func->body = new_func_body;
       builder_->UpdateFunction(gv, Function(new_func));
     }
     return builder_->GetContextIRModule();
   }
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     Call call = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
     static Op redistribute_op = Op::Get("relax.dist.redistribute");
     if (call->op.same_as(redistribute_op)) {
       const auto* attrs = call->attrs.as<DistributionAttrs>();
       TVM_FFI_ICHECK(attrs);
-      const auto* input_ty = call->args[0]->ty.as<DTensorTypeNode>();
+      const auto* input_ty = call->args[0]->ty.as<DTensorTypeObj>();
       TVM_FFI_ICHECK(input_ty);
       // As the first step, we only support redistribute in the same device mesh,
       // and the device mesh must be 1d

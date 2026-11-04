@@ -51,11 +51,11 @@ class ThreadSyncPlanner : public StorageAccessVisitor {
   std::unordered_set<const ffi::Object*> syncs_inserted_;
 
  protected:
-  bool Enabled(const VarNode* buf, const MemoryScope& scope) const final {
+  bool Enabled(const VarObj* buf, const MemoryScope& scope) const final {
     return in_device_env() && scope == sync_scope_;
   }
   // Plan the sync
-  std::vector<AccessEntry> Summarize(std::vector<StmtEntry> seq, const ForNode* loop) final {
+  std::vector<AccessEntry> Summarize(std::vector<StmtEntry> seq, const ForObj* loop) final {
     static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
     // Redirect all "shared.dyn" buffer access to the same buffer var
@@ -223,7 +223,7 @@ class ThreadSyncPlanner : public StorageAccessVisitor {
     // Even if access has the same index, those indices need to
     // depend on the innermost thread id to avoid race condition
     bool depends_on_thread_index = true;
-    const VarNode* thread_index_var = nullptr;
+    const VarObj* thread_index_var = nullptr;
     if (!curr.threads.empty()) {
       thread_index_var = curr.threads.back()->var.get();
     }
@@ -237,7 +237,7 @@ class ThreadSyncPlanner : public StorageAccessVisitor {
         PrimExpr curr_index = curr_intset.PointValue();
         has_same_index = prim::ExprDeepEqual()(prev_index, curr_index);
         if (thread_index_var != nullptr) {
-          auto f_uses_thread_index = [=](const tvm::VarNode* parameter) {
+          auto f_uses_thread_index = [=](const tvm::VarObj* parameter) {
             return parameter == thread_index_var;
           };
           auto walkfn = [&](const Var& var) -> ffi::Expected<ffi::WalkResult> {
@@ -299,9 +299,8 @@ class ThreadSyncAfterWaitQueueInserter : public StmtExprMutator {
 
   explicit ThreadSyncAfterWaitQueueInserter(MemoryScope sync_scope) : sync_scope_(sync_scope) {}
 
-  UnchangedOr<Stmt> Mutate_(const EvaluateNode* op, InplaceMode inplace_mode) final {
-    if (const auto* call = op->value.as<CallNode>();
-        call && call->op.same_as(s_tir::async_wait())) {
+  UnchangedOr<Stmt> Mutate_(const EvaluateObj* op, InplaceMode inplace_mode) final {
+    if (const auto* call = op->value.as<CallObj>(); call && call->op.same_as(s_tir::async_wait())) {
       auto sync = Evaluate(
           Call(PrimType::Int(32), tirx::gpu_storage_sync_op(), {StringImm(sync_scope_.name())}));
       return SeqStmt({ffi::GetRef<Stmt>(op), sync});
@@ -322,7 +321,7 @@ class ThreadSyncInserter : public StmtExprMutator {
       : sync_scope_(sync_scope), syncs_(syncs) {}
 
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) final {
-    const auto* stmt = value.as<StmtNode>();
+    const auto* stmt = value.as<StmtObj>();
     if (!stmt) return StmtExprMutator::Mutate(value, inplace_mode);
     if (syncs_.empty()) return ffi::Unchanged();
     if (!syncs_.count(stmt)) return StmtExprMutator::Mutate(value, inplace_mode);
@@ -364,15 +363,15 @@ class SynchronizationLowerer : public StmtExprMutator {
   using StmtExprMutator::Mutate_;
   explicit SynchronizationLowerer(bool is_cuda) : is_cuda_(is_cuda) {}
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
     if (op->op.same_as(s_tir::manual_sync()) || op->op.same_as(s_tir::async_copy_scope())) {
       return Mutate(op->body, inplace_mode).ValueOrUnchanged(op->body);
     }
     return StmtExprMutator::Mutate_(op, inplace_mode);
   }
 
-  UnchangedOr<Stmt> Mutate_(const EvaluateNode* op, InplaceMode inplace_mode) final {
-    const auto* call = op->value.as<CallNode>();
+  UnchangedOr<Stmt> Mutate_(const EvaluateObj* op, InplaceMode inplace_mode) final {
+    const auto* call = op->value.as<CallObj>();
     if (!call ||
         (!call->op.same_as(s_tir::async_commit()) && !call->op.same_as(s_tir::async_wait()))) {
       return StmtExprMutator::Mutate_(op, inplace_mode);

@@ -47,11 +47,11 @@ using TensorAllocatedAddresses = ffi::Array<ffi::Tuple<Var, ffi::Array<PrimExpr>
  * low-level hardware primitives in the IR and defer the check after the sequence of
  * transformations.
  */
-class MatchTensorRegionNode : public ffi::Object {
+class MatchTensorRegionObj : public ffi::Object {
  public:
-  explicit MatchTensorRegionNode(ffi::UnsafeInit tag) : tensor(tag), source(tag) {}
+  explicit MatchTensorRegionObj(ffi::UnsafeInit tag) : tensor(tag), source(tag) {}
 
-  MatchTensorRegionNode(tirx::TensorVar tensor, TensorRegion source)
+  MatchTensorRegionObj(tirx::TensorVar tensor, TensorRegion source)
       : tensor(std::move(tensor)), source(std::move(source)) {}
 
   /*! \brief The target tensor. */
@@ -61,23 +61,22 @@ class MatchTensorRegionNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MatchTensorRegionNode>()
-        .def_ro("tensor", &MatchTensorRegionNode::tensor,
-                refl::AttachFieldFlag::SEqHashDefPattern())
-        .def_ro("source", &MatchTensorRegionNode::source);
+    refl::ObjectDef<MatchTensorRegionObj>()
+        .def_ro("tensor", &MatchTensorRegionObj::tensor, refl::AttachFieldFlag::SEqHashDefPattern())
+        .def_ro("source", &MatchTensorRegionObj::source);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.MatchTensorRegion", MatchTensorRegionNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.MatchTensorRegion", MatchTensorRegionObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to MatchTensorRegionNode.
- * \sa MatchTensorRegionNode
+ * \brief Managed reference to MatchTensorRegionObj.
+ * \sa MatchTensorRegionObj
  */
 class MatchTensorRegion : public ffi::ObjectRef {
  public:
-  explicit MatchTensorRegion(ffi::UnsafeInit tag, ffi::ObjectPtr<MatchTensorRegionNode> data)
+  explicit MatchTensorRegion(ffi::UnsafeInit tag, ffi::ObjectPtr<MatchTensorRegionObj> data)
       : ffi::ObjectRef(tag) {
     data_ = std::move(data);
   }
@@ -85,8 +84,8 @@ class MatchTensorRegion : public ffi::ObjectRef {
   TVM_DLL explicit MatchTensorRegion(tirx::TensorVar tensor, TensorRegion source);
 
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(MatchTensorRegion, ffi::ObjectRef,
-                                                MatchTensorRegionNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchTensorRegionNode);
+                                                MatchTensorRegionObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchTensorRegionObj);
 };
 
 /*!
@@ -110,11 +109,11 @@ class MatchTensorRegion : public ffi::ObjectRef {
  *
  * \endcode
  */
-class SBlockNode : public StmtNode {
+class SBlockObj : public StmtObj {
  public:
-  explicit SBlockNode(ffi::UnsafeInit tag) : body(tag) {}
+  explicit SBlockObj(ffi::UnsafeInit tag) : body(tag) {}
 
-  explicit SBlockNode(SeqStmt body) : body(std::move(body)) {}
+  explicit SBlockObj(SeqStmt body) : body(std::move(body)) {}
 
   /*! \brief The variables of the block. */
   ffi::Array<s_tir::IterVar> iter_vars;
@@ -143,24 +142,24 @@ class SBlockNode : public StmtNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBlockNode>()
-        .def_ro("iter_vars", &SBlockNode::iter_vars)
-        .def_ro("reads", &SBlockNode::reads)
-        .def_ro("writes", &SBlockNode::writes)
-        .def_ro("name_hint", &SBlockNode::name_hint, refl::AttachFieldFlag::SEqHashIgnore())
-        .def_ro("alloc_tensors", &SBlockNode::alloc_tensors,
+    refl::ObjectDef<SBlockObj>()
+        .def_ro("iter_vars", &SBlockObj::iter_vars)
+        .def_ro("reads", &SBlockObj::reads)
+        .def_ro("writes", &SBlockObj::writes)
+        .def_ro("name_hint", &SBlockObj::name_hint, refl::AttachFieldFlag::SEqHashIgnore())
+        .def_ro("alloc_tensors", &SBlockObj::alloc_tensors,
                 refl::AttachFieldFlag::SEqHashDefSimple())
-        .def_ro("match_tensors", &SBlockNode::match_tensors)
-        .def_ro("annotations", &SBlockNode::annotations)
-        .def_ro("init", &SBlockNode::init)
-        .def_ro("body", &SBlockNode::body);
+        .def_ro("match_tensors", &SBlockObj::match_tensors)
+        .def_ro("annotations", &SBlockObj::annotations)
+        .def_ro("init", &SBlockObj::init)
+        .def_ro("body", &SBlockObj::body);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlock", SBlockNode, StmtNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlock", SBlockObj, StmtObj);
 };
 
 /*!
- * \brief Managed reference to SBlockNode.
- * \sa SBlockNode
+ * \brief Managed reference to SBlockObj.
+ * \sa SBlockObj
  */
 class SBlock : public Stmt {
  public:
@@ -177,20 +176,20 @@ class SBlock : public Stmt {
                           ffi::Array<tirx::TensorVar> alloc_tensors = ffi::Array<tirx::TensorVar>(),
                           Location loc = UnknownLoc());
 
-  explicit SBlock(ffi::ObjectPtr<SBlockNode> node) : Stmt(std::move(node)) {}
+  explicit SBlock(ffi::ObjectPtr<SBlockObj> node) : Stmt(std::move(node)) {}
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlock, Stmt, SBlockNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(SBlockNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlock, Stmt, SBlockObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(SBlockObj);
 };
 
 /*!
  * \brief A block realization node represents execution of the block at the binding values.
  */
-class SBlockRealizeNode : public StmtNode {
+class SBlockRealizeObj : public StmtObj {
  public:
-  explicit SBlockRealizeNode(ffi::UnsafeInit tag) : predicate(tag), block(tag) {}
+  explicit SBlockRealizeObj(ffi::UnsafeInit tag) : predicate(tag), block(tag) {}
 
-  SBlockRealizeNode(PrimExpr predicate, SBlock block)
+  SBlockRealizeObj(PrimExpr predicate, SBlock block)
       : predicate(std::move(predicate)), block(std::move(block)) {}
 
   /*! \brief The corresponding values of the iter vars. */
@@ -205,12 +204,12 @@ class SBlockRealizeNode : public StmtNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBlockRealizeNode>()
-        .def_ro("iter_values", &SBlockRealizeNode::iter_values)
-        .def_ro("predicate", &SBlockRealizeNode::predicate)
-        .def_ro("block", &SBlockRealizeNode::block);
+    refl::ObjectDef<SBlockRealizeObj>()
+        .def_ro("iter_values", &SBlockRealizeObj::iter_values)
+        .def_ro("predicate", &SBlockRealizeObj::predicate)
+        .def_ro("block", &SBlockRealizeObj::block);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockRealize", SBlockRealizeNode, StmtNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockRealize", SBlockRealizeObj, StmtObj);
 };
 
 /*!
@@ -222,10 +221,10 @@ class SBlockRealize : public Stmt {
   TVM_DLL explicit SBlockRealize(ffi::Array<PrimExpr> iter_values, PrimExpr predicate, SBlock block,
                                  Location loc = UnknownLoc());
 
-  explicit SBlockRealize(ffi::ObjectPtr<SBlockRealizeNode> node) : Stmt(std::move(node)) {}
+  explicit SBlockRealize(ffi::ObjectPtr<SBlockRealizeObj> node) : Stmt(std::move(node)) {}
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlockRealize, Stmt, SBlockRealizeNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(SBlockRealizeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlockRealize, Stmt, SBlockRealizeObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(SBlockRealizeObj);
 };
 
 /*! \brief Region marking copies eligible for asynchronous lowering. */
@@ -386,7 +385,7 @@ inline constexpr ffi::reflection::AttrKey<ffi::Array<int64_t>> kExplicitReadRegi
 inline constexpr ffi::reflection::AttrKey<ffi::Array<int64_t>> kExplicitWriteRegion{
     "explicit_write_region"};
 
-/*! \brief ,ark a ForNode represent an irregular loop of non-structural control flow edges. */
+/*! \brief ,ark a ForObj represent an irregular loop of non-structural control flow edges. */
 inline constexpr ffi::reflection::AttrKey<int64_t> kIrregularLoopMark{"irregular_loop_mark"};
 
 /*! \brief Mark auto copy for memhammer */
@@ -414,7 +413,7 @@ inline constexpr ffi::reflection::AttrKey<ffi::Array<int64_t>> kMetaScheduleWrit
 }  // namespace attr
 
 /*! \brief Interpret and validate S-TIR thread placement on a shared loop. */
-inline ffi::Optional<ffi::String> GetThreadBinding(const ForNode* loop) {
+inline ffi::Optional<ffi::String> GetThreadBinding(const ForObj* loop) {
   if (auto tag = loop->annotations.Get(tvm::s_tir::attr::kThreadBinding.name)) {
     TVM_FFI_CHECK(loop->kind == ForKind::kParallel, ValueError)
         << "thread_binding requires a parallel loop";

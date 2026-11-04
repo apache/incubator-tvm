@@ -42,7 +42,7 @@ TensorRegion TensorRegionFromPoint(tirx::TensorVar tensor, ffi::Array<PrimExpr> 
       << "Tensor rank and region dimension mismatch";
   ffi::Array<Range> region;
   for (const PrimExpr& index : indices) {
-    if (const prim::RampNode* ramp_index = index.as<prim::RampNode>()) {
+    if (const prim::RampObj* ramp_index = index.as<prim::RampObj>()) {
       region.push_back(
           Range::FromMinExtent(ramp_index->base, ramp_index->stride * ramp_index->lanes));
     } else {

@@ -51,8 +51,8 @@ class PartialTupleUsageCollector : ExprVisitor {
       bool is_exposed = base_func->attrs.GetAttr(tvm::attr::kGlobalSymbol).has_value();
 
       if (!is_exposed) {
-        if (auto relax_func = base_func.as<FunctionNode>()) {
-          if (auto out_tuple = relax_func->ret_ty.as<TupleTypeNode>()) {
+        if (auto relax_func = base_func.as<FunctionObj>()) {
+          if (auto out_tuple = relax_func->ret_ty.as<TupleTypeObj>()) {
             num_outputs[gvar] = out_tuple->fields.size();
           }
         }
@@ -96,7 +96,7 @@ class PartialTupleUsageCollector : ExprVisitor {
     known_bindings_.Set(binding->var, GetBoundValue(binding));
   }
 
-  void VisitExpr_(const TupleGetItemNode* op) override {
+  void VisitExpr_(const TupleGetItemObj* op) override {
     if (auto* usage_mask_ptr = GetCalleeUsageMask(op->tuple)) {
       auto& used_indices = *usage_mask_ptr;
 
@@ -113,7 +113,7 @@ class PartialTupleUsageCollector : ExprVisitor {
     }
   }
 
-  void VisitExpr_(const VarNode* op) override {
+  void VisitExpr_(const VarObj* op) override {
     if (auto* usage_mask_ptr = GetCalleeUsageMask(ffi::GetRef<Var>(op))) {
       auto& usage_mask = *usage_mask_ptr;
       for (size_t i = 0; i < usage_mask.size(); i++) {
@@ -123,12 +123,12 @@ class PartialTupleUsageCollector : ExprVisitor {
   }
 
   std::vector<bool>* GetCalleeUsageMask(Expr expr) {
-    if (!expr->ty.as<TupleTypeNode>()) {
+    if (!expr->ty.as<TupleTypeObj>()) {
       return nullptr;
     }
 
     expr = UnwrapBindings(expr);
-    if (auto call = expr.as<CallNode>()) {
+    if (auto call = expr.as<CallObj>()) {
       if (auto callee = call->op.as<GlobalVar>()) {
         if (auto it = output_usage_mask_.find(callee.value()); it != output_usage_mask_.end()) {
           return &it->second;
@@ -160,9 +160,9 @@ class PartialTupleUsageCollector : ExprVisitor {
 };
 
 Function UpdateCallee(Function func, const std::vector<bool>& usage_mask) {
-  auto old_func_ty = func->ty.as<FuncTypeNode>();
+  auto old_func_ty = func->ty.as<FuncTypeObj>();
 
-  auto old_ret_ty = func->ret_ty.as<TupleTypeNode>();
+  auto old_ret_ty = func->ret_ty.as<TupleTypeObj>();
   TVM_FFI_ICHECK(old_ret_ty) << "All functions returning non-tuple outputs "
                              << "should have been pruned already by PartialTupleUsageCollector";
 
@@ -202,7 +202,7 @@ class CallSiteMutator : public ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     auto node = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     if (auto gvar = node->op.as<GlobalVar>()) {
@@ -250,7 +250,7 @@ Pass RemoveUnusedOutputs() {
                   << "Updater should be applied to " << old_gvar << ", but was applied to "
                   << call->op;
 
-              auto old_call_ty = call->ty.as<TupleTypeNode>();
+              auto old_call_ty = call->ty.as<TupleTypeObj>();
               TVM_FFI_CHECK(old_call_ty, InternalError)
                   << "Updater should be applied to Call producing an output tuple, "
                   << "but " << call << " has type " << call->ty;

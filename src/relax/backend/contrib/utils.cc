@@ -55,7 +55,7 @@ ffi::Map<ffi::String, IntImm> ExtractArgIdx(ffi::String pattern_name, Function f
 
   for (const auto& [name, pat] : pattern.value()->annotation_patterns) {
     auto exp = matched_expr.value()[pat];
-    if (auto arg_var = exp.as<VarNode>()) {
+    if (auto arg_var = exp.as<VarObj>()) {
       if (auto idx = find_index(f->params, ffi::GetRef<Var>(arg_var))) {
         arg_idx.Set(name, IntImm::Int64(*idx));
       }

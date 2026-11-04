@@ -50,7 +50,7 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) {
     SBlock block = ffi::GetRef<SBlock>(op);
     auto* n = block.CopyOnWrite();
     auto fmutate = [this](const TensorVar& tensor) {
@@ -68,8 +68,8 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
         // bi = 16, bj = 8
         size_t size = tensor.shape().size();
         TVM_FFI_ICHECK_GE(size, 2);
-        const IntImmNode* dim0 = tensor.shape()[size - 2].as<IntImmNode>();
-        const IntImmNode* dim1 = tensor.shape()[size - 1].as<IntImmNode>();
+        const IntImmObj* dim0 = tensor.shape()[size - 2].as<IntImmObj>();
+        const IntImmObj* dim1 = tensor.shape()[size - 1].as<IntImmObj>();
         TVM_FFI_ICHECK(dim0 != nullptr && dim1 != nullptr);
         TVM_FFI_ICHECK(dim0->value % 16 == 0 && dim1->value % 8 == 0);
 
@@ -90,8 +90,8 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
         // bi = 32, bj = 8
         size_t size = tensor.shape().size();
         TVM_FFI_ICHECK_GE(size, 2);
-        const IntImmNode* dim0 = tensor.shape()[size - 2].as<IntImmNode>();
-        const IntImmNode* dim1 = tensor.shape()[size - 1].as<IntImmNode>();
+        const IntImmObj* dim0 = tensor.shape()[size - 2].as<IntImmObj>();
+        const IntImmObj* dim1 = tensor.shape()[size - 1].as<IntImmObj>();
         TVM_FFI_ICHECK(dim0 != nullptr && dim1 != nullptr);
         TVM_FFI_ICHECK(dim0->value % 32 == 0 && dim1->value % 8 == 0);
         std::vector<PrimExpr> new_shape;
@@ -111,8 +111,8 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
         // bj = 8, bj = 32
         size_t size = tensor.shape().size();
         TVM_FFI_ICHECK_GE(size, 2);
-        const IntImmNode* dim0 = tensor.shape()[size - 2].as<IntImmNode>();
-        const IntImmNode* dim1 = tensor.shape()[size - 1].as<IntImmNode>();
+        const IntImmObj* dim0 = tensor.shape()[size - 2].as<IntImmObj>();
+        const IntImmObj* dim1 = tensor.shape()[size - 1].as<IntImmObj>();
         TVM_FFI_ICHECK(dim0 != nullptr && dim1 != nullptr);
         TVM_FFI_ICHECK(dim0->value % 8 == 0 && dim1->value % 32 == 0);
         std::vector<PrimExpr> new_shape;
@@ -134,7 +134,7 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
     return block;
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) {
     const auto scope_mma_matrixC = GetRegisteredMemoryScope("mma.matrixC");
     const auto scope_mma_matrixA = GetRegisteredMemoryScope("mma.matrixA");
     const auto scope_mma_matrixB = GetRegisteredMemoryScope("mma.matrixB");
@@ -166,7 +166,7 @@ class MmaTensorLayoutTransformer : public StmtExprMutator {
     return store;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) {
     const auto scope_mma_matrixC = GetRegisteredMemoryScope("mma.matrixC");
 
     TensorVar tensor = op->source.as_or_throw<TensorVar>();

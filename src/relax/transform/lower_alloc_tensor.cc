@@ -38,7 +38,7 @@ class Mutator : public ExprMutator {
   explicit Mutator(IRModule mod) : ctx_mod_(mod) {}
 
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     static const Op alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
     static const Op mem_alloc_storage_op = Op::Get("relax.memory.alloc_storage");
     static const Op mem_alloc_tensor_op = Op::Get("relax.memory.alloc_tensor");
@@ -55,12 +55,12 @@ class Mutator : public ExprMutator {
       StringImm storage_scope = op->args[3].as_or_throw<StringImm>();
 
       auto shape = [&]() -> ffi::Array<PrimExpr> {
-        if (auto ptr = shape_arg.as<ShapeExprNode>()) {
+        if (auto ptr = shape_arg.as<ShapeExprObj>()) {
           return ptr->values;
         }
 
         auto ty = GetType(shape_arg);
-        if (auto ptr = ty.as<ShapeTypeNode>()) {
+        if (auto ptr = ty.as<ShapeTypeObj>()) {
           if (ptr->values) {
             return ptr->values.value();
           }
@@ -87,7 +87,7 @@ class Mutator : public ExprMutator {
       ShapeExpr size({nbytes});
 
       int64_t vdevice_index = -1;
-      if (const auto* int_imm = op->args[2].as<IntImmNode>()) {
+      if (const auto* int_imm = op->args[2].as<IntImmObj>()) {
         vdevice_index = int_imm->value.as<int>().value();
       }
       ffi::Optional<VDevice> vdevice = GetGlobalVDevice(ctx_mod_, vdevice_index);

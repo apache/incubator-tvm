@@ -23,5 +23,6 @@ rm -f 3rdparty/tvm-tirx/3rdparty/tvm-ffi/build/CMakeCache.txt
 
 rm -rf dist
 uv pip install --python python3 --target .local/python \
-    "scikit-build-core>=0.11,!=1.1.0" "setuptools-scm>=8" "cython>=3.2.8" "mlc-z3-static>=4.16.0"
+    "scikit-build-core>=0.11,!=1.1.0" "setuptools-scm>=8" "cython>=3.2.8" "mlc-z3-static>=4.16.0" \
+    "mlc-llvm-static[all]==23.1.1.post0"
 export PYTHONPATH="$PWD/.local/python"

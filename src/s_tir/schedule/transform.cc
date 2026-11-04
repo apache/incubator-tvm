@@ -36,24 +36,24 @@ using namespace tvm::tirx;
 
 /******** Annotation ********/
 
-SBlock WithAnnotation(const SBlockNode* block, const ffi::String& attr_key,
+SBlock WithAnnotation(const SBlockObj* block, const ffi::String& attr_key,
                       const ffi::ObjectRef& attr_value) {
   ffi::Map<ffi::String, Any> annotations = block->annotations;
   annotations.Set(attr_key, attr_value);
-  ffi::ObjectPtr<SBlockNode> new_block = ffi::make_object<SBlockNode>(*block);
+  ffi::ObjectPtr<SBlockObj> new_block = ffi::make_object<SBlockObj>(*block);
   new_block->annotations = std::move(annotations);
   return SBlock(new_block);
 }
 
 /******** Tensor Related ********/
 TensorVar WithScope(const TensorVar& tensor, runtime::MemoryScope scope) {
-  auto type = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+  auto type = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
   type->scope = scope;
   return TensorVar(tensor->name + "_" + scope.name(), TensorType(std::move(type)), tensor->loc);
 }
 
 TensorVar WithDType(const TensorVar& tensor, PrimType dtype) {
-  auto type = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+  auto type = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
   type->dtype = dtype;
   return TensorVar(tensor->name, TensorType(std::move(type)), tensor->loc);
 }
@@ -62,7 +62,7 @@ ffi::Array<TensorRegion> ReplaceTensor(ffi::Array<TensorRegion> regions, const T
                                        const TensorVar& target) {
   regions.MutateByApply([&source, &target](TensorRegion region) -> TensorRegion {
     if (region->source.as_or_throw<tvm::tirx::TensorVar>().same_as(source)) {
-      ffi::ObjectPtr<TensorRegionNode> n = ffi::make_object<TensorRegionNode>(*region.get());
+      ffi::ObjectPtr<TensorRegionObj> n = ffi::make_object<TensorRegionObj>(*region.get());
       n->source = target;
       return TensorRegion(n);
     }
@@ -75,7 +75,7 @@ ffi::Array<TensorRegion> ReplaceTensor(ffi::Array<TensorRegion> regions,
                                        const ffi::Map<TensorVar, TensorVar>& tensor_map) {
   regions.MutateByApply([&tensor_map](TensorRegion region) -> TensorRegion {
     if (tensor_map.count(region->source.as_or_throw<tvm::tirx::TensorVar>())) {
-      ffi::ObjectPtr<TensorRegionNode> n = ffi::make_object<TensorRegionNode>(*region.get());
+      ffi::ObjectPtr<TensorRegionObj> n = ffi::make_object<TensorRegionObj>(*region.get());
       n->source = tensor_map[region->source.as_or_throw<tvm::tirx::TensorVar>()];
       return TensorRegion(n);
     }
@@ -89,8 +89,8 @@ ffi::Array<MatchTensorRegion> ReplaceTensor(ffi::Array<MatchTensorRegion> match_
   match_tensors.MutateByApply(
       [&source, &target](MatchTensorRegion match_tensor) -> MatchTensorRegion {
         if (match_tensor->source->source.as_or_throw<tvm::tirx::TensorVar>().same_as(source)) {
-          ffi::ObjectPtr<MatchTensorRegionNode> n =
-              ffi::make_object<MatchTensorRegionNode>(*match_tensor.get());
+          ffi::ObjectPtr<MatchTensorRegionObj> n =
+              ffi::make_object<MatchTensorRegionObj>(*match_tensor.get());
           n->source = TensorRegion(target, n->source->region, TensorRegionType());
           return MatchTensorRegion(ffi::UnsafeInit{}, n);
         }
@@ -117,8 +117,8 @@ ffi::Array<MatchTensorRegion> ReplaceTensorRegion(ffi::Array<MatchTensorRegion> 
   match_tensors.MutateByApply([&source_tensor, &target](
                                   const MatchTensorRegion& match_tensor) -> MatchTensorRegion {
     if (match_tensor->source->source.as_or_throw<tvm::tirx::TensorVar>().same_as(source_tensor)) {
-      ffi::ObjectPtr<MatchTensorRegionNode> n =
-          ffi::make_object<MatchTensorRegionNode>(*match_tensor.get());
+      ffi::ObjectPtr<MatchTensorRegionObj> n =
+          ffi::make_object<MatchTensorRegionObj>(*match_tensor.get());
       n->source = target;
       return MatchTensorRegion(ffi::UnsafeInit{}, n);
     }
@@ -142,20 +142,20 @@ ReplaceTensorMutator::ReplaceTensorMutator(const ffi::Map<TensorVar, TensorVar>&
   }
 }
 
-UnchangedOr<Expr> ReplaceTensorMutator::Mutate_(const CallNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Expr> ReplaceTensorMutator::Mutate_(const CallObj* op, InplaceMode inplace_mode) {
   auto result = StmtExprMutator::Mutate_(op, inplace_mode);
   if (!result.IsUnchanged()) {
-    op = ffi::AnyView(result).as<CallNode>();
+    op = ffi::AnyView(result).as<CallObj>();
     if (!op->unique()) inplace_mode = InplaceMode::kDisallow;
   }
   if (!op->op.same_as(tirx::tensor_data_ptr_op()) || op->args.size() != 1) return result;
   PtrType type = op->args[0].as_or_throw<TensorVar>().ty()->DataPtrType();
   if (ffi::StructuralEqual()(op->ty, type)) return result;
   if (inplace_mode == InplaceMode::kAllow) {
-    const_cast<CallNode*>(op)->ty = std::move(type);
+    const_cast<CallObj*>(op)->ty = std::move(type);
     return result;
   }
-  auto copy = ffi::make_object<CallNode>(*op);
+  auto copy = ffi::make_object<CallObj>(*op);
   copy->ty = std::move(type);
   return Expr(std::move(copy));
 }
@@ -173,7 +173,7 @@ MatchTensorRegion ReplaceTensorMutator::VisitMatchTensorRegion(
   }
 }
 
-UnchangedOr<Stmt> ReplaceTensorMutator::Mutate_(const SBlockNode* block, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> ReplaceTensorMutator::Mutate_(const SBlockObj* block, InplaceMode inplace_mode) {
   // To reduce the number of blocks in block sref reuse map, we check whether the block is really
   // mutated (i.e., the old tensor appears in the block). If so, we return the block after
   // mutation. Otherwise we just return the original block.
@@ -229,7 +229,7 @@ UnchangedOr<Stmt> ReplaceTensorMutator::Mutate_(const SBlockNode* block, Inplace
       match_tensors.same_as(mutated_block->match_tensors)) {
     return ffi::Unchanged();
   } else {
-    SBlockNode* n = mutated_block.CopyOnWrite();
+    SBlockObj* n = mutated_block.CopyOnWrite();
     n->reads = std::move(reads);
     n->writes = std::move(writes);
     n->alloc_tensors = std::move(alloc_tensors);
@@ -272,10 +272,10 @@ void LeafBlockRemovalPlan(const ScheduleState& self, const StmtSRef& leaf_block_
   };
 
   // Go upwards until find an ancestor with more than one child
-  const StmtNode* last_stmt = leaf_block_sref->stmt;
+  const StmtObj* last_stmt = leaf_block_sref->stmt;
   StmtSRefObj* sref = leaf_block_sref->parent;
   for (;; last_stmt = sref->stmt, sref = sref->parent) {
-    if (const auto* loop = sref->StmtAs<ForNode>()) {
+    if (const auto* loop = sref->StmtAs<ForObj>()) {
       if (loop->body->size() > 1) {
         break;
       }
@@ -285,9 +285,9 @@ void LeafBlockRemovalPlan(const ScheduleState& self, const StmtSRef& leaf_block_
       break;
     }
   }
-  if (const auto* block = sref->StmtAs<SBlockNode>()) {
+  if (const auto* block = sref->StmtAs<SBlockObj>()) {
     if (block->body->size() > 1) {
-      ffi::ObjectPtr<SBlockNode> n = ffi::make_object<SBlockNode>(*block);
+      ffi::ObjectPtr<SBlockObj> n = ffi::make_object<SBlockObj>(*block);
       auto new_seq = RemoveFromSeqStmt(block->body, ffi::GetRef<Stmt>(last_stmt));
       n->body = new_seq;
       *src_stmt = ffi::GetRef<Stmt>(block);
@@ -295,9 +295,9 @@ void LeafBlockRemovalPlan(const ScheduleState& self, const StmtSRef& leaf_block_
       return;
     }
   }
-  if (const auto* loop = sref->StmtAs<ForNode>()) {
+  if (const auto* loop = sref->StmtAs<ForObj>()) {
     if (loop->body->size() > 1) {
-      ffi::ObjectPtr<ForNode> n = ffi::make_object<ForNode>(*loop);
+      ffi::ObjectPtr<ForObj> n = ffi::make_object<ForObj>(*loop);
       n->body = RemoveFromSeqStmt(loop->body, ffi::GetRef<Stmt>(last_stmt));
       *src_stmt = ffi::GetRef<Stmt>(loop);
       *tgt_stmt = Stmt(std::move(n));
@@ -394,16 +394,16 @@ ffi::Optional<LoopRV> TileWithTensorIntrin(const s_tir::Schedule& sch,
   for (const auto& kv : info->loop_map) {
     // Extract mapping (block_loop => desc_loop)
     const tirx::StmtSRef& block_loop_sref = kv.first;
-    const ForNode* block_loop = block_loop_sref->StmtAs<ForNode>();
-    const ForNode* desc_loop = kv.second.get();
+    const ForObj* block_loop = block_loop_sref->StmtAs<ForObj>();
+    const ForObj* desc_loop = kv.second.get();
     TVM_FFI_ICHECK(block_loop != nullptr && desc_loop != nullptr);
     // Extract the loop extent
     PrimExpr block_extent =
         analyzer->Simplify(Range::GetExtentFromBeginEnd(block_loop->begin, block_loop->end));
     PrimExpr desc_extent =
         analyzer->Simplify(Range::GetExtentFromBeginEnd(desc_loop->begin, desc_loop->end));
-    const auto* int_block_extent = block_extent.as<IntImmNode>();
-    const auto* int_desc_extent = desc_extent.as<IntImmNode>();
+    const auto* int_block_extent = block_extent.as<IntImmObj>();
+    const auto* int_desc_extent = desc_extent.as<IntImmObj>();
     TVM_FFI_ICHECK(int_block_extent != nullptr && int_desc_extent != nullptr);
     // Check divisibility
     const ffi::BigInt& total = int_block_extent->value;
@@ -454,7 +454,7 @@ void BlockTensorAccessSimplifier::SimplifyAccessRegion(
     int n = tensor_region->region.size();
     for (int i = 0; i < n; ++i) {
       PrimExpr min = simplified_min[i];
-      PrimExpr extent = analyzer_->Simplify(tensor_region->region[i]->extent);
+      PrimExpr extent = GetSyncedAnalyzer()->Simplify(tensor_region->region[i]->extent);
       new_tensor_region.push_back(Range::FromMinExtent(min, extent));
     }
     return TensorRegion(tensor_region->source.as_or_throw<tvm::tirx::TensorVar>(),
@@ -467,29 +467,35 @@ void BlockTensorAccessSimplifier::SimplifyTensorIndices(ffi::Array<PrimExpr>* in
   *indices = this->IterMapSimplifyWithContext(*indices, true);
 }
 
-UnchangedOr<Stmt> BlockTensorAccessSimplifier::Mutate_(const SBlockNode* op,
+UnchangedOr<Stmt> BlockTensorAccessSimplifier::Mutate_(const SBlockObj* op,
                                                        InplaceMode inplace_mode) {
-  SBlock block = s_tir::StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+  SBlock block = s_tir::StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                      .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                      .as_or_throw<SBlock>();
-  auto* n = block.CopyOnWrite();
-  SimplifyAccessRegion(&n->reads);
-  SimplifyAccessRegion(&n->writes);
-  return block;
+  return WithConstraintScope([&]() -> ffi::Expected<UnchangedOr<Stmt>> {
+           for (const auto& iter_var : block->iter_vars) {
+             AppendConstraint(sym::RangeConstraint(iter_var->var, iter_var->dom.value()));
+           }
+           auto* n = block.CopyOnWrite();
+           SimplifyAccessRegion(&n->reads);
+           SimplifyAccessRegion(&n->writes);
+           return block;
+         })
+      .value();
 }
 
-UnchangedOr<Stmt> BlockTensorAccessSimplifier::Mutate_(const TensorStoreNode* op,
+UnchangedOr<Stmt> BlockTensorAccessSimplifier::Mutate_(const TensorStoreObj* op,
                                                        InplaceMode inplace_mode) {
-  TensorStore node = s_tir::StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+  TensorStore node = s_tir::StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                          .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                          .as_or_throw<TensorStore>();
   SimplifyTensorIndices(&node.CopyOnWrite()->indices);
   return node;
 }
 
-UnchangedOr<PrimExpr> BlockTensorAccessSimplifier::Mutate_(const TensorLoadNode* op,
+UnchangedOr<PrimExpr> BlockTensorAccessSimplifier::Mutate_(const TensorLoadObj* op,
                                                            InplaceMode inplace_mode) {
-  TensorLoad node = s_tir::StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+  TensorLoad node = s_tir::StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                         .ValueOrUnchanged(ffi::GetRef<PrimExpr>(op))
                         .as_or_throw<TensorLoad>();
   SimplifyTensorIndices(&node.CopyOnWrite()->indices);
@@ -522,7 +528,7 @@ ffi::Optional<ffi::ObjectRef> NormalizeFunction(Schedule sch) {
       return std::nullopt;
     }
     for (int i = 0, n = loops.size(); i < n; ++i) {
-      const ForNode* loop = TVM_SREF_TO_FOR(loops[i]);
+      const ForObj* loop = TVM_SREF_TO_FOR(loops[i]);
       if (binds[i].get() != loop->var.get()) {
         return std::nullopt;
       }

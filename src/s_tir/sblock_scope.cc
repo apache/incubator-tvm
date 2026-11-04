@@ -53,7 +53,7 @@ void AddDependency(SBlockScopeObj* self, const StmtSRef& src, const StmtSRef& ds
 
 /******** Constructors ********/
 
-StmtSRef::StmtSRef(const StmtNode* stmt, StmtSRefObj* parent, int64_t seq_index) {
+StmtSRef::StmtSRef(const StmtObj* stmt, StmtSRefObj* parent, int64_t seq_index) {
   ffi::ObjectPtr<StmtSRefObj> n = ffi::make_object<StmtSRefObj>();
   n->stmt = stmt;
   n->parent = parent;
@@ -84,7 +84,7 @@ SBlockScope::SBlockScope(const ffi::Array<StmtSRef>& child_block_srefs) {
   SMap<TensorVar, ffi::Array<StmtSRef>> tensor_readers;
   SMap<TensorVar, ffi::Array<StmtSRef>>& tensor_writers = n->tensor_writers;
   for (const StmtSRef& child_block_sref : child_block_srefs) {
-    const s_tir::SBlockNode* child_block = TVM_SREF_TO_SBLOCK(child_block_sref);
+    const s_tir::SBlockObj* child_block = TVM_SREF_TO_SBLOCK(child_block_sref);
     // Step 1. Update `tensor_readers` and `tensor_writers` for each tensor
     for (const TensorRegion& region : child_block->reads) {
       tensor_readers[region->source.as_or_throw<tvm::tirx::TensorVar>()].push_back(
@@ -149,7 +149,7 @@ ffi::Array<Dependency> SBlockScopeObj::GetDepsByDst(const StmtSRef& block_sref) 
  * \brief Add a new statement to the stack, which becomes the current scope
  * \param stmt A for-loop statement or a block statement
  */
-void SRefTreeCreator::PushSRef(const StmtNode* stmt) {
+void SRefTreeCreator::PushSRef(const StmtObj* stmt) {
   if (srefs_.empty()) {
     srefs_.push_back(
         StmtSRef(stmt,
@@ -170,7 +170,7 @@ void SRefTreeCreator::PopAndRecordSRef() {
   srefs_.pop_back();
 }
 
-ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const ForNode* loop) {
+ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const ForObj* loop) {
   if (!include_loops_) {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(loop->body));
   } else {
@@ -181,16 +181,16 @@ ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const ForNode* loop) {
   return std::nullopt;
 }
 
-ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const s_tir::SBlockRealizeNode* realize) {
-  const s_tir::SBlockNode* block = realize->block.get();
+ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const s_tir::SBlockRealizeObj* realize) {
+  const s_tir::SBlockObj* block = realize->block.get();
   PushSRef(block);
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(block->body));  // `block->init` is not visited
   PopAndRecordSRef();
   return std::nullopt;
 }
 
-ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const SeqStmtNode* seq_stmt) {
-  // Set `seq_index` information for SeqStmtNode
+ffi::Optional<VisitInterrupt> SRefTreeCreator::Visit_(const SeqStmtObj* seq_stmt) {
+  // Set `seq_index` information for SeqStmtObj
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(seq_stmt));
   SetSeqIndexInChildren(stmt2ref_, seq_stmt, include_loops_);
   return std::nullopt;

@@ -34,12 +34,12 @@ using s_tir::LoopRV;
 using s_tir::SBlockRV;
 
 void CollectTensorizationJobs(
-    const s_tir::Schedule& sch, const ffi::String& func_name, const tirx::FunctionNode* func,
+    const s_tir::Schedule& sch, const ffi::String& func_name, const tirx::FunctionObj* func,
     bool vectorize_init_loop,
     std::vector<std::tuple<ffi::String, ffi::String, std::function<void(s_tir::SBlockRV)>>>* jobs) {
   auto walk_fn = [=, &jobs](const s_tir::SBlock& block) -> ffi::Expected<ffi::WalkResult> {
     tirx::StmtSRef block_sref = sch->GetSRef(block.get());
-    std::string block_name = block_sref->StmtAs<s_tir::SBlockNode>()->name_hint;
+    std::string block_name = block_sref->StmtAs<s_tir::SBlockObj>()->name_hint;
     if (ffi::Optional<ffi::String> intrin_name = s_tir::GetAnn<ffi::String>(
             block_sref, tvm::s_tir::attr::kMetaScheduleAutoTensorize.name)) {
       if (intrin_name.value() != "") {
@@ -93,7 +93,7 @@ bool RewriteTensorizeObj::Apply(const s_tir::Schedule& sch) {
   for (const auto& kv : sch->mod()->functions) {
     GlobalVar g_var = kv.first;
     BaseFunc base_func = kv.second;
-    if (const tirx::FunctionNode* function = base_func.as<tirx::FunctionNode>()) {
+    if (const tirx::FunctionObj* function = base_func.as<tirx::FunctionObj>()) {
       CollectTensorizationJobs(sch, g_var->name_hint, function, vectorize_init_loop, &jobs);
     }
   }

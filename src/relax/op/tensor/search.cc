@@ -79,7 +79,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.bucketize", bucketize);
 }
 
-Type InferTypeBucketize(const CallNode* call_node) {
+Type InferTypeBucketize(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   ffi::Array<TensorType> input_ty = GetInputTensorType(call);
   TensorType input_tensor_info = input_ty[0];
@@ -96,7 +96,7 @@ Type InferTypeBucketize(const CallNode* call_node) {
     out_dtype = PrimType::Int(32);
   }
 
-  const auto* data_shape = input_tensor_info->shape.as<ShapeExprNode>();
+  const auto* data_shape = input_tensor_info->shape.as<ShapeExprObj>();
   if (data_shape) {
     return TensorType(ShapeExpr(data_shape->values), out_dtype, input_tensor_info->vdevice);
   }
@@ -165,9 +165,9 @@ Type InferTypeWhere(const Call& call, const BlockBuilder& ctx) {
     output_ndim = std::max(cond_ty->ndim, std::max(x1_ty->ndim, x2_ty->ndim));
   }
 
-  const auto* cond_shape = cond_ty->shape.as<ShapeExprNode>();
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* cond_shape = cond_ty->shape.as<ShapeExprObj>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   if (cond_shape && x1_shape && x2_shape) {
     // Step 1. Compute the broadcasted shape of x1's and x2's
     ffi::Optional<ffi::Array<PrimExpr>> broadcasted_shape =
@@ -220,7 +220,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 /* relax.argmax & relax.argmin */
 
-Type InferTypeArgmaxArgmin(const CallNode* call_node) {
+Type InferTypeArgmaxArgmin(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<ArgmaxArgminAttrs>();
@@ -250,7 +250,7 @@ Type InferTypeArgmaxArgmin(const CallNode* call_node) {
   // - axes is not None, keepdims is false -> the returned shape does not contain the input axes.
   // - axes is not None, keepdims is true -> the returned shape has value 1 at the positions of the
   // input axes
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     if (!attrs->axis.has_value() && attrs->keepdims && out_ndim != kUnknownNDim) {
       return TensorType(ShapeExpr(ffi::Array<PrimExpr>(out_ndim, IntImm(out_dtype, /*value=*/1))),

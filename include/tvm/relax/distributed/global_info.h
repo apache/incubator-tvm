@@ -36,7 +36,7 @@ namespace distributed {
  * \brief Device mesh express a view of topology of devices, represented by an n-d matrix of
  * device ids
  */
-class DeviceMeshNode : public GlobalInfoNode {
+class DeviceMeshObj : public GlobalInfoObj {
  public:
   /*! \brief logical shape of the mesh*/
   ffi::Shape shape;
@@ -49,23 +49,23 @@ class DeviceMeshNode : public GlobalInfoNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DeviceMeshNode>()
-        .def_ro("shape", &DeviceMeshNode::shape)
-        .def_ro("device_ids", &DeviceMeshNode::device_ids)
-        .def_ro("device_range", &DeviceMeshNode::device_range);
+    refl::ObjectDef<DeviceMeshObj>()
+        .def_ro("shape", &DeviceMeshObj::shape)
+        .def_ro("device_ids", &DeviceMeshObj::device_ids)
+        .def_ro("device_range", &DeviceMeshObj::device_range);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.DeviceMesh", DeviceMeshNode, GlobalInfoNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.DeviceMesh", DeviceMeshObj, GlobalInfoObj);
 };
 
 /*!
  * \brief Managed reference to a DeviceMesh.
- * \sa DeviceMeshNode
+ * \sa DeviceMeshObj
  */
 class DeviceMesh : public GlobalInfo {
  public:
   TVM_DLL DeviceMesh(ffi::Shape shape, ffi::Array<int64_t> device_ids);
   TVM_DLL DeviceMesh(ffi::Shape shape, Range device_range);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DeviceMesh, GlobalInfo, DeviceMeshNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DeviceMesh, GlobalInfo, DeviceMeshObj);
 };
 
 }  // namespace distributed

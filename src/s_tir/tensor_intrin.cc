@@ -27,9 +27,9 @@
 namespace tvm {
 namespace s_tir {
 using tirx::Function;
-using tirx::TensorTypeNode;
+using tirx::TensorTypeObj;
 
-TVM_FFI_STATIC_INIT_BLOCK() { TensorIntrinNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { TensorIntrinObj::RegisterReflection(); }
 
 class TensorIntrinManager {
  public:
@@ -47,7 +47,7 @@ TensorIntrin::TensorIntrin(Function desc, Function impl) {
       << "The number of parameters of the description and the implementation of the "
          "tensor intrinsic doesn't match.";
   auto is_handle = [](const Var& param) {
-    return param->ty.as<PtrTypeNode>() != nullptr || param->ty.as<TensorTypeNode>() != nullptr;
+    return param->ty.as<PtrTypeObj>() != nullptr || param->ty.as<TensorTypeObj>() != nullptr;
   };
   for (size_t i = 0; i < desc->params.size(); i++) {
     TVM_FFI_CHECK(is_handle(desc->params[i]), ValueError)
@@ -57,8 +57,8 @@ TensorIntrin::TensorIntrin(Function desc, Function impl) {
         << "Parameters of the implementation of "
            "the tensor intrinsic should be handle only.";
   }
-  ffi::ObjectPtr<TensorIntrinNode> n =
-      ffi::make_object<TensorIntrinNode>(std::move(desc), std::move(impl));
+  ffi::ObjectPtr<TensorIntrinObj> n =
+      ffi::make_object<TensorIntrinObj>(std::move(desc), std::move(impl));
   data_ = std::move(n);
 }
 

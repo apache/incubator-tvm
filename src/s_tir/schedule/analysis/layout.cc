@@ -82,9 +82,9 @@ class SplitExprCollector {
  private:
   void Visit(const sym::IterSplitExpr& expr) {
     if (auto var = expr->source->source.as<PrimVar>()) {
-      const auto* lower_factor_imm = expr->lower_factor.as<IntImmNode>();
+      const auto* lower_factor_imm = expr->lower_factor.as<IntImmObj>();
       auto lower_factor = lower_factor_imm ? lower_factor_imm->value.as<int64_t>() : std::nullopt;
-      const auto* extent_imm = expr->extent.as<IntImmNode>();
+      const auto* extent_imm = expr->extent.as<IntImmObj>();
       auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
       if (!lower_factor.has_value() || !extent.has_value()) {
         failed_ = true;
@@ -118,7 +118,7 @@ ffi::Optional<IndexMap> SuggestIndexMap(const TensorVar& tensor,
   int n_loops = loops.size();
   // Step 1. Collect the domains and indices of loop variables
   ffi::Map<PrimVar, Range> input_iters;
-  std::unordered_map<const VarNode*, int> var2id;
+  std::unordered_map<const VarObj*, int> var2id;
   var2id.reserve(n_loops);
   for (int i = 0; i < n_loops; ++i) {
     const For& loop = loops[i];
@@ -168,7 +168,11 @@ ffi::Optional<IndexMap> SuggestIndexMap(const TensorVar& tensor,
   ](ffi::Array<Var> indices) -> ffi::Array<PrimExpr> {
     TVM_FFI_ICHECK_EQ(indices.size(), shape.size());
     for (int i = 0, n = indices.size(); i < n; ++i) {
-      analyzer->Bind(indices[i], Range::FromMinExtent(0, shape[i]));
+      {
+        auto context = analyzer->GetConstraintContext();
+        context->Append(sym::RangeConstraint(indices[i], Range::FromMinExtent(0, shape[i])));
+        analyzer->SyncConstraintContext(context);
+      }
     }
     // Step 5.1: Fuse all indices into a flattened one
     PrimExpr index =
@@ -203,7 +207,12 @@ ffi::Optional<IndexMap> SuggestIndexMap(const TensorVar& tensor,
     for (int i = 0, n = indices.size(); i < n; ++i) {
       const Var& index = indices[inverse_order[i]];
       inv_permuted_indices.push_back(index);
-      analyzer->Bind(index, Range::FromMinExtent(0, IntImm::Int32(split_exprs[i].extent)));
+      {
+        auto context = analyzer->GetConstraintContext();
+        context->Append(sym::RangeConstraint(
+            index, Range::FromMinExtent(0, IntImm::Int32(split_exprs[i].extent))));
+        analyzer->SyncConstraintContext(context);
+      }
     }
 
     // Step 6.2: Fuse all the indices. This is the inverse of Step 5.2.

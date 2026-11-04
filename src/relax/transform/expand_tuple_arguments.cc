@@ -39,7 +39,7 @@ ffi::Optional<Function> ExpandParams(Function func) {
 
   bool has_tuple_param =
       std::any_of(func->params.begin(), func->params.end(),
-                  [](const Var& param) -> bool { return param->ty.as<TupleTypeNode>(); });
+                  [](const Var& param) -> bool { return param->ty.as<TupleTypeObj>(); });
 
   if (!has_tuple_param) return std::nullopt;
 
@@ -47,7 +47,7 @@ ffi::Optional<Function> ExpandParams(Function func) {
   ffi::Array<Binding> bindings;
 
   std::function<void(const Var&)> expand_param = [&](const Var& param) {
-    if (auto ty = param->ty.as<TupleTypeNode>()) {
+    if (auto ty = param->ty.as<TupleTypeObj>()) {
       ffi::Array<Expr> internal_tuple;
       for (size_t i = 0; i < ty->fields.size(); i++) {
         auto name =
@@ -84,7 +84,7 @@ class TupleExpander : public ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     auto node = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     if (auto gvar = node->op.as<GlobalVar>()) {
@@ -92,7 +92,7 @@ class TupleExpander : public ExprMutator {
         ffi::Array<Expr> new_args;
 
         std::function<void(const Expr&)> expand_arg = [&](const Expr& arg) {
-          if (auto ty = arg->ty.as<TupleTypeNode>()) {
+          if (auto ty = arg->ty.as<TupleTypeObj>()) {
             for (size_t i = 0; i < ty->fields.size(); i++) {
               expand_arg(TupleGetItem(arg, i));
             }

@@ -27,7 +27,7 @@
 #include <tvm/runtime/logging.h>
 #include <tvm/s_tir/analysis.h>
 #include <tvm/s_tir/stmt_functor.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/sym/int_set.h>
 #include <tvm/te/tensor.h>
 
@@ -62,11 +62,11 @@ using TensorDomainAccess = std::tuple<LoadAccess, StoreAccess, CombinedAccess>;
 }  // namespace
 
 // Find Read region of the tensor in the stmt.
-class TensorTouchedDomain final : public s_tir::StmtExprVisitorWithAnalyzer {
+class TensorTouchedDomain final : public s_tir::StmtExprVisitorWithConstraintContext {
  public:
-  using s_tir::StmtExprVisitorWithAnalyzer::Visit_;
+  using s_tir::StmtExprVisitorWithConstraintContext::Visit_;
 
-  std::unordered_map<const VarNode*, TensorDomainAccess>& GetAccessedTensorRegions() {
+  std::unordered_map<const VarObj*, TensorDomainAccess>& GetAccessedTensorRegions() {
     return tensor_access_map_;
   }
 
@@ -98,9 +98,9 @@ class TensorTouchedDomain final : public s_tir::StmtExprVisitorWithAnalyzer {
   }
 
  private:
-  using Parent = s_tir::StmtExprVisitorWithAnalyzer;
+  using Parent = s_tir::StmtExprVisitorWithConstraintContext;
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TensorVar tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
     // Record load-exclusive tensor access
     Touch(&std::get<LoadAccess>(tensor_access_map_[tensor.get()]).set, op->indices);
@@ -109,7 +109,7 @@ class TensorTouchedDomain final : public s_tir::StmtExprVisitorWithAnalyzer {
     return Parent::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     // Record store-exclusive tensor access
     Touch(&std::get<StoreAccess>(tensor_access_map_[op->dest.as_or_throw<TensorVar>().get()]).set,
           op->indices);
@@ -125,15 +125,15 @@ class TensorTouchedDomain final : public s_tir::StmtExprVisitorWithAnalyzer {
       bounds->resize(args.size());
     }
     for (size_t i = 0; i < args.size(); ++i) {
-      if (args[i].as<prim::RampNode>()) {
+      if (args[i].as<prim::RampObj>()) {
         (*bounds)[i].emplace_back(IntSet::Vector(args[i]));
       } else {
-        (*bounds)[i].emplace_back(analyzer_->int_set(args[i]));
+        (*bounds)[i].emplace_back(GetSyncedAnalyzer()->int_set(args[i]));
       }
     }
   }
 
-  std::unordered_map<const VarNode*, TensorDomainAccess> tensor_access_map_;
+  std::unordered_map<const VarObj*, TensorDomainAccess> tensor_access_map_;
 };
 
 ffi::Array<ffi::Optional<Range>> DomainTouched(const Stmt& stmt, const TensorVar& tensor,
@@ -149,7 +149,7 @@ ffi::Map<TensorVar, ffi::Array<ffi::ObjectRef>> DomainTouchedAccessMap(const Fun
   auto tensor_access_map = visitor->GetAccessedTensorRegions();
   ffi::Map<TensorVar, ffi::Array<ffi::ObjectRef>> ret;
   for (auto& var : func->params) {
-    if (!var->ty.as<TensorTypeNode>()) {
+    if (!var->ty.as<TensorTypeObj>()) {
       continue;
     }
     TensorVar tensor = var.as_or_throw<TensorVar>();

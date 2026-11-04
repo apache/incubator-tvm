@@ -33,8 +33,8 @@ using namespace tvm::tirx;
  * \return the fused loop
  */
 Stmt FuseNestLoops(Stmt body) {
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -74,7 +74,7 @@ Stmt FuseNestLoops(Stmt body) {
  * \return The stmt after transformation
  */
 Stmt SplitBindVectorize(const Stmt& stmt, const ConstraintSet& constraints) {
-  const ForNode* loop = TVM_TYPE_AS(stmt, ForNode);
+  const ForObj* loop = TVM_TYPE_AS(stmt, ForObj);
   int loop_extent = Range::GetExtentFromBeginEnd(loop->begin, loop->end)
                         .as_or_throw<IntImm>()
                         ->value.as<int>()
@@ -116,7 +116,11 @@ Stmt SplitBindVectorize(const Stmt& stmt, const ConstraintSet& constraints) {
   for (int i = 0; i < n; i++) {
     const PrimExpr& factor = factors[i];
     PrimVar var = loop->var.CopyWithSuffix("_" + std::to_string(i));
-    analyzer->Bind(var, Range::FromMinExtent(0, factor));
+    {
+      auto context = analyzer->GetConstraintContext();
+      context->Append(sym::RangeConstraint(var, Range::FromMinExtent(0, factor)));
+      analyzer->SyncConstraintContext(context);
+    }
     new_loop_vars.push_back(var);
   }
   // substitute fused loop var with new loop vars
@@ -172,10 +176,10 @@ Stmt CoalescedAccess::Rewrite(const Stmt& stmt, const ConstraintSet& constraints
  */
 ffi::Array<PrimExpr> GetMapping(const Stmt& stmt, const ConstraintSet& constraints) {
   Stmt body = stmt;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  while (const ForObj* loop = body.as<ForObj>()) {
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
-  const TensorStoreNode* tensor_store = TVM_TYPE_AS(body, TensorStoreNode);
+  const TensorStoreObj* tensor_store = TVM_TYPE_AS(body, TensorStoreObj);
   TensorRegion write_region = constraints.write_region;
   const ffi::Array<PrimExpr>& write_index = tensor_store->indices;
   TVM_FFI_ICHECK(write_region->region.size() == write_index.size() &&
@@ -199,7 +203,7 @@ Stmt InverseMapping::Rewrite(const Stmt& stmt, const ConstraintSet& constraints,
   ffi::Array<PrimExpr> loop_vars;
   // Step 1. Get index mapping
   ffi::Array<PrimExpr> mapping_pattern = GetMapping(stmt, constraints);
-  while (const ForNode* loop = body.as<ForNode>()) {
+  while (const ForObj* loop = body.as<ForObj>()) {
     var_range.Set(loop->var, Range(loop->begin, loop->end));
     loop_vars.push_back(loop->var);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;

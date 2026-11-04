@@ -55,7 +55,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
     auto weights = matches[pat_weights];
     auto indices = matches[pat_indices];
 
-    const auto* take_call = matches[pat_rhs].as<CallNode>();
+    const auto* take_call = matches[pat_rhs].as<CallObj>();
     TVM_FFI_CHECK(take_call, InternalError) << "Match of relax.take operator should produce Call, "
                                             << "but instead produces " << matches[pat_rhs]
                                             << " with type " << matches[pat_rhs]->GetTypeKey();
@@ -64,16 +64,16 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
         << "Attributes for relax.take operator should be TakeAttrs, "
         << "but were instead " << take_call->attrs << " with type " << take_call->GetTypeKey();
 
-    const auto* lhs_ty = lhs->ty.as<TensorTypeNode>();
+    const auto* lhs_ty = lhs->ty.as<TensorTypeObj>();
     if (!lhs_ty) return expr;
 
-    const auto* weights_ty = weights->ty.as<TensorTypeNode>();
+    const auto* weights_ty = weights->ty.as<TensorTypeObj>();
     if (!weights_ty) return expr;
 
-    const auto* indices_ty = indices->ty.as<TensorTypeNode>();
+    const auto* indices_ty = indices->ty.as<TensorTypeObj>();
     if (!indices_ty) return expr;
 
-    const auto* matmul_ty = expr->ty.as<TensorTypeNode>();
+    const auto* matmul_ty = expr->ty.as<TensorTypeObj>();
     if (!matmul_ty) return expr;
 
     if (!attrs->axis.has_value()) return expr;

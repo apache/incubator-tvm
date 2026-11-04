@@ -597,8 +597,8 @@ inline ffi::Array<Tensor> split_indices_array(const Tensor& x, ffi::Array<PrimEx
   begin_ids.push_back(0);
 
   for (auto idx : split_indices) {
-    auto idx_node = idx.as<IntImmNode>();
-    auto back_node = begin_ids.back().as<IntImmNode>();
+    auto idx_node = idx.as<IntImmObj>();
+    auto back_node = begin_ids.back().as<IntImmObj>();
     if (idx_node && back_node) {
       TVM_FFI_ICHECK_GT(idx_node->value, back_node->value) << "split_indices must be sorted";
     }
@@ -653,7 +653,7 @@ inline PrimExpr DynamicCanonicalizeIndex(PrimExpr index, PrimExpr extent, PrimEx
   PrimExpr begin_range = tvm::if_then_else(stride < 0, -1, 0);
   PrimExpr end_range = tvm::if_then_else(stride < 0, extent - 1, extent);
 
-  if (!(index->IsInstance<tvm::IntImmNode>() && index.as_or_throw<IntImm>()->value >= 0)) {
+  if (!(index->IsInstance<tvm::IntImmObj>() && index.as_or_throw<IntImm>()->value >= 0)) {
     index = tvm::if_then_else(index < 0, index + extent, index);
   }
 
@@ -670,8 +670,8 @@ inline int64_t StaticCanonicalizeIndex(int64_t index, int64_t extent, int64_t st
 }
 
 inline PrimExpr CanonicalizeIndex(PrimExpr index, PrimExpr extent, PrimExpr stride) {
-  if (index->IsInstance<tvm::IntImmNode>() && extent->IsInstance<tvm::IntImmNode>() &&
-      stride->IsInstance<tvm::IntImmNode>()) {
+  if (index->IsInstance<tvm::IntImmObj>() && extent->IsInstance<tvm::IntImmObj>() &&
+      stride->IsInstance<tvm::IntImmObj>()) {
     return tvm::IntImm(
         tvm::PrimType::Int(64),
         StaticCanonicalizeIndex(GetConstInt(index), GetConstInt(extent), GetConstInt(stride)));
@@ -837,9 +837,9 @@ inline te::Tensor dynamic_strided_slice(const te::Tensor& x, const te::Tensor& b
                                         std::string name = "T_strided_slice_dynamic",
                                         std::string tag = topi::kInjective) {
   PrimType index_ty = begin->shape[0].ty();
-  const int64_t num_dynamic_axes = static_cast<int64_t>(begin->shape[0].as<IntImmNode>()->value);
-  TVM_FFI_ICHECK_EQ(end->shape[0].as<IntImmNode>()->value, num_dynamic_axes);
-  TVM_FFI_ICHECK_EQ(strides->shape[0].as<IntImmNode>()->value, num_dynamic_axes);
+  const int64_t num_dynamic_axes = static_cast<int64_t>(begin->shape[0].as<IntImmObj>()->value);
+  TVM_FFI_ICHECK_EQ(end->shape[0].as<IntImmObj>()->value, num_dynamic_axes);
+  TVM_FFI_ICHECK_EQ(strides->shape[0].as<IntImmObj>()->value, num_dynamic_axes);
 
   ffi::Array<PrimExpr> begin_expr, end_expr, strides_expr;
   for (int64_t i = 0; i < num_dynamic_axes; ++i) {
@@ -1152,7 +1152,7 @@ inline Tensor take(const Tensor& a, ffi::Variant<Tensor, PrimExpr> indices, int 
   TVM_FFI_ICHECK_LT(axis, a->shape.size()) << "axis out of bounds";
   auto axis_dim = a->shape[axis];
   auto indices_shape = [&]() -> ffi::Array<PrimExpr> {
-    if (auto tensor = indices.as<TensorNode>()) {
+    if (auto tensor = indices.as<TensorObj>()) {
       return tensor->shape;
     } else {
       return {};
@@ -1526,7 +1526,7 @@ inline Tensor gather(const Tensor& data, int axis, const Tensor& indices,
   }
   TVM_FFI_ICHECK_GE(axis, 0);
   TVM_FFI_ICHECK_LT(axis, ndim_d);
-  if (indices->shape[axis].as<IntImmNode>()) {
+  if (indices->shape[axis].as<IntImmObj>()) {
     size_t indices_dim_i = static_cast<size_t>(GetConstInt(indices->shape[axis]));
     TVM_FFI_ICHECK_GE(indices_dim_i, 1);
   }
@@ -2308,9 +2308,9 @@ inline te::Tensor dynamic_strided_slice(const te::Tensor& x, const te::Tensor& b
   TVM_FFI_ICHECK_EQ(begin.ndim(), 1);
   TVM_FFI_ICHECK_EQ(end.ndim(), 1);
   TVM_FFI_ICHECK_EQ(strides.ndim(), 1);
-  const auto* len_begin = begin->shape[0].as<IntImmNode>();
-  const auto* len_end = end->shape[0].as<IntImmNode>();
-  const auto* len_strides = strides->shape[0].as<IntImmNode>();
+  const auto* len_begin = begin->shape[0].as<IntImmObj>();
+  const auto* len_end = end->shape[0].as<IntImmObj>();
+  const auto* len_strides = strides->shape[0].as<IntImmObj>();
   TVM_FFI_ICHECK(len_begin);
   TVM_FFI_ICHECK(len_end);
   TVM_FFI_ICHECK(len_strides);

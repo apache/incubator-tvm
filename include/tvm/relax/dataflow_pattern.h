@@ -90,15 +90,15 @@ TVM_DLL PatternSeq operator>>(const PatternSeq& lhs, const PatternSeq& rhs);
  * \brief Base type of all dataflow patterns.
  * \sa DFPattern
  */
-class DFPatternNode : public ffi::Object {
+class DFPatternObj : public ffi::Object {
  public:
   static constexpr const uint32_t _type_child_slots = 21;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.DFPattern", DFPatternNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.DFPattern", DFPatternObj, ffi::Object);
 };
 
 /*!
  * \brief Managed reference to dataflow patterns.
- * \sa DFPatternNode
+ * \sa DFPatternObj
  */
 class DFPattern : public ffi::ObjectRef {
  public:
@@ -131,7 +131,7 @@ class DFPattern : public ffi::ObjectRef {
   /*! \brief Implicit conversion from DFPattern to PatternSeq */
   TVM_DLL operator PatternSeq() const;
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DFPattern, ffi::ObjectRef, DFPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DFPattern, ffi::ObjectRef, DFPatternObj);
 };
 
 /*! \brief Constraint of a DFPattern edge (producer -> consumer) in graph-level matching */
@@ -163,7 +163,7 @@ struct PairCons {
  * example, constraining the two branches of an elementwise operation
  * to have the same shape.
  */
-class DFConstraintNode : public ffi::Object {
+class DFConstraintObj : public ffi::Object {
  public:
   /*! \brief Return the patterns on which the constraint depends */
   virtual ffi::Array<DFPattern> GetDependentPatterns() const = 0;
@@ -196,36 +196,36 @@ class DFConstraintNode : public ffi::Object {
    *    sufficient for the constraint to be satisfied.
    */
   virtual std::tuple<PrimExpr, bool> AsCondition(
-      std::function<ffi::Optional<Var>(const DFPatternNode*)> match_state) const = 0;
+      std::function<ffi::Optional<Var>(const DFPatternObj*)> match_state) const = 0;
 
   static constexpr const uint32_t _type_child_slots = 1;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.DFConstraint", DFConstraintNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.DFConstraint", DFConstraintObj, ffi::Object);
 };
 
 class DFConstraint : public ffi::ObjectRef {
  public:
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DFConstraint, ffi::ObjectRef, DFConstraintNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DFConstraint, ffi::ObjectRef, DFConstraintObj);
 };
 
 /*!
  * \brief A sequence of DFPatterns that the previous DFPattern is connected to the next one.
  * \sa PatternSeq
  */
-class PatternSeqNode final : public ffi::Object {
+class PatternSeqObj final : public ffi::Object {
  public:
   tvm::ffi::Array<DFPattern> patterns;    /*!< The sequence of DFPatterns */
   std::vector<PairCons> pair_constraints; /*!< Constraints between the previous and next patterns */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PatternSeqNode>().def_ro("patterns", &PatternSeqNode::patterns);
+    refl::ObjectDef<PatternSeqObj>().def_ro("patterns", &PatternSeqObj::patterns);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.PatternSeq", PatternSeqNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.PatternSeq", PatternSeqObj, ffi::Object);
 };
 
 /*!
  * \brief Managed reference to pattern sequences.
- * \sa PatternSeqNode
+ * \sa PatternSeqObj
  */
 class PatternSeq final : public ffi::ObjectRef {
  public:
@@ -242,7 +242,7 @@ class PatternSeq final : public ffi::ObjectRef {
   friend PatternSeq UsedBy(const PatternSeq& lhs, const PatternSeq& rhs, int index);
   friend PatternSeq OnlyUsedBy(const PatternSeq& lhs, const PatternSeq& rhs, int index);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PatternSeq, ffi::ObjectRef, PatternSeqNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PatternSeq, ffi::ObjectRef, PatternSeqObj);
 };
 
 /*!
@@ -341,28 +341,28 @@ class PatternContext : public ffi::ObjectRef {
  * \brief Pattern for Relax Expression.
  * \sa ExprPattern
  */
-class ExprPatternNode : public DFPatternNode {
+class ExprPatternObj : public DFPatternObj {
  public:
-  explicit ExprPatternNode(Expr expr) : expr(std::move(expr)) {}
-  explicit ExprPatternNode(ffi::UnsafeInit) : expr(ffi::UnsafeInit{}) {}
+  explicit ExprPatternObj(Expr expr) : expr(std::move(expr)) {}
+  explicit ExprPatternObj(ffi::UnsafeInit) : expr(ffi::UnsafeInit{}) {}
 
   Expr expr; /*!< The expression to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExprPatternNode>().def_ro("expr", &ExprPatternNode::expr);
+    refl::ObjectDef<ExprPatternObj>().def_ro("expr", &ExprPatternObj::expr);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ExprPattern", ExprPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ExprPattern", ExprPatternObj, DFPatternObj);
 };
 
 /*!
  * \brief Managed reference to an ExprPattern.
- * \sa ExprPatternNode
+ * \sa ExprPatternObj
  */
 class ExprPattern : public DFPattern {
  public:
   TVM_DLL explicit ExprPattern(Expr expr);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExprPattern, DFPattern, ExprPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExprPattern, DFPattern, ExprPatternObj);
 };
 
 /*!
@@ -370,23 +370,23 @@ class ExprPattern : public DFPattern {
  * \note The name field matches any string if it is empty.
  * \sa VarPattern
  */
-class VarPatternNode : public DFPatternNode {
+class VarPatternObj : public DFPatternObj {
  public:
   ffi::String name;
   const ffi::String& name_hint() const { return name; }
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<VarPatternNode>().def_ro("name", &VarPatternNode::name);
+    refl::ObjectDef<VarPatternObj>().def_ro("name", &VarPatternObj::name);
   }
 
   static constexpr const uint32_t _type_child_slots = 1;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.VarPattern", VarPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.VarPattern", VarPatternObj, DFPatternObj);
 };
 
 /*!
  * \brief Managed reference to a VarPattern.
- * \sa VarPatternNode
+ * \sa VarPatternObj
  */
 class VarPattern : public DFPattern {
  public:
@@ -396,90 +396,89 @@ class VarPattern : public DFPattern {
    * \param name_hint Variable name to match. Any if empty ("").
    */
   TVM_DLL VarPattern(ffi::String name_hint);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VarPattern, DFPattern, VarPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VarPattern, DFPattern, VarPatternObj);
 };
 
 /*!
  * \brief A Pattern to Match a Relax Dataflow Variable
  * \sa DataflowVarPattern
  */
-class DataflowVarPatternNode : public VarPatternNode {
+class DataflowVarPatternObj : public VarPatternObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DataflowVarPatternNode>();
+    refl::ObjectDef<DataflowVarPatternObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.DataflowVarPattern", DataflowVarPatternNode,
-                                    VarPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.DataflowVarPattern", DataflowVarPatternObj,
+                                    VarPatternObj);
 };
 
 /*!
  * \brief Managed reference to a DataflowVarPattern.
- * \sa DataflowVarPatternNode
+ * \sa DataflowVarPatternObj
  */
 class DataflowVarPattern : public DFPattern {
  public:
   /*! \sa VarPattern::VarPattern */
   TVM_DLL DataflowVarPattern(ffi::String name_hint);
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataflowVarPattern, DFPattern,
-                                                DataflowVarPatternNode);
+                                                DataflowVarPatternObj);
 };
 
 /*!
  * \brief A Pattern to Match a Relax Global Variable
  * \sa GlobalVarPattern
  */
-class GlobalVarPatternNode : public VarPatternNode {
+class GlobalVarPatternObj : public VarPatternObj {
  public:
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.GlobalVarPattern", GlobalVarPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.GlobalVarPattern", GlobalVarPatternObj,
+                                    DFPatternObj);
 };
 
 /*!
  * \brief Managed reference to a GlobalVarPattern.
- * \sa GlobalVarPatternNode
+ * \sa GlobalVarPatternObj
  */
 class GlobalVarPattern : public DFPattern {
  public:
   TVM_DLL GlobalVarPattern(ffi::String name_hint);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(GlobalVarPattern, DFPattern, GlobalVarPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(GlobalVarPattern, DFPattern, GlobalVarPatternObj);
 };
 
 /*!
  * \brief A Pattern to Match a Relax GenericConst.
  * \sa ConstantPattern
  */
-class ConstantPatternNode : public DFPatternNode {
+class ConstantPatternObj : public DFPatternObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ConstantPatternNode>();
+    refl::ObjectDef<ConstantPatternObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ConstantPattern", ConstantPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ConstantPattern", ConstantPatternObj, DFPatternObj);
 };
 
 /*!
  * \brief Managed reference to a ConstantPattern.
- * \sa ConstantPatternNode
+ * \sa ConstantPatternObj
  */
 class ConstantPattern : public DFPattern {
  public:
-  explicit ConstantPattern(ffi::UnsafeInit tag, ffi::ObjectPtr<ConstantPatternNode> n)
+  explicit ConstantPattern(ffi::UnsafeInit tag, ffi::ObjectPtr<ConstantPatternObj> n)
       : DFPattern(tag) {
     data_ = std::move(n);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ConstantPattern, DFPattern, ConstantPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ConstantPattern, DFPattern, ConstantPatternObj);
 };
 
 /*!
  * \brief A pattern to match a callable node in Relax.
  * \sa CallPattern
  */
-class CallPatternNode : public DFPatternNode {
+class CallPatternObj : public DFPatternObj {
  public:
-  explicit CallPatternNode(DFPattern op) : op(std::move(op)) {}
-  explicit CallPatternNode(ffi::UnsafeInit) : op(ffi::UnsafeInit{}) {}
+  explicit CallPatternObj(DFPattern op) : op(std::move(op)) {}
+  explicit CallPatternObj(ffi::UnsafeInit) : op(ffi::UnsafeInit{}) {}
 
   /*!
    * \note The op field can be:
@@ -500,17 +499,17 @@ class CallPatternNode : public DFPatternNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<CallPatternNode>()
-        .def_ro("op", &CallPatternNode::op)
-        .def_ro("args", &CallPatternNode::args);
+    refl::ObjectDef<CallPatternObj>()
+        .def_ro("op", &CallPatternObj::op)
+        .def_ro("args", &CallPatternObj::args);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.CallPattern", CallPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.CallPattern", CallPatternObj, DFPatternObj);
 };
 
 class CallPattern : public DFPattern {
  public:
   TVM_DLL CallPattern(DFPattern op, ffi::Array<DFPattern> args, bool varg_default_wildcard = false);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CallPattern, DFPattern, CallPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CallPattern, DFPattern, CallPatternObj);
 };
 
 /*!
@@ -518,25 +517,25 @@ class CallPattern : public DFPattern {
  * \sa PrimArrPattern
  * \note This is often used to match shapes specified as arguments to a function.
  */
-class PrimArrPatternNode : public DFPatternNode {
+class PrimArrPatternObj : public DFPatternObj {
  public:
   ffi::Array<PrimExpr> fields; /*!< The array to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PrimArrPatternNode>().def_ro("fields", &PrimArrPatternNode::fields);
+    refl::ObjectDef<PrimArrPatternObj>().def_ro("fields", &PrimArrPatternObj::fields);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.PrimArrPattern", PrimArrPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.PrimArrPattern", PrimArrPatternObj, DFPatternObj);
 };
 
 /*!
  * \brief Managed reference to a PrimArrPattern.
- * \sa PrimArrPatternNode
+ * \sa PrimArrPatternObj
  */
 class PrimArrPattern : public DFPattern {
  public:
   TVM_DLL PrimArrPattern(ffi::Array<PrimExpr> arr);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PrimArrPattern, DFPattern, PrimArrPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PrimArrPattern, DFPattern, PrimArrPatternObj);
 };
 
 /*!
@@ -544,33 +543,32 @@ class PrimArrPattern : public DFPattern {
  * \sa Function
  * \sa FunctionPattern
  */
-class FunctionPatternNode : public DFPatternNode {
+class FunctionPatternObj : public DFPatternObj {
  public:
-  explicit FunctionPatternNode(DFPattern body) : body(std::move(body)) {}
-  explicit FunctionPatternNode(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
+  explicit FunctionPatternObj(DFPattern body) : body(std::move(body)) {}
+  explicit FunctionPatternObj(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
 
   tvm::ffi::Array<DFPattern> params; /*!< The parameters of the function */
   /*!
    * \note Note that in Relax, the function body is a SeqExpr which contains
-   * 1) SeqExprNode::blocks, which is a list of blocks of statements; and 2)
-   * SeqExprNode::body, which is an Expr that can be anything. FunctionPattern
+   * 1) SeqExprObj::blocks, which is a list of blocks of statements; and 2)
+   * SeqExprObj::body, which is an Expr that can be anything. FunctionPattern
    * only matches the body of the function (writing patterns to statements is tricky).
    */
   DFPattern body; /*!< The body of the function */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FunctionPatternNode>()
-        .def_ro("params", &FunctionPatternNode::params)
-        .def_ro("body", &FunctionPatternNode::body);
+    refl::ObjectDef<FunctionPatternObj>()
+        .def_ro("params", &FunctionPatternObj::params)
+        .def_ro("body", &FunctionPatternObj::body);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.FunctionPattern", FunctionPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.FunctionPattern", FunctionPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to FunctionPatternNode.
- * \sa FunctionPatternNode
+ * \brief Managed reference to FunctionPatternObj.
+ * \sa FunctionPatternObj
  */
 class FunctionPattern : public DFPattern {
  public:
@@ -581,60 +579,59 @@ class FunctionPattern : public DFPattern {
    */
   TVM_DLL FunctionPattern(tvm::ffi::Array<DFPattern> params, DFPattern body);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FunctionPattern, DFPattern, FunctionPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FunctionPattern, DFPattern, FunctionPatternObj);
 };
 
 /*!
  * \brief Pattern to match a tuple of ordered expressions.
  * \sa TuplePattern
  */
-class TuplePatternNode : public DFPatternNode {
+class TuplePatternObj : public DFPatternObj {
  public:
   tvm::ffi::Array<DFPattern> fields; /*!< The fields of the tuple */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TuplePatternNode>().def_ro("fields", &TuplePatternNode::fields);
+    refl::ObjectDef<TuplePatternObj>().def_ro("fields", &TuplePatternObj::fields);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TuplePattern", TuplePatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TuplePattern", TuplePatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to TuplePatternNode.
- * \sa TuplePatternNode
+ * \brief Managed reference to TuplePatternObj.
+ * \sa TuplePatternObj
  */
 class TuplePattern : public DFPattern {
  public:
   TVM_DLL explicit TuplePattern(tvm::ffi::Array<DFPattern> fields);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuplePattern, DFPattern, TuplePatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuplePattern, DFPattern, TuplePatternObj);
 };
 
 /*!
  * \brief A pattern to match multiple expressions unorderedly.
  * \sa UnorderedTuplePattern
  */
-class UnorderedTuplePatternNode : public DFPatternNode {
+class UnorderedTuplePatternObj : public DFPatternObj {
  public:
   tvm::ffi::Array<DFPattern> fields; /*!< The fields of the tuple */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<UnorderedTuplePatternNode>().def_ro("fields",
-                                                        &UnorderedTuplePatternNode::fields);
+    refl::ObjectDef<UnorderedTuplePatternObj>().def_ro("fields", &UnorderedTuplePatternObj::fields);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.UnorderedTuplePattern", UnorderedTuplePatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.UnorderedTuplePattern", UnorderedTuplePatternObj,
+                                    DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to UnorderedTuplePatternNode.
- * \sa UnorderedTuplePatternNode
+ * \brief Managed reference to UnorderedTuplePatternObj.
+ * \sa UnorderedTuplePatternObj
  */
 class UnorderedTuplePattern : public DFPattern {
  public:
   TVM_DLL explicit UnorderedTuplePattern(tvm::ffi::Array<DFPattern> fields);
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(UnorderedTuplePattern, DFPattern,
-                                                UnorderedTuplePatternNode);
+                                                UnorderedTuplePatternObj);
 };
 
 /*!
@@ -642,150 +639,148 @@ class UnorderedTuplePattern : public DFPattern {
  * \sa TupleGetItem
  * \sa TupleGetItemPattern
  */
-class TupleGetItemPatternNode : public DFPatternNode {
+class TupleGetItemPatternObj : public DFPatternObj {
  public:
-  explicit TupleGetItemPatternNode(DFPattern tuple) : tuple(std::move(tuple)) {}
-  explicit TupleGetItemPatternNode(ffi::UnsafeInit) : tuple(ffi::UnsafeInit{}) {}
+  explicit TupleGetItemPatternObj(DFPattern tuple) : tuple(std::move(tuple)) {}
+  explicit TupleGetItemPatternObj(ffi::UnsafeInit) : tuple(ffi::UnsafeInit{}) {}
 
   DFPattern tuple; /*!< The tuple Expression */
   int index;       /*!< The index of the tuple with -1 meaning arbitrary */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TupleGetItemPatternNode>()
-        .def_ro("tuple", &TupleGetItemPatternNode::tuple)
-        .def_ro("index", &TupleGetItemPatternNode::index);
+    refl::ObjectDef<TupleGetItemPatternObj>()
+        .def_ro("tuple", &TupleGetItemPatternObj::tuple)
+        .def_ro("index", &TupleGetItemPatternObj::index);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TupleGetItemPattern", TupleGetItemPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TupleGetItemPattern", TupleGetItemPatternObj,
+                                    DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to TupleGetItemPatternNode.
- * \sa TupleGetItemPatternNode
+ * \brief Managed reference to TupleGetItemPatternObj.
+ * \sa TupleGetItemPatternObj
  */
 class TupleGetItemPattern : public DFPattern {
  public:
   TVM_DLL TupleGetItemPattern(DFPattern tuple, int index);
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TupleGetItemPattern, DFPattern,
-                                                TupleGetItemPatternNode);
+                                                TupleGetItemPatternObj);
 };
 
 /*!
  * \brief Match a conjunction of other patterns.
  * \sa AndPattern
  */
-class AndPatternNode : public DFPatternNode {
+class AndPatternObj : public DFPatternObj {
  public:
-  explicit AndPatternNode(DFPattern left, DFPattern right)
+  explicit AndPatternObj(DFPattern left, DFPattern right)
       : left(std::move(left)), right(std::move(right)) {}
-  explicit AndPatternNode(ffi::UnsafeInit) : left(ffi::UnsafeInit{}), right(ffi::UnsafeInit{}) {}
+  explicit AndPatternObj(ffi::UnsafeInit) : left(ffi::UnsafeInit{}), right(ffi::UnsafeInit{}) {}
 
   DFPattern left;  /*!< The left hand side of the conjunction */
   DFPattern right; /*!< The right hand side of the conjunction */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AndPatternNode>()
-        .def_ro("left", &AndPatternNode::left)
-        .def_ro("right", &AndPatternNode::right);
+    refl::ObjectDef<AndPatternObj>()
+        .def_ro("left", &AndPatternObj::left)
+        .def_ro("right", &AndPatternObj::right);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.AndPattern", AndPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.AndPattern", AndPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to AndPatternNode.
- * \sa AndPatternNode
+ * \brief Managed reference to AndPatternObj.
+ * \sa AndPatternObj
  */
 class AndPattern : public DFPattern {
  public:
   TVM_DLL AndPattern(DFPattern lhs, DFPattern rhs);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(AndPattern, DFPattern, AndPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(AndPattern, DFPattern, AndPatternObj);
 };
 
 /*!
  * \brief Match a disjunction of other patterns.
  * \sa OrPattern
  */
-class OrPatternNode : public DFPatternNode {
+class OrPatternObj : public DFPatternObj {
  public:
-  explicit OrPatternNode(DFPattern left, DFPattern right)
+  explicit OrPatternObj(DFPattern left, DFPattern right)
       : left(std::move(left)), right(std::move(right)) {}
-  explicit OrPatternNode(ffi::UnsafeInit) : left(ffi::UnsafeInit{}), right(ffi::UnsafeInit{}) {}
+  explicit OrPatternObj(ffi::UnsafeInit) : left(ffi::UnsafeInit{}), right(ffi::UnsafeInit{}) {}
 
   DFPattern left;  /*!< The left hand side of the disjunction */
   DFPattern right; /*!< The right hand side of the disjunction */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<OrPatternNode>()
-        .def_ro("left", &OrPatternNode::left)
-        .def_ro("right", &OrPatternNode::right);
+    refl::ObjectDef<OrPatternObj>()
+        .def_ro("left", &OrPatternObj::left)
+        .def_ro("right", &OrPatternObj::right);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.OrPattern", OrPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.OrPattern", OrPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to OrPatternNode.
- * \sa OrPatternNode
+ * \brief Managed reference to OrPatternObj.
+ * \sa OrPatternObj
  */
 class OrPattern : public DFPattern {
  public:
   TVM_DLL OrPattern(DFPattern left, DFPattern right);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(OrPattern, DFPattern, OrPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(OrPattern, DFPattern, OrPatternObj);
 };
 
 /*!
  * \brief Pattern for rejecting a certain pattern.
  * \sa NotPattern
  */
-class NotPatternNode : public DFPatternNode {
+class NotPatternObj : public DFPatternObj {
  public:
-  explicit NotPatternNode(DFPattern reject) : reject(std::move(reject)) {}
-  explicit NotPatternNode(ffi::UnsafeInit) : reject(ffi::UnsafeInit{}) {}
+  explicit NotPatternObj(DFPattern reject) : reject(std::move(reject)) {}
+  explicit NotPatternObj(ffi::UnsafeInit) : reject(ffi::UnsafeInit{}) {}
 
   DFPattern reject; /*!< The pattern to reject */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<NotPatternNode>().def_ro("reject", &NotPatternNode::reject);
+    refl::ObjectDef<NotPatternObj>().def_ro("reject", &NotPatternObj::reject);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.NotPattern", NotPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.NotPattern", NotPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to NotPatternNode.
- * \sa NotPatternNode
+ * \brief Managed reference to NotPatternObj.
+ * \sa NotPatternObj
  */
 class NotPattern : public DFPattern {
  public:
   TVM_DLL NotPattern(DFPattern reject);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(NotPattern, DFPattern, NotPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(NotPattern, DFPattern, NotPatternObj);
 };
 
 /*!
  * \brief Wildcard Pattern is a pattern that can match anything.
  * \sa WildcardPattern
  */
-class WildcardPatternNode : public DFPatternNode {
+class WildcardPatternObj : public DFPatternObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<WildcardPatternNode>();
+    refl::ObjectDef<WildcardPatternObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.WildcardPattern", WildcardPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.WildcardPattern", WildcardPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to WildcardPatternNode.
- * \sa WildcardPatternNode
+ * \brief Managed reference to WildcardPatternObj.
+ * \sa WildcardPatternObj
  */
 class WildcardPattern : public DFPattern {
  public:
   WildcardPattern();
-  explicit WildcardPattern(ffi::ObjectPtr<WildcardPatternNode> data)
-      : DFPattern(ffi::UnsafeInit{}) {
+  explicit WildcardPattern(ffi::ObjectPtr<WildcardPatternObj> data) : DFPattern(ffi::UnsafeInit{}) {
     TVM_FFI_ICHECK(data != nullptr);
     data_ = std::move(data);
   }
@@ -795,86 +790,86 @@ class WildcardPattern : public DFPattern {
   // nullptr`.  This allows a zero-parameter constructor to be
   // declared here, to create a valid wildcard instance.
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(WildcardPattern, DFPattern, WildcardPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(WildcardPattern, DFPattern, WildcardPatternObj);
 };
 
 /*!
  * \brief Pattern for matching a certain type.
  * \sa TypePattern
  */
-class TypePatternNode : public DFPatternNode {
+class TypePatternObj : public DFPatternObj {
  public:
-  explicit TypePatternNode(DFPattern pattern) : pattern(std::move(pattern)) {}
-  explicit TypePatternNode(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+  explicit TypePatternObj(DFPattern pattern) : pattern(std::move(pattern)) {}
+  explicit TypePatternObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
 
   DFPattern pattern;         /*!< The pattern to match */
   Type ty = Type::Missing(); /*!< The type to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TypePatternNode>()
-        .def_ro("pattern", &TypePatternNode::pattern)
-        .def_ro("ty", &TypePatternNode::ty);
+    refl::ObjectDef<TypePatternObj>()
+        .def_ro("pattern", &TypePatternObj::pattern)
+        .def_ro("ty", &TypePatternObj::ty);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TypePattern", TypePatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.TypePattern", TypePatternObj, DFPatternObj);
 };
 
 class TypePattern : public DFPattern {
  public:
   TVM_DLL TypePattern(DFPattern pattern, Type ty);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TypePattern, DFPattern, TypePatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TypePattern, DFPattern, TypePatternObj);
 };
 
 /*!
  * \brief A pattern that asserting a root pattern has a certain shape.
  * \sa ShapePattern
  */
-class ShapePatternNode : public DFPatternNode {
+class ShapePatternObj : public DFPatternObj {
  public:
-  explicit ShapePatternNode(DFPattern pattern) : pattern(std::move(pattern)) {}
-  explicit ShapePatternNode(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+  explicit ShapePatternObj(DFPattern pattern) : pattern(std::move(pattern)) {}
+  explicit ShapePatternObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
 
   DFPattern pattern;          /*!< The root pattern to match */
   ffi::Array<PrimExpr> shape; /*!< The shape to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ShapePatternNode>()
-        .def_ro("pattern", &ShapePatternNode::pattern)
-        .def_ro("shape", &ShapePatternNode::shape);
+    refl::ObjectDef<ShapePatternObj>()
+        .def_ro("pattern", &ShapePatternObj::pattern)
+        .def_ro("shape", &ShapePatternObj::shape);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ShapePattern", ShapePatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ShapePattern", ShapePatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to ShapePatternNode.
- * \sa ShapePatternNode
+ * \brief Managed reference to ShapePatternObj.
+ * \sa ShapePatternObj
  */
 class ShapePattern : public DFPattern {
  public:
   TVM_DLL ShapePattern(DFPattern pattern, ffi::Array<PrimExpr> type);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ShapePattern, DFPattern, ShapePatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ShapePattern, DFPattern, ShapePatternObj);
 };
 
 /*!
  * \brief A pattern that asserting multiple root patterns have the same shape
  * \sa SameShapePattern
  */
-class SameShapeConstraintNode : public DFConstraintNode {
+class SameShapeConstraintObj : public DFConstraintObj {
  public:
   ffi::Array<DFPattern> args; /*!< The patterns with matching shapes */
 
   ffi::Array<DFPattern> GetDependentPatterns() const override { return args; }
 
   std::tuple<PrimExpr, bool> AsCondition(
-      std::function<ffi::Optional<Var>(const DFPatternNode*)> match_state) const override;
+      std::function<ffi::Optional<Var>(const DFPatternObj*)> match_state) const override;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SameShapeConstraintNode>().def_ro("args", &SameShapeConstraintNode::args);
+    refl::ObjectDef<SameShapeConstraintObj>().def_ro("args", &SameShapeConstraintObj::args);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.SameShapeConstraint", SameShapeConstraintNode,
-                                    DFConstraintNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.SameShapeConstraint", SameShapeConstraintObj,
+                                    DFConstraintObj);
 };
 
 /*!
@@ -885,70 +880,69 @@ class SameShapeConstraint : public DFConstraint {
  public:
   TVM_DLL SameShapeConstraint(ffi::Array<DFPattern> args);
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SameShapeConstraint, DFConstraint,
-                                                SameShapeConstraintNode);
+                                                SameShapeConstraintObj);
 };
 
 /*!
  * \brief A pattern that asserting a root pattern has a certain data type.
  * \sa DataTypePattern
  */
-class DataTypePatternNode : public DFPatternNode {
+class DataTypePatternObj : public DFPatternObj {
  public:
-  explicit DataTypePatternNode(DFPattern pattern) : pattern(std::move(pattern)) {}
-  explicit DataTypePatternNode(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+  explicit DataTypePatternObj(DFPattern pattern) : pattern(std::move(pattern)) {}
+  explicit DataTypePatternObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
 
   DFPattern pattern; /*!< The root pattern to match */
   DLDataType dtype;  /*!< The data type to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DataTypePatternNode>()
-        .def_ro("pattern", &DataTypePatternNode::pattern)
-        .def_ro("dtype", &DataTypePatternNode::dtype);
+    refl::ObjectDef<DataTypePatternObj>()
+        .def_ro("pattern", &DataTypePatternObj::pattern)
+        .def_ro("dtype", &DataTypePatternObj::dtype);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.DataTypePattern", DataTypePatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.DataTypePattern", DataTypePatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to DataTypePatternNode.
- * \sa DataTypePatternNode
+ * \brief Managed reference to DataTypePatternObj.
+ * \sa DataTypePatternObj
  */
 class DataTypePattern : public DFPattern {
  public:
   TVM_DLL DataTypePattern(DFPattern pattern, DLDataType dtype);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataTypePattern, DFPattern, DataTypePatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataTypePattern, DFPattern, DataTypePatternObj);
 };
 
 /*!
  * \brief A pattern that asserting a root pattern has certain attributes.
  * \sa AttrPattern
  */
-class AttrPatternNode : public DFPatternNode {
+class AttrPatternObj : public DFPatternObj {
  public:
-  explicit AttrPatternNode(DFPattern pattern) : pattern(std::move(pattern)) {}
-  explicit AttrPatternNode(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+  explicit AttrPatternObj(DFPattern pattern) : pattern(std::move(pattern)) {}
+  explicit AttrPatternObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
 
   DFPattern pattern; /*!< The root pattern to match */
   DictAttrs attrs;   /*!< The attributes (a map/dictionary) to match */
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AttrPatternNode>()
-        .def_ro("pattern", &AttrPatternNode::pattern)
-        .def_ro("attrs", &AttrPatternNode::attrs);
+    refl::ObjectDef<AttrPatternObj>()
+        .def_ro("pattern", &AttrPatternObj::pattern)
+        .def_ro("attrs", &AttrPatternObj::attrs);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.AttrPattern", AttrPatternNode, DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.AttrPattern", AttrPatternObj, DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to AttrPatternNode.
- * \sa AttrPatternNode
+ * \brief Managed reference to AttrPatternObj.
+ * \sa AttrPatternObj
  */
 class AttrPattern : public DFPattern {
  public:
   TVM_DLL AttrPattern(DFPattern pattern, DictAttrs attrs);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(AttrPattern, DFPattern, AttrPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(AttrPattern, DFPattern, AttrPatternObj);
 };
 
 /*!
@@ -956,7 +950,7 @@ class AttrPattern : public DFPattern {
  * \sa ExternFunc
  * \sa ExternFuncPattern
  */
-class ExternFuncPatternNode : public DFPatternNode {
+class ExternFuncPatternObj : public DFPatternObj {
  public:
   ffi::String global_symbol_; /*!< The global symbol name of the external function */
 
@@ -965,22 +959,21 @@ class ExternFuncPatternNode : public DFPatternNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExternFuncPatternNode>().def_ro("global_symbol",
-                                                    &ExternFuncPatternNode::global_symbol_);
+    refl::ObjectDef<ExternFuncPatternObj>().def_ro("global_symbol",
+                                                   &ExternFuncPatternObj::global_symbol_);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ExternFuncPattern", ExternFuncPatternNode,
-                                    DFPatternNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.dpl.ExternFuncPattern", ExternFuncPatternObj,
+                                    DFPatternObj);
 };
 
 /*!
- * \brief Managed reference to ExternFuncPatternNode.
- * \sa ExternFuncPatternNode
+ * \brief Managed reference to ExternFuncPatternObj.
+ * \sa ExternFuncPatternObj
  */
 class ExternFuncPattern : public DFPattern {
  public:
   TVM_DLL ExternFuncPattern(ffi::String global_symbol);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExternFuncPattern, DFPattern,
-                                                ExternFuncPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExternFuncPattern, DFPattern, ExternFuncPatternObj);
 };
 
 /*! \brief Syntatic Sugar for creating a VarPattern with a name */

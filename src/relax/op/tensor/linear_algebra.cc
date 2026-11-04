@@ -126,8 +126,8 @@ Type InferTypeMatmul(const Call& call, const BlockBuilder& ctx) {
   }
   int output_ndim = std::max(x1_ndim, x2_ndim) - x1_prepended - x2_appended;
 
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   if (x1_shape == nullptr || x2_shape == nullptr) {
     if (vdev.has_value()) {
       return TensorType(out_dtype, output_ndim, vdev);
@@ -202,7 +202,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.einsum", einsum);
 }
 
-Type InferTypeEinsum(const CallNode* call_node) {
+Type InferTypeEinsum(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 1) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Einsum op should take 1 argument";
@@ -249,7 +249,7 @@ Type InferTypeEinsum(const CallNode* call_node) {
     }
 
     // Get input shapes
-    const auto* shape_expr = tensor_ty->shape.as<ShapeExprNode>();
+    const auto* shape_expr = tensor_ty->shape.as<ShapeExprObj>();
     if (shape_expr != nullptr) {
       input_shapes.push_back(shape_expr->values);
     } else {
@@ -287,7 +287,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.outer", outer);
 }
 
-Type InferTypeOuter(const CallNode* call_node) {
+Type InferTypeOuter(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   auto input_ty = GetInputTensorType(call);
   auto x1_ty = input_ty[0];
@@ -299,8 +299,8 @@ Type InferTypeOuter(const CallNode* call_node) {
   }
 
   // Determine output shape
-  auto x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  auto x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  auto x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  auto x2_shape = x2_ty->shape.as<ShapeExprObj>();
   if (!x1_shape || !x2_shape) {
     return TensorType(x1_ty->dtype, 2);
   }

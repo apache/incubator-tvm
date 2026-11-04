@@ -305,7 +305,7 @@ struct LocalCollectInfo : public BaseCollectInfo {
       }
 
       using ExprMutator::VisitExpr_;
-      Expr VisitExpr_(const CallNode* call) override {
+      Expr VisitExpr_(const CallObj* call) override {
         static const Op stop_lift_params_op = Op::Get("relax.builtin.stop_lift_params");
         if (call->op.same_as(stop_lift_params_op)) {
           return VisitExpr(call->args[0]);
@@ -329,7 +329,7 @@ struct LocalCollectInfo : public BaseCollectInfo {
 
 class BaseLiftableBindingCollector : public ExprVisitor {
  protected:
-  void VisitBindingBlock_(const DataflowBlockNode* block) final {
+  void VisitBindingBlock_(const DataflowBlockObj* block) final {
     bool cache = is_in_dataflow_block_;
     is_in_dataflow_block_ = true;
     ExprVisitor::VisitBindingBlock_(block);
@@ -345,7 +345,7 @@ class BaseLiftableBindingCollector : public ExprVisitor {
     }
 
     // Cond 2. Do not lift regarding the "builtin.stop_lift_params" op.
-    if (const auto* call = value.as<CallNode>()) {
+    if (const auto* call = value.as<CallObj>()) {
       static const Op stop_lift_params_op = Op::Get("relax.builtin.stop_lift_params");
       if (call->op.same_as(stop_lift_params_op)) {
         return false;
@@ -368,7 +368,7 @@ class BaseLiftableBindingCollector : public ExprVisitor {
     }
 
     // Cond 5. Do not lift declarations of external functions
-    if (value.as<relax::ExternFuncNode>()) {
+    if (value.as<relax::ExternFuncObj>()) {
       return false;
     }
 
@@ -412,7 +412,7 @@ class LocalLiftableBindingCollector : public BaseLiftableBindingCollector {
       : info_(std::move(func)) {
     info_.global_info = global_info;
   }
-  void VisitExpr_(const FunctionNode* func) override {
+  void VisitExpr_(const FunctionObj* func) override {
     size_t num_runtime_params = func->params.size();
     if (auto opt = func->attrs.GetAttr(tvm::relax::attr::kNumInput)) {
       num_runtime_params = opt.value();
@@ -515,7 +515,7 @@ class ParamRemapper : private ExprFunctor<void(const Expr&, const Expr&)> {
   }
 
  private:
-  void VisitExpr_(const VarNode* lhs_var, const Expr& rhs_expr) final {
+  void VisitExpr_(const VarObj* lhs_var, const Expr& rhs_expr) final {
     auto rhs_var = rhs_expr.as_or_throw<Var>();
     if (auto it = var_remap_.find(ffi::GetRef<Var>(lhs_var)); it != var_remap_.end()) {
       TVM_FFI_ICHECK((*it).second.same_as(rhs_var));
@@ -592,7 +592,7 @@ class GlobalLiftableBindingCollector : public BaseLiftableBindingCollector {
   explicit GlobalLiftableBindingCollector(const ffi::Map<Var, Expr>& var_remap)
       : var_remap_(var_remap) {}
   void VisitBinding(const Binding& binding) override {
-    TVM_FFI_ICHECK(!binding->IsInstance<MatchCastNode>())
+    TVM_FFI_ICHECK(!binding->IsInstance<MatchCastObj>())
         << "MatchCast is not supported in global lifting";
     if (CanLiftBinding(binding)) {
       liftable_vars_.insert(binding->var);
@@ -639,7 +639,7 @@ inline bool ends_with(const std::string& value, const std::string& ending) {
  */
 class ConsumeBundledParams : public ExprMutator {
  public:
-  void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* tuple_get_item) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* tuple_get_item) final {
     static const auto call_pure_packed = Op::Get("relax.call_pure_packed");
     static const auto& builtin_tuple_reset_item = ExternFunc("vm.builtin.tuple_reset_item");
     if (tuple_get_item->tuple.same_as(params_)) {
@@ -659,13 +659,13 @@ class ConsumeBundledParams : public ExprMutator {
     }
   }
 
-  Expr VisitExpr_(const FunctionNode* func) final {
+  Expr VisitExpr_(const FunctionObj* func) final {
     auto opt_num_input = func->GetAttr(tvm::relax::attr::kNumInput);
     TVM_FFI_ICHECK(opt_num_input.has_value());
     auto num_input = opt_num_input.value();
     TVM_FFI_ICHECK_EQ(func->params.size(), num_input + 1);
     params_ = func->params.back();
-    TVM_FFI_ICHECK(params_->ty.as<TupleTypeNode>());
+    TVM_FFI_ICHECK(params_->ty.as<TupleTypeObj>());
     return ExprMutator::VisitExpr_(func);
   }
 
@@ -709,7 +709,7 @@ std::vector<std::pair<GlobalVar, Function>> GetTargetFunctions(
     // Get all the functions that have the `num_input` attribute, and
     // are not already the result of `LiftTransformParams`.
     for (const auto& [gvar, func] : mod->functions) {
-      if (func->IsInstance<FunctionNode>()) {
+      if (func->IsInstance<FunctionObj>()) {
         auto opt_num_input = func->GetAttr(tvm::relax::attr::kNumInput);
         if (opt_num_input && !ends_with(gvar->name_hint, "transform_params")) {
           target_functions.emplace_back(gvar, func.as_or_throw<Function>());

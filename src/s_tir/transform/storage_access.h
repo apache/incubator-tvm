@@ -81,16 +81,16 @@ class StorageAccessVisitor : public StmtExprVisitor {
     std::vector<AccessEntry> access;
   };
   // override visitor pattern
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const EvaluateNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const IfNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const WhileNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final;
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const EvaluateObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const IfObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const WhileObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final;
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final;
 
  protected:
   StorageAccessVisitor() { scope_.push_back(std::vector<StmtEntry>()); }
@@ -106,7 +106,7 @@ class StorageAccessVisitor : public StmtExprVisitor {
    * \param scope The scope of the buffer.
    * \return Whether the analysis of buffer is enabled.
    */
-  virtual bool Enabled(const VarNode* buffer, const MemoryScope& scope) const { return true; }
+  virtual bool Enabled(const VarObj* buffer, const MemoryScope& scope) const { return true; }
   /*!
    * \brief Summarize the sequence of operations into parent.
    *
@@ -118,7 +118,7 @@ class StorageAccessVisitor : public StmtExprVisitor {
    * \return The summarized sequence that represent access that
    *  the parent should taken care of to synchronize.
    */
-  virtual std::vector<AccessEntry> Summarize(std::vector<StmtEntry> seq, const ForNode* loop) = 0;
+  virtual std::vector<AccessEntry> Summarize(std::vector<StmtEntry> seq, const ForObj* loop) = 0;
   /*!
    * \brief Get the scope of the buffer array.
    * \return The scope of the final buffer array.
@@ -145,11 +145,11 @@ class StorageAccessVisitor : public StmtExprVisitor {
   // The involving threads
   ffi::Array<IterVar> env_threads_;
   // Physical storage root for each declared logical buffer view.
-  std::unordered_map<const VarNode*, Var> buffer_aliases_;
+  std::unordered_map<const VarObj*, Var> buffer_aliases_;
   // Resolve pointer bindings at their use, without treating address construction as access.
-  std::unordered_map<const VarNode*, Expr> pointer_values_;
+  std::unordered_map<const VarObj*, Expr> pointer_values_;
   // Shifted or retyped aliases cannot compare coordinates with their storage root.
-  std::unordered_set<const VarNode*> offset_aliases_;
+  std::unordered_set<const VarObj*> offset_aliases_;
 };
 }  // namespace s_tir
 }  // namespace tvm

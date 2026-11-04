@@ -39,7 +39,7 @@ class DataflowBlockExtractor : public ExprMutator {
  public:
   explicit DataflowBlockExtractor(size_t min_size) : ExprMutator(), min_size_(min_size) {}
 
-  Expr VisitExpr_(const SeqExprNode* seq) override {
+  Expr VisitExpr_(const SeqExprObj* seq) override {
     ffi::Array<BindingBlock> new_blocks;
     Expr new_body = VisitExpr(seq->body);
     bool changed = !new_body.same_as(seq->body);
@@ -115,8 +115,8 @@ class DataflowBlockExtractor : public ExprMutator {
       for (const auto& binding : binding_block->bindings) {
         Expr value = GetBoundValue(binding);
         // dataflow values: not an if node and not an impure call
-        bool is_dataflow = (!value.as<IfExprNode>()) &&
-                           (!(value.as<CallNode>() && IsImpureCall(value.as_or_throw<Call>())));
+        bool is_dataflow = (!value.as<IfExprObj>()) &&
+                           (!(value.as<CallObj>() && IsImpureCall(value.as_or_throw<Call>())));
         if (is_dataflow) {
           // extend the streak
           dataflow_bindings.push_back(binding);

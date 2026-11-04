@@ -29,25 +29,25 @@
 namespace tvm {
 namespace te {
 
-TVM_FFI_STATIC_INIT_BLOCK() { PlaceholderOpNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { PlaceholderOpObj::RegisterReflection(); }
 
 // Pattern A (RM): auto-default repr from reflection.
 
-int PlaceholderOpNode::num_outputs() const { return 1; }
+int PlaceholderOpObj::num_outputs() const { return 1; }
 
-PrimType PlaceholderOpNode::output_dtype(size_t i) const {
+PrimType PlaceholderOpObj::output_dtype(size_t i) const {
   TVM_FFI_ICHECK_EQ(i, 0U);
   return dtype;
 }
 
-ffi::Array<PrimExpr> PlaceholderOpNode::output_shape(size_t i) const {
+ffi::Array<PrimExpr> PlaceholderOpObj::output_shape(size_t i) const {
   TVM_FFI_ICHECK_EQ(i, 0U);
   return shape;
 }
 
 PlaceholderOp::PlaceholderOp(std::string name, ffi::Array<PrimExpr> shape, PrimType dtype)
     : Operation(ffi::UnsafeInit{}) {
-  auto n = ffi::make_object<PlaceholderOpNode>();
+  auto n = ffi::make_object<PlaceholderOpObj>();
   n->name = name;
   n->shape = shape;
   n->dtype = dtype;
@@ -75,7 +75,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   });
 }
 
-ffi::Array<Tensor> PlaceholderOpNode::InputTensors() const { return {}; }
+ffi::Array<Tensor> PlaceholderOpObj::InputTensors() const { return {}; }
 
 }  // namespace te
 }  // namespace tvm

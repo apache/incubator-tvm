@@ -257,7 +257,7 @@ inline SBlock ConcreteScheduleObj::Get(const SBlockRV& block_rv) const {
 
 inline For ConcreteScheduleObj::Get(const LoopRV& loop_rv) const {
   StmtSRef sref = this->GetSRef(loop_rv);
-  const ForNode* loop = TVM_SREF_TO_FOR(sref);
+  const ForObj* loop = TVM_SREF_TO_FOR(sref);
   return ffi::GetRef<For>(loop);
 }
 
@@ -268,7 +268,7 @@ inline PrimExpr ConcreteScheduleObj::Get(const ExprRV& expr_rv) const {
       TVM_FFI_THROW(IndexError) << "Cannot find corresponding ExprRV: " << var;
     }
     const ffi::ObjectRef& obj = (*it).second;
-    const auto* int_imm = TVM_TYPE_AS(obj, IntImmNode);
+    const auto* int_imm = TVM_TYPE_AS(obj, IntImmObj);
     return ffi::Any(IntImm::Int32(int_imm->value));
   };
   PrimExpr transformed =

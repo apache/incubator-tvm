@@ -49,7 +49,7 @@ Type InferDistTypeUnary(const Call& call, const BlockBuilder& ctx, FType f_compu
         << " requires the input tensor to have float dtype. However, the given input dtype is "
         << input_tensor_ty->dtype;
   }
-  auto output_ty = ffi::make_object<TensorTypeNode>(*input_tensor_ty.get());
+  auto output_ty = ffi::make_object<TensorTypeObj>(*input_tensor_ty.get());
   ffi::Optional<PrimType> computed_dtype = f_compute_out_dtype(input_tensor_ty);
   output_ty->dtype = computed_dtype;
   TensorType out_tensor_ty(output_ty);

@@ -147,7 +147,7 @@ Expr DecomposeLayerNorm(const Call& call) {
 Expr TensorToShape(const Call& call_node, const BlockBuilder& builder) {
   TVM_FFI_ICHECK(!call_node->ty.as<MissingType>().has_value());
   Expr expr = call_node->args[0];
-  const ShapeTypeNode* ty = GetTypeAs<ShapeTypeNode>(call_node);
+  const ShapeTypeObj* ty = GetTypeAs<ShapeTypeObj>(call_node);
   TVM_FFI_ICHECK(ty);
   // call builtin function that converts tensor to shape tuple
   // TODO(@sunggg): Register operator for "vm.builtin.tensor_to_shape"
@@ -178,7 +178,7 @@ class TrainingOperatorMutator : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) final {
+  Expr VisitExpr_(const CallObj* call_node) final {
     Call call = VisitExprPostOrder_(call_node).as_or_throw<Call>();
     if (call->op.same_as(batch_norm_op_)) {
       return MutateBatchNormForTraining(call);
@@ -200,7 +200,7 @@ class OpDecomposer : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) final {
+  Expr VisitExpr_(const CallObj* call_node) final {
     Call call = VisitExprPostOrder_(call_node).as_or_throw<Call>();
     if (call->op.same_as(batch_norm_op_)) {
       return DecomposeBatchNorm(call);

@@ -51,9 +51,9 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
   explicit CollectFromCompositeFunctionBody(NNAPIJSONSerializer* serializer)
       : serializer_(serializer), node_(std::make_shared<JSONGraphNode>()) {}
 
-  void VisitExpr_(const CallNode* call_node) override;
+  void VisitExpr_(const CallObj* call_node) override;
 
-  void SetPermuteDimsAttribute(const CallNode* call_node) {
+  void SetPermuteDimsAttribute(const CallObj* call_node) {
     const auto* permute_dims_attr = call_node->attrs.as<PermuteDimsAttrs>();
     TVM_FFI_ICHECK(permute_dims_attr);
     if (permute_dims_attr->axes) {
@@ -65,13 +65,13 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
     }
   }
 
-  void SetAstypeAttribute(const CallNode* call_node) {
+  void SetAstypeAttribute(const CallObj* call_node) {
     const auto* astype_attrs = call_node->attrs.as<AstypeAttrs>();
     TVM_FFI_ICHECK(astype_attrs);
     node_->SetAttr("astype_dtype", ffi::String(ffi::DLDataTypeToString(astype_attrs->dtype)));
   }
 
-  void SetMeanAttribute(const CallNode* call_node) {
+  void SetMeanAttribute(const CallObj* call_node) {
     const auto* mean_attrs = call_node->attrs.as<StatisticalAttrs>();
     TVM_FFI_ICHECK(mean_attrs);
     TVM_FFI_ICHECK(mean_attrs->axis.has_value());
@@ -86,7 +86,7 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
     node_->SetAttr("keepdims", static_cast<int64_t>(mean_attrs->keepdims ? 1 : 0));
   }
 
-  void SetConv2dAttribute(const CallNode* call_node) {
+  void SetConv2dAttribute(const CallObj* call_node) {
     const auto* conv2d_attr = call_node->attrs.as<Conv2DAttrs>();
     TVM_FFI_ICHECK(conv2d_attr) << "didn't catch attributes";
 
@@ -110,7 +110,7 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
     node_->SetAttr("group", static_cast<int64_t>(conv2d_attr->groups));
   }
 
-  void SetMaxPool2dAttribute(const CallNode* call_node) {
+  void SetMaxPool2dAttribute(const CallObj* call_node) {
     const auto* max_pool_2d_attr = call_node->attrs.as<Pool2DAttrs>();
     TVM_FFI_ICHECK(max_pool_2d_attr) << "didn't catch attributes";
 
@@ -150,8 +150,8 @@ class NNAPIJSONSerializer : public JSONSerializer {
       : JSONSerializer(constant_names), bindings_(bindings) {}
   using JSONSerializer::VisitExpr_;
 
-  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallNode* call_node) final {
-    const auto* fn_var = call_node->op.as<VarNode>();
+  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallObj* call_node) final {
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     TVM_FFI_ICHECK(fn.defined()) << "Expects the callee to be a function.";
@@ -177,15 +177,15 @@ class NNAPIJSONSerializer : public JSONSerializer {
 
     VLOG(1) << "Adding node " << composite_name << " with " << node->GetInputs().size()
             << " inputs";
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
  private:
   ffi::Map<Var, Expr> bindings_;
 };
 
-void CollectFromCompositeFunctionBody::VisitExpr_(const CallNode* call_node) {
-  const auto* op_node = call_node->op.as<OpNode>();
+void CollectFromCompositeFunctionBody::VisitExpr_(const CallObj* call_node) {
+  const auto* op_node = call_node->op.as<OpObj>();
   TVM_FFI_ICHECK(op_node != nullptr);
   std::string name = op_node->name;
   if (name == "relax.permute_dims") {

@@ -121,7 +121,7 @@ def test_bind_params_symbolic_vars():
     params_dict = {"w0": w0_tvm, "b0": b0_tvm, "w1": w1_tvm, "b1": b1_tvm}
     mod = relax.transform.BindParams("main", params_dict)(Before)
 
-    # Since it contains ConstantNode, it's hard to check with structural equality.
+    # Since it contains ConstantObj, it's hard to check with structural equality.
     func = mod["main"]
     assert len(func.params) == 1
     batch = func.params[0].ty.shape[0]

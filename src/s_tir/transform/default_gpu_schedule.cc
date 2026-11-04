@@ -69,10 +69,10 @@ void ThreadBind(s_tir::Schedule sch, const s_tir::SBlockRV& block, int64_t max_t
   s_tir::LoopRV fused = sch->Fuse(data_parallel_loops, /*preserve_unit_iters=*/false);
   int64_t product = std::numeric_limits<int64_t>::max();
   if (Range::GetExtentFromBeginEnd(sch->Get(fused)->begin, sch->Get(fused)->end)
-          ->IsInstance<IntImmNode>()) {
+          ->IsInstance<IntImmObj>()) {
     product = static_cast<int64_t>(
         Range::GetExtentFromBeginEnd(sch->Get(fused)->begin, sch->Get(fused)->end)
-            .as<IntImmNode>()
+            .as<IntImmObj>()
             ->value);
   }
   // schedule the fused loop
@@ -96,7 +96,7 @@ IRModule MarkScheduled(const IRModule& mod) {
   ffi::Map<GlobalVar, BaseFunc> result;
 
   for (const auto& [gv, base_func] : mod->functions) {
-    if (const auto* function_node = base_func.as<tirx::FunctionNode>()) {
+    if (const auto* function_node = base_func.as<tirx::FunctionObj>()) {
       tirx::Function function = ffi::GetRef<tirx::Function>(function_node);
       tirx::Function new_function =
           WithAttr(std::move(function), tvm::s_tir::attr::kIsScheduled.name, true);
@@ -127,7 +127,7 @@ IRModule MarkScheduled(const IRModule& mod) {
  */
 tirx::Function WrapBareSBlockBody(const tirx::Function& func) {
   const auto* realize = func->body.has_value() && func->body.value()->size() == 1
-                            ? func->body.value()->seq[0].as<s_tir::SBlockRealizeNode>()
+                            ? func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()
                             : nullptr;
   if (realize == nullptr || !realize->block->iter_vars.empty()) {
     return func;
@@ -137,8 +137,8 @@ tirx::Function WrapBareSBlockBody(const tirx::Function& func) {
   // whose block body is a For loop (or a nested SBlockRealize) — that case
   // already has somewhere to put thread bindings, so leave it alone.
   const SeqStmt& inner = realize->block->body;
-  if (inner->size() == 1 && (inner->seq[0]->IsInstance<ForNode>() ||
-                             inner->seq[0]->IsInstance<s_tir::SBlockRealizeNode>())) {
+  if (inner->size() == 1 && (inner->seq[0]->IsInstance<ForObj>() ||
+                             inner->seq[0]->IsInstance<s_tir::SBlockRealizeObj>())) {
     return func;
   }
   tvm::IntImm zero(tvm::PrimType::Int(32), 0);
@@ -193,7 +193,7 @@ Pass DefaultGPUSchedule() {
         ffi::Map<GlobalVar, BaseFunc> wrapped;
         bool any_wrapped = false;
         for (const auto& [gv, base_func] : m->functions) {
-          if (const auto* function_node = base_func.as<tirx::FunctionNode>();
+          if (const auto* function_node = base_func.as<tirx::FunctionObj>();
               function_node != nullptr && IsScheduledOnGPU(base_func) &&
               !base_func->HasNonzeroAttr(tvm::s_tir::attr::kIsScheduled.name)) {
             tirx::Function func = ffi::GetRef<tirx::Function>(function_node);
@@ -212,7 +212,7 @@ Pass DefaultGPUSchedule() {
         s_tir::Schedule sch = s_tir::Schedule::Traced(m, /*seed=*/-1, /*debug_mask=*/0,
                                                       s_tir::ScheduleErrorRenderLevel::kDetail);
         for (const auto& [gv, func] : m->functions) {
-          if (func->IsInstance<tirx::FunctionNode>() &&
+          if (func->IsInstance<tirx::FunctionObj>() &&
               !func->HasNonzeroAttr(tvm::s_tir::attr::kIsScheduled.name) &&
               IsScheduledOnGPU(func)) {
             // get the target from context.

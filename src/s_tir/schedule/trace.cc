@@ -32,7 +32,7 @@ using namespace tvm::tirx;
 
 namespace {
 
-ffi::String TraceAsPythonRepr(const TraceNode* self) {
+ffi::String TraceAsPythonRepr(const TraceObj* self) {
   std::ostringstream os;
   os << "# from tvm import s_tir\n";
   os << "def apply_trace(sch: s_tir.Schedule) -> None:\n";
@@ -56,10 +56,10 @@ ffi::String TraceAsPythonRepr(const TraceNode* self) {
 
 /**************** Constructors  ****************/
 
-Trace::Trace() { data_ = ffi::make_object<TraceNode>(); }
+Trace::Trace() { data_ = ffi::make_object<TraceObj>(); }
 
 Trace::Trace(ffi::Array<Instruction> insts, ffi::Map<Instruction, Any> decisions) {
-  ffi::ObjectPtr<TraceNode> n = ffi::make_object<TraceNode>();
+  ffi::ObjectPtr<TraceObj> n = ffi::make_object<TraceObj>();
   n->insts = std::move(insts);
   n->decisions = std::move(decisions);
   data_ = std::move(n);
@@ -67,9 +67,9 @@ Trace::Trace(ffi::Array<Instruction> insts, ffi::Map<Instruction, Any> decisions
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  TraceNode::RegisterReflection();
+  TraceObj::RegisterReflection();
   // Register __ffi_repr__ so str(trace) returns the Python script format
-  refl::TypeAttrDef<TraceNode>().def(
+  refl::TypeAttrDef<TraceObj>().def(
       ffi::type_attr::kRepr.name,
       [](Trace trace, ffi::Function) -> ffi::String { return TraceAsPythonRepr(trace.get()); });
 
@@ -110,9 +110,9 @@ ffi::Array<Any> TranslateInputRVs(
       return std::nullopt;
     }
     const ffi::Object* dst = it->second;
-    TVM_FFI_CHECK(dst->IsInstance<VarNode>(), TypeError)
+    TVM_FFI_CHECK(dst->IsInstance<VarObj>(), TypeError)
         << "Expect 'tirx.Var', but gets: " << dst->GetTypeKey();
-    return ffi::GetRef<Var>(static_cast<const VarNode*>(dst));
+    return ffi::GetRef<Var>(static_cast<const VarObj*>(dst));
   };
   auto f_subst_with_rv_map_prim = [&](const Var& var) -> ffi::Optional<PrimExpr> {
     if (auto replacement = f_subst_with_rv_map(var)) {
@@ -139,9 +139,9 @@ ffi::Array<Any> TranslateInputRVs(
       result.push_back(input);
     } else if (auto expr = input.as<ffi::String>()) {
       result.push_back(expr.value());
-    } else if (input.as<SBlockRVNode>() ||  // RV: block
-               input.as<LoopRVNode>() ||    // RV: loop
-               input.as<VarNode>()) {       // RV: var
+    } else if (input.as<SBlockRVObj>() ||  // RV: block
+               input.as<LoopRVObj>() ||    // RV: loop
+               input.as<VarObj>()) {       // RV: var
       auto it = rv_map.find(input.as<ffi::Object>());
       TVM_FFI_CHECK(it != rv_map.end(), IndexError) << "Random variable doesn't exist: " << input;
       result.push_back(ffi::GetRef<ffi::ObjectRef>(it->second));
@@ -183,9 +183,9 @@ ffi::Array<Any> TranslateInputRVs(
     } else if (input.type_index() < ffi::TypeIndex::kTVMFFISmallStr) {
       // directly put back POD type and not string
       results.push_back(input);
-    } else if (input.as<SBlockRVNode>() ||  // RV: block
-               input.as<LoopRVNode>() ||    // RV: loop
-               input.as<VarNode>()) {       // RV: var
+    } else if (input.as<SBlockRVObj>() ||  // RV: block
+               input.as<LoopRVObj>() ||    // RV: loop
+               input.as<VarObj>()) {       // RV: var
       auto it = rv_names.find(input.cast<ffi::ObjectRef>());
       if (it != rv_names.end()) {
         // Case 1. SBlockRV, LoopRV, VarRV
@@ -194,7 +194,7 @@ ffi::Array<Any> TranslateInputRVs(
         TVM_FFI_THROW(IndexError) << "Random variable is not defined " << input;
         throw;
       }
-    } else if (input.as<IntImmNode>() || input.as<FloatImmNode>()) {
+    } else if (input.as<IntImmObj>() || input.as<FloatImmObj>()) {
       // Case 3. integer or floating-point number
       results.push_back(input);
     } else if (input.as<ffi::ArrayObj>()) {
@@ -203,7 +203,7 @@ ffi::Array<Any> TranslateInputRVs(
     } else if (input.as<ffi::MapObj>()) {
       // Case 5: dict
       results.push_back(input);
-    } else if (input.as<IndexMapNode>()) {
+    } else if (input.as<IndexMapObj>()) {
       // // Case 6: IndexMap
       IndexMap index_map = input.as_or_throw<IndexMap>();
       index_map =
@@ -244,7 +244,7 @@ ffi::Array<Any> TranslateInputRVs(
       continue;
     }
     // Case 3. integer or floating-point immediate
-    if (input.as<IntImmNode>() || input.as<FloatImmNode>()) {
+    if (input.as<IntImmObj>() || input.as<FloatImmObj>()) {
       results.push_back(input);
       continue;
     }
@@ -267,7 +267,7 @@ ffi::Array<Any> TranslateInputRVs(
     if (name[0] == '{' && name[size - 1] == '}') {
       Any obj = ffi::FromJSONGraph(ffi::json::Parse(name));
       // Case 6. IndexMap
-      if (obj.as<IndexMapNode>()) {
+      if (obj.as<IndexMapObj>()) {
         IndexMap index_map = obj.as_or_throw<IndexMap>();
         index_map = ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(index_map, f_substitute)
                         .as_or_throw<IndexMap>();
@@ -327,11 +327,11 @@ ffi::Array<ffi::String> TranslateAddOutputRVs(
     ffi::String result;
     if (output == nullptr) {
       result = "_";
-    } else if (output.as<SBlockRVNode>()) {
+    } else if (output.as<SBlockRVObj>()) {
       result = "b" + std::to_string(i);
-    } else if (output.as<LoopRVNode>()) {
+    } else if (output.as<LoopRVObj>()) {
       result = "l" + std::to_string(i);
-    } else if (output.as<VarNode>()) {
+    } else if (output.as<VarObj>()) {
       result = "v" + std::to_string(i);
     } else {
       TVM_FFI_THROW(TypeError) << "Cannot recognize the type of the random variable: "
@@ -356,18 +356,18 @@ void TranslateAddOutputRVs(const ffi::Array<ffi::String>& old_outputs,
 
 /**************** Add/Remove/Get ****************/
 
-Any TraceNode::GetDecision(const Instruction& inst) const {
+Any TraceObj::GetDecision(const Instruction& inst) const {
   return this->decisions.Get(inst).value_or(Any{nullptr});
 }
 
-void TraceNode::Append(Instruction inst) { insts.push_back(std::move(inst)); }
+void TraceObj::Append(Instruction inst) { insts.push_back(std::move(inst)); }
 
-void TraceNode::Append(Instruction inst, Any decision) {
+void TraceObj::Append(Instruction inst, Any decision) {
   decisions.Set(inst, std::move(decision));
   insts.push_back(std::move(inst));
 }
 
-ffi::Optional<Instruction> TraceNode::Pop() {
+ffi::Optional<Instruction> TraceObj::Pop() {
   if (insts.empty()) {
     return std::nullopt;
   }
@@ -381,7 +381,7 @@ ffi::Optional<Instruction> TraceNode::Pop() {
 
 /**************** Interfacing with InstructionKind ****************/
 
-void TraceNode::ApplyToSchedule(
+void TraceObj::ApplyToSchedule(
     Schedule sch, bool remove_postproc,
     ffi::TypedFunction<Any(const Instruction& inst, const ffi::Array<Any>& inputs,  //
                            const ffi::Array<Any>& attrs,                            //
@@ -403,7 +403,7 @@ void TraceNode::ApplyToSchedule(
   }
 }
 
-ffi::ObjectRef TraceNode::AsJSON(bool remove_postproc) const {
+ffi::ObjectRef TraceObj::AsJSON(bool remove_postproc) const {
   std::unordered_map<ffi::ObjectRef, ffi::String, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rv_names;
   ffi::Array<ffi::Any> json_insts;
   ffi::Array<ffi::Any> json_decisions;
@@ -441,7 +441,7 @@ ffi::ObjectRef TraceNode::AsJSON(bool remove_postproc) const {
   };
 }
 
-ffi::Array<ffi::String> TraceNode::AsPython(bool remove_postproc) const {
+ffi::Array<ffi::String> TraceObj::AsPython(bool remove_postproc) const {
   std::unordered_map<ffi::ObjectRef, ffi::String, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rv_names;
   ffi::Array<ffi::String> py_trace;
   py_trace.reserve(this->insts.size());
@@ -545,7 +545,7 @@ void Trace::ApplyJSONToSchedule(ffi::ObjectRef json, Schedule sch) {
 
 /**************** Creation ****************/
 
-Trace TraceNode::WithDecision(Instruction inst, Any decision, bool remove_postproc) const {
+Trace TraceObj::WithDecision(Instruction inst, Any decision, bool remove_postproc) const {
   int n_insts = GetNumValidInstructions(this->insts, remove_postproc);
   ffi::Array<Instruction> new_insts =
       ffi::Array<Instruction>{this->insts.begin(), this->insts.begin() + n_insts};
@@ -554,7 +554,7 @@ Trace TraceNode::WithDecision(Instruction inst, Any decision, bool remove_postpr
   return Trace(new_insts, new_decisions);
 }
 
-Trace TraceNode::Simplified(bool remove_postproc) const {
+Trace TraceObj::Simplified(bool remove_postproc) const {
   int n_insts = GetNumValidInstructions(this->insts, remove_postproc);
   std::unordered_set<const ffi::Object*> used_rvs;
   std::vector<Instruction> new_insts;
@@ -590,7 +590,7 @@ Trace TraceNode::Simplified(bool remove_postproc) const {
     for (const Any& obj : inst->inputs) {
       if (obj == nullptr) {
         continue;
-      } else if (obj.as<SBlockRVNode>() || obj.as<LoopRVNode>() || obj.as<VarNode>()) {
+      } else if (obj.as<SBlockRVObj>() || obj.as<LoopRVObj>() || obj.as<VarObj>()) {
         used_rvs.insert(obj.as<ffi::Object>());
         continue;
       } else if (auto prim_expr = obj.as<PrimExpr>()) {
@@ -637,7 +637,7 @@ TVM_FFI_STATIC_INIT_BLOCK() { RegisterInstructionKind<EnterPostprocTraits>(); }
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
-      .def_method("s_tir.schedule.TraceGetDecision", &TraceNode::GetDecision)
+      .def_method("s_tir.schedule.TraceGetDecision", &TraceObj::GetDecision)
       .def("s_tir.schedule.TraceAppend",
            [](Trace self, Instruction inst, ffi::Optional<ffi::ObjectRef> decision) {
              if (decision.has_value()) {
@@ -646,12 +646,12 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                return self->Append(inst);
              }
            })
-      .def_method("s_tir.schedule.TracePop", &TraceNode::Pop)
-      .def_method("s_tir.schedule.TraceApplyToSchedule", &TraceNode::ApplyToSchedule)
-      .def_method("s_tir.schedule.TraceAsJSON", &TraceNode::AsJSON)
-      .def_method("s_tir.schedule.TraceAsPython", &TraceNode::AsPython)
-      .def_method("s_tir.schedule.TraceWithDecision", &TraceNode::WithDecision)
-      .def_method("s_tir.schedule.TraceSimplified", &TraceNode::Simplified)
+      .def_method("s_tir.schedule.TracePop", &TraceObj::Pop)
+      .def_method("s_tir.schedule.TraceApplyToSchedule", &TraceObj::ApplyToSchedule)
+      .def_method("s_tir.schedule.TraceAsJSON", &TraceObj::AsJSON)
+      .def_method("s_tir.schedule.TraceAsPython", &TraceObj::AsPython)
+      .def_method("s_tir.schedule.TraceWithDecision", &TraceObj::WithDecision)
+      .def_method("s_tir.schedule.TraceSimplified", &TraceObj::Simplified)
       .def("s_tir.schedule.TraceApplyJSONToSchedule", Trace::ApplyJSONToSchedule);
 }
 

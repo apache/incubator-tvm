@@ -17,20 +17,20 @@
  * under the License.
  */
 
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 
 namespace tvm {
 namespace s_tir {
 using namespace tirx;
-UnchangedOr<Stmt> StmtExprMutatorWithAnalyzer::Mutate_(const SBlockNode* op,
-                                                       InplaceMode inplace_mode) {
-  return constraint_scope_.WithNewScope([&]() -> UnchangedOr<Stmt> {
-    for (const auto& iter_var : op->iter_vars) {
-      analyzer_->Bind(iter_var->var, iter_var->dom.value());
-      iter_vars_.Set(iter_var->var, iter_var->dom.value());
-    }
-    return s_tir::StmtExprMutator::MutateBlock(this, op, inplace_mode);
-  });
+UnchangedOr<Stmt> StmtExprMutatorWithConstraintContext::Mutate_(const SBlockObj* op,
+                                                                InplaceMode inplace_mode) {
+  return WithConstraintScope([&]() -> ffi::Expected<UnchangedOr<Stmt>> {
+           for (const auto& iter_var : op->iter_vars) {
+             AppendConstraint(sym::RangeConstraint(iter_var->var, iter_var->dom.value()));
+           }
+           return s_tir::StmtExprMutator::MutateBlock(this, op, inplace_mode);
+         })
+      .value();
 }
 
 }  // namespace s_tir

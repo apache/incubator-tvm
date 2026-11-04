@@ -24,7 +24,7 @@ namespace relax {
 
 NType NTypeFrom(const Type& ty, DLDataType dtype) {
   auto fmapleaf = [&](const Type& ty) -> NType {
-    const auto* tensor = ty.as<TensorTypeNode>();
+    const auto* tensor = ty.as<TensorTypeObj>();
     TVM_FFI_ICHECK(tensor) << "Expected TensorType, but got " << ty;
     if (dtype == DLDataType{kDLOpaqueHandle, 0, 0}) {
       if (tensor->IsUnknownDtype()) return NType(ffi::String(""));

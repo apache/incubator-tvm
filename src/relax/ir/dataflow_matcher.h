@@ -51,27 +51,27 @@ class DFPatternMatcher : public DFPatternFunctor<bool(const DFPattern&, const Ex
 
  protected:
   bool VisitDFPattern(const DFPattern& pattern, const Expr& expr) override;
-  bool VisitDFPattern_(const OrPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const AndPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const NotPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const AttrPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const CallPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const ConstantPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const DataTypePatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const ExprPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const FunctionPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const ShapePatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const TupleGetItemPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const TuplePatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const TypePatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const WildcardPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const VarPatternNode* op, const Expr& expr) override;
+  bool VisitDFPattern_(const OrPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const AndPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const NotPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const AttrPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const CallPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const ConstantPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const DataTypePatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const ExprPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const FunctionPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const ShapePatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const TupleGetItemPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const TuplePatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const TypePatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const WildcardPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const VarPatternObj* op, const Expr& expr) override;
 
-  bool VisitDFPattern_(const DataflowVarPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const GlobalVarPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const ExternFuncPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const PrimArrPatternNode* op, const Expr& expr) override;
-  bool VisitDFPattern_(const UnorderedTuplePatternNode* op, const Expr& expr) override;
+  bool VisitDFPattern_(const DataflowVarPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const GlobalVarPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const ExternFuncPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const PrimArrPatternObj* op, const Expr& expr) override;
+  bool VisitDFPattern_(const UnorderedTuplePatternObj* op, const Expr& expr) override;
 
   void ClearMap(size_t watermark);
   bool TryUnorderedMatch(size_t idx, const tvm::ffi::Array<DFPattern> patterns,

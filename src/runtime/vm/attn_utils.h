@@ -497,9 +497,11 @@ class PagedKVCacheAuxDataManager {
   /*! \brief Copy the indptr array of append lengths after coalescing. (see GetChunkedBlockIds) */
   virtual ffi::Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*! \brief Copy the indptr array of page table. */
-  virtual ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                                 bool layer_sliding_window = false) = 0;
   /*! \brief Copy the indices array of page table. */
-  virtual ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                                  bool layer_sliding_window = false) = 0;
   /*! \brief Copy the array of KV slot number used in the last page of the seq. */
   virtual ffi::Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*!
@@ -514,7 +516,8 @@ class PagedKVCacheAuxDataManager {
    */
   virtual ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
                                                  HostMemoryVector* sliding_window_offset,
-                                                 HostMemoryVector* sink_size, int depth) = 0;
+                                                 HostMemoryVector* sink_size, int depth,
+                                                 bool layer_sliding_window = false) = 0;
   /*! \brief Copy the k position offset of applying RoPE for each sequence. */
   virtual ffi::Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*!
@@ -580,7 +583,8 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   explicit PlainPagedKVCacheAuxDataManager(int64_t reserved_num_seqs, int64_t num_total_pages,
                                            int64_t prefill_chunk_size, DLDataType dtype_aux,
                                            Device device, Device preferred_host_device,
-                                           TVMStreamHandle copy_stream)
+                                           TVMStreamHandle copy_stream,
+                                           bool layer_sliding_window = false)
       : PagedKVCacheAuxDataManager(dtype_aux, device, preferred_host_device, copy_stream),
         cur_append_length_indptr_device_(
             tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device)),
@@ -611,6 +615,14 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
           tvm::runtime::Empty({num_total_pages}, dtype_aux_, device));
       length_info_on_depths_device_.push_back(
           tvm::runtime::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+      if (layer_sliding_window) {
+        page_indptr_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+        page_indices_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({num_total_pages}, dtype_aux_, device));
+        length_info_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+      }
       k_rope_pos_offset_on_depths_device_.push_back(
           tvm::runtime::Empty({reserved_num_seqs}, dtype_aux_, device));
       tree_attn_mask_device_.push_back(tvm::runtime::Empty(
@@ -628,15 +640,21 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
-    ffi::Tensor view = tvm::runtime::CreateView(page_indptr_on_depths_device_[depth],
-                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                         bool layer_sliding_window = false) final {
+    const auto& storage = layer_sliding_window ? page_indptr_sliding_on_depths_device_
+                                               : page_indptr_on_depths_device_;
+    ffi::Tensor view =
+        tvm::runtime::CreateView(storage[depth], {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) final {
-    ffi::Tensor view = tvm::runtime::CreateView(page_indices_on_depths_device_[depth],
-                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                          bool layer_sliding_window = false) final {
+    const auto& storage = layer_sliding_window ? page_indices_sliding_on_depths_device_
+                                               : page_indices_on_depths_device_;
+    ffi::Tensor view =
+        tvm::runtime::CreateView(storage[depth], {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
@@ -722,11 +740,13 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
 
   ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
                                          HostMemoryVector* sliding_window_offset,
-                                         HostMemoryVector* sink_size, int depth) final {
+                                         HostMemoryVector* sink_size, int depth,
+                                         bool layer_sliding_window = false) final {
     int n_elem = last_page_len->size();
     TVM_FFI_ICHECK_GT(n_elem, 0);
-    ffi::Tensor view =
-        tvm::runtime::CreateView(length_info_on_depths_device_[depth], {3, n_elem}, dtype_aux_);
+    const auto& storage = layer_sliding_window ? length_info_sliding_on_depths_device_
+                                               : length_info_on_depths_device_;
+    ffi::Tensor view = tvm::runtime::CreateView(storage[depth], {3, n_elem}, dtype_aux_);
     ffi::Shape copy_shape{n_elem};
     CopyVecDataToArray(view, last_page_len->data(), copy_shape);
     CopyVecDataToArray(view, sliding_window_offset->data(), copy_shape,
@@ -804,6 +824,10 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     tvm::runtime::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
   }
 
+  // Both page tables stay live until all global and sliding layers finish.
+  std::vector<ffi::Tensor> page_indptr_sliding_on_depths_device_;
+  std::vector<ffi::Tensor> page_indices_sliding_on_depths_device_;
+  std::vector<ffi::Tensor> length_info_sliding_on_depths_device_;
   std::vector<ffi::Tensor> qo_indptr_on_depths_device_;
   std::vector<ffi::Tensor> page_indptr_on_depths_device_;
   std::vector<ffi::Tensor> page_indices_on_depths_device_;
@@ -865,10 +889,12 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   ffi::Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
     return CopyAttnAuxVecToCache(data);
   }
-  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                         bool layer_sliding_window = false) final {
     return CopyAttnAuxVecToCache(data);
   }
-  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                          bool layer_sliding_window = false) final {
     return CopyAttnAuxVecToCache(data);
   }
   ffi::Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) final {
@@ -914,7 +940,8 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   }
   ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
                                          HostMemoryVector* sliding_window_offset,
-                                         HostMemoryVector* sink_size, int depth) final {
+                                         HostMemoryVector* sink_size, int depth,
+                                         bool layer_sliding_window = false) final {
     int64_t n_elem = last_page_len->size();
     std::memcpy(merged_attn_aux_data_host_.data() + attn_aux_data_copy_offset_,
                 last_page_len->data(), n_elem * elem_byte_size_);

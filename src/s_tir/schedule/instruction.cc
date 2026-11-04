@@ -30,7 +30,7 @@ using namespace tvm::tirx;
 
 namespace {
 
-ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
+ffi::String InstructionAsPythonRepr(const InstructionObj* self) {
   ffi::Array<Any> inputs;
   inputs.reserve(self->inputs.size());
   for (const Any& obj : self->inputs) {
@@ -38,11 +38,11 @@ ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
       inputs.push_back(ffi::String("None"));
     } else if (auto opt_str = obj.as<ffi::String>()) {
       inputs.push_back(ffi::String('"' + (*opt_str).operator std::string() + '"'));
-    } else if (obj.as<SBlockRVNode>() || obj.as<LoopRVNode>()) {
+    } else if (obj.as<SBlockRVObj>() || obj.as<LoopRVObj>()) {
       inputs.push_back(ffi::String("_"));
     } else if (obj.type_index() < ffi::TypeIndex::kTVMFFISmallStr) {
       inputs.push_back(obj);
-    } else if (obj.as<IntImmNode>() || obj.as<FloatImmNode>()) {
+    } else if (obj.as<IntImmObj>() || obj.as<FloatImmObj>()) {
       inputs.push_back(obj);
     } else if (auto expr = obj.as<PrimExpr>()) {
       auto f_substitute = [](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
@@ -53,7 +53,7 @@ ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
       std::ostringstream os;
       os << new_expr;
       inputs.push_back(ffi::String(os.str()));
-    } else if (obj.as<IndexMapNode>()) {
+    } else if (obj.as<IndexMapObj>()) {
       inputs.push_back(obj);
     } else {
       TVM_FFI_THROW(TypeError) << "Stringifying is not supported for type: " << obj.GetTypeKey();
@@ -78,7 +78,7 @@ bool InstructionKindObj::IsPostproc() const {
 
 Instruction::Instruction(InstructionKind kind, ffi::Array<Any> inputs, ffi::Array<Any> attrs,
                          ffi::Array<Any> outputs) {
-  ffi::ObjectPtr<InstructionNode> n = ffi::make_object<InstructionNode>(std::move(kind));
+  ffi::ObjectPtr<InstructionObj> n = ffi::make_object<InstructionObj>(std::move(kind));
   n->inputs = std::move(inputs);
   n->attrs = std::move(attrs);
   n->outputs = std::move(outputs);
@@ -87,11 +87,11 @@ Instruction::Instruction(InstructionKind kind, ffi::Array<Any> inputs, ffi::Arra
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  InstructionNode::RegisterReflection();
-  refl::TypeAttrDef<InstructionNode>().def(ffi::type_attr::kRepr.name,
-                                           [](Instruction inst, ffi::Function) -> ffi::String {
-                                             return InstructionAsPythonRepr(inst.get());
-                                           });
+  InstructionObj::RegisterReflection();
+  refl::TypeAttrDef<InstructionObj>().def(ffi::type_attr::kRepr.name,
+                                          [](Instruction inst, ffi::Function) -> ffi::String {
+                                            return InstructionAsPythonRepr(inst.get());
+                                          });
 
   refl::GlobalDef().def("s_tir.schedule.Instruction",
                         [](InstructionKind kind, ffi::Array<Any> inputs, ffi::Array<Any> attrs,

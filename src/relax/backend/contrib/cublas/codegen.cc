@@ -50,8 +50,8 @@ class CublasJSONSerializer : public JSONSerializer {
 
   using JSONSerializer::VisitExpr_;
 
-  NodeEntries VisitExpr_(const CallNode* call_node) final {
-    const auto* fn_var = call_node->op.as<VarNode>();
+  NodeEntries VisitExpr_(const CallObj* call_node) final {
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     TVM_FFI_ICHECK(fn.defined()) << "Expects the callee to be a function.";
@@ -84,9 +84,9 @@ class CublasJSONSerializer : public JSONSerializer {
                                                 "kernel",       /* op_type_ */
                                                 inputs, 1 /* num_outputs_ */);
     if (composite_name.find("dequantize") != std::string::npos) {
-      const CallNode* dequantize_call = backend::GetOpInFunction(fn, "relax.dequantize");
-      if (dequantize_call->args[1]->IsInstance<GenericConstNode>()) {
-        const auto* const_expr = dequantize_call->args[1].as<GenericConstNode>();
+      const CallObj* dequantize_call = backend::GetOpInFunction(fn, "relax.dequantize");
+      if (dequantize_call->args[1]->IsInstance<GenericConstObj>()) {
+        const auto* const_expr = dequantize_call->args[1].as<GenericConstObj>();
         auto ty = const_expr->ty.as_or_throw<TensorType>();
         ffi::Tensor scale = const_expr->value.cast<ffi::Tensor>();
         TVM_FFI_ICHECK(scale.defined());
@@ -109,9 +109,9 @@ class CublasJSONSerializer : public JSONSerializer {
       }
     }
 
-    const CallNode* root_call = backend::GetOpInFunction(fn, "relax.matmul");
+    const CallObj* root_call = backend::GetOpInFunction(fn, "relax.matmul");
     SetCallNodeAttribute(node, root_call);
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
  private:

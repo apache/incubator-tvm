@@ -94,8 +94,8 @@ using namespace tvm::prim;
  * - that is a function parameter,
  * - that is a function return value,
  * - one of whose use site is a BindingBlock different from its allocation site,
- * - that is used as a condition or branch return of a IfExprNode,
- * - that is used as the body of a SeqExprNode,
+ * - that is used as a condition or branch return of a IfExprObj,
+ * - that is used as the body of a SeqExprObj,
  * - that is used as arguments in a Call whose op is not a tirx::Function.
  *
  * In practice, we do create a storage token for such tensor at first. But at
@@ -123,7 +123,7 @@ class StorageTokenObj : public ffi::Object {
   /*! \brief Get the constant number of bytes that this token requires, or -1 if the number of bytes
    * is symbolic */
   int64_t const_bytes() const {
-    const auto* imm = bytes.as<IntImmNode>();
+    const auto* imm = bytes.as<IntImmObj>();
     auto const_val = imm ? imm->value.as<int64_t>() : std::nullopt;
     if (const_val.has_value()) {
       return *const_val;
@@ -176,7 +176,7 @@ class StorageToken : public ffi::ObjectRef {
     }
     if (!size_computed) {
       for (const PrimExpr& dim_len : shape) {
-        if (const IntImmNode* const_dim_len = dim_len.as<IntImmNode>()) {
+        if (const IntImmObj* const_dim_len = dim_len.as<IntImmObj>()) {
           const_coeff *= const_dim_len->value;
         } else {
           size *= dim_len;
@@ -341,7 +341,7 @@ bool IsInplaceMemoryOp(const Expr& op) {
   static const Op reshape_op = Op::Get("relax.reshape");
   static const Op view_op = Op::Get("relax.memory.view");
   static const Op ensure_zero_offset_op = Op::Get("relax.memory.ensure_zero_offset");
-  const auto* extern_func = op.as<ExternFuncNode>();
+  const auto* extern_func = op.as<ExternFuncObj>();
   bool is_builtin_reshape =
       extern_func != nullptr && extern_func->global_symbol == "vm.builtin.reshape";
   return op.same_as(reshape_op) || op.same_as(view_op) || op.same_as(ensure_zero_offset_op) ||
@@ -353,7 +353,7 @@ class StorageAllocatorBaseVisitor : public ExprVisitor {
  protected:
   using ExprVisitor::VisitExpr_;
 
-  void VisitBindingBlock_(const BindingBlockNode* block) override {
+  void VisitBindingBlock_(const BindingBlockObj* block) override {
     // We maintain a block stack for token allocation-site and use-site check.
     block_stack_.push_back(block);
     ExprVisitor::VisitBindingBlock_(block);
@@ -362,19 +362,19 @@ class StorageAllocatorBaseVisitor : public ExprVisitor {
     block_stack_.pop_back();
   }
 
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     ExprVisitor::VisitBinding_(binding);
     // The binding var has the same tokens as the binding value.
     SetTokens(binding->var.get(), token_map_[binding->value.get()]);
   }
 
-  void VisitBinding_(const MatchCastNode* binding) override {
+  void VisitBinding_(const MatchCastObj* binding) override {
     ExprVisitor::VisitBinding_(binding);
     // MatchCast refines the type without changing the underlying storage.
     SetTokens(binding->var.get(), token_map_[binding->value.get()]);
   }
 
-  void VisitBindingBlock_(const DataflowBlockNode* block) override {
+  void VisitBindingBlock_(const DataflowBlockObj* block) override {
     // We maintain a block stack for token allocation-site and use-site check.
     block_stack_.push_back(block);
     ExprVisitor::VisitBindingBlock_(block);
@@ -383,7 +383,7 @@ class StorageAllocatorBaseVisitor : public ExprVisitor {
     block_stack_.pop_back();
   }
 
-  void VisitExpr_(const TupleNode* tuple) final {
+  void VisitExpr_(const TupleObj* tuple) final {
     ffi::Array<Tokens> tokens;
     tokens.reserve(tuple->fields.size());
     for (const Expr& field : tuple->fields) {
@@ -393,7 +393,7 @@ class StorageAllocatorBaseVisitor : public ExprVisitor {
     SetTokens(tuple, Tokens(tokens));
   }
 
-  void VisitExpr_(const TupleGetItemNode* tuple_item) final {
+  void VisitExpr_(const TupleGetItemObj* tuple_item) final {
     Tokens tokens = GetTokens(tuple_item->tuple);
     // If the tuple has no token, every of its field has no token as well.
     if (tokens.IsNull()) {
@@ -414,12 +414,12 @@ class StorageAllocatorBaseVisitor : public ExprVisitor {
     return token_map_[expr.get()];
   }
 
-  virtual void SetTokens(const ExprNode* expr, Tokens tokens) { token_map_[expr] = tokens; }
+  virtual void SetTokens(const ExprObj* expr, Tokens tokens) { token_map_[expr] = tokens; }
 
   /*! \brief The mapping from each Expr to its corresponding storage tokens. */
-  std::unordered_map<const ExprNode*, Tokens> token_map_;
+  std::unordered_map<const ExprObj*, Tokens> token_map_;
   /*! \brief The binding block stack. */
-  std::vector<const BindingBlockNode*> block_stack_;
+  std::vector<const BindingBlockObj*> block_stack_;
 };
 
 /*!
@@ -467,12 +467,18 @@ void SetTIRVarRangeConstraints(Function func, sym::AnalyzerObj* ana,
       const ffi::BigInt& upper = it_upper->second->value;
       tvm::Range range = tvm::Range::FromMinExtent(tvm::IntImm::Int64(lower),
                                                    tvm::IntImm::Int64(upper - lower + 1));
-      ana->Bind(tir_var, range);
+      auto context = ana->GetConstraintContext();
+      context->Append(sym::RangeConstraint(tir_var, range));
+      ana->SyncConstraintContext(context);
       dom_map->Set(tir_var, sym::IntSet::FromRange(range));
     } else if (it_lower != var_lower_bound_attr.end() && it_lower->second->value >= 0) {
-      ana->MarkGlobalNonNegValue(tir_var.as_or_throw<PrimExpr>());
+      auto context = ana->GetConstraintContext();
+      context->Append(sym::PredicateConstraint(tir_var.as_or_throw<PrimExpr>() >= 0));
+      ana->SyncConstraintContext(context);
     } else if (non_negative_var_attr.count(tir_var->name)) {
-      ana->MarkGlobalNonNegValue(tir_var.as_or_throw<PrimExpr>());
+      auto context = ana->GetConstraintContext();
+      context->Append(sym::PredicateConstraint(tir_var.as_or_throw<PrimExpr>() >= 0));
+      ana->SyncConstraintContext(context);
     }
   }
 }
@@ -510,7 +516,7 @@ ffi::Array<PrimExpr> GetUpperBoundShape(ffi::Array<PrimExpr> shape, sym::Analyze
 /*! \brief Check if a shape is static (a.k.a., has no TIR variable). */
 bool IsStaticShape(ffi::Array<PrimExpr> shape) {
   for (const PrimExpr& dim : shape) {
-    const auto* int_len = dim.as<IntImmNode>();
+    const auto* int_len = dim.as<IntImmObj>();
     if (!int_len) {
       return false;
     }
@@ -534,12 +540,12 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * \param analyzer The arithmetic analyzer.
    * \return The mapping from each Expr to the token it uses.
    */
-  static std::unordered_map<const ExprNode*, Tokens> Initialize(const IRModule& mod,
-                                                                sym::AnalyzerObj* analyzer) {
+  static std::unordered_map<const ExprObj*, Tokens> Initialize(const IRModule& mod,
+                                                               sym::AnalyzerObj* analyzer) {
     StorageAllocatorInit initializer(mod, analyzer);
 
     for (auto it : mod->functions) {
-      const auto* func = it.second.as<FunctionNode>();
+      const auto* func = it.second.as<FunctionObj>();
       if (func == nullptr) {
         continue;
       }
@@ -554,7 +560,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
   explicit StorageAllocatorInit(const IRModule& ctx_mod, sym::AnalyzerObj* analyzer)
       : ctx_mod_(ctx_mod), analyzer_(analyzer) {}
 
-  void VisitExpr_(const FunctionNode* func) final {
+  void VisitExpr_(const FunctionObj* func) final {
     // Set the range constraints of TIR variables in the analyzer.
     SetTIRVarRangeConstraints(ffi::GetRef<Function>(func), analyzer_, &dom_map_);
     // Recurse into the function to get its tokens.
@@ -563,7 +569,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     DiscardTokensIn(body_tokens);
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     static const Op alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
     static const Op call_tir_dyn_op = Op::Get("relax.vm.call_tir_dyn");
     static const Op call_tir_packed_op = Op::Get("relax.call_tir_packed");
@@ -586,8 +592,8 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     // potential external reference.
     // A native pointer result may alias an argument, with no lifetime tracked by
     // Relax.  Keep such inputs out of the reusable storage pool.
-    bool reusable_tirx_call = call->op.same_as(call_tir_packed_op) && !call->ty.as<AnyTypeNode>();
-    if (IsFunctionGlobalVar(call->op) || call->op->IsInstance<ExternFuncNode>() ||
+    bool reusable_tirx_call = call->op.same_as(call_tir_packed_op) && !call->ty.as<AnyTypeObj>();
+    if (IsFunctionGlobalVar(call->op) || call->op->IsInstance<ExternFuncObj>() ||
         call->op.same_as(call_tir_dyn_op) || reusable_tirx_call) {
       ffi::Array<Expr> args =
           (call->op.same_as(call_tir_dyn_op) || call->op.same_as(call_tir_packed_op))
@@ -605,7 +611,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     }
   }
 
-  void VisitExpr_(const IfExprNode* if_node) final {
+  void VisitExpr_(const IfExprObj* if_node) final {
     Tokens cond_tokens = GetTokens(if_node->cond);
     Tokens then_tokens = GetTokens(if_node->true_branch);
     Tokens else_tokens = GetTokens(if_node->false_branch);
@@ -616,7 +622,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     DiscardTokensIn(else_tokens);
   }
 
-  void VisitExpr_(const SeqExprNode* seq) final {
+  void VisitExpr_(const SeqExprObj* seq) final {
     for (const BindingBlock& binding_block : seq->blocks) {
       this->VisitBindingBlock(binding_block);
     }
@@ -634,7 +640,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * \return A boolean indicating if the input op corresponds to a tirx::Function.
    */
   bool IsFunctionGlobalVar(const Expr& op) {
-    const auto* global_var = op.as<GlobalVarNode>();
+    const auto* global_var = op.as<GlobalVarObj>();
     if (global_var == nullptr) {
       return false;
     }
@@ -642,7 +648,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     if (func_it == ctx_mod_->functions.end()) {
       return false;
     }
-    return (*func_it).second->IsInstance<tirx::FunctionNode>();
+    return (*func_it).second->IsInstance<tirx::FunctionObj>();
   }
 
   /*!
@@ -650,15 +656,15 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * \param call The call to be processed.
    * \return The created token.
    */
-  Tokens CreateToken(const CallNode* call) {
+  Tokens CreateToken(const CallObj* call) {
     // Sanity checks about
     // - the call return value is a Tensor;
     // - the shape of the tensor is known, in the form of ShapeExpr;
     // - the tensor has known dtype;
     // - no storage token was created for this call before.
-    const auto* ty = call->ty.as<TensorTypeNode>();
+    const auto* ty = call->ty.as<TensorTypeObj>();
     TVM_FFI_ICHECK_NOTNULL(ty);
-    const auto* shape = ty->shape.as<ShapeExprNode>();
+    const auto* shape = ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK_NOTNULL(shape);
     TVM_FFI_ICHECK(!ty->IsUnknownDtype());
     TVM_FFI_ICHECK(ty->dtype.value()->dtype == call->args[1].as_or_throw<DataTypeImm>()->value);
@@ -673,7 +679,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
     StringImm storage_scope = call->args[3].as_or_throw<StringImm>();
 
     int64_t vdevice_index = -1;
-    if (const auto* int_imm = call->args[2].as<IntImmNode>()) {
+    if (const auto* int_imm = call->args[2].as<IntImmObj>()) {
       vdevice_index = int_imm->value.as<int>().value();
     }
     ffi::Optional<VDevice> vdevice = GetGlobalVDevice(ctx_mod_, vdevice_index);
@@ -694,7 +700,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * When we want to discard one token, we use the records to remove the token
    * from the Expr that are using it.
    */
-  void SetTokens(const ExprNode* expr, Tokens tokens) final {
+  void SetTokens(const ExprObj* expr, Tokens tokens) final {
     StorageAllocatorBaseVisitor::SetTokens(expr, tokens);
     ForEachLeaf(tokens, [this, expr](StorageToken token) {
       this->token2exprs_[token.get()].push_back(expr);
@@ -711,7 +717,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * \param cur_block The pointer to the current block.
    * \return The tokens used by the input Expr.
    */
-  Tokens GetTokensWithAllocSiteCheck(const Expr& expr, const BindingBlockNode* cur_block) {
+  Tokens GetTokensWithAllocSiteCheck(const Expr& expr, const BindingBlockObj* cur_block) {
     Tokens tokens = GetTokens(expr);
     ForEachLeaf(tokens, [this, cur_block](StorageToken token) {
       auto it = this->token2block_.find(token.get());
@@ -734,8 +740,8 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
    * \param token_to_discard The token to be discarded.
    */
   void DiscardToken(StorageToken token_to_discard) {
-    const std::vector<const ExprNode*>& exprs = token2exprs_[token_to_discard.get()];
-    for (const ExprNode* expr : exprs) {
+    const std::vector<const ExprObj*>& exprs = token2exprs_[token_to_discard.get()];
+    for (const ExprObj* expr : exprs) {
       token_map_[expr] = MapNestedMsg(token_map_[expr], [token_to_discard](StorageToken token) {
         return token.same_as(token_to_discard) ? Tokens() : Tokens(token);
       });
@@ -754,9 +760,9 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
   /*! \brief The domain map of dynamic TIR variables for analysis. */
   ffi::Map<tvm::Var, sym::IntSet> dom_map_;
   /*! \brief The mapping from each token to the binding block where it is created. */
-  std::unordered_map<const StorageTokenObj*, const BindingBlockNode*> token2block_;
+  std::unordered_map<const StorageTokenObj*, const BindingBlockObj*> token2block_;
   /*! \brief The mapping from each token to the Exprs that are using this token. */
-  std::unordered_map<const StorageTokenObj*, std::vector<const ExprNode*>> token2exprs_;
+  std::unordered_map<const StorageTokenObj*, std::vector<const ExprObj*>> token2exprs_;
 };
 
 /*!
@@ -775,7 +781,7 @@ class StorageAllocatorInit : public StorageAllocatorBaseVisitor {
  */
 class StorageAllocator : public StorageAllocatorBaseVisitor {
  public:
-  explicit StorageAllocator(std::unordered_map<const ExprNode*, Tokens> token_map,
+  explicit StorageAllocator(std::unordered_map<const ExprObj*, Tokens> token_map,
                             sym::AnalyzerObj* analyzer)
       : allocator_(analyzer) {
     this->token_map_ = std::move(token_map);
@@ -783,7 +789,7 @@ class StorageAllocator : public StorageAllocatorBaseVisitor {
 
   void Allocate(const IRModule& mod) {
     for (auto it : mod->functions) {
-      const auto* func = it.second.as<FunctionNode>();
+      const auto* func = it.second.as<FunctionObj>();
       if (func == nullptr) {
         continue;
       }
@@ -797,15 +803,15 @@ class StorageAllocator : public StorageAllocatorBaseVisitor {
    * \brief The mapping from each `builtin.alloc_tensor` to its corresponding
    * underlying storage token that it is using.
    */
-  std::unordered_map<const ExprNode*, StorageToken> alloc_tensor2token;
+  std::unordered_map<const ExprObj*, StorageToken> alloc_tensor2token;
   /*! \brief The mapping from each binding block to the storage tokens that are create inside. */
-  std::unordered_map<const BindingBlockNode*, std::vector<const StorageTokenObj*>> block2tokens;
+  std::unordered_map<const BindingBlockObj*, std::vector<const StorageTokenObj*>> block2tokens;
 
  private:
   using ExprVisitor::VisitBinding_;
   using ExprVisitor::VisitExpr_;
 
-  void VisitBindingBlock_(const BindingBlockNode* block) final {
+  void VisitBindingBlock_(const BindingBlockObj* block) final {
     StorageAllocatorBaseVisitor::VisitBindingBlock_(block);
     // Sanity check: each token allocated inside the block should not be
     // referenced by anyone at the end of the block.
@@ -814,7 +820,7 @@ class StorageAllocator : public StorageAllocatorBaseVisitor {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call) final {
     static const Op alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
     if (call->op.same_as(alloc_tensor_op)) {
       auto it = token_map_.find(call);
@@ -910,8 +916,8 @@ class StorageAllocator : public StorageAllocatorBaseVisitor {
 class StorageAllocationRewriter : public ExprMutator {
  public:
   explicit StorageAllocationRewriter(
-      IRModule mod, std::unordered_map<const ExprNode*, StorageToken> alloc_tensor2token,
-      std::unordered_map<const BindingBlockNode*, std::vector<const StorageTokenObj*>> block2tokens)
+      IRModule mod, std::unordered_map<const ExprObj*, StorageToken> alloc_tensor2token,
+      std::unordered_map<const BindingBlockObj*, std::vector<const StorageTokenObj*>> block2tokens)
       : ExprMutator(std::move(mod)),
         alloc_tensor2token_(std::move(alloc_tensor2token)),
         block2tokens_(std::move(block2tokens)) {}
@@ -919,7 +925,7 @@ class StorageAllocationRewriter : public ExprMutator {
   IRModule Rewrite() {
     const IRModule& mod = builder_->GetContextIRModule();
     for (const auto& [gv, base_func] : mod->functions) {
-      const auto* func_ = base_func.as<FunctionNode>();
+      const auto* func_ = base_func.as<FunctionObj>();
       if (func_ == nullptr) {
         continue;
       }
@@ -942,7 +948,7 @@ class StorageAllocationRewriter : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const SeqExprNode* seq) final {
+  Expr VisitExpr_(const SeqExprObj* seq) final {
     // A storage var is only visible in the scope it is emitted in, such as an if branch.
     // Forget the vars emitted in this scope on exit, so that a token first used inside a
     // branch gets a new `alloc_storage` where it is reused in another branch or after the if.
@@ -954,7 +960,7 @@ class StorageAllocationRewriter : public ExprMutator {
     return ret;
   }
 
-  Expr VisitExpr_(const CallNode* call) final {
+  Expr VisitExpr_(const CallObj* call) final {
     static const Op alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
     static const Op mem_alloc_storage = Op::Get("relax.memory.alloc_storage");
     static const Op mem_alloc_tensor = Op::Get("relax.memory.alloc_tensor");
@@ -962,9 +968,9 @@ class StorageAllocationRewriter : public ExprMutator {
     if (it != alloc_tensor2token_.end()) {
       // Case 1. This `alloc_tensor` is planned for memory reuse.
       TVM_FFI_ICHECK(call->op.same_as(alloc_tensor_op));
-      const auto* ty = call->ty.as<TensorTypeNode>();
+      const auto* ty = call->ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK_NOTNULL(ty);
-      TVM_FFI_ICHECK_NOTNULL(ty->shape.as<ShapeExprNode>());
+      TVM_FFI_ICHECK_NOTNULL(ty->shape.as<ShapeExprObj>());
       PrimExpr runtime_device_index = call->args[2].as_or_throw<PrimExpr>();
 
       // If the token is visited for the first time, create a storage variable using
@@ -1001,9 +1007,9 @@ class StorageAllocationRewriter : public ExprMutator {
       // estimation, we allocate a storage to its upper bound size, and
       // allocate a tensor out from it with the actual symbolic shape.
 
-      const auto* ty = call->ty.as<TensorTypeNode>();
+      const auto* ty = call->ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK_NOTNULL(ty);
-      const auto* shape = ty->shape.as<ShapeExprNode>();
+      const auto* shape = ty->shape.as<ShapeExprObj>();
       TVM_FFI_ICHECK_NOTNULL(shape);
       ffi::Array<PrimExpr> upper_bounded_shape =
           GetUpperBoundShape(shape->values, ana_.get(), dom_map_);
@@ -1048,9 +1054,9 @@ class StorageAllocationRewriter : public ExprMutator {
    * \brief The mapping from each memory-reusable `builtin.alloc_tensor` to
    its corresponding underlying storage token that it is using.
    */
-  std::unordered_map<const ExprNode*, StorageToken> alloc_tensor2token_;
+  std::unordered_map<const ExprObj*, StorageToken> alloc_tensor2token_;
   /*! \brief The mapping from each binding block to the storage tokens that are create inside. */
-  std::unordered_map<const BindingBlockNode*, std::vector<const StorageTokenObj*>> block2tokens_;
+  std::unordered_map<const BindingBlockObj*, std::vector<const StorageTokenObj*>> block2tokens_;
   /*! \brief The mapping from each token to its storage var visible in the current scope. */
   std::unordered_map<const StorageTokenObj*, Var> token2storage_var_;
 };
@@ -1059,7 +1065,7 @@ IRModule StaticPlanBlockMemory(IRModule mod) {
   sym::Analyzer ana;
 
   // Step 1. Initialize.
-  std::unordered_map<const ExprNode*, Tokens> token_map =
+  std::unordered_map<const ExprObj*, Tokens> token_map =
       StorageAllocatorInit::Initialize(mod, ana.get());
   // Step 2. Collect the memory allocation info.
   StorageAllocator allocator(std::move(token_map), ana.get());
@@ -1093,7 +1099,7 @@ PrimExpr GetTextureMemorySizeFromVDevice(ffi::Array<PrimExpr> pshape, DLDataType
   struct Shape {
     const ffi::Array<PrimExpr>& shape;
     int64_t operator[](size_t i) const {
-      const auto* imm = shape[i].as<IntImmNode>();
+      const auto* imm = shape[i].as<IntImmObj>();
       auto value = imm ? imm->value.as<int64_t>() : std::nullopt;
       TVM_FFI_ICHECK(value.has_value()) << "Dymamic shapes not suported over texture now";
       return *value;

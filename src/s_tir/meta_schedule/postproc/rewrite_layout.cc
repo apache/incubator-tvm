@@ -47,14 +47,14 @@ class TensorReadPosCollector : public StmtExprVisitor {
   const ffi::Optional<IndexMap> GetTensorIndexMap() const { return tensor_index_map_; }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     loop_stack_.push_back(ffi::GetRef<For>(op));
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
     loop_stack_.pop_back();
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* op) final {
     ffi::Optional<SBlockRealize> outer_block_realize = ffi::GetRef<SBlockRealize>(op);
     std::swap(outer_block_realize, cur_realize_);
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
@@ -62,7 +62,7 @@ class TensorReadPosCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TVM_FFI_ICHECK(cur_realize_.has_value()) << "TensorLoad occurred outside of any block";
 
     const TensorVar& tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
@@ -105,7 +105,7 @@ class TensorReadPosCollector : public StmtExprVisitor {
   }
 
   /*! \brief The tensor of interest. */
-  const VarNode* tensor_;
+  const VarObj* tensor_;
   /*! \brief The block that consumes the tensor and the corresponding read index. */
   std::optional<std::pair<SBlock, int>> tensor_loc_;
   /*! \brief The proposed IndexMap. */
@@ -124,11 +124,11 @@ class LayoutFreeTensorCollector : public StmtExprVisitor {
   using StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(block));
     if (auto ann = block->annotations.Get(tvm::topi::attr::kLayoutFreePlaceholders)) {
       for (TensorVar tensor : ann.value().as_or_throw<ffi::Array<TensorVar>>()) {
@@ -141,7 +141,7 @@ class LayoutFreeTensorCollector : public StmtExprVisitor {
   std::unordered_set<TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> tensors;
 };
 
-ffi::Array<TensorVar> CollectLayoutFreeTensors(const FunctionNode* func) {
+ffi::Array<TensorVar> CollectLayoutFreeTensors(const FunctionObj* func) {
   // Only rewrite Functions with attr "layout_free_tensors"
   ffi::Array<int64_t> layout_free_tensor_index =
       func->GetAttr(s_tir::attr::kLayoutFreeTensors.name, ffi::Array<int64_t>()).value();
@@ -162,8 +162,8 @@ ffi::Array<TensorVar> CollectLayoutFreeTensors(const FunctionNode* func) {
   return layout_free_tensors;
 }
 
-std::optional<std::tuple<SBlock, int, IndexMap>> GetSuggestedIndexMap(
-    TensorVar tensor, const FunctionNode* function) {
+std::optional<std::tuple<SBlock, int, IndexMap>> GetSuggestedIndexMap(TensorVar tensor,
+                                                                      const FunctionObj* function) {
   auto collector = ffi::make_object<TensorReadPosCollector>(tensor);
   collector->Visit(function->body);
 
@@ -179,19 +179,19 @@ std::optional<std::tuple<SBlock, int, IndexMap>> GetSuggestedIndexMap(
 }
 
 /*! \brief Get a chain of cache-read blocks, starting from the one consuming tensor. */
-std::vector<std::string> GetCacheReadChain(const TensorVar& tensor, const FunctionNode* function) {
+std::vector<std::string> GetCacheReadChain(const TensorVar& tensor, const FunctionObj* function) {
   class TensorReadChainCollector : public StmtExprVisitor {
    public:
     using StmtExprVisitor::Visit_;
 
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-      if (value.as<ExprNode>()) return std::nullopt;
+      if (value.as<ExprObj>()) return std::nullopt;
       return StmtExprVisitor::Visit(value);
     }
 
     explicit TensorReadChainCollector(const TensorVar& tensor) : cur_tensor_(tensor.get()) {}
 
-    ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
       // Check if this block is doing cache_read or a similar operation that consumes cur_tensor_.
       if (!op->init && op->reads.size() == 1 && op->writes.size() == 1 &&
           op->reads[0]->source.as_or_throw<tvm::tirx::TensorVar>().get() == cur_tensor_) {
@@ -204,7 +204,7 @@ std::vector<std::string> GetCacheReadChain(const TensorVar& tensor, const Functi
     std::vector<std::string> cache_read_chain;
 
    private:
-    const VarNode* cur_tensor_;
+    const VarObj* cur_tensor_;
   };
 
   auto collector = ffi::make_object<TensorReadChainCollector>(tensor);
@@ -221,7 +221,7 @@ bool RewriteLayout(const Schedule& sch) {
 
   for (const auto& [g_var, base_func] : sch->mod()->functions) {
     const ffi::String& func_name = g_var->name_hint;
-    const auto* function = base_func.as<FunctionNode>();
+    const auto* function = base_func.as<FunctionObj>();
     // Only consider Function
     if (function == nullptr) {
       continue;

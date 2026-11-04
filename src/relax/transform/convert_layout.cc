@@ -123,7 +123,7 @@ class LayoutConvertMutator : public ExprMutator {
       TVM_FFI_ICHECK(!NLayoutEqual()(from, LayoutDecision::InitUnknownDim()) &&
                      !NLayoutEqual()(to, LayoutDecision::InitUnknownDim()))
           << "Cannot convert when exactly one of the layouts is unknown";
-      const auto* tensor = GetTypeAs<TensorTypeNode>(expr);
+      const auto* tensor = GetTypeAs<TensorTypeObj>(expr);
       TVM_FFI_ICHECK(tensor != nullptr) << "Expect a tensor, but got: " << expr;
 
       if ((from.LeafValue()->layout.has_value() ? from.LeafValue()->layout.value().ndim() : 0) ==
@@ -182,7 +182,7 @@ class LayoutConvertMutator : public ExprMutator {
     return RewriteExpr(var, InitialNLayout(var));
   }
 
-  Expr VisitExpr_(const VarNode* op) final { return VisitVars_(ffi::GetRef<Var>(op)); }
+  Expr VisitExpr_(const VarObj* op) final { return VisitVars_(ffi::GetRef<Var>(op)); }
 
   bool HasUnknownDimTensor(const NLayout& nlayout) {
     bool find = false;
@@ -205,10 +205,10 @@ class LayoutConvertMutator : public ExprMutator {
   }
 
   ffi::Optional<InferLayoutOutput> GetInferLayoutInfo(
-      const CallNode* call_node,
+      const CallObj* call_node,
       const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
       const LayoutCb& layout_cb, const VarLayoutMap& var_layout_map) {
-    const OpNode* op_node = call_node->op.as<OpNode>();
+    const OpObj* op_node = call_node->op.as<OpObj>();
     if (op_node == nullptr) return std::nullopt;
     Op op = ffi::GetRef<Op>(op_node).as_or_throw<Op>();
     const auto attr_map = Op::GetAttrMap(tvm::relax::op_attr::kInferLayout);
@@ -228,13 +228,13 @@ class LayoutConvertMutator : public ExprMutator {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call_node) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call_node) final {
     ffi::Optional<InferLayoutOutput> res =
         GetInferLayoutInfo(call_node, desired_layouts_, layout_cb_, var_layout_map_);
-    ffi::ObjectPtr<CallNode> new_call = ffi::make_object<CallNode>(*call_node);
+    ffi::ObjectPtr<CallObj> new_call = ffi::make_object<CallObj>(*call_node);
     new_call->ty = Type::Missing();
     if (!res.has_value() ||
-        (!IsNestedTensor(binding->var) && !binding->var->IsInstance<DataflowVarNode>())) {
+        (!IsNestedTensor(binding->var) && !binding->var->IsInstance<DataflowVarObj>())) {
       // Default policy: use the initial layout.
       // When we don't have the infer layout info, or it's a non-tensor global var binding.
       std::vector<NLayout> input_layout;
@@ -256,7 +256,7 @@ class LayoutConvertMutator : public ExprMutator {
 
       new_call->attrs = std::move(res.value()->new_attrs);
       Expr cur_call = builder_->Normalize(Call(new_call));
-      if (binding->var->IsInstance<DataflowVarNode>()) {
+      if (binding->var->IsInstance<DataflowVarObj>()) {
         // Dataflow var, we emit the rewritten call.
         ReEmitBinding(binding, cur_call);
         // update the layout map
@@ -276,10 +276,10 @@ class LayoutConvertMutator : public ExprMutator {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleNode* val) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleObj* val) final {
     std::vector<NLayout> input_layout;
     for (const auto& field : val->fields) {
-      if (binding->var->IsInstance<DataflowVarNode>()) {
+      if (binding->var->IsInstance<DataflowVarObj>()) {
         // Df var: Use the current realized layout to group the tuple;
         input_layout.push_back(GetNLayout(var_layout_map_, field));
       } else {
@@ -294,8 +294,8 @@ class LayoutConvertMutator : public ExprMutator {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* val) final {
-    NLayout input_layout = binding->var->IsInstance<DataflowVarNode>()
+  void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* val) final {
+    NLayout input_layout = binding->var->IsInstance<DataflowVarObj>()
                                ? GetNLayout(var_layout_map_, val->tuple)
                                : InitialNLayout(val->tuple);
     ReEmitBinding(binding, builder_->Normalize(
@@ -304,8 +304,8 @@ class LayoutConvertMutator : public ExprMutator {
     var_layout_map_[binding->var] = input_layout.NestedArray()[val->index];
   }
 
-  void VisitBinding_(const MatchCastNode* binding) final {
-    if (!binding->var->IsInstance<DataflowVarNode>()) {
+  void VisitBinding_(const MatchCastObj* binding) final {
+    if (!binding->var->IsInstance<DataflowVarObj>()) {
       ExprMutator::VisitBinding_(binding);
       return;
     }
@@ -318,10 +318,10 @@ class LayoutConvertMutator : public ExprMutator {
       TVM_FFI_ICHECK(!NLayoutEqual()(from, LayoutDecision::InitUnknownDim()) &&
                      !NLayoutEqual()(to, LayoutDecision::InitUnknownDim()))
           << "Cannot convert when exactly one of the layouts is unknown";
-      const TensorTypeNode* tensor_ty = ty.as<TensorTypeNode>();
+      const TensorTypeObj* tensor_ty = ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK(tensor_ty != nullptr) << "We can not set layout for non-tensor struct";
       if (!tensor_ty->shape.has_value()) return ty;
-      const ShapeExprNode* shape = tensor_ty->shape.value().as<ShapeExprNode>();
+      const ShapeExprObj* shape = tensor_ty->shape.value().as<ShapeExprObj>();
       if (shape == nullptr) return ty;
       TVM_FFI_ICHECK_EQ(
           shape->values.size(),

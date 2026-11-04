@@ -148,7 +148,7 @@ void FunctionFrameObj::ExitWithScope() {
             tvm::relax::FuncType(signature->params.value().Map(bind_param),
                                  bind_param(signature->ret), signature->purity, signature->loc);
       }
-      if (local_var.value()->IsInstance<tvm::relax::DataflowVarNode>()) {
+      if (local_var.value()->IsInstance<tvm::relax::DataflowVarObj>()) {
         // The self-reference is captured by the nested function, so it must
         // survive the dataflow region.  Region finalization rewrites every use
         // together, including recursive calls, to the same ordinary Var.
@@ -327,7 +327,7 @@ void IfFrameObj::ExitWithScope() {
   auto binding_var = Emit(body, std::nullopt);
   var = binding_var;
   // Finalization uses the frame's already-composed location, never the exit context.
-  if (!loc.as<UnknownLocNode>()) {
+  if (!loc.as<UnknownLocObj>()) {
     CheckBindingBlockFrameExistAndUnended()->binding_locs.Set(binding_var, loc);
   }
   binding_var->loc = loc;

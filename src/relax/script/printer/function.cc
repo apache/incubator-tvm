@@ -40,7 +40,7 @@ namespace {
 ffi::Optional<ExprDoc> FunctionDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                             const ffi::Object* destination) {
   const auto* func =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FunctionNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FunctionObj>(input);
   TVM_FFI_CHECK(destination == nullptr, TypeError)
       << "printer statement-only node cannot fulfill a destination";
 
@@ -105,7 +105,7 @@ ffi::Optional<ExprDoc> FunctionDocTranslate(DocTranslatorObj* d, ffi::AnyView in
         }
         for (const relax::BindingBlock& block : func->body->blocks) d->Translate(block);
         ExprDoc result = d->Translate(func->body->body).value();
-        if (auto integer = func->body->body.as<IntImmNode>();
+        if (auto integer = func->body->body.as<IntImmObj>();
             integer && ffi::StructuralEqual()(integer->ty, func->ret_ty)) {
           // The declared primitive return type reconstructs this literal's dtype.
           result = LiteralDoc::Int(ffi::GetRef<IntImm>(integer), std::nullopt);
@@ -127,7 +127,7 @@ ffi::Optional<ExprDoc> FunctionDocTranslate(DocTranslatorObj* d, ffi::AnyView in
       auto pending = d->GetImplicitDefs();
       if (!module.has_value()) {
         for (const auto& [var, signature_id] : signature_candidates) {
-          if (!pending.count(var) || !var->ty.as<PrimTypeNode>()) continue;
+          if (!pending.count(var) || !var->ty.as<PrimTypeObj>()) continue;
           IdDoc id = VarDoc(d, var);
           if (var->ty.as_or_throw<PrimType>()->dtype == (DLDataType{kDLInt, 32, 1})) {
             function->type_params.push_back(id);
@@ -146,7 +146,7 @@ ffi::Optional<ExprDoc> FunctionDocTranslate(DocTranslatorObj* d, ffi::AnyView in
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   RegisterNamespaceAlias("relax.prefix", "R");
-  ffi::reflection::TypeAttrDef<relax::FunctionNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::FunctionObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&FunctionDocTranslate>());
 }
@@ -154,17 +154,16 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> ExternFuncDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                               const ffi::Object*) {
   const auto* func =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ExternFuncNode>(
-          input);
-  if (!func->ty.as<relax::FuncTypeNode>()) {
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ExternFuncObj>(input);
+  if (!func->ty.as<relax::FuncTypeObj>()) {
     // The ExternFunc constructor requires a FuncType; retain diagnostic IR in metadata.
     return AddMetadata(d, ffi::GetRef<relax::ExternFunc>(func));
   }
   ffi::Array<ExprDoc> args = {LiteralDoc::Str(func->global_symbol, std::nullopt)};
   if (!ffi::StructuralEqual()(func->ty, relax::ExternFunc(func->global_symbol)->ty)) {
     ExprDoc type = d->Translate(func->ty).value();
-    if (auto opaque = func->ty.as<relax::FuncTypeNode>();
-        opaque && !opaque->params.has_value() && opaque->ret.as<AnyTypeNode>() && !opaque->purity &&
+    if (auto opaque = func->ty.as<relax::FuncTypeObj>();
+        opaque && !opaque->params.has_value() && opaque->ret.as<AnyTypeObj>() && !opaque->purity &&
         !opaque->derive_func.has_value()) {
       type = type->Call({});
     }
@@ -174,7 +173,7 @@ ffi::Optional<ExprDoc> ExternFuncDocTranslate(DocTranslatorObj* d, ffi::AnyView 
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::ExternFuncNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::ExternFuncObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&ExternFuncDocTranslate>());
 }

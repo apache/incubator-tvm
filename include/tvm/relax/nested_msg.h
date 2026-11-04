@@ -183,7 +183,7 @@ class NestedMsg {
    */
   T LeafValue() const {
     TVM_FFI_ICHECK(IsLeaf());
-    return ffi::details::AnyUnsafe::CopyFromAnyViewAfterCheck<T>(data_);
+    return ffi::detail::AnyUnsafe::CopyFromAnyViewAfterCheck<T>(data_);
   }
 
   /*!
@@ -191,8 +191,7 @@ class NestedMsg {
    * \note This checks if the underlying data type is array.
    */
   ffi::Array<NestedMsg<T>, void> NestedArray() const {
-    return ffi::details::AnyUnsafe::CopyFromAnyViewAfterCheck<ffi::Array<NestedMsg<T>, void>>(
-        data_);
+    return ffi::detail::AnyUnsafe::CopyFromAnyViewAfterCheck<ffi::Array<NestedMsg<T>, void>>(data_);
   }
 
  private:
@@ -264,7 +263,7 @@ bool Equal(const NestedMsg<T>& lhs, const NestedMsg<T>& rhs, FType fequal) {
  */
 template <typename T, typename FType>
 NestedMsg<T> MapToNestedMsg(Expr expr, FType fmapleaf) {
-  if (auto* tuple = expr.as<TupleNode>()) {
+  if (auto* tuple = expr.as<TupleObj>()) {
     ffi::Array<NestedMsg<T>> res;
     res.reserve(tuple->fields.size());
     for (Expr x : tuple->fields) {
@@ -291,7 +290,7 @@ NestedMsg<T> MapToNestedMsg(Expr expr, FType fmapleaf) {
  */
 template <typename T, typename FType>
 NestedMsg<T> MapToNestedMsg(Type ty, FType fmapleaf) {
-  if (auto* tuple = ty.as<TupleTypeNode>()) {
+  if (auto* tuple = ty.as<TupleTypeObj>()) {
     ffi::Array<NestedMsg<T>> res;
     res.reserve(tuple->fields.size());
     for (Type x : tuple->fields) {
@@ -320,12 +319,12 @@ NestedMsg<T> MapToNestedMsg(Type ty, FType fmapleaf) {
 template <typename T, typename FType>
 NestedMsg<T> MapToNestedMsgByType(Expr expr, FType fmapleaf) {
   auto ty = GetType(expr);
-  if (auto* tuple = ty.as<TupleTypeNode>()) {
+  if (auto* tuple = ty.as<TupleTypeObj>()) {
     ffi::Array<NestedMsg<T>> res;
     res.reserve(tuple->fields.size());
     for (size_t i = 0; i < tuple->fields.size(); ++i) {
       Expr field = [&]() -> Expr {
-        if (const auto* expr_tuple = expr.as<TupleNode>()) {
+        if (const auto* expr_tuple = expr.as<TupleObj>()) {
           return expr_tuple->fields[i];
         }
         return TupleGetItem(expr, i);
@@ -393,7 +392,7 @@ Expr NestedMsgToExpr(NestedMsg<T> msg, FType fmapleaf) {
     if (arr.size() >= 1) {
       simplified_flag = true;
       for (size_t i = 0; i < arr.size() && simplified_flag; ++i) {
-        auto* node = arr[i].as<TupleGetItemNode>();
+        auto* node = arr[i].as<TupleGetItemObj>();
         if (node == nullptr || node->index != static_cast<int>(i)) {
           simplified_flag = false;
         } else {
@@ -491,7 +490,7 @@ NestedMsg<T> MapNestedMsg(NestedMsg<T> msg, FType fmapleaf) {
  */
 template <typename T, typename FType>
 void DecomposeNestedMsg(Expr expr, NestedMsg<T> msg, FType fvisitleaf) {
-  if (auto* tuple = expr.as<TupleNode>()) {
+  if (auto* tuple = expr.as<TupleObj>()) {
     TVM_FFI_ICHECK(msg.IsNested()) << "Expected nested to match tuple";
     ffi::Array<NestedMsg<T>> arr = msg.NestedArray();
     TVM_FFI_ICHECK_EQ(arr.size(), tuple->fields.size())
@@ -521,7 +520,7 @@ void DecomposeNestedMsg(Expr expr, NestedMsg<T> msg, FType fvisitleaf) {
 template <typename T, std::size_t N, typename FType>
 Expr TransformTupleLeaf(Expr expr, std::array<NestedMsg<T>, N> msgs, FType ftransleaf) {
   Type ty = GetType(expr);
-  if (const auto* tuple = ty.as<TupleTypeNode>()) {
+  if (const auto* tuple = ty.as<TupleTypeObj>()) {
     std::array<ffi::Array<NestedMsg<T>>, N> msg_arrays;
     for (size_t i = 0; i < N; ++i) {
       TVM_FFI_ICHECK(msgs[i].IsNested()) << "Expected nested to match tuple";
@@ -532,7 +531,7 @@ Expr TransformTupleLeaf(Expr expr, std::array<NestedMsg<T>, N> msgs, FType ftran
     fields.reserve(tuple->fields.size());
     for (size_t i = 0; i < tuple->fields.size(); ++i) {
       Expr field = [&]() -> Expr {
-        if (const auto* expr_tuple = expr.as<TupleNode>()) {
+        if (const auto* expr_tuple = expr.as<TupleObj>()) {
           return expr_tuple->fields[i];
         }
         return TupleGetItem(expr, i);
@@ -569,7 +568,7 @@ Expr TransformTupleLeaf(Expr expr, std::array<NestedMsg<T>, N> msgs, FType ftran
  */
 template <typename T, std::size_t N, typename FType>
 Type TransformTupleLeaf(Type ty, std::array<NestedMsg<T>, N> msgs, FType ftransleaf) {
-  if (const auto* tuple = ty.as<TupleTypeNode>()) {
+  if (const auto* tuple = ty.as<TupleTypeObj>()) {
     std::array<ffi::Array<NestedMsg<T>>, N> msg_arrays;
     for (size_t i = 0; i < N; ++i) {
       TVM_FFI_ICHECK(msgs[i].IsNested()) << "Expected nested to match tuple";

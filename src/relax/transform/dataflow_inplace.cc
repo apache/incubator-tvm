@@ -46,7 +46,7 @@ using namespace tvm::prim;
 // Ops that may return a tensor sharing storage with the first argument.
 // These ops has been verified to share storage with the first argument in
 // tests/python/relax/test_dataflow_inplace.py.
-bool IsViewMemoryOp(const OpNode* op_node) {
+bool IsViewMemoryOp(const OpObj* op_node) {
   // TODO: Consider to add more ops that may return a tensor sharing storage with
   // the first argument in the future.
   static const std::unordered_set<std::string> kViewOps = {
@@ -61,7 +61,7 @@ bool IsViewMemoryOp(const OpNode* op_node) {
 // Look up alias ids for a call argument (only Var args are expected in dataflow blocks).
 std::unordered_set<int> GetVarAliasSetFromExpr(
     const Expr& arg, const std::unordered_map<Var, std::unordered_set<int>>& alias_sets) {
-  if (auto* var_node = arg.as<VarNode>()) {
+  if (auto* var_node = arg.as<VarObj>()) {
     Var var = ffi::GetRef<Var>(var_node);
     if (!alias_sets.count(var)) {
       return {-1};
@@ -76,9 +76,9 @@ std::unordered_set<int> GetVarAliasSetFromExpr(
 // alias id; -1 in the other operand's set does not skip checking other ids. Same var twice
 // (e.g. add(z, z)) is allowed.
 bool InplaceArgDisjointFromOtherCallArgs(
-    const CallNode* call_node, int candidate,
+    const CallObj* call_node, int candidate,
     const std::unordered_map<Var, std::unordered_set<int>>& alias_sets) {
-  const auto* cand_var_node = call_node->args[candidate].as<VarNode>();
+  const auto* cand_var_node = call_node->args[candidate].as<VarObj>();
   if (!cand_var_node) {
     return false;
   }
@@ -117,9 +117,9 @@ std::unordered_map<Var, std::pair<int, int>> AnalyzeLiveness(const DataflowBlock
     ffi::Array<Var> used_vars;
     // for a function literal, we consider only the free vars
     // (those captured from the outer scope)
-    if (value.as<FunctionNode>()) {
+    if (value.as<FunctionObj>()) {
       used_vars = FreeVars(value);
-    } else if (value.as<TupleGetItemNode>()) {
+    } else if (value.as<TupleGetItemObj>()) {
       // Special case: we do not consider a tuple index to be a "use."
       // This is a bit of a hack but allows us to do operations that
       // create tuples to be done in-place (otherwise, any index of the tuple
@@ -133,7 +133,7 @@ std::unordered_map<Var, std::pair<int, int>> AnalyzeLiveness(const DataflowBlock
       int range_end = i;
       // if the var is not a dataflow var, then it is live
       // after the block (we are not checking later blocks)
-      if (!var.as<DataflowVarNode>()) {
+      if (!var.as<DataflowVarObj>()) {
         range_end = block->bindings.size();
       }
       if (!ret.count(var)) {
@@ -143,7 +143,7 @@ std::unordered_map<Var, std::pair<int, int>> AnalyzeLiveness(const DataflowBlock
 
     if (!ret.count(defined_var)) {
       // if it's an output, then it lives past the end of the block
-      if (!defined_var.as<DataflowVarNode>()) {
+      if (!defined_var.as<DataflowVarObj>()) {
         ret[defined_var] = {i, block->bindings.size()};
       } else {
         // otherwise, it's live only here
@@ -175,7 +175,7 @@ class AliasAnalyzer {
     for (auto input : inputs) {
       int curr_idx = get_fresh_idx();
       alias_map_[input] = {curr_idx};
-      if (auto* tup_info = GetTypeAs<TupleTypeNode>(input)) {
+      if (auto* tup_info = GetTypeAs<TupleTypeObj>(input)) {
         InsertFreshTuple(curr_idx, tup_info);
       }
     }
@@ -197,12 +197,12 @@ class AliasAnalyzer {
   }
 
   // Fresh tuple = each element is assumed to be a unique allocation
-  void InsertFreshTuple(int tup_idx, const TupleTypeNode* tup_info) {
+  void InsertFreshTuple(int tup_idx, const TupleTypeObj* tup_info) {
     std::vector<std::unordered_set<int>> tuple_set;
     for (int i = 0; i < static_cast<int>(tup_info->fields.size()); i++) {
       int curr_field = get_fresh_idx();
       tuple_set.push_back({curr_field});
-      if (auto* nested_tup_info = tup_info->fields[i].as<TupleTypeNode>()) {
+      if (auto* nested_tup_info = tup_info->fields[i].as<TupleTypeObj>()) {
         InsertFreshTuple(curr_field, nested_tup_info);
       }
     }
@@ -249,13 +249,13 @@ class AliasAnalyzer {
   // For tuples, assume all members are aliased. Yeah, it's bad.
   // (Skip first arg is for handling call_pure_packed, where the first arg is an ExternFunc that we
   // should ignore)
-  std::unordered_set<int> HandleMysteryCall(const CallNode* call_node, const Var& bound_var,
+  std::unordered_set<int> HandleMysteryCall(const CallObj* call_node, const Var& bound_var,
                                             bool skip_first_arg = false) {
     // the result may or may not be newly allocated
     std::unordered_set<int> ret;
     int res_idx = get_fresh_idx();
     // the result may be a tuple
-    if (auto* tup_info_node = GetTypeAs<TupleTypeNode>(bound_var)) {
+    if (auto* tup_info_node = GetTypeAs<TupleTypeObj>(bound_var)) {
       InsertFreshTuple(res_idx, tup_info_node);
     }
     AddCapturedIndices(&ret, res_idx);
@@ -289,10 +289,10 @@ class AliasAnalyzer {
     // function constant: give them a fresh index (TODO: we can handle in more detail if this is a
     // case we need to support) prim value: fresh index if node: should not happen inside dataflow
     // block
-    if (value.as<GenericConstNode>() || value.as<FunctionNode>()) {
+    if (value.as<GenericConstObj>() || value.as<FunctionObj>()) {
       // TODO(@slyubomirsky): We will probably want special handling for closures
       ret.insert(get_fresh_idx());
-    } else if (auto* target_var_node = value.as<VarNode>()) {
+    } else if (auto* target_var_node = value.as<VarObj>()) {
       auto target_var = ffi::GetRef<Var>(target_var_node);
       if (alias_map_.count(target_var)) {
         ret.insert(alias_map_[target_var].begin(), alias_map_[target_var].end());
@@ -301,7 +301,7 @@ class AliasAnalyzer {
       }
     } else if (value.as<PrimExpr>()) {
       ret.insert(get_fresh_idx());
-    } else if (auto* target_tuple = value.as<TupleNode>()) {
+    } else if (auto* target_tuple = value.as<TupleObj>()) {
       // fresh idx but we update the tuple map
       int tup_idx = get_fresh_idx();
       ret.insert(tup_idx);
@@ -310,7 +310,7 @@ class AliasAnalyzer {
         new_tuple_map.push_back(GetAliasSet(field, bound_var));
       }
       tuple_map_[tup_idx] = new_tuple_map;
-    } else if (auto* target_tgi = value.as<TupleGetItemNode>()) {
+    } else if (auto* target_tgi = value.as<TupleGetItemObj>()) {
       std::unordered_set<int> tuple_set = GetAliasSet(target_tgi->tuple, bound_var);
       // if -1 is a member of the tuple set, then we have to assume the result is -1
       if (tuple_set.count(-1)) {
@@ -327,14 +327,14 @@ class AliasAnalyzer {
           }
         }
       }
-    } else if (auto* call_node = value.as<CallNode>()) {
-      if (auto* op_node = call_node->op.as<OpNode>()) {
+    } else if (auto* call_node = value.as<CallObj>()) {
+      if (auto* op_node = call_node->op.as<OpObj>()) {
         // call_pure_packed: treat as non-op call
         if (op_node->name == "relax.call_pure_packed") {
           return HandleMysteryCall(call_node, bound_var, true);
         } else if (op_node->name == "relax.call_tir") {
           // call_tir: can potentially return a tuple
-          if (auto* tuple_ty = call_node->ty_args[0].as<TupleTypeNode>()) {
+          if (auto* tuple_ty = call_node->ty_args[0].as<TupleTypeObj>()) {
             int tup_idx = get_fresh_idx();
             ret.insert(tup_idx);
             InsertFreshTuple(tup_idx, tuple_ty);
@@ -350,7 +350,7 @@ class AliasAnalyzer {
 
           // If the returned value is a tuple, we'll assume it's a fresh tuple
           // (there may be exceptions to this too)
-          if (auto* tup_info = GetTypeAs<TupleTypeNode>(bound_var)) {
+          if (auto* tup_info = GetTypeAs<TupleTypeObj>(bound_var)) {
             int tup_idx = get_fresh_idx();
             ret.insert(tup_idx);
             InsertFreshTuple(tup_idx, tup_info);
@@ -387,19 +387,19 @@ PrimExpr NumElements(const ShapeExpr& shape) {
 // all members are eligible though we can consider only individual members separately)
 std::unordered_set<Type, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> GatherCandidateType(
     const Type& result_ty) {
-  if (auto* tensor_info = result_ty.as<TensorTypeNode>()) {
+  if (auto* tensor_info = result_ty.as<TensorTypeObj>()) {
     // don't consider void dtype (don't know the size at compile time)
     if (tensor_info->IsUnknownDtype()) {
       return {};
     }
     // don't consider cases where we don't know the shape at compile time
     // (we will use the analyzer to do best-effort analysis where there are vars)
-    if (tensor_info->shape.as<ShapeExprNode>()) {
+    if (tensor_info->shape.as<ShapeExprObj>()) {
       return {ffi::GetRef<TensorType>(tensor_info)};
     } else {
       return {};
     }
-  } else if (auto* tuple_info = result_ty.as<TupleTypeNode>()) {
+  } else if (auto* tuple_info = result_ty.as<TupleTypeObj>()) {
     // we can see if the whole tuple matches or go for any of the components
     std::unordered_set<Type, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> ret;
     for (auto field : tuple_info->fields) {
@@ -424,11 +424,11 @@ std::unordered_set<Type, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> GatherCandidat
 // if a single pair of corresponding tensors does not meet the condition).
 std::pair<bool, bool> SizeMatches(const Type& target_info, const Type& arg_info,
                                   const BlockBuilder& ctx) {
-  if (target_info.as<TensorTypeNode>() && arg_info.as<TensorTypeNode>()) {
+  if (target_info.as<TensorTypeObj>() && arg_info.as<TensorTypeObj>()) {
     auto target_tensor = target_info.as_or_throw<TensorType>();
     auto arg_tensor = arg_info.as_or_throw<TensorType>();
-    if (target_tensor->shape.has_value() && target_tensor->shape.as<ShapeExprNode>() &&
-        arg_tensor->shape.has_value() && arg_tensor->shape.as<ShapeExprNode>()) {
+    if (target_tensor->shape.has_value() && target_tensor->shape.as<ShapeExprObj>() &&
+        arg_tensor->shape.has_value() && arg_tensor->shape.as<ShapeExprObj>()) {
       if (target_tensor->dtype != arg_tensor->dtype) {
         return {false, false};
       }
@@ -452,7 +452,7 @@ std::pair<bool, bool> SizeMatches(const Type& target_info, const Type& arg_info,
     } else {
       return {false, false};
     }
-  } else if (target_info.as<TupleTypeNode>() && arg_info.as<TupleTypeNode>()) {
+  } else if (target_info.as<TupleTypeObj>() && arg_info.as<TupleTypeObj>()) {
     auto target_tup = target_info.as_or_throw<TupleType>();
     auto arg_tup = arg_info.as_or_throw<TupleType>();
     if (target_tup->fields.size() != arg_tup->fields.size()) {
@@ -462,9 +462,9 @@ std::pair<bool, bool> SizeMatches(const Type& target_info, const Type& arg_info,
     for (size_t i = 0; i < target_tup->fields.size(); i++) {
       // if members aren't either tuples or tensors, simply skip them,
       // since they don't matter for in-place computations
-      if (!(target_tup->fields[i].as<TensorTypeNode>() ||
-            target_tup->fields[i].as<TupleTypeNode>()) &&
-          !(arg_tup->fields[i].as<TensorTypeNode>() || arg_tup->fields[i].as<TupleTypeNode>())) {
+      if (!(target_tup->fields[i].as<TensorTypeObj>() ||
+            target_tup->fields[i].as<TupleTypeObj>()) &&
+          !(arg_tup->fields[i].as<TensorTypeObj>() || arg_tup->fields[i].as<TupleTypeObj>())) {
         continue;
       }
       auto [field_size_match, field_exact_match] =
@@ -516,7 +516,7 @@ bool InplaceConditionsMet(
     const std::unordered_map<Var, std::unordered_set<int>>& alias_sets,
     const std::unordered_map<int, std::vector<std::unordered_set<int>>>& tuple_map,
     const std::unordered_set<Var>& currently_live, const Expr& target, int binding_idx) {
-  if (auto* var_node = target.as<VarNode>()) {
+  if (auto* var_node = target.as<VarObj>()) {
     auto current_var = ffi::GetRef<Var>(var_node);
     // if the var is live past this point, we can't use it for in-place computations anyway
     if (live_ranges.count(current_var)) {
@@ -567,7 +567,7 @@ bool InplaceConditionsMet(
       }
     }
     return true;
-  } else if (auto* tup_node = target.as<TupleNode>()) {
+  } else if (auto* tup_node = target.as<TupleObj>()) {
     for (auto field : tup_node->fields) {
       if (!InplaceConditionsMet(live_ranges, alias_sets, tuple_map, currently_live, field,
                                 binding_idx)) {
@@ -686,8 +686,8 @@ FindInplaceOpportunities(const DataflowBlock& block, const ffi::Array<Var>& inpu
     Var defined_var = b->var;
     Expr value = GetBoundValue(b);
 
-    if (auto* call_node = value.as<CallNode>()) {
-      if (auto* op_node = call_node->op.as<OpNode>()) {
+    if (auto* call_node = value.as<CallObj>()) {
+      if (auto* op_node = call_node->op.as<OpObj>()) {
         if (!OpSupportsInplace(ffi::GetRef<Op>(op_node))) {
           continue;
         }
@@ -789,7 +789,7 @@ class ModuleInplaceTransformer : public ExprMutator {
   IRModule Transform() {
     // visit every Relax function in the module
     for (auto kv : mod_->functions) {
-      if (auto* func_node = kv.second.as<FunctionNode>()) {
+      if (auto* func_node = kv.second.as<FunctionObj>()) {
         auto gv = kv.first;
         auto func_params = func_node->params;
         auto function = VisitExpr(ffi::GetRef<Function>(func_node)).as_or_throw<Function>();
@@ -805,7 +805,7 @@ class ModuleInplaceTransformer : public ExprMutator {
     return ret;
   }
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto old_func_params = func_params;
     func_params = op->params;
     auto ret = ExprMutator::VisitExpr_(op);
@@ -815,7 +815,7 @@ class ModuleInplaceTransformer : public ExprMutator {
 
   // the only case we will override: we will visit all binding blocks
   // and replace any valid calls in them
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* op) override {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* op) override {
     auto block = ffi::GetRef<DataflowBlock>(op);
     auto old_idxs = inplace_idxs;
 
@@ -843,7 +843,7 @@ class ModuleInplaceTransformer : public ExprMutator {
     return builder_->Normalize(new_call);
   }
 
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     auto binding_ref = ffi::GetRef<VarBinding>(binding);
     if (!inplace_idxs.count(binding_ref)) {
       ExprMutator::VisitBinding_(binding);
@@ -853,7 +853,7 @@ class ModuleInplaceTransformer : public ExprMutator {
     builder_->EmitNormalized(VarBinding(binding->var, new_value, binding->loc));
   }
 
-  void VisitBinding_(const MatchCastNode* binding) override {
+  void VisitBinding_(const MatchCastObj* binding) override {
     auto binding_ref = ffi::GetRef<MatchCast>(binding);
     if (!inplace_idxs.count(binding_ref)) {
       ExprMutator::VisitBinding_(binding);

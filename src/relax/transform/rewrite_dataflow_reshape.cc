@@ -63,24 +63,24 @@ class DataflowReshapeRewriter : public ExprMutator {
 
   BindingBlock VisitBindingBlock(const BindingBlock& block) final {
     // We only rewrite the bindings inside dataflow blocks.
-    if (const auto* dataflow_block = block.as<DataflowBlockNode>()) {
+    if (const auto* dataflow_block = block.as<DataflowBlockObj>()) {
       return VisitBindingBlock_(dataflow_block);
     } else {
       return block;
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
+  void VisitBinding_(const VarBindingObj* binding) final {
     // We only rewrite the bindings that are not dataflow output (which means they are not
     // externally referenced)
-    if (!binding->var->IsInstance<DataflowVarNode>()) {
+    if (!binding->var->IsInstance<DataflowVarObj>()) {
       this->builder_->EmitNormalized(ffi::GetRef<VarBinding>(binding));
     } else {
       ExprMutator::VisitBinding_(binding);
     }
   }
 
-  Expr VisitExpr_(const CallNode* call) final {
+  Expr VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     if (!call->op.same_as(call_tir_op)) {
       return ffi::GetRef<Call>(call);
@@ -113,9 +113,9 @@ class DataflowReshapeRewriter : public ExprMutator {
     return reshape(arg, res_ty->shape.value());
   }
 
-  bool IsCallingTIRReshape(const CallNode* call, Expr inp) {
+  bool IsCallingTIRReshape(const CallObj* call, Expr inp) {
     const GlobalVar& global_var = call->args[0].as_or_throw<GlobalVar>();
-    const auto* func = mod_->functions.Get(global_var).value().as<tirx::FunctionNode>();
+    const auto* func = mod_->functions.Get(global_var).value().as<tirx::FunctionObj>();
     TVM_FFI_ICHECK_NOTNULL(func);
     if (!HasReshapePattern(ffi::GetRef<tirx::Function>(func))) {
       return false;

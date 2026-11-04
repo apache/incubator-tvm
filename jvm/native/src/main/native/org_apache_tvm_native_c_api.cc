@@ -75,7 +75,7 @@ JNIEXPORT jint JNICALL Java_org_apache_tvm_LibInfo_shutdown(JNIEnv* env, jobject
 }
 
 JNIEXPORT jstring JNICALL Java_org_apache_tvm_LibInfo_tvmFFIGetLastError(JNIEnv* env, jobject obj) {
-  std::string err_msg = ::tvm::ffi::details::MoveFromSafeCallRaised().what();
+  std::string err_msg = ::tvm::ffi::detail::MoveFromSafeCallRaised().what();
   return env->NewStringUTF(err_msg.c_str());
 }
 
@@ -416,7 +416,7 @@ JNIEXPORT jint JNICALL Java_org_apache_tvm_LibInfo_tvmTensorEmpty(
   env->ReleaseLongArrayElements(jshape, shapeArray, 0);
   static auto fempty = tvm::ffi::Function::GetGlobalRequired("runtime.TensorAllocWithScope");
   tvm::ffi::Tensor out = fempty(shape, dtype, device, nullptr).cast<tvm::ffi::Tensor>();
-  void* handle = tvm::ffi::details::ObjectUnsafe::MoveObjectRefToTVMFFIObjectPtr(std::move(out));
+  void* handle = tvm::ffi::detail::ObjectUnsafe::MoveObjectRefToTVMFFIObjectPtr(std::move(out));
   setLongField(env, jret, reinterpret_cast<jlong>(handle));
   TVM_FFI_SAFE_CALL_END();
 }

@@ -59,7 +59,7 @@ class MatchTensorLower : public StmtExprMutator {
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     for (const MatchTensorRegion& match_tensor : op->match_tensors) {
       CheckAndUpdateVarMap(match_tensor);
     }
@@ -80,7 +80,7 @@ class MatchTensorLower : public StmtExprMutator {
         }
       }
     }
-    op = stmt.as<SBlockNode>();
+    op = stmt.as<SBlockObj>();
     TVM_FFI_ICHECK(op != nullptr);
     ffi::Array<TensorRegion> reads =
         op->reads.Map(std::bind(&MatchTensorLower::VisitTensorRegion, this, std::placeholders::_1));
@@ -115,15 +115,19 @@ class MatchTensorLower : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
-    analyzer_->Bind(op->var, Range(op->begin, op->end));
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
+    {
+      auto context = analyzer_->GetConstraintContext();
+      context->Append(sym::RangeConstraint(op->var, Range(op->begin, op->end)));
+      analyzer_->SyncConstraintContext(context);
+    }
     return StmtExprMutator::Mutate_(op, inplace_mode);
   }
 
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) final {
     if ((op->op.same_as(tirx::masked_load_op()) || op->op.same_as(tirx::masked_store_op())) &&
         !op->args.empty()) {
-      if (auto var = op->args[0].as<Var>(); var && var.value()->ty.as<TensorTypeNode>()) {
+      if (auto var = op->args[0].as<Var>(); var && var.value()->ty.as<TensorTypeObj>()) {
         TensorVar tensor = var.value().as_or_throw<TensorVar>();
         TVM_FFI_ICHECK(!match_tensors_.count(tensor))
             << "Predicated tensor access is not currently supported in lower match tensor pass.";
@@ -131,7 +135,7 @@ class MatchTensorLower : public StmtExprMutator {
     }
     if (op->op.same_as(tirx::tensor_data_ptr_op()) && op->args.size() == 1) {
       if (auto var = op->args[0].as<Var>();
-          var.has_value() && var.value()->ty.as<TensorTypeNode>()) {
+          var.has_value() && var.value()->ty.as<TensorTypeObj>()) {
         auto it = match_tensors_.find(var.value().as_or_throw<TensorVar>());
         if (it != match_tensors_.end()) {
           return (*it).second->source.as_or_throw<tvm::tirx::TensorVar>().data();
@@ -141,13 +145,13 @@ class MatchTensorLower : public StmtExprMutator {
     return StmtExprMutator::Mutate_(op, inplace_mode);
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     // Save the original tensor before base class mutation may remap it
     TensorVar orig_tensor = op->dest.as_or_throw<TensorVar>();
     TensorStore stmt = StmtExprMutator::Mutate_(op, inplace_mode)
                            .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                            .as_or_throw<TensorStore>();
-    op = stmt.as<TensorStoreNode>();
+    op = stmt.as<TensorStoreObj>();
     TVM_FFI_ICHECK(op != nullptr);
 
     // Look up using original tensor (before the inherited Var environment may have remapped it)
@@ -165,12 +169,12 @@ class MatchTensorLower : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     // Save the original tensor before base class mutation may remap it
     TensorVar orig_tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
     PrimExpr expr =
         StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<PrimExpr>(op));
-    op = expr.as<TensorLoadNode>();
+    op = expr.as<TensorLoadObj>();
     TVM_FFI_ICHECK(op != nullptr);
 
     auto it = match_tensors_.find(orig_tensor);
@@ -298,13 +302,17 @@ class MatchTensorLower : public StmtExprMutator {
     };
     value = ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(std::move(value), f_substitute)
                 .as_or_throw<PrimExpr>();
-    if (arg->IsInstance<VarNode>()) {
+    if (arg->IsInstance<VarObj>()) {
       Var v = arg.as_or_throw<Var>();
       auto replacement = VarRemapGet(v);
       if (replacement == nullptr) {
         VarRemapSet(v, value);
         if (auto prim_value = value.as<PrimExpr>()) {
-          analyzer_->Bind(v, prim_value.value());
+          {
+            auto context = analyzer_->GetConstraintContext();
+            context->Append(sym::BindingConstraint(v, prim_value.value()));
+            analyzer_->SyncConstraintContext(context);
+          }
         }
       } else {
         AssertBinding(replacement.as_or_throw<Expr>(), value, arg_name);
@@ -317,7 +325,7 @@ class MatchTensorLower : public StmtExprMutator {
       }
       if (unknown.size() == 1 && arg_prim) {
         auto coefficients = tirx::DetectLinearEquation(arg_prim.value(), unknown);
-        if (coefficients.size() == 2 && coefficients[0].as<IntImmNode>() &&
+        if (coefficients.size() == 2 && coefficients[0].as<IntImmObj>() &&
             !IsZero(coefficients[0])) {
           PrimExpr delta = analyzer_->Simplify(value.as_or_throw<PrimExpr>() - coefficients[1]);
           TVM_FFI_ICHECK(analyzer_->CanProve(truncmod(delta, coefficients[0]) == 0))

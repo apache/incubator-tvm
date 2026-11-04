@@ -36,8 +36,8 @@ namespace s_tir {
 using namespace tvm::tirx;
 
 struct UndefInfo {
-  std::unordered_set<const TensorStoreNode*> undef_stores;
-  std::unordered_set<const VarNode*> undef_bind_vars;
+  std::unordered_set<const TensorStoreObj*> undef_stores;
+  std::unordered_set<const VarObj*> undef_bind_vars;
 };
 
 class StoreUndefLocator : public StmtExprVisitor {
@@ -52,7 +52,7 @@ class StoreUndefLocator : public StmtExprVisitor {
   StoreUndefLocator() = default;
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     // Check the value for undef.
     bool stash_undef = false;
     std::swap(has_undef_, stash_undef);
@@ -80,7 +80,7 @@ class StoreUndefLocator : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     // Check indices for undef.  Undef in tensor indices is always an error.
     bool idx_undef = false;
     std::swap(has_undef_, idx_undef);
@@ -92,7 +92,7 @@ class StoreUndefLocator : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
     bool stash_undef = false;
     std::swap(has_undef_, stash_undef);
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->value));
@@ -107,14 +107,14 @@ class StoreUndefLocator : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (var_bindings_with_undef_.count(op)) {
       has_undef_ = true;
     }
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(tirx::undef_op())) {
       has_undef_ = true;
     }
@@ -123,8 +123,8 @@ class StoreUndefLocator : public StmtExprVisitor {
 
   bool has_undef_{false};
 
-  std::unordered_set<const VarNode*> var_bindings_with_undef_;
-  std::unordered_set<const TensorStoreNode*> undef_stores_;
+  std::unordered_set<const VarObj*> var_bindings_with_undef_;
+  std::unordered_set<const TensorStoreObj*> undef_stores_;
 };
 
 // Remove TensorStores whose value depends on T.undef, and also
@@ -149,7 +149,7 @@ class StoreUndefRemover : public StmtExprMutator {
       : stores_to_remove_(info.undef_stores), bind_vars_to_remove_(info.undef_bind_vars) {}
 
  private:
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     if (stores_to_remove_.count(op)) {
       return Evaluate(0);
     } else {
@@ -157,7 +157,7 @@ class StoreUndefRemover : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
     if (bind_vars_to_remove_.count(op->var.get())) {
       return Evaluate(0);
     } else {
@@ -165,8 +165,8 @@ class StoreUndefRemover : public StmtExprMutator {
     }
   }
 
-  const std::unordered_set<const TensorStoreNode*>& stores_to_remove_;
-  const std::unordered_set<const VarNode*>& bind_vars_to_remove_;
+  const std::unordered_set<const TensorStoreObj*>& stores_to_remove_;
+  const std::unordered_set<const VarObj*>& bind_vars_to_remove_;
 };
 
 // Check that no tirx::undef_op() remains in the IR.
@@ -180,7 +180,7 @@ class ContainsUndefChecker : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(tirx::undef_op())) {
       contains_undef = true;
     }

@@ -40,10 +40,10 @@ FindLoopLCA(const Stmt& root) {
    public:
     using StmtExprVisitor::Visit_;
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-      if (value.as<ExprNode>()) return std::nullopt;
+      if (value.as<ExprObj>()) return std::nullopt;
       return StmtExprVisitor::Visit(value);
     }
-    ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
       stack.push_back(ffi::GetRef<Stmt>(op));
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
       if (tvm::s_tir::GetThreadBinding(op).has_value()) {
@@ -53,7 +53,7 @@ FindLoopLCA(const Stmt& root) {
       return std::nullopt;
     }
 
-    void UpdateLCA(const ForNode* loop) {
+    void UpdateLCA(const ForObj* loop) {
       std::string thread_tag = tvm::s_tir::GetThreadBinding(loop).value();
       {
         ffi::Map<ffi::String, ffi::Any>* tgt = &annotations[thread_tag];
@@ -121,7 +121,7 @@ class ThreadBindingLifter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* _op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* _op, InplaceMode inplace_mode) final {
     For op = ffi::GetRef<For>(_op);
     bool is_kernel_root = false;
     if (tvm::s_tir::GetThreadBinding(op).has_value()) {
@@ -155,7 +155,7 @@ class ThreadBindingLifter : public StmtExprMutator {
     }
   }
 
-  void SetKernelRoot(const ForNode* op) {
+  void SetKernelRoot(const ForObj* op) {
     auto result = FindLoopLCA(ffi::GetRef<Stmt>(op));
     this->iter_lca = std::move(result.first);
     for (const auto& [var, replacement] : result.second) VarRemapSet(var, replacement);
@@ -170,7 +170,7 @@ namespace transform {
 
 Pass LiftThreadBinding() {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    FunctionNode* fptr = f.CopyOnWrite();
+    FunctionObj* fptr = f.CopyOnWrite();
     fptr->body = ffi::make_object<ThreadBindingLifter>()
                      ->Mutate(fptr->body, InplaceMode::kAllow)
                      .ValueOrUnchanged(std::move(fptr->body));

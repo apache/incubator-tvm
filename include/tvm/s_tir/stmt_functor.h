@@ -45,10 +45,10 @@ class StmtFunctor<R(const Stmt&, Args...)> : public tirx::StmtFunctor<R(const St
   TVM_DEFINE_OBJECT_FUNCTOR_DEFAULT_CONSTRUCTOR(StmtFunctor, Parent)
   using Parent::Dispatch_;
 
-  virtual R Dispatch_(const SBlockNode* op, Args... args) {
+  virtual R Dispatch_(const SBlockObj* op, Args... args) {
     return this->DispatchDefault_(op, std::forward<Args>(args)...);
   }
-  virtual R Dispatch_(const SBlockRealizeNode* op, Args... args) {
+  virtual R Dispatch_(const SBlockRealizeObj* op, Args... args) {
     return this->DispatchDefault_(op, std::forward<Args>(args)...);
   }
 
@@ -57,8 +57,8 @@ class StmtFunctor<R(const Stmt&, Args...)> : public tirx::StmtFunctor<R(const St
   explicit StmtFunctor(const VTable* vtable) : Parent(vtable) {}
   static void InitVTable(VTable* vtable) {
     Parent::InitVTable(vtable);
-    Parent::template SetDispatch<StmtFunctor, SBlockNode>(vtable);
-    Parent::template SetDispatch<StmtFunctor, SBlockRealizeNode>(vtable);
+    Parent::template SetDispatch<StmtFunctor, SBlockObj>(vtable);
+    Parent::template SetDispatch<StmtFunctor, SBlockRealizeObj>(vtable);
   }
 };
 
@@ -80,14 +80,14 @@ class TVM_DLL StmtExprVisitor : public tirx::StmtExprVisitor {
   using tirx::StmtExprVisitor::Visit;
   using tirx::StmtExprVisitor::Visit_;
 
-  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op);
-  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeNode* op);
+  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op);
+  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* op);
 
   // Shared native traversal for specialized TIRX helpers extended by S-TIR.
-  static ffi::Optional<VisitInterrupt> VisitBlock(tirx::StmtExprVisitor* visitor,
-                                                  const SBlockNode* op);
-  static ffi::Optional<VisitInterrupt> VisitBlockRealize(tirx::StmtExprVisitor* visitor,
-                                                         const SBlockRealizeNode* op);
+  static ffi::Optional<VisitInterrupt> VisitBlock(ffi::StructuralVisitorObj* visitor,
+                                                  const SBlockObj* op);
+  static ffi::Optional<VisitInterrupt> VisitBlockRealize(ffi::StructuralVisitorObj* visitor,
+                                                         const SBlockRealizeObj* op);
 
  protected:
   explicit StmtExprVisitor(const VTable* vtable) : tirx::StmtExprVisitor(vtable) {}
@@ -110,15 +110,14 @@ class TVM_DLL StmtExprMutator : public tirx::StmtExprMutator {
   using tirx::StmtExprMutator::Mutate;
   using tirx::StmtExprMutator::Mutate_;
 
-  virtual UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode);
-  virtual UnchangedOr<Stmt> Mutate_(const SBlockRealizeNode* op, InplaceMode inplace_mode);
+  virtual UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode);
+  virtual UnchangedOr<Stmt> Mutate_(const SBlockRealizeObj* op, InplaceMode inplace_mode);
 
   // Share block ownership and binder rules with specialized TIRX helpers.
-  static UnchangedOr<Stmt> MutateBlock(tirx::StmtExprMutator* mutator, const SBlockNode* op,
+  static UnchangedOr<Stmt> MutateBlock(ffi::StructuralMutatorObj* mutator, const SBlockObj* op,
                                        InplaceMode inplace_mode);
-  static UnchangedOr<Stmt> MutateBlockRealize(tirx::StmtExprMutator* mutator,
-                                              const SBlockRealizeNode* op,
-                                              InplaceMode inplace_mode);
+  static UnchangedOr<Stmt> MutateBlockRealize(ffi::StructuralMutatorObj* mutator,
+                                              const SBlockRealizeObj* op, InplaceMode inplace_mode);
 
  protected:
   explicit StmtExprMutator(const VTable* vtable) : tirx::StmtExprMutator(vtable) {}

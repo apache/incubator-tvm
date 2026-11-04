@@ -135,7 +135,7 @@ def kill_object(obj: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Call:
     Returns
     -------
     result : Call
-        CallNode that kills the input object.
+        CallObj that kills the input object.
     """
     return _Call("relax.vm.kill_object", [obj], loc=loc, ty=ty)  # type: ignore
 

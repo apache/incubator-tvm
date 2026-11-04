@@ -99,14 +99,14 @@ class RollingBufferDependencyError : public ScheduleErrorContextObj {
     SBlockScope scope = self->GetSBlockScope(scope_root_sref);
     for (const Dependency& producers : scope->GetDepsByDst(block_sref)) {
       if (!(producers->kind == DepKind::kRAW)) {
-        const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+        const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
         throw MakeScheduleError<RollingBufferDependencyError>(self->mod,
                                                               ffi::GetRef<SBlock>(block));
       }
     }
     for (const Dependency& consumers : scope->GetDepsBySrc(block_sref)) {
       if (!(consumers->kind == DepKind::kRAW)) {
-        const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+        const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
         throw MakeScheduleError<RollingBufferDependencyError>(self->mod,
                                                               ffi::GetRef<SBlock>(block));
       }
@@ -176,7 +176,7 @@ class RollingBufferInfoCollector {
                                                         const TensorRegion& tensor_region) {
     RollingBufferInfoCollector collector;
     if (!collector.MatchRollingBuffer(block_sref, tensor_region)) {
-      const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+      const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
       throw MakeScheduleError<RollingBufferMatchError>(mod, ffi::GetRef<SBlock>(block),
                                                        tensor_region);
     }
@@ -196,8 +196,8 @@ class RollingBufferInfoCollector {
       auto divisor = 1;
 
       ffi::Optional<Var> iter_var;
-      if (const auto* div = bound->begin.as<prim::FloorDivNode>()) {
-        const auto* mul = div->a.as<prim::MulNode>();
+      if (const auto* div = bound->begin.as<prim::FloorDivObj>()) {
+        const auto* mul = div->a.as<prim::MulObj>();
         if (!mul) return false;
         iter_var = mul->a.as<Var>();
         auto stride_imm = mul->b.as<IntImm>();
@@ -213,7 +213,7 @@ class RollingBufferInfoCollector {
         if (!divisor_value.has_value() || !stride_value.has_value()) return false;
         divisor = *divisor_value;
         stride = std::ceil(static_cast<float>(*stride_value) / divisor);
-      } else if (const auto* mul = bound->begin.as<prim::MulNode>()) {
+      } else if (const auto* mul = bound->begin.as<prim::MulObj>()) {
         // The bound is the iter var multiplied by the stride
         iter_var = mul->a.as<Var>();
         auto stride_imm = mul->b.as<IntImm>();
@@ -253,7 +253,7 @@ class RollingBufferInfoCollector {
     ffi::Optional<Var> roll_iter_var;
     int roll_axis = 0;
     for (const tirx::StmtSRef& loop_sref : loop_srefs) {
-      auto loop_var = loop_sref->StmtAs<ForNode>()->var;
+      auto loop_var = loop_sref->StmtAs<ForObj>()->var;
 
       auto it{std::find_if(
           bound_iter_vars.begin(), bound_iter_vars.end(),
@@ -271,7 +271,7 @@ class RollingBufferInfoCollector {
     }
     ffi::Array<PrimExpr> new_shape = tensor.shape();
     new_shape.Set(roll_axis, region[roll_axis]->extent);
-    auto new_tensor_type = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+    auto new_tensor_type = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
     new_tensor_type->shape = new_shape;
     TensorVar new_tensor =
         TensorVar(tensor->name, TensorType(std::move(new_tensor_type)), tensor->loc);
@@ -329,12 +329,12 @@ class RollingBufferRewriter : public StmtExprMutator {
     *indices = std::move(new_indices);
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) final {
     SBlock old_stmt = ffi::GetRef<SBlock>(block);
     SBlock stmt = StmtExprMutator::Mutate_(block, inplace_mode)
                       .ValueOrUnchanged(ffi::GetRef<Stmt>(block))
                       .as_or_throw<SBlock>();
-    SBlockNode* n = stmt.CopyOnWrite();
+    SBlockObj* n = stmt.CopyOnWrite();
     if (block == scope_sref_->stmt) {
       ffi::Array<TensorVar> new_alloc_tensors;
       for (const TensorVar& tensor : stmt->alloc_tensors) {
@@ -374,7 +374,7 @@ class RollingBufferRewriter : public StmtExprMutator {
     return stmt;
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockRealizeNode* realize, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockRealizeObj* realize, InplaceMode inplace_mode) final {
     SBlockRealize stmt = StmtExprMutator::Mutate_(realize, inplace_mode)
                              .ValueOrUnchanged(ffi::GetRef<Stmt>(realize))
                              .as_or_throw<SBlockRealize>();
@@ -395,18 +395,18 @@ class RollingBufferRewriter : public StmtExprMutator {
                                                            GE(term_2, info_->axis_overlaps[i]))));
         }
       }
-      SBlockRealizeNode* n = stmt.CopyOnWrite();
+      SBlockRealizeObj* n = stmt.CopyOnWrite();
       n->predicate = condition;
     }
     return stmt;
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     TensorStore stmt = StmtExprMutator::Mutate_(op, inplace_mode)
                            .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                            .as_or_throw<TensorStore>();
     if (stmt->dest.as_or_throw<TensorVar>().same_as(info_->old_tensor)) {
-      TensorStoreNode* n = stmt.CopyOnWrite();
+      TensorStoreObj* n = stmt.CopyOnWrite();
       TensorVar tensor = n->dest.as_or_throw<TensorVar>();
       RewriteTensorAccess(&tensor, &n->indices);
       n->dest = std::move(tensor);
@@ -416,7 +416,7 @@ class RollingBufferRewriter : public StmtExprMutator {
     return stmt;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     TensorLoad stmt = StmtExprMutator::Mutate_(op, inplace_mode)
                           .ValueOrUnchanged(ffi::GetRef<PrimExpr>(op))
                           .as_or_throw<TensorLoad>();
@@ -466,7 +466,7 @@ void RollingBuffer(ScheduleState self, const StmtSRef& block_sref, int write_ten
   ffi::Array<StmtSRef> consumers_sref = GetConsumers(self, block_sref);
   consumers_sref.push_back(block_sref);
   StmtSRef lca = GetSRefLowestCommonAncestor(consumers_sref);
-  if (!lca->StmtAs<ForNode>()) {
+  if (!lca->StmtAs<ForObj>()) {
     throw MakeScheduleError<RollingBufferInsertionError>(
         self->mod, tensor_region->source.as_or_throw<tvm::tirx::TensorVar>(), block);
   }
@@ -477,7 +477,7 @@ void RollingBuffer(ScheduleState self, const StmtSRef& block_sref, int write_ten
     if (stmt == lca) {
       break;
     }
-    For cur_loop = ffi::GetRef<For>(stmt->StmtAs<ForNode>());
+    For cur_loop = ffi::GetRef<For>(stmt->StmtAs<ForObj>());
     Range range = Range(cur_loop->begin, cur_loop->end);
     dom_map.Set(cur_loop->var, sym::IntSet::FromRange(range));
   }

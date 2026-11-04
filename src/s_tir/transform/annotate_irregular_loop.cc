@@ -37,7 +37,7 @@ class IrregularLoopAnnotator : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
@@ -48,7 +48,7 @@ class IrregularLoopAnnotator : public StmtExprMutator {
   IrregularLoopAnnotator() = default;
 
  private:
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     bool cur_has_jump = has_jump_;
     has_jump_ = false;
     For res = StmtExprMutator::Mutate_(op, inplace_mode)
@@ -70,7 +70,7 @@ class IrregularLoopAnnotator : public StmtExprMutator {
     return res;
   }
 
-  UnchangedOr<Stmt> Mutate_(const WhileNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const WhileObj* op, InplaceMode inplace_mode) final {
     bool cur_has_jump = has_jump_;
     has_jump_ = false;
     Stmt res = StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
@@ -78,12 +78,12 @@ class IrregularLoopAnnotator : public StmtExprMutator {
     return res;
   }
 
-  UnchangedOr<Stmt> Mutate_(const BreakNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const BreakObj* op, InplaceMode inplace_mode) final {
     has_jump_ = true;
     return ffi::Unchanged();
   }
 
-  UnchangedOr<Stmt> Mutate_(const ContinueNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ContinueObj* op, InplaceMode inplace_mode) final {
     has_jump_ = true;
     return ffi::Unchanged();
   }

@@ -107,7 +107,7 @@ class IndexInfoCollector : public StmtExprVisitor {
       : self_(self), block_sref_(block_sref), scope_sref_(scope_sref), cse_thresh_(cse_thresh) {}
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtNode* seq_stmt) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtObj* seq_stmt) final {
     for (size_t i = 0; i < seq_stmt->size(); ++i) {
       if (loc_pos_ != -1) {
         break;
@@ -123,7 +123,7 @@ class IndexInfoCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) final {
     visiting_target_sblock = static_cast<bool>(block_sref_->stmt == block);
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(block));
     visiting_target_sblock = false;
@@ -143,7 +143,7 @@ class IndexInfoCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
     range_map_.Set(loop->var, Range(loop->begin, loop->end));
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(loop));
     // Update seq pos only at top scope
@@ -153,12 +153,12 @@ class IndexInfoCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* store) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* store) final {
     // Only analyze the cache candidate for stores in target block
     if (visiting_target_sblock) {
       auto IsEligibleComputation = [](const PrimExpr& expr) {
         return (SideEffect(expr) <= CallEffectKind::kPure && CalculateExprComplexity(expr) > 1 &&
-                (expr.as<RampNode>() == nullptr) && (expr.as<BroadcastNode>() == nullptr));
+                (expr.as<RampObj>() == nullptr) && (expr.as<BroadcastObj>() == nullptr));
       };
 
       // Analyze sub expr candidates
@@ -287,7 +287,7 @@ ffi::Array<SBlock> MakeIndexCacheStage(IndexInfo* info, const ffi::String& stora
     info->cache_tensor.push_back(
         TensorVar(index_tensor_name,
                   TensorType(tensor_shape, data_ty, runtime::MemoryScope::Get(storage_scope), 0,
-                             tvm::tirx::TileLayoutNode::DefaultLayout(tensor_shape))));
+                             tvm::tirx::TileLayout::DefaultLayout(tensor_shape))));
 
     // Create loop vars and block vars' binding_value
     std::vector<PrimVar> loop_vars;
@@ -379,7 +379,7 @@ ffi::Array<SBlock> MakeIndexCacheStage(IndexInfo* info, const ffi::String& stora
  * \return A SeqStmt, the result after insertion
  */
 Stmt InsertIndexStage(const Stmt& stmt, int pos, const Stmt& stage) {
-  if (const auto* seq_stmt = stmt.as<SeqStmtNode>()) {
+  if (const auto* seq_stmt = stmt.as<SeqStmtObj>()) {
     ffi::Array<Stmt> result = seq_stmt->seq;
     result.insert(result.begin() + pos, stage);
     return SeqStmt(result, seq_stmt->loc);
@@ -421,7 +421,7 @@ class CacheIndexRewriter : public StmtExprMutator {
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) final {
     SBlock old_stmt = ffi::GetRef<SBlock>(block);
     // Mutate the body
     visiting_target_sblock = static_cast<bool>(block == info_->target_sblock->stmt);
@@ -433,7 +433,7 @@ class CacheIndexRewriter : public StmtExprMutator {
     // Check if it is the block corresponding to the parent scope
     if (block == scope_sref_->stmt) {
       // If so, put tensor allocation and insert cache stages on the parent scope
-      ffi::ObjectPtr<SBlockNode> n = ffi::make_object<SBlockNode>(*stmt.as<SBlockNode>());
+      ffi::ObjectPtr<SBlockObj> n = ffi::make_object<SBlockObj>(*stmt.as<SBlockObj>());
       n->body = InsertIndexStage(n->body, info_->loc_pos, info_->cache_stage);
       for (const TensorVar& it : info_->cache_tensor) {
         n->alloc_tensors.push_back(it);
@@ -444,7 +444,7 @@ class CacheIndexRewriter : public StmtExprMutator {
     return stmt;
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* store, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* store, InplaceMode inplace_mode) final {
     Stmt ret_stmt =
         StmtExprMutator::Mutate_(store, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(store));
     // Replace common sub expr for target block, with cached tensor load

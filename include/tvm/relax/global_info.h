@@ -40,7 +40,7 @@ using runtime::MemoryScope;
 /*!
  * \brief A global info subclass for virtual devices.
  */
-class VDeviceNode : public GlobalInfoNode {
+class VDeviceObj : public GlobalInfoObj {
  public:
   /*! \brief The \p Target describing how to compile for the virtual device. */
   ffi::Optional<Target> target;
@@ -52,49 +52,49 @@ class VDeviceNode : public GlobalInfoNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<VDeviceNode>()
-        .def_ro("target", &VDeviceNode::target)
-        .def_ro("vdevice_id", &VDeviceNode::vdevice_id)
-        .def_ro("memory_scope", &VDeviceNode::memory_scope);
+    refl::ObjectDef<VDeviceObj>()
+        .def_ro("target", &VDeviceObj::target)
+        .def_ro("vdevice_id", &VDeviceObj::vdevice_id)
+        .def_ro("memory_scope", &VDeviceObj::memory_scope);
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.VDevice", VDeviceNode, GlobalInfoNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.VDevice", VDeviceObj, GlobalInfoObj);
 };
 
 /*!
- * \brief Managed reference to VDeviceNode.
- * \sa VDeviceNode
+ * \brief Managed reference to VDeviceObj.
+ * \sa VDeviceObj
  */
 class VDevice : public GlobalInfo {
  public:
   TVM_DLL explicit VDevice(ffi::Optional<Target> tgt, int dev_id, MemoryScope mem_scope);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VDevice, GlobalInfo, VDeviceNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VDevice, GlobalInfo, VDeviceObj);
 };
 
 /*!
  * \brief A dummy global info sub-class for testing purpose.
  */
-class DummyGlobalInfoNode : public GlobalInfoNode {
+class DummyGlobalInfoObj : public GlobalInfoObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DummyGlobalInfoNode>();
+    refl::ObjectDef<DummyGlobalInfoObj>();
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DummyGlobalInfo", DummyGlobalInfoNode, GlobalInfoNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DummyGlobalInfo", DummyGlobalInfoObj, GlobalInfoObj);
 };
 
 /*!
- * \brief Managed reference to DummyGlobalInfoNode.
- * \sa DummyGlobalInfoNode
+ * \brief Managed reference to DummyGlobalInfoObj.
+ * \sa DummyGlobalInfoObj
  */
 class DummyGlobalInfo : public GlobalInfo {
  public:
-  explicit DummyGlobalInfo(ffi::UnsafeInit tag, ffi::ObjectPtr<DummyGlobalInfoNode> n)
+  explicit DummyGlobalInfo(ffi::UnsafeInit tag, ffi::ObjectPtr<DummyGlobalInfoObj> n)
       : GlobalInfo(tag) {
     data_ = std::move(n);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DummyGlobalInfo, GlobalInfo, DummyGlobalInfoNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DummyGlobalInfo, GlobalInfo, DummyGlobalInfoObj);
 };
 
 }  // namespace relax

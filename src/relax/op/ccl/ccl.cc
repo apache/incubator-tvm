@@ -90,7 +90,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.ccl.allreduce", allreduce);
 }
 
-Type InferTypeAllReduce(const CallNode* call_node) {
+Type InferTypeAllReduce(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (RequiresTensorInputNormalization(call)) return Type::Missing();
   TensorType input_ty = GetUnaryInputTensorType(call);
@@ -122,7 +122,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.ccl.allgather", allgather);
 }
 
-Type InferTypeAllGather(const CallNode* call_node) {
+Type InferTypeAllGather(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType input_ty = GetUnaryInputTensorType(call);
 
@@ -159,7 +159,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.ccl.broadcast_from_worker0", broadcast_from_worker0);
 }
 
-Type InferTypeBroadcastFromZero(const CallNode* call_node) {
+Type InferTypeBroadcastFromZero(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType input_ty = GetUnaryInputTensorType(call);
   return input_ty;

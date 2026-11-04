@@ -43,13 +43,13 @@ namespace tvm {
 namespace s_tir {
 using namespace tvm::tirx;
 
-const VarNode* GetBufferVarFromData(const Expr& data) {
-  if (const auto* var = data.as<VarNode>()) {
+const VarObj* GetBufferVarFromData(const Expr& data) {
+  if (const auto* var = data.as<VarObj>()) {
     return var;
   }
-  if (const auto* call = data.as<CallNode>();
+  if (const auto* call = data.as<CallObj>();
       call && call->op.same_as(tirx::tensor_data_ptr_op()) && call->args.size() == 1) {
-    return call->args[0].as<VarNode>();
+    return call->args[0].as<VarObj>();
   }
   return nullptr;
 }
@@ -58,7 +58,7 @@ const VarNode* GetBufferVarFromData(const Expr& data) {
 class FragmentGetter : public s_tir::StmtExprVisitor {
  public:
   using s_tir::StmtExprVisitor::Visit_;
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
 
     static const Op gpu_load_matrix_sync_op = Op::Get("tirx.gpu_load_matrix_sync");
@@ -71,21 +71,21 @@ class FragmentGetter : public s_tir::StmtExprVisitor {
 
       // Get shape and layout information from load and store intrinsic
       TVM_FFI_ICHECK_EQ(op->args.size(), 8U);
-      const VarNode* buffer_var = GetBufferVarFromData(op->args[0]);
+      const VarObj* buffer_var = GetBufferVarFromData(op->args[0]);
       TVM_FFI_ICHECK(buffer_var);
       // Get shape
-      const IntImmNode* m = op->args[1].as<IntImmNode>();
-      const IntImmNode* n = op->args[2].as<IntImmNode>();
-      const IntImmNode* k = op->args[3].as<IntImmNode>();
-      const StringImmNode* layout = op->args[7].as<StringImmNode>();
+      const IntImmObj* m = op->args[1].as<IntImmObj>();
+      const IntImmObj* n = op->args[2].as<IntImmObj>();
+      const IntImmObj* k = op->args[3].as<IntImmObj>();
+      const StringImmObj* layout = op->args[7].as<StringImmObj>();
       TVM_FFI_ICHECK(m);
       TVM_FFI_ICHECK(n);
       TVM_FFI_ICHECK(k);
       TVM_FFI_ICHECK(layout);
 
       runtime::MemoryScope scope =
-          (buffer_var->ty.as<TensorTypeNode>() ? buffer_var->ty.as<TensorTypeNode>()->scope
-                                               : buffer_var->ty.as_or_throw<PtrType>()->scope);
+          (buffer_var->ty.as<TensorTypeObj>() ? buffer_var->ty.as<TensorTypeObj>()->scope
+                                              : buffer_var->ty.as_or_throw<PtrType>()->scope);
       if (fragments.count(buffer_var)) {
         // check if the fragment has met before
         FragmentInfo info = fragments[buffer_var];
@@ -110,19 +110,19 @@ class FragmentGetter : public s_tir::StmtExprVisitor {
     } else if (op->op.same_as(gpu_fill_fragment_op)) {
       // Get shape information from fill intrinsic
       TVM_FFI_ICHECK_EQ(op->args.size(), 6U);
-      const VarNode* buffer_var = GetBufferVarFromData(op->args[0]);
+      const VarObj* buffer_var = GetBufferVarFromData(op->args[0]);
       TVM_FFI_ICHECK(buffer_var);
       // Get shape
-      const IntImmNode* m = op->args[1].as<IntImmNode>();
-      const IntImmNode* n = op->args[2].as<IntImmNode>();
-      const IntImmNode* k = op->args[3].as<IntImmNode>();
+      const IntImmObj* m = op->args[1].as<IntImmObj>();
+      const IntImmObj* n = op->args[2].as<IntImmObj>();
+      const IntImmObj* k = op->args[3].as<IntImmObj>();
       TVM_FFI_ICHECK(m);
       TVM_FFI_ICHECK(n);
       TVM_FFI_ICHECK(k);
 
       runtime::MemoryScope scope =
-          (buffer_var->ty.as<TensorTypeNode>() ? buffer_var->ty.as<TensorTypeNode>()->scope
-                                               : buffer_var->ty.as_or_throw<PtrType>()->scope);
+          (buffer_var->ty.as<TensorTypeObj>() ? buffer_var->ty.as<TensorTypeObj>()->scope
+                                              : buffer_var->ty.as_or_throw<PtrType>()->scope);
       if (fragments.count(buffer_var)) {
         FragmentInfo info = fragments[buffer_var];
         TVM_FFI_ICHECK_EQ(m->value, info.m);
@@ -139,10 +139,10 @@ class FragmentGetter : public s_tir::StmtExprVisitor {
   }
 
   // Fragment metadata for all fragments
-  std::unordered_map<const VarNode*, FragmentInfo> fragments;
+  std::unordered_map<const VarObj*, FragmentInfo> fragments;
 };
 
-std::unordered_map<const VarNode*, FragmentInfo> GetTensorCoreFragmentInfo(const Stmt& stmt) {
+std::unordered_map<const VarObj*, FragmentInfo> GetTensorCoreFragmentInfo(const Stmt& stmt) {
   auto getter = ffi::make_object<s_tir::FragmentGetter>();
   getter->Visit(stmt);
   return std::move(getter->fragments);
@@ -154,17 +154,17 @@ class FragmentChecker : public s_tir::StmtExprVisitor {
   using s_tir::StmtExprVisitor::Visit_;
   explicit FragmentChecker(const FragmentGetter& getter) : fragment_getter(getter) {}
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
     // Check shape when calling gpu_mma_sync
     static const Op gpu_mma_sync_op = Op::Get("tirx.gpu_mma_sync");
     static const Op bmma_sync_op = Op::Get("tirx.cuda.bmma_sync");
     if (op->op.same_as(gpu_mma_sync_op) || op->op.same_as(bmma_sync_op)) {
       TVM_FFI_ICHECK_EQ(op->args.size(), 8U);
-      const VarNode* buffer_var_d = GetBufferVarFromData(op->args[0]);
-      const VarNode* buffer_var_a = GetBufferVarFromData(op->args[2]);
-      const VarNode* buffer_var_b = GetBufferVarFromData(op->args[4]);
-      const VarNode* buffer_var_c = GetBufferVarFromData(op->args[6]);
+      const VarObj* buffer_var_d = GetBufferVarFromData(op->args[0]);
+      const VarObj* buffer_var_a = GetBufferVarFromData(op->args[2]);
+      const VarObj* buffer_var_b = GetBufferVarFromData(op->args[4]);
+      const VarObj* buffer_var_c = GetBufferVarFromData(op->args[6]);
       TVM_FFI_ICHECK(buffer_var_d);
       TVM_FFI_ICHECK(buffer_var_a);
       TVM_FFI_ICHECK(buffer_var_b);
@@ -180,7 +180,7 @@ class FragmentChecker : public s_tir::StmtExprVisitor {
 
  private:
   // A tool for checking shapes of two fragments
-  bool CheckShape(const VarNode* buffer1, const VarNode* buffer2) {
+  bool CheckShape(const VarObj* buffer1, const VarObj* buffer2) {
     TVM_FFI_ICHECK(fragment_getter.fragments.count(buffer1))
         << "Tensorecore fragment " << buffer1->name
         << " must be filled (with gpu_fill_fragment) or loaded (with gpu_load_matrix_sync) before "
@@ -203,14 +203,14 @@ class InferFragmenter : public s_tir::StmtExprMutator {
   using s_tir::StmtExprMutator::Mutate;
   using s_tir::StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return s_tir::StmtExprMutator::Mutate(value, inplace_mode);
   }
 
   explicit InferFragmenter(const FragmentGetter& getter) : fragment_getter(getter) {}
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
-    if (const auto* call = op->value.as<CallNode>();
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       auto it = fragment_getter.fragments.find(op->var.get());
       if (it == fragment_getter.fragments.end()) return ffi::Unchanged();

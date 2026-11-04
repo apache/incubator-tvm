@@ -74,7 +74,7 @@ class CallTIRWithGradEliminator : private ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) final {
+  Expr VisitExpr_(const CallObj* call_node) final {
     if (!call_node->op.same_as(Op::Get("relax.call_tir_with_grad"))) {
       return ExprMutator::VisitExpr_(call_node);
     }
@@ -116,7 +116,7 @@ class CheckpointCollector : private ExprMutator {
   std::unordered_map<Var, Var, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> var_mapping;
 
  private:
-  Expr VisitExpr_(const FunctionNode* func) final {
+  Expr VisitExpr_(const FunctionObj* func) final {
     for (auto var : func->params) {
       checkpoints.insert(var);
     }
@@ -131,14 +131,14 @@ class CheckpointCollector : private ExprMutator {
     // If every variable that the variable of binding relies on is either
     // 1) the output of end_checkpoint; 2) checkpointed
     // then the variable of binding will be checkpointed
-    auto var_binding = binding.as<VarBindingNode>();
+    auto var_binding = binding.as<VarBindingObj>();
     TVM_FFI_ICHECK(var_binding);
 
-    auto value_call = var_binding->value.as<CallNode>();
+    auto value_call = var_binding->value.as<CallObj>();
     if (!value_call || (!value_call->op.same_as(s_cp) && !value_call->op.same_as(e_cp))) {
       bool all_inner_var_checkpointed = true;
       PostOrderVisit(var_binding->value, [this, &all_inner_var_checkpointed](const Expr& expr) {
-        if (auto var = expr.as<VarNode>()) {
+        if (auto var = expr.as<VarObj>()) {
           Var var_ref = ffi::GetRef<Var>(var);
           all_inner_var_checkpointed &=
               (checkpoints.count(var_ref) != 0 || e_vars_.count(var_ref) != 0);
@@ -154,19 +154,19 @@ class CheckpointCollector : private ExprMutator {
   }
 
   // mark vars to be checkpointed, and eliminate bindings with checkpoint calls
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* value) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* value) final {
     static const auto s_cp = Op::Get("relax.grad.start_checkpoint");
     static const auto e_cp = Op::Get("relax.grad.end_checkpoint");
 
     if (value->op.same_as(s_cp) || value->op.same_as(e_cp)) {
       // Eliminate the binding
-      auto var = value->args[0].as<VarNode>();
+      auto var = value->args[0].as<VarObj>();
       TVM_FFI_ICHECK(var) << "The first argument of relax.grad.start_checkpoint and "
                              "relax.grad.end_checkpoint should be a Var";
       // var might already be remapped. Find the original var
       auto orig_var = ExprMutator::VisitExpr(ffi::GetRef<Var>(var)).as_or_throw<Var>();
       // Add remapping from binding->var to new_var
-      if (!binding->var.as<DataflowVarNode>() && var->IsInstance<DataflowVarNode>()) {
+      if (!binding->var.as<DataflowVarObj>() && var->IsInstance<DataflowVarObj>()) {
         // For output binding, emit a dummy binding
         this->var_remap_.insert_or_assign(binding->var,
                                           builder_->EmitOutput(orig_var, orig_var->name));
@@ -217,8 +217,8 @@ class CheckpointGenerator : private ExprMutator {
     }
 
     for (auto binding : forward_block->bindings) {
-      auto* var_binding = binding.as<VarBindingNode>();
-      TVM_FFI_ICHECK(var_binding) << "Now only support VarBindingNode";
+      auto* var_binding = binding.as<VarBindingObj>();
+      TVM_FFI_ICHECK(var_binding) << "Now only support VarBindingObj";
       auto var = var_binding->var;
       binding_map_.Set(var, var_binding->value);
       if (checkpoints.count(var)) {
@@ -243,10 +243,10 @@ class CheckpointGenerator : private ExprMutator {
   using ExprMutator::VisitExpr_;
 
   // Visit the use-site of a defined Var
-  Expr VisitExpr_(const VarNode* op) final { return VisitVar(ffi::GetRef<Var>(op)); }
+  Expr VisitExpr_(const VarObj* op) final { return VisitVar(ffi::GetRef<Var>(op)); }
 
   // Visit the use-site of a defined DataflowVar
-  Expr VisitExpr_(const DataflowVarNode* op) final { return VisitVar(ffi::GetRef<Var>(op)); }
+  Expr VisitExpr_(const DataflowVarObj* op) final { return VisitVar(ffi::GetRef<Var>(op)); }
 
   Expr VisitVar(const Var& var) {
     auto it = checkpoint_map_.find(var);
@@ -260,7 +260,7 @@ class CheckpointGenerator : private ExprMutator {
 
   // The only purpose of this function is create a new expr for Call node
   // to pass the structual equal check
-  Expr VisitExpr_(const CallNode* call_node) final {
+  Expr VisitExpr_(const CallObj* call_node) final {
     Expr new_op = this->VisitExpr(call_node->op);
 
     tvm::ffi::Array<Expr> call_args;
@@ -269,7 +269,7 @@ class CheckpointGenerator : private ExprMutator {
       call_args.push_back(new_arg);
     }
     Type ret_ty = Type::Missing();
-    if (call_node->ty.as<PrimTypeNode>()) {
+    if (call_node->ty.as<PrimTypeObj>()) {
       if (auto op = call_node->op.as<Op>()) {
         static auto infer_type_map = Op::GetAttrMap(tvm::op_attr::kInferType);
         static auto infer_type_with_builder_map =
@@ -318,7 +318,7 @@ class BackwardBindingGenerator : private ExprVisitor {
     BackwardBindingGenerator generator(builder, cp_collector, checkpoint_generator);
 
     // Initialize the adjoint of target_var as ones op. We have already checked the target.
-    auto* target_ty = GetTypeAs<TensorTypeNode>(target_var);
+    auto* target_ty = GetTypeAs<TensorTypeObj>(target_var);
     generator.UpdateAdjoint(target_var,
                             ones(target_ty->shape.value(), target_ty->dtype.value()->dtype));
 
@@ -340,8 +340,8 @@ class BackwardBindingGenerator : private ExprVisitor {
 
   void VisitBinding(const Binding& binding) final {
     // TODO(chaofan, yixin): support other types of bindings
-    TVM_FFI_ICHECK(binding->IsInstance<VarBindingNode>()) << "Now only support VarBindingNode";
-    auto* var_binding = binding.as<VarBindingNode>();
+    TVM_FFI_ICHECK(binding->IsInstance<VarBindingObj>()) << "Now only support VarBindingObj";
+    auto* var_binding = binding.as<VarBindingObj>();
 
     if (adjoint_var_map_.count(var_binding->var) == 0) {
       // Optimization: this var is not used in the following bindings
@@ -350,9 +350,9 @@ class BackwardBindingGenerator : private ExprVisitor {
 
     Expr value = var_binding->value;
     // TODO(chaofan, yixin): support other types of binding values
-    TVM_FFI_ICHECK(value->IsInstance<CallNode>() || value->IsInstance<TupleNode>() ||
-                   value->IsInstance<TupleGetItemNode>() || value->IsInstance<VarNode>() ||
-                   value->IsInstance<GenericConstNode>())
+    TVM_FFI_ICHECK(value->IsInstance<CallObj>() || value->IsInstance<TupleObj>() ||
+                   value->IsInstance<TupleGetItemObj>() || value->IsInstance<VarObj>() ||
+                   value->IsInstance<GenericConstObj>())
         << "Now does not support the type of binding value: " << value;
 
     ExprVisitor::VisitBinding_(var_binding);
@@ -360,9 +360,9 @@ class BackwardBindingGenerator : private ExprVisitor {
 
   // The following functions will handle the adjoint expr of the inputs of binding
   // For call node, we would call the registered gradient functions
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call) final {
     // Skip if it is not an Op
-    if (!call->op->IsInstance<OpNode>()) {
+    if (!call->op->IsInstance<OpObj>()) {
       return;
     }
 
@@ -389,7 +389,7 @@ class BackwardBindingGenerator : private ExprVisitor {
           grad_func(checkpoint_var, checkpoint_call.as_or_throw<Call>(), adjoint_var, builder_)
               .cast<Var>();
       Tuple args = call->args[1].as_or_throw<Tuple>();
-      auto* tuple_ty = GetTypeAs<TupleTypeNode>(partials);
+      auto* tuple_ty = GetTypeAs<TupleTypeObj>(partials);
       if (!tuple_ty) {
         // result_var is a tensor
         TVM_FFI_ICHECK(args->fields.size() == 1);
@@ -422,7 +422,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   // a = ((b, c), d) -->
   // b_adjoint += a_adjoint_var[0][0], c_adjoint += a_adjoint_var[0][1],
   // d_adjoint += a_adjoint_var[1]
-  void VisitBinding_(const VarBindingNode* binding, const TupleNode* tuple) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleObj* tuple) final {
     UpdateAdjoint(ffi::GetRef<Tuple>(tuple), adjoint_var_map_[binding->var]);
   }
 
@@ -431,10 +431,10 @@ class BackwardBindingGenerator : private ExprVisitor {
   // b = a[0] -->
   // a_adjoint[0] += b_adjoint_var
   // If a_adjoint does not exist, we would create a zeros tuple as a_adjoint first, and then add
-  void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* tuple_get_item) final {
-    TVM_FFI_ICHECK(tuple_get_item->tuple->IsInstance<VarNode>())
+  void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* tuple_get_item) final {
+    TVM_FFI_ICHECK(tuple_get_item->tuple->IsInstance<VarObj>())
         << "The tuple field of a TupleGetItem is not bound to a Var";
-    auto* tuple_ty = GetTypeAs<TupleTypeNode>(tuple_get_item->tuple);
+    auto* tuple_ty = GetTypeAs<TupleTypeObj>(tuple_get_item->tuple);
     TVM_FFI_ICHECK(tuple_ty) << "The tuple field of a TupleGetItem must has a TupleType";
 
     const Var& tuple_var = tuple_get_item->tuple.as_or_throw<Var>();
@@ -451,16 +451,16 @@ class BackwardBindingGenerator : private ExprVisitor {
   }
 
   // For assign nodes, we add the adjoint of output to the adjoint of input
-  void VisitBinding_(const VarBindingNode* binding, const DataflowVarNode* var) final {
+  void VisitBinding_(const VarBindingObj* binding, const DataflowVarObj* var) final {
     UpdateAdjoint(ffi::GetRef<Var>(var), adjoint_var_map_[binding->var]);
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const VarNode* var) final {
+  void VisitBinding_(const VarBindingObj* binding, const VarObj* var) final {
     UpdateAdjoint(ffi::GetRef<Var>(var), adjoint_var_map_[binding->var]);
   }
 
   // For constant nodes, we do not have to handle it because it does not contribute to the adjoint
-  void VisitBinding_(const VarBindingNode* binding, const GenericConstNode* var) final { return; }
+  void VisitBinding_(const VarBindingObj* binding, const GenericConstObj* var) final { return; }
 
   // Add partial to the adjoint of expr
   // expr may be a argument of a func call / tuple definition. Its type can be
@@ -472,7 +472,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   void UpdateAdjoint(const Expr& expr, const Expr& partial) {
     AdjointMsg partial_msg = ExprToAdjointMsg(builder_->Normalize(partial));
     DecomposeNestedMsg(expr, partial_msg, [&](Expr leaf, AdjointMsg msg) {
-      if (leaf->IsInstance<VarNode>()) {
+      if (leaf->IsInstance<VarObj>()) {
         const Var& v = leaf.as_or_throw<Var>();
         Expr updated_adjoint_expr = builder_->Normalize(AdjointMsgToExpr(msg));
         auto it = adjoint_var_map_.find(v);
@@ -480,9 +480,9 @@ class BackwardBindingGenerator : private ExprVisitor {
           updated_adjoint_expr = TupleAwareAdd((*it).second, updated_adjoint_expr);
         }
         EmitAdjoint(v, updated_adjoint_expr, false);
-      } else if (leaf->IsInstance<GenericConstNode>()) {
+      } else if (leaf->IsInstance<GenericConstObj>()) {
         // nothing to do
-      } else if (leaf->IsInstance<ShapeExprNode>()) {
+      } else if (leaf->IsInstance<ShapeExprObj>()) {
         // must be no grad
         TVM_FFI_ICHECK(IsCallNoGrad(partial));
       } else {
@@ -531,7 +531,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   }
 
   static bool IsCallNoGrad(const Expr& expr) {
-    return expr->IsInstance<CallNode>() &&
+    return expr->IsInstance<CallObj>() &&
            expr.as_or_throw<Call>()->op.same_as(Op::Get("relax.grad.no_grad"));
   }
 
@@ -546,7 +546,7 @@ class BackwardBindingGenerator : private ExprVisitor {
 
   static AdjointMsg ExprToAdjointMsg(Expr expr) {
     return MapToNestedMsgByType<Expr>(expr, [](Expr leaf) {
-      TVM_FFI_ICHECK(GetTypeAs<TensorTypeNode>(leaf))
+      TVM_FFI_ICHECK(GetTypeAs<TensorTypeObj>(leaf))
           << "The leaf of adjoint: " << leaf << " should have Type and be a Tensor.";
       return AdjointMsg(leaf);
     });
@@ -556,7 +556,7 @@ class BackwardBindingGenerator : private ExprVisitor {
   // When ty is TupleType, we would create a (nested) Tuple containing zeros
   static Expr NestedZeros(const Type& ty) {
     AdjointMsg msg = MapToNestedMsg<Expr>(ty, [](Type ty) {
-      auto* tensor_ty = ty.as<TensorTypeNode>();
+      auto* tensor_ty = ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK(tensor_ty) << "The leaf of adjoint should be a Tensor.";
       TVM_FFI_ICHECK(tensor_ty->shape.has_value()) << "Missing shape when building zeros tuple.";
       const Expr& init = zeros(tensor_ty->shape.value(), tensor_ty->dtype.value()->dtype);
@@ -570,9 +570,9 @@ class BackwardBindingGenerator : private ExprVisitor {
   static Expr TupleAwareAdd(const Expr& lhs, const Expr& rhs) {
     AdjointMsg res = CombineNestedMsg(
         ExprToAdjointMsg(lhs), ExprToAdjointMsg(rhs), [](Expr l_leaf, Expr r_leaf) {
-          auto* ty = GetTypeAs<TensorTypeNode>(l_leaf);
+          auto* ty = GetTypeAs<TensorTypeObj>(l_leaf);
           TVM_FFI_ICHECK(ty) << "The leaf of adjoint should have Type and be a Tensor.";
-          TVM_FFI_ICHECK(GetTypeAs<TensorTypeNode>(r_leaf))
+          TVM_FFI_ICHECK(GetTypeAs<TensorTypeObj>(r_leaf))
               << "The leaf of adjoint should have Type and be a Tensor.";
           Expr res = add(l_leaf, r_leaf);
           UpdateType(res, ffi::GetRef<Type>(ty));
@@ -588,13 +588,13 @@ class BackwardBindingGenerator : private ExprVisitor {
   // Step 2）t2_new = t2 + increment (TupleAwareAdd)
   // Step 3) tuple_new = (t1, t2_new, t3)
   static Expr AddInTuple(const Expr& tuple, int index, const Expr& increment) {
-    auto* ty = GetTypeAs<TupleTypeNode>(tuple);
+    auto* ty = GetTypeAs<TupleTypeObj>(tuple);
     TVM_FFI_ICHECK(ty) << "The first argument of AddInTuple should have tuple type.";
     TVM_FFI_ICHECK(index >= 0 && index < static_cast<int>(ty->fields.size()));
     ffi::Array<Expr> res;
     for (size_t i = 0; i < ty->fields.size(); ++i) {
       Expr field = [&]() -> Expr {
-        if (const auto* expr_tuple = tuple.as<TupleNode>()) {
+        if (const auto* expr_tuple = tuple.as<TupleObj>()) {
           return expr_tuple->fields[i];
         }
         return TupleGetItem(tuple, i);
@@ -622,7 +622,7 @@ class GradientMutator : private ExprMutator {
   static IRModule Transform(IRModule mod, ffi::String func_name,
                             ffi::Optional<ffi::Array<Var>> require_grads, int target_index) {
     // Step 1. Copy function
-    auto* old_func = mod->Lookup(func_name).as<FunctionNode>();
+    auto* old_func = mod->Lookup(func_name).as<FunctionObj>();
     TVM_FFI_ICHECK(old_func) << func_name << "is not a Relax Function";
     auto copier = FunctionCopier();
     auto new_func = copier.Copy(ffi::GetRef<Function>(old_func));
@@ -681,21 +681,21 @@ class GradientMutator : private ExprMutator {
     return builder_->GetContextIRModule();
   }
 
-  Expr VisitExpr_(const FunctionNode* func) final {
+  Expr VisitExpr_(const FunctionObj* func) final {
     orig_params_ = func->params;
     Expr new_body = this->VisitExpr(func->body);
 
     return Function(func->params, new_body, std::nullopt, func->is_pure, func->attrs);
   }
 
-  Expr VisitExpr_(const SeqExprNode* seq_expr) final {
+  Expr VisitExpr_(const SeqExprObj* seq_expr) final {
     // TODO(chaofan, yixin): multiple blocks AD
     TVM_FFI_ICHECK(seq_expr->blocks.size() == 1) << "now only support one dataflow block";
     // TODO(chaofan, yixin): AD in non-dataflow block.
-    TVM_FFI_ICHECK(seq_expr->blocks[0]->IsInstance<DataflowBlockNode>())
+    TVM_FFI_ICHECK(seq_expr->blocks[0]->IsInstance<DataflowBlockObj>())
         << "now only support one dataflow block";
 
-    // the return value should be a VarNode, and a scalar
+    // the return value should be a VarObj, and a scalar
     orig_return_expr_ = seq_expr->body;
     CheckAndSetTarget(seq_expr->body, target_index_);
 
@@ -703,7 +703,7 @@ class GradientMutator : private ExprMutator {
     return SeqExpr({new_block}, return_expr_);
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) final {
     builder_->BeginDataflowBlock();
     // accept bindings in the original block
     for (const auto& binding : block->bindings) {
@@ -719,7 +719,7 @@ class GradientMutator : private ExprMutator {
   }
 
   static bool IsFloatTensorType(const Type& ty) {
-    auto* tensor_ty = ty.as<TensorTypeNode>();
+    auto* tensor_ty = ty.as<TensorTypeObj>();
     // Gradient eligibility preserves the old float-kind check; lanes do not affect this policy.
     return tensor_ty && !tensor_ty->IsUnknownDtype() &&
            tensor_ty->dtype.value().MatchesCode(DLDataTypeCode::kDLFloat);
@@ -729,19 +729,19 @@ class GradientMutator : private ExprMutator {
   // when the return value is a Tuple, the target is the target_index-th field of the return value
   // Check that the target should be a Var of scalar tensor ty
   void CheckAndSetTarget(const Expr& e, int target_index) {
-    if (auto* var = e.as<VarNode>()) {
+    if (auto* var = e.as<VarObj>()) {
       TVM_FFI_ICHECK_EQ(target_index, 0)
           << "When the function has only one return value, target_index can "
              "only be 0. But the target_index specified is "
           << target_index;
       target_var_ = ffi::GetRef<Var>(var);
-    } else if (auto* tuple = e.as<TupleNode>()) {
+    } else if (auto* tuple = e.as<TupleObj>()) {
       TVM_FFI_ICHECK(target_index >= 0 && target_index < static_cast<int>(tuple->fields.size()))
           << "target_index should be in the range of the number of return values of the "
              "function. "
              "But the specified target_index is "
           << target_index << ", while the number of return values is " << tuple->fields.size();
-      auto* var = tuple->fields[target_index].as<VarNode>();
+      auto* var = tuple->fields[target_index].as<VarObj>();
       TVM_FFI_ICHECK(var) << "Target must be a Var, but the specified target is "
                           << tuple->fields[target_index];
       target_var_ = ffi::GetRef<Var>(var);

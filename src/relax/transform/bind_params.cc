@@ -37,7 +37,7 @@ ffi::Map<Var, Expr> NormalizeBindings(const Function& func,
 
   // Map from string to the variable(s) with that name.
   std::unordered_map<std::string, ffi::Array<tvm::Var>> string_lookup;
-  std::unordered_set<const tvm::VarNode*> var_set;
+  std::unordered_set<const tvm::VarObj*> var_set;
   for (const auto& param : func->params) {
     string_lookup[param->name].push_back(param);
     var_set.insert(param.get());
@@ -115,10 +115,10 @@ Function FunctionBindParams(Function func, const ffi::Map<Any, ffi::ObjectRef>& 
  * \return The module after binding params.
  */
 IRModule BindParam(IRModule m, ffi::String func_name, ffi::Map<Any, ffi::ObjectRef> bind_params) {
-  IRModuleNode* new_module = m.CopyOnWrite();
+  IRModuleObj* new_module = m.CopyOnWrite();
   ffi::Map<GlobalVar, BaseFunc> functions = m->functions;
   for (const auto& func_pr : functions) {
-    if (const auto* relax_f = func_pr.second.as<FunctionNode>()) {
+    if (const auto* relax_f = func_pr.second.as<FunctionObj>()) {
       if (relax_f->GetLinkageType() == LinkageType::kExternal) {
         // Use global_symbol if it's external linkage
         ffi::Optional<ffi::String> gsymbol = relax_f->GetAttr(tvm::attr::kGlobalSymbol);

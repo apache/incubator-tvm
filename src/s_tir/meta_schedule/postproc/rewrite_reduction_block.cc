@@ -32,7 +32,7 @@ struct ReductionBlockFinder : public StmtExprVisitor {
   using StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
@@ -42,10 +42,10 @@ struct ReductionBlockFinder : public StmtExprVisitor {
     for (const auto& kv : self->mod->functions) {
       GlobalVar g_var = kv.first;
       BaseFunc base_func = kv.second;
-      if (const auto* function = base_func.as<FunctionNode>()) {
+      if (const auto* function = base_func.as<FunctionObj>()) {
         auto finder = ffi::make_object<ReductionBlockFinder>();
         finder->Visit(function->body);
-        for (const SBlockNode* block : finder->results_) {
+        for (const SBlockObj* block : finder->results_) {
           results.emplace_back(self->stmt2ref.at(block), g_var->name_hint);
         }
       }
@@ -54,7 +54,7 @@ struct ReductionBlockFinder : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
     support::GPUThreadTag thread_scope = GetThreadBindingTag(loop);
     if (IsThreadIdx(thread_scope) || IsBlockIdx(thread_scope)) {
       thread_bound_loop_vars_.insert(loop->var.get());
@@ -62,23 +62,23 @@ struct ReductionBlockFinder : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(loop);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeNode* realize) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* realize) final {
     if (realize->block->init.has_value() && AllReductionIterVarAreUnbound(realize)) {
       results_.push_back(realize->block.get());
     }
     return StmtExprVisitor::Visit_(realize);
   }
 
-  bool AllReductionIterVarAreUnbound(const SBlockRealizeNode* realize) const {
+  bool AllReductionIterVarAreUnbound(const SBlockRealizeObj* realize) const {
     if (thread_bound_loop_vars_.empty()) {
       return true;
     }
-    auto f_find = [this](const VarNode* var) -> bool { return thread_bound_loop_vars_.count(var); };
+    auto f_find = [this](const VarObj* var) -> bool { return thread_bound_loop_vars_.count(var); };
     auto walkfn = [&](const Var& var) -> ffi::Expected<ffi::WalkResult> {
       return f_find(var.get()) ? ffi::WalkResult::Interrupt(ffi::VisitInterrupt(var))
                                : ffi::WalkResult::Advance();
     };
-    const SBlockNode* block = realize->block.get();
+    const SBlockObj* block = realize->block.get();
     TVM_FFI_ICHECK_EQ(block->iter_vars.size(), realize->iter_values.size());
     int n = block->iter_vars.size();
     for (int i = 0; i < n; ++i) {
@@ -94,9 +94,9 @@ struct ReductionBlockFinder : public StmtExprVisitor {
   }
 
   /*! \brief The results of the collection */
-  std::vector<const SBlockNode*> results_;
+  std::vector<const SBlockObj*> results_;
   /*! \brief Loop variables that are bound to threads */
-  std::unordered_set<const VarNode*> thread_bound_loop_vars_;
+  std::unordered_set<const VarObj*> thread_bound_loop_vars_;
 };
 
 /*!

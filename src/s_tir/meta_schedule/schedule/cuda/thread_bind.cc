@@ -72,7 +72,7 @@ ffi::Array<LoopRV> BindSpatialLoop(Schedule sch, LoopRV loop, int64_t max_thread
                                    std::function<ExprRV(int64_t)> get_factor) {
   int64_t extent = -1;
   PrimExpr e_imm_expr = Range::GetExtentFromBeginEnd(sch->Get(loop)->begin, sch->Get(loop)->end);
-  const auto* e_imm = e_imm_expr.as<IntImmNode>();
+  const auto* e_imm = e_imm_expr.as<IntImmObj>();
   if (auto e = e_imm ? e_imm->value.as<int64_t>() : std::nullopt; e.has_value()) {
     extent = *e;
   } else {
@@ -117,7 +117,7 @@ void BindBlockThreadIdx(Schedule sch, SBlockRV block_rv,  //
   int i_spatial_loop = -1;
   for (int i = 0; i < n; ++i) {
     const StmtSRef& loop_sref = loops[i];
-    const ForNode* loop = TVM_SREF_TO_FOR(loop_sref);
+    const ForObj* loop = TVM_SREF_TO_FOR(loop_sref);
     support::GPUThreadTag thread_scope = GetThreadBindingTag(loop);
     if (IsBlockIdx(thread_scope)) {
       if (i_block_idx == -1) {

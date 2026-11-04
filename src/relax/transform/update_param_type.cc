@@ -46,7 +46,7 @@ class ParamTypeMutator : public ExprMutator {
   using ExprMutator::VisitExpr_;
   using ExprMutator::VisitVarDef_;
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto func = ffi::GetRef<Function>(op);
 
     auto params = op->params.Map([this](Var param) {

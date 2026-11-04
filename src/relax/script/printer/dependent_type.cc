@@ -35,7 +35,7 @@ namespace {
 ffi::Optional<ExprDoc> ShapeTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                              const ffi::Object*) {
   const auto* ty =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeTypeNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeTypeObj>(input);
   if (ty->values.has_value()) {
     ffi::Array<ExprDoc> values;
     for (const PrimExpr& value : ty->values.value()) values.push_back(RelaxShapeDim(d, value));
@@ -46,7 +46,7 @@ ffi::Optional<ExprDoc> ShapeTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView i
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::ShapeTypeNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::ShapeTypeObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&ShapeTypeDocTranslate>());
 }
@@ -54,13 +54,12 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> TensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                               const ffi::Object*) {
   const auto* ty =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::TensorTypeNode>(
-          input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::TensorTypeObj>(input);
   ffi::Array<ExprDoc> args;
   ffi::Array<ffi::String> keys;
   ffi::Array<ExprDoc> values;
   if (ty->shape.has_value()) {
-    if (auto shape = ty->shape.value().as<relax::ShapeExprNode>()) {
+    if (auto shape = ty->shape.value().as<relax::ShapeExprObj>()) {
       ffi::Array<ExprDoc> dimensions;
       for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
       args.push_back(TupleDoc(dimensions));
@@ -88,7 +87,7 @@ ffi::Optional<ExprDoc> TensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView 
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::TensorTypeNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::TensorTypeObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&TensorTypeDocTranslate>());
 }
@@ -96,11 +95,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> RelaxFuncTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                  const ffi::Object*) {
   const auto* ty =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FuncTypeNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FuncTypeObj>(input);
   if (!ty->params.has_value()) {
     ffi::Array<ffi::String> keys;
     ffi::Array<ExprDoc> values;
-    if (!ty->ret.as<AnyTypeNode>()) {
+    if (!ty->ret.as<AnyTypeObj>()) {
       keys.push_back("ret");
       values.push_back(d->Translate(ty->ret).value());
     }
@@ -124,7 +123,7 @@ ffi::Optional<ExprDoc> RelaxFuncTypeDocTranslate(DocTranslatorObj* d, ffi::AnyVi
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::FuncTypeNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::FuncTypeObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&RelaxFuncTypeDocTranslate>());
 }

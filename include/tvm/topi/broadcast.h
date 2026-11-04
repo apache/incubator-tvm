@@ -56,7 +56,7 @@ inline tvm::te::Tensor broadcast_to(const tvm::te::Tensor& t,
   TVM_FFI_ICHECK_EQ(output_shape.size(), bh.common_shape.size());
   ffi::Array<PrimExpr> oshape;
   for (size_t i = 0; i < output_shape.size(); ++i) {
-    if (output_shape[i].as<IntImmNode>() == nullptr) {
+    if (output_shape[i].as<IntImmObj>() == nullptr) {
       oshape.push_back(output_shape[i]);
     } else {
       TVM_FFI_ICHECK(topi::detail::EqualCheck(output_shape[i], bh.common_shape[i]));

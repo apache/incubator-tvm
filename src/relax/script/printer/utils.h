@@ -33,7 +33,7 @@ namespace details {
 
 ffi::Optional<ffi::String> GlobalInfoSelector(DocTranslatorObj* d, const GlobalInfo& info);
 ExprDoc RelaxShapeDim(DocTranslatorObj* d, const PrimExpr& dim);
-ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprNode* seq,
+ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprObj* seq,
                                  ffi::Optional<IdDoc> destination = std::nullopt,
                                  ffi::Optional<ExprDoc> annotation = std::nullopt,
                                  const ffi::Object* destination_object = nullptr);

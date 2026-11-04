@@ -42,13 +42,13 @@ class ExprBinder : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const ShapeExprNode* op) final {
+  Expr VisitExpr_(const ShapeExprObj* op) final {
     ffi::Array<PrimExpr> values =
         op->values.Map([this](const PrimExpr& value) { return BindShapeValue(value); });
     return values.same_as(op->values) ? ffi::GetRef<Expr>(op) : ShapeExpr(values, op->loc);
   }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     tvm::ffi::Array<Var> params;
     bool all_params_unchanged = true;
     for (const Var& param : op->params) {
@@ -75,7 +75,7 @@ class ExprBinder : public ExprMutator {
     }
   }
 
-  Expr VisitExpr_(const VarNode* op) final {
+  Expr VisitExpr_(const VarObj* op) final {
     auto id = ffi::GetRef<Var>(op);
     auto it = bindings_.find(id);
     if (it != bindings_.end()) {
@@ -149,11 +149,11 @@ tvm::ffi::Map<Var, Expr> InferSymbolicVarMap(
   };
 
   auto bind_from_shape = [&bind_from_prim_expr](const Type& var, const Type& expr) {
-    auto var_shape = var.as<ShapeTypeNode>();
+    auto var_shape = var.as<ShapeTypeObj>();
     if (!var_shape) return;
     if (!var_shape->values.has_value()) return;
 
-    auto expr_shape = expr.as<ShapeTypeNode>();
+    auto expr_shape = expr.as<ShapeTypeObj>();
     if (!expr_shape) return;
     if (!expr_shape->values.has_value()) return;
 
@@ -166,11 +166,11 @@ tvm::ffi::Map<Var, Expr> InferSymbolicVarMap(
   };
 
   auto bind_from_tensor = [&bind_from_shape](const Type& var, const Type& expr) {
-    auto var_tensor = var.as<TensorTypeNode>();
+    auto var_tensor = var.as<TensorTypeObj>();
     if (!var_tensor) return;
     if (!var_tensor->shape.has_value()) return;
 
-    auto expr_tensor = expr.as<TensorTypeNode>();
+    auto expr_tensor = expr.as<TensorTypeObj>();
     if (!expr_tensor) return;
     if (!expr_tensor->shape.has_value()) return;
 
@@ -179,10 +179,10 @@ tvm::ffi::Map<Var, Expr> InferSymbolicVarMap(
 
   std::function<void(const Type&, const Type&)> bind_from_ty = nullptr;
   auto bind_from_tuple = [&bind_from_ty](const Type& var, const Type& expr) {
-    auto var_tuple = var.as<TupleTypeNode>();
+    auto var_tuple = var.as<TupleTypeObj>();
     if (!var_tuple) return;
 
-    auto expr_tuple = expr.as<TupleTypeNode>();
+    auto expr_tuple = expr.as<TupleTypeObj>();
     if (!expr_tuple) return;
 
     if (var_tuple->fields.size() != expr_tuple->fields.size()) return;
@@ -211,14 +211,14 @@ bool IsBoolType(const Type& ty, bool permit_unknown_rank, bool permit_unknown_dt
   DLDataType dtype;
   int ndim;
 
-  if (const auto* tensor = ty.as<TensorTypeNode>()) {
+  if (const auto* tensor = ty.as<TensorTypeObj>()) {
     ndim = tensor->ndim;
     if (tensor->IsUnknownDtype()) {
       bool correct_rank = ndim == 0 || (permit_unknown_rank && ndim == -1);
       return permit_unknown_dtype && correct_rank;
     }
     dtype = tensor->dtype.value()->dtype;
-  } else if (const auto* prim = ty.as<PrimTypeNode>()) {
+  } else if (const auto* prim = ty.as<PrimTypeObj>()) {
     dtype = prim->dtype;
     ndim = 0;
   } else {
@@ -233,12 +233,12 @@ bool IsBoolType(const Type& ty, bool permit_unknown_rank, bool permit_unknown_dt
 }
 
 bool IsLeafOrTuple(const Expr& expr) {
-  return !expr.as<CallNode>() && !expr.as<TupleGetItemNode>() && !expr.as<SeqExprNode>() &&
-         !expr.as<IfExprNode>() && !expr.as<FunctionNode>();
+  return !expr.as<CallObj>() && !expr.as<TupleGetItemObj>() && !expr.as<SeqExprObj>() &&
+         !expr.as<IfExprObj>() && !expr.as<FunctionObj>();
 }
 
 bool IsImpureCall(const Call& call) {
-  if (auto op_ptr = call->op.as<OpNode>()) {
+  if (auto op_ptr = call->op.as<OpObj>()) {
     auto op = ffi::GetRef<Op>(op_ptr);
     static auto purity_map = Op::GetAttrMap(tvm::relax::op_attr::kPurity);
     if (purity_map.count(op)) {
@@ -250,18 +250,18 @@ bool IsImpureCall(const Call& call) {
     auto effect = effect_map[op];
     return effect > CallEffectKind::kPure;
   }
-  TVM_FFI_CHECK(!call->op->ty.as<tvm::FuncTypeNode>(), TypeError)
+  TVM_FFI_CHECK(!call->op->ty.as<tvm::FuncTypeObj>(), TypeError)
       << "Ordinary Relax calls cannot invoke a native TIRx function; "
       << "use R.call_tir or R.call_tir_packed";
   // the Type must be FuncType
-  auto func_ty = GetTypeAs<FuncTypeNode>(call->op);
+  auto func_ty = GetTypeAs<FuncTypeObj>(call->op);
   return !func_ty->purity;
 }
 
 Expr GetBoundValue(const Binding& b) {
-  if (auto* var_binding = b.as<VarBindingNode>()) {
+  if (auto* var_binding = b.as<VarBindingObj>()) {
     return var_binding->value;
-  } else if (auto* match_binding = b.as<MatchCastNode>()) {
+  } else if (auto* match_binding = b.as<MatchCastObj>()) {
     return match_binding->value;
   } else {
     TVM_FFI_ICHECK(false) << "Invalid binding (should never happen)";

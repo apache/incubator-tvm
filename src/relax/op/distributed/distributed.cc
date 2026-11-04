@@ -97,7 +97,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 Type InferDistTypeRedistribute(const Call& call, const BlockBuilder& ctx) {
   const auto* attrs = call->attrs.as<DistributionAttrs>();
-  const auto* ty = GetTypeAs<distributed::DTensorTypeNode>(call->args[0]);
+  const auto* ty = GetTypeAs<distributed::DTensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(ty);
   return distributed::DTensorType(ty->tensor_ty, attrs->device_mesh, attrs->placement);
 }
@@ -113,7 +113,7 @@ Type InferTypeCallTIRLocalView(const Call& call, const BlockBuilder& ctx) {
   if (call->ty_args.size() != 1) {
     TVM_FFI_VISIT_THROW(InternalError, call) << "ty_args should have exactly 1 output type.";
   }
-  TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarNode>())
+  TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarObj>())
       << "call_tir_local_view expects the first argument to be a GlobalVar referring to a TIR "
          "tirx::Function. "
       << "However, gets " << call->args[0];
@@ -131,7 +131,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 Expr MakeCallTIRLocalView(Expr func, Tuple args, ffi::Array<distributed::DTensorType> out_ty_list) {
   for (const distributed::DTensorType& ty : out_ty_list) {
-    const auto* shape = ty->tensor_ty->shape.as<ShapeExprNode>();
+    const auto* shape = ty->tensor_ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK(shape != nullptr)
         << "out_ty of call_tir_local_view should have defined ShapeExpr as shape. "
            "However, one given type information is "

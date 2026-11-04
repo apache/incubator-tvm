@@ -36,8 +36,8 @@ namespace {
 TVM_FFI_INLINE ffi::Expected<ffi::Optional<ffi::VisitInterrupt>> IterVarVisit(
     ffi::StructuralVisitorObj* visitor, ffi::AnyView value) noexcept {
   // skips: iter_type, thread_tag
-  const IterVarNode* self =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarNode>(value);
+  const IterVarObj* self =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarObj>(value);
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(self->dom));
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->WithDefRegionKind(
       kTVMFFIDefRegionKindSimple, [&]() { return visitor->VisitExpected(self->var); }));
@@ -47,8 +47,8 @@ TVM_FFI_INLINE ffi::Expected<ffi::Optional<ffi::VisitInterrupt>> IterVarVisit(
 TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> IterVarMutate(
     ffi::StructuralMutatorObj* mutator, ffi::AnyView value) noexcept {
   // skips: iter_type, thread_tag
-  const IterVarNode* self =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarNode>(value);
+  const IterVarObj* self =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarObj>(value);
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<ffi::Optional<Range>>, mapped_dom,
                                     mutator->MutateExpected(self->dom));
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<PrimVar>, mapped_var,
@@ -58,7 +58,7 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> IterVarMutate(
   if (mapped_dom.UnchangedOrSameAs(self->dom) && mapped_var.UnchangedOrSameAs(self->var)) {
     return ffi::Unchanged();
   }
-  ffi::ObjectPtr<IterVarNode> copy = ffi::make_object<IterVarNode>(*self);
+  ffi::ObjectPtr<IterVarObj> copy = ffi::make_object<IterVarObj>(*self);
   copy->dom = std::move(mapped_dom).ValueOrUnchanged(std::move(copy->dom));
   copy->var = std::move(mapped_var).ValueOrUnchanged(std::move(copy->var));
   copy->ty = copy->var.ty();
@@ -68,8 +68,8 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> IterVarMutate(
 TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> IterVarMaybeInplaceMutate(
     ffi::StructuralMutatorObj* mutator, ffi::AnyView value) noexcept {
   // skips: iter_type, thread_tag
-  IterVarNode* self = const_cast<IterVarNode*>(
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarNode>(value));
+  IterVarObj* self = const_cast<IterVarObj*>(
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const IterVarObj>(value));
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<ffi::Optional<Range>>, mapped_dom,
                                     mutator->MutateExpected(self->dom, ffi::InplaceMode::kAllow));
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<PrimVar>, mapped_var,
@@ -89,7 +89,7 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> IterVarMaybeInplaceMuta
 IterVar::IterVar(ffi::Optional<Range> dom, PrimVar var, IterVarType t, ffi::String thread_tag,
                  Location loc)
     : PrimExpr(ffi::UnsafeInit{}) {
-  ffi::ObjectPtr<IterVarNode> n = ffi::make_object<IterVarNode>(var);
+  ffi::ObjectPtr<IterVarObj> n = ffi::make_object<IterVarObj>(var);
   if (dom.has_value() && dom.value()->extent.defined()) {
     PrimType extent_ty = dom.value()->extent.ty();
     PrimType var_ty = var.ty();
@@ -110,8 +110,8 @@ IterVar::IterVar(ffi::Optional<Range> dom, PrimVar var, IterVarType t, ffi::Stri
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  IterVarNode::RegisterReflection();
-  refl::TypeAttrDef<IterVarNode>()
+  IterVarObj::RegisterReflection();
+  refl::TypeAttrDef<IterVarObj>()
       .attr(ffi::type_attr::kStructuralVisit, ffi::FStructuralVisit::FromNative<&IterVarVisit>())
       .attr(ffi::type_attr::kStructuralMutate, ffi::FStructuralMutate::FromNative<&IterVarMutate>())
       .attr(ffi::type_attr::kStructuralMaybeInplaceMutate,

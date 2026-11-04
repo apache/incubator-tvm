@@ -65,9 +65,9 @@ class ForMatcher : public TensorizeComparator {
   bool Match(const For& top) {
     TVM_FFI_ICHECK(pattern_->body.has_value() && pattern_->body.value()->size() == 1)
         << "Invalid pattern function";
-    const auto* root = pattern_->body.value()->seq[0].as<s_tir::SBlockRealizeNode>();
+    const auto* root = pattern_->body.value()->seq[0].as<s_tir::SBlockRealizeObj>();
     TVM_FFI_ICHECK(root && root->block->body->size() == 1) << "Invalid pattern function";
-    const ForNode* pattern_top = root->block->body->seq[0].as<ForNode>();
+    const ForObj* pattern_top = root->block->body->seq[0].as<ForObj>();
     TVM_FFI_ICHECK(pattern_top) << "Invalid pattern function";
     if (!Dispatch(top, ffi::GetRef<Stmt>(pattern_top))) {
       return false;
@@ -106,7 +106,7 @@ class ForMatcher : public TensorizeComparator {
       if (pattern_vars_.count(rhs_var)) {
         // special case for pattern vars
         if (!lhs.as<PrimVar>()) {
-          if (lhs->IsInstance<IntImmNode>() || lhs->IsInstance<FloatImmNode>()) {
+          if (lhs->IsInstance<IntImmObj>() || lhs->IsInstance<FloatImmObj>()) {
             ffi::Optional<PrimExpr> value = QueryEvaluatedSymbols(rhs_var);
             if (value.has_value()) {
               if (!analyzer_->CanProveEqual(lhs, value.value())) return false;
@@ -121,7 +121,7 @@ class ForMatcher : public TensorizeComparator {
       }
     }
     // pattern_var * expr
-    if (const auto* rhs_ptr = rhs.as<prim::MulNode>()) {
+    if (const auto* rhs_ptr = rhs.as<prim::MulObj>()) {
       auto operand_a = rhs_ptr->a.as<PrimVar>();
       auto operand_b = rhs_ptr->b.as<PrimVar>();
       if (operand_a && pattern_vars_.count(operand_a.value())) {
@@ -154,7 +154,7 @@ class ForMatcher : public TensorizeComparator {
       }
     }
     // pattern_Var + expr
-    if (const auto* rhs_ptr = rhs.as<prim::AddNode>()) {
+    if (const auto* rhs_ptr = rhs.as<prim::AddObj>()) {
       auto operand_a = rhs_ptr->a.as<PrimVar>();
       auto operand_b = rhs_ptr->b.as<PrimVar>();
       if (operand_a && pattern_vars_.count(operand_a.value())) {
@@ -189,8 +189,8 @@ class ForMatcher : public TensorizeComparator {
     return TensorizeComparator::Dispatch(lhs, rhs);
   }
 
-  bool Dispatch_(const prim::AddNode* add, const PrimExpr& other) final {
-    const auto* rhs = other.as<prim::AddNode>();
+  bool Dispatch_(const prim::AddObj* add, const PrimExpr& other) final {
+    const auto* rhs = other.as<prim::AddObj>();
     if (rhs == nullptr) return false;
     {
       this->evaluated_symbols.push_back(SymbolMap());
@@ -215,8 +215,8 @@ class ForMatcher : public TensorizeComparator {
     return false;
   }
 
-  bool Dispatch_(const prim::MulNode* mul, const PrimExpr& other) final {
-    const auto* rhs = other.as<prim::MulNode>();
+  bool Dispatch_(const prim::MulObj* mul, const PrimExpr& other) final {
+    const auto* rhs = other.as<prim::MulObj>();
     if (rhs == nullptr) return false;
     {
       this->evaluated_symbols.push_back(SymbolMap());
@@ -241,11 +241,11 @@ class ForMatcher : public TensorizeComparator {
     return false;
   }
 
-  bool Dispatch_(const CallNode* call, const PrimExpr& other) final {
-    const auto* rhs = other.as<CallNode>();
+  bool Dispatch_(const CallObj* call, const PrimExpr& other) final {
+    const auto* rhs = other.as<CallObj>();
     if (rhs == nullptr) return false;
-    const auto* lhs_op = call->op.as<OpNode>();
-    const auto* rhs_op = rhs->op.as<OpNode>();
+    const auto* lhs_op = call->op.as<OpObj>();
+    const auto* rhs_op = rhs->op.as<OpObj>();
     if (lhs_op == nullptr || rhs_op == nullptr) return false;
     if (lhs_op->name != rhs_op->name) return false;
     if (call->args.size() != rhs->args.size()) return false;
@@ -255,17 +255,17 @@ class ForMatcher : public TensorizeComparator {
     return true;
   }
 
-  bool Dispatch_(const tvm::ForNode* op, const Stmt& other) final {
-    const auto* rhs = other.as<ForNode>();
+  bool Dispatch_(const tvm::ForObj* op, const Stmt& other) final {
+    const auto* rhs = other.as<ForObj>();
     loop_stack_lhs_.push_back(ffi::GetRef<For>(op));
     loop_stack_rhs_.push_back(ffi::GetRef<For>(rhs));
     // The body of loop must be loop or BlockRealize
-    if (op->body->size() != 1 || (!op->body->seq[0]->IsInstance<s_tir::SBlockRealizeNode>() &&
-                                  !op->body->seq[0]->IsInstance<ForNode>())) {
+    if (op->body->size() != 1 || (!op->body->seq[0]->IsInstance<s_tir::SBlockRealizeObj>() &&
+                                  !op->body->seq[0]->IsInstance<ForObj>())) {
       return false;
     }
-    if (rhs->body->size() != 1 || (!rhs->body->seq[0]->IsInstance<s_tir::SBlockRealizeNode>() &&
-                                   !rhs->body->seq[0]->IsInstance<ForNode>())) {
+    if (rhs->body->size() != 1 || (!rhs->body->seq[0]->IsInstance<s_tir::SBlockRealizeObj>() &&
+                                   !rhs->body->seq[0]->IsInstance<ForObj>())) {
       return false;
     }
     // Build mapping between the loop vars
@@ -279,8 +279,8 @@ class ForMatcher : public TensorizeComparator {
     return Dispatch(op->body->seq[0], rhs->body->seq[0]);
   }
 
-  bool Dispatch_(const s_tir::SBlockNode* op, const Stmt& other) final {
-    const auto* rhs = other.as<s_tir::SBlockNode>();
+  bool Dispatch_(const s_tir::SBlockObj* op, const Stmt& other) final {
+    const auto* rhs = other.as<s_tir::SBlockObj>();
     // Check block equality.
     // All iter vars and tensor regions including the order should match.
     // When checking iter vars, DefEqual is used to remap variables.
@@ -297,8 +297,8 @@ class ForMatcher : public TensorizeComparator {
     }
     // The body of the block has to be TensorStore
     if (op->body->size() != 1 || rhs->body->size() != 1 ||
-        !op->body->seq[0]->IsInstance<TensorStoreNode>() ||
-        !rhs->body->seq[0]->IsInstance<TensorStoreNode>()) {
+        !op->body->seq[0]->IsInstance<TensorStoreObj>() ||
+        !rhs->body->seq[0]->IsInstance<TensorStoreObj>()) {
       return false;
     }
     // Handle init block
@@ -310,8 +310,8 @@ class ForMatcher : public TensorizeComparator {
     return Dispatch(op->body->seq[0], rhs->body->seq[0]);
   }
 
-  bool Dispatch_(const s_tir::SBlockRealizeNode* op, const Stmt& other) final {
-    const auto* rhs = other.as<s_tir::SBlockRealizeNode>();
+  bool Dispatch_(const s_tir::SBlockRealizeObj* op, const Stmt& other) final {
+    const auto* rhs = other.as<s_tir::SBlockRealizeObj>();
     // Only allow trivial bindings
     for (size_t i = 0; i < op->iter_values.size(); ++i) {
       if (!op->iter_values[i].same_as(loop_stack_lhs_[i]->var)) return false;
@@ -324,13 +324,13 @@ class ForMatcher : public TensorizeComparator {
     return Dispatch(op->block, rhs->block);
   }
 
-  bool Dispatch_(const TensorStoreNode* op, const Stmt& other) {
-    const auto* rhs = other.as<TensorStoreNode>();
+  bool Dispatch_(const TensorStoreObj* op, const Stmt& other) {
+    const auto* rhs = other.as<TensorStoreObj>();
     return CompareTensorAccess(op, rhs) && Dispatch(op->value, rhs->value);
   }
 
-  bool Dispatch_(const TensorLoadNode* op, const PrimExpr& other) {
-    const auto* rhs = other.as<TensorLoadNode>();
+  bool Dispatch_(const TensorLoadObj* op, const PrimExpr& other) {
+    const auto* rhs = other.as<TensorLoadObj>();
     return CompareTensorAccess(op, rhs);
   }
 
@@ -362,7 +362,7 @@ class ForMatcher : public TensorizeComparator {
     return CompareArray(lhs->region, rhs->region, &ForMatcher::CompareRange);
   }
 
-  bool CompareTensorAccess(const TensorStoreNode* lhs, const TensorStoreNode* rhs) {
+  bool CompareTensorAccess(const TensorStoreObj* lhs, const TensorStoreObj* rhs) {
     if (!CompareTensor(lhs->dest.as_or_throw<TensorVar>(), rhs->dest.as_or_throw<TensorVar>())) {
       return false;
     }
@@ -371,7 +371,7 @@ class ForMatcher : public TensorizeComparator {
         static_cast<bool (ForMatcher::*)(const Expr&, const PrimExpr&)>(&ForMatcher::Dispatch));
   }
 
-  bool CompareTensorAccess(const TensorLoadNode* lhs, const TensorLoadNode* rhs) {
+  bool CompareTensorAccess(const TensorLoadObj* lhs, const TensorLoadObj* rhs) {
     if (rhs == nullptr) return false;
     if (!CompareTensor(lhs->source.as_or_throw<TensorVar>(),
                        rhs->source.as_or_throw<TensorVar>())) {
@@ -418,7 +418,7 @@ class TIRPatternMatcher {
       ffi::Array<Var> pattern_symbolic_vars;
       int tensor_count = 0;
       while (tensor_count < static_cast<int>(pattern_func->params.size()) &&
-             pattern_func->params[tensor_count]->ty.as<tirx::TensorTypeNode>()) {
+             pattern_func->params[tensor_count]->ty.as<tirx::TensorTypeObj>()) {
         ++tensor_count;
       }
       for (int i = tensor_count; i < static_cast<int>(pattern_func->params.size()); i++) {
@@ -444,7 +444,7 @@ class TIRPatternMatcher {
   // For each block in the body, try to find its corresponding pattern one by one
   void OpMatternMatch(const SeqStmt& body) {
     for (const Stmt& stmt : body->seq) {
-      const ForNode* loop = stmt.as<ForNode>();
+      const ForObj* loop = stmt.as<ForObj>();
       if (loop == nullptr || !BlockPatternMatch(ffi::GetRef<For>(loop))) {
         break;
       }
@@ -484,7 +484,7 @@ class FunctionPartitioner : public s_tir::StmtExprVisitor {
   bool fail = false;
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     block_counter_++;
     bool is_matching_ = block_counter_ <= num_matched_ops_;
     if (block_counter_ == num_matched_ops_ && intermediate_tensor.has_value()) {
@@ -538,11 +538,11 @@ class BlockRemover : public s_tir::StmtExprMutator {
       : block_partition(block_partition), allocs_(allocs), is_library_part_(is_library_part) {}
 
  private:
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlock block = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                               .as_or_throw<s_tir::SBlock>();
-    ffi::ObjectPtr<s_tir::SBlockNode> n = ffi::make_object<s_tir::SBlockNode>(*block.operator->());
+    ffi::ObjectPtr<s_tir::SBlockObj> n = ffi::make_object<s_tir::SBlockObj>(*block.operator->());
     if (op->name_hint != "root") {
       TVM_FFI_ICHECK(block_partition.count(ffi::GetRef<s_tir::SBlock>(op)));
       bool block_is_library = block_partition[ffi::GetRef<s_tir::SBlock>(op)];
@@ -562,7 +562,7 @@ class BlockRemover : public s_tir::StmtExprMutator {
     return s_tir::SBlock(n);
   }
 
-  UnchangedOr<Stmt> Mutate_(const SeqStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SeqStmtObj* op, InplaceMode inplace_mode) final {
     ffi::Array<Stmt> seq;
     bool erased_all = !op->seq.empty();
     for (const Stmt& s : op->seq) {
@@ -602,7 +602,7 @@ std::pair<tirx::Function, ffi::Optional<tirx::Function>> SplitFunctions(
   if (!func->body.has_value() || func->body.value()->size() != 1) {
     return {func, std::nullopt};
   }
-  const auto* root = func->body.value()->seq[0].as<s_tir::SBlockRealizeNode>();
+  const auto* root = func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>();
   if (root == nullptr) return {func, std::nullopt};
   SeqStmt body = root->block->body;
   ffi::Array<MatchResult> match_results = TIRPatternMatcher::Match(patterns, body);
@@ -685,7 +685,7 @@ void StringReplace(std::string* subject, const std::string& search, const std::s
   }
 }
 
-tvm::BaseFunc CodegenWithLibrary(const tirx::FunctionNode* pf, ffi::String global_symbol) {
+tvm::BaseFunc CodegenWithLibrary(const tirx::FunctionObj* pf, ffi::String global_symbol) {
   using namespace tvm::tirx;
   ffi::Optional<ffi::String> library_code = pf->attrs.GetAttr(tvm::relax::attr::kLibraryKernel);
   if (!library_code.has_value()) {
@@ -712,7 +712,7 @@ class SplitMutator : public ExprMutator {
                             FCodegen fcodegen) {
     SplitMutator mutator(mod, patterns, fcodegen);
     for (auto& kv : mod->functions) {
-      if (auto* func = kv.second.as<FunctionNode>()) {
+      if (auto* func = kv.second.as<FunctionObj>()) {
         Function new_func = mutator(ffi::GetRef<Function>(func)).as_or_throw<Function>();
         mutator.builder_->UpdateFunction(kv.first, new_func);
       }
@@ -724,20 +724,20 @@ class SplitMutator : public ExprMutator {
   using ExprMutator::VisitExpr_;
 
   inline ffi::Array<Expr> GetCallTIRArgs(Expr args) {
-    if (args.as<TupleNode>()) {
-      return args.as<TupleNode>()->fields;
+    if (args.as<TupleObj>()) {
+      return args.as<TupleObj>()->fields;
     } else {
       return {args};
     }
   }
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     Call call = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     static const Op call_dps_packed_ = Op::Get("relax.call_dps_packed");
     if (!call->op.same_as(call_tir_op_)) return call;
     // the first argument is the function to be called
-    const auto* gv_ptr = call->args[0].as<GlobalVarNode>();
+    const auto* gv_ptr = call->args[0].as<GlobalVarObj>();
     if (gv_ptr == nullptr) return call;
     GlobalVar gv = ffi::GetRef<GlobalVar>(gv_ptr);
     // retrieve the function from the module and split it
@@ -749,12 +749,12 @@ class SplitMutator : public ExprMutator {
     if (!split_funcs.second.has_value()) {
       // no need to split, the function itself a library kernel
       tvm::BaseFunc lib_func = CodegenWithLibrary(split_funcs.first.get(), gv->name_hint);
-      if (lib_func->IsInstance<tirx::FunctionNode>()) return ffi::GetRef<Call>(op);
+      if (lib_func->IsInstance<tirx::FunctionObj>()) return ffi::GetRef<Call>(op);
       // Update the function in the module with the library kernel
-      TVM_FFI_ICHECK(lib_func->IsInstance<ExternFuncNode>());
+      TVM_FFI_ICHECK(lib_func->IsInstance<ExternFuncObj>());
       builder_->UpdateFunction(gv, lib_func);
       // emit the call to the library kernel
-      ffi::ObjectPtr<CallNode> new_call = ffi::make_object<CallNode>(*call.operator->());
+      ffi::ObjectPtr<CallObj> new_call = ffi::make_object<CallObj>(*call.operator->());
       new_call->op = this->call_dps_packed_;
       new_call->args = {lib_func, call->args[1]};
       return Call(new_call);
@@ -769,8 +769,8 @@ class SplitMutator : public ExprMutator {
     }
     // replace the function in the module with the library kernel
     tvm::BaseFunc lib_func = CodegenWithLibrary(func1.get(), gv->name_hint);
-    if (lib_func->IsInstance<tirx::FunctionNode>()) return ffi::GetRef<Call>(op);
-    TVM_FFI_ICHECK(lib_func->IsInstance<ExternFuncNode>());
+    if (lib_func->IsInstance<tirx::FunctionObj>()) return ffi::GetRef<Call>(op);
+    TVM_FFI_ICHECK(lib_func->IsInstance<ExternFuncObj>());
     builder_->UpdateFunction(gv, lib_func);
     tirx::TensorVar intermediate_tensor = func1->params.back().as_or_throw<tirx::TensorVar>();
     PrimType dtype = intermediate_tensor.dtype();

@@ -80,7 +80,7 @@ using FInstructionAttrsFromJSON = ffi::TypedFunction<ffi::Array<Any>(ffi::Object
  * 4) A functor that serialize its attributes to JSON
  * 5) A functor that deserialize its attributes from JSON
  *
- * Unlike `tvm::OpNode`, `InstructionKindObj` doesn't support unstructured properties,
+ * Unlike `tvm::OpObj`, `InstructionKindObj` doesn't support unstructured properties,
  * mainly because there is no such usecase yet to add any other property.
  */
 class InstructionKindObj : public ffi::Object {
@@ -143,11 +143,11 @@ class InstructionKind : public ffi::ObjectRef {
 };
 
 /*! \brief Schedule instructions each corresponds to a schedule primitive */
-class InstructionNode : public ffi::Object {
+class InstructionObj : public ffi::Object {
  public:
-  explicit InstructionNode(ffi::UnsafeInit tag) : kind(tag) {}
+  explicit InstructionObj(ffi::UnsafeInit tag) : kind(tag) {}
 
-  explicit InstructionNode(InstructionKind kind) : kind(std::move(kind)) {}
+  explicit InstructionObj(InstructionKind kind) : kind(std::move(kind)) {}
   /*! \brief The kind of the instruction */
   InstructionKind kind;
   /*!
@@ -178,18 +178,18 @@ class InstructionNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<InstructionNode>()
-        .def_ro("kind", &InstructionNode::kind)
-        .def_ro("inputs", &InstructionNode::inputs)
-        .def_ro("attrs", &InstructionNode::attrs)
-        .def_ro("outputs", &InstructionNode::outputs);
+    refl::ObjectDef<InstructionObj>()
+        .def_ro("kind", &InstructionObj::kind)
+        .def_ro("inputs", &InstructionObj::inputs)
+        .def_ro("attrs", &InstructionObj::attrs)
+        .def_ro("outputs", &InstructionObj::outputs);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.Instruction", InstructionNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.Instruction", InstructionObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to InstructionNode
- * \sa InstructionNode
+ * \brief Managed reference to InstructionObj
+ * \sa InstructionObj
  */
 class Instruction : public ffi::ObjectRef {
  public:
@@ -203,7 +203,7 @@ class Instruction : public ffi::ObjectRef {
   explicit Instruction(InstructionKind kind, ffi::Array<Any> inputs, ffi::Array<Any> attrs,
                        ffi::Array<Any> outputs);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Instruction, ffi::ObjectRef, InstructionNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Instruction, ffi::ObjectRef, InstructionObj);
 };
 
 /*! \brief Temporary builder for a canonical named instruction kind. */

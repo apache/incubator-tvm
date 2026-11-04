@@ -86,16 +86,16 @@ class MemoizedExprTranslator : public ExprFunctor<OutputType(const Expr&)> {
     return res;
   }
 
-  virtual OutputType VisitExpr_(const VarNode* vn) {
+  virtual OutputType VisitExpr_(const VarObj* vn) {
     TVM_FFI_ICHECK(memo_.count(ffi::GetRef<Expr>(vn)));
     return memo_.at(ffi::GetRef<Expr>(vn));
   }
 
-  virtual OutputType VisitExpr_(const DataflowVarNode* vn) {
-    return VisitExpr_(static_cast<const VarNode*>(vn));
+  virtual OutputType VisitExpr_(const DataflowVarObj* vn) {
+    return VisitExpr_(static_cast<const VarObj*>(vn));
   }
 
-  virtual OutputType VisitBinding_(const VarBindingNode* binding) {
+  virtual OutputType VisitBinding_(const VarBindingObj* binding) {
     TVM_FFI_ICHECK_EQ(memo_.count(binding->var), 0);
     auto v = VisitExpr(binding->value);
     memo_.insert_or_assign(binding->var, v);
@@ -178,9 +178,9 @@ bool IsScalarTensor(const Expr& expr);
  */
 template <typename FType>
 bool IsNestedTensorConditioned(const Type& ty, FType f_condition) {
-  if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+  if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
     return f_condition(ffi::GetRef<TensorType>(tensor_ty));
-  } else if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+  } else if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
     return !std::any_of(tuple_ty->fields.begin(), tuple_ty->fields.end(), [&](const Type& field) {
       return !IsNestedTensorConditioned(field, f_condition);
     });
@@ -297,7 +297,7 @@ class VarReplacer : public ExprMutator {
   }
 
  private:
-  Expr VisitExpr_(const VarNode* op) final {
+  Expr VisitExpr_(const VarObj* op) final {
     Var var = ffi::GetRef<Var>(op);
     auto it = var_remap_.find(var);
     return it == var_remap_.end() ? var : it->second;
@@ -326,28 +326,28 @@ class SymbolicVarRenewMutator : public ExprMutator {
   using relax::ExprMutator::VisitExpr;
   using relax::ExprMutator::VisitExpr_;
 
-  static Var CopyVar(const VarNode* op, Type ty) {
+  static Var CopyVar(const VarObj* op, Type ty) {
     ffi::Optional<Type> ty_annotation =
         ty.as<MissingType>().has_value() ? std::nullopt : ffi::Optional<Type>(ty);
-    if (op->IsInstance<DataflowVarNode>()) {
+    if (op->IsInstance<DataflowVarObj>()) {
       return DataflowVar(op->name, std::move(ty_annotation), op->loc);
     }
-    return Var(op->name, std::move(ty_annotation), op->loc);
+    return Var(op->name, std::move(ty), op->loc);
   }
 
-  Type RenewType(const VarNode* op) {
+  Type RenewType(const VarObj* op) {
     return op->ty.as<MissingType>().has_value() ? op->ty : this->VisitExprDepTypeField(op->ty);
   }
 
-  Var RenewVarDefinition(const VarNode* op) {
+  Var RenewVarDefinition(const VarObj* op) {
     Var old_var = ffi::GetRef<Var>(op);
     if (auto it = var_remap_.find(old_var); it != var_remap_.end()) {
       return it->second;
     }
 
     Type new_ty = RenewType(op);
-    bool is_dataflow = op->IsInstance<DataflowVarNode>();
-    bool renew = renew_all_var_definitions_ || (!is_dataflow && op->ty.as<PrimTypeNode>()) ||
+    bool is_dataflow = op->IsInstance<DataflowVarObj>();
+    bool renew = renew_all_var_definitions_ || (!is_dataflow && op->ty.as<PrimTypeObj>()) ||
                  !new_ty.same_as(op->ty);
     if (!renew) {
       return old_var;
@@ -358,12 +358,12 @@ class SymbolicVarRenewMutator : public ExprMutator {
     return renewed;
   }
 
-  Expr VisitExpr_(const VarNode* op) final {
+  Expr VisitExpr_(const VarObj* op) final {
     Var old_var = ffi::GetRef<Var>(op);
     if (auto it = var_remap_.find(old_var); it != var_remap_.end()) {
       return it->second;
     }
-    if (!op->ty.as<PrimTypeNode>()) {
+    if (!op->ty.as<PrimTypeObj>()) {
       return ExprMutator::VisitExpr_(op);
     }
 
@@ -372,7 +372,7 @@ class SymbolicVarRenewMutator : public ExprMutator {
     return renewed;
   }
 
-  Expr VisitExpr_(const DataflowVarNode* op) final {
+  Expr VisitExpr_(const DataflowVarObj* op) final {
     Var old_var = ffi::GetRef<Var>(op);
     if (auto it = var_remap_.find(old_var); it != var_remap_.end()) {
       return it->second;
@@ -386,11 +386,11 @@ class SymbolicVarRenewMutator : public ExprMutator {
     return renewed;
   }
 
-  Var VisitVarDef_(const VarNode* op) override { return RenewVarDefinition(op); }
+  Var VisitVarDef_(const VarObj* op) override { return RenewVarDefinition(op); }
 
-  Var VisitVarDef_(const DataflowVarNode* op) override { return RenewVarDefinition(op); }
+  Var VisitVarDef_(const DataflowVarObj* op) override { return RenewVarDefinition(op); }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     tvm::ffi::Array<Var> params;
     bool all_params_unchanged = true;
     for (Var param : op->params) {

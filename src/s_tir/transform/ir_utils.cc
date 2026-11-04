@@ -49,7 +49,7 @@ class SIRConvertSSA final : public StmtExprMutator {
   Function VisitFunction(Function func);
   IRModule VisitIRModule(IRModule mod);
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode mode) {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode mode) {
     SBlock block = ffi::GetRef<SBlock>(op);
     return scope_.WithNewScope([&]() -> Stmt {
       auto iter_vars = op->iter_vars.Map([&](IterVar iter) {
@@ -64,31 +64,31 @@ class SIRConvertSSA final : public StmtExprMutator {
     });
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockRealizeNode* op, InplaceMode mode) {
+  UnchangedOr<Stmt> Mutate_(const SBlockRealizeObj* op, InplaceMode mode) {
     return s_tir::StmtExprMutator::MutateBlockRealize(this, op, mode);
   }
 
  private:
-  UnchangedOr<Expr> Mutate_(const VarNode* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Expr> Mutate_(const VarObj* op, InplaceMode inplace_mode) final;
   Var DefineVar(Var var);
   ffi::Optional<Var> GetVarRemap(const Var& var);
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const IfNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const WhileNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<PrimExpr> Mutate_(const prim::LetNode* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const IfObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const WhileObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<PrimExpr> Mutate_(const prim::LetObj* op, InplaceMode inplace_mode) final;
   static Var MakeNewVar(const Var& old_var);
   void SetVarRemap(const Var& old_var, const Var& new_var);
 
   // Lexical visibility ends with each scope, but definitions stay unique across the module.
-  ScopeStack<std::unordered_map<const VarNode*, Var>> scope_;
-  std::unordered_set<const VarNode*> defined_;
+  ScopeStack<std::unordered_map<const VarObj*, Var>> scope_;
+  std::unordered_set<const VarObj*> defined_;
 };
 
 Function SIRConvertSSA::VisitFunction(Function func) {
   return scope_.WithNewScope([&]() -> Function {
-    std::unordered_set<const VarNode*> parameter_symbols;
+    std::unordered_set<const VarObj*> parameter_symbols;
     // Define explicit parameters before the symbolic values in their types.
     for (const Var& param : func->params) {
       DefineVar(param);
@@ -130,7 +130,7 @@ Function SIRConvertSSA::VisitFunction(Function func) {
   });
 }
 
-UnchangedOr<Expr> SIRConvertSSA::Mutate_(const VarNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Expr> SIRConvertSSA::Mutate_(const VarObj* op, InplaceMode inplace_mode) {
   Var var = ffi::GetRef<Var>(op);
   if (def_region_kind() != kTVMFFIDefRegionKindNone) {
     if (def_region_kind() == kTVMFFIDefRegionKindPattern) {
@@ -143,7 +143,7 @@ UnchangedOr<Expr> SIRConvertSSA::Mutate_(const VarNode* op, InplaceMode inplace_
   return ffi::Unchanged();
 }
 
-UnchangedOr<PrimExpr> SIRConvertSSA::Mutate_(const prim::LetNode* op, InplaceMode inplace_mode) {
+UnchangedOr<PrimExpr> SIRConvertSSA::Mutate_(const prim::LetObj* op, InplaceMode inplace_mode) {
   ffi::Any previous_remap = VarRemapGet(op->var);
   PrimExpr result = scope_.WithNewScope([&] {
     return StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<PrimExpr>(op));
@@ -172,18 +172,18 @@ ffi::Optional<Var> SIRConvertSSA::GetVarRemap(const Var& var) {
   return std::nullopt;
 }
 
-UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const BindNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const BindObj* op, InplaceMode inplace_mode) {
   Var var = op->var;
   ffi::Any previous_remap = VarRemapGet(var);
   // The ordinary Bind path rewrites the RHS before defining the Var and propagates its type.
   Stmt stmt = StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-  Var bound_var = stmt.as<BindNode>()->var;
+  Var bound_var = stmt.as<BindObj>()->var;
   if (!bound_var.same_as(GetVarRemap(var).value_or(var))) SetVarRemap(var, bound_var);
   VarRemapSet(var, previous_remap);
   return stmt;
 }
 
-UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const IfNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const IfObj* op, InplaceMode inplace_mode) {
   // Each branch gets its own scope so Bind remaps in one branch
   // do not leak into the other.
   auto condition_result = Mutate(op->condition, inplace_mode);
@@ -204,7 +204,7 @@ UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const IfNode* op, InplaceMode inplace_m
   return If(condition, then_case, else_case);
 }
 
-UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const ForNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const ForObj* op, InplaceMode inplace_mode) {
   const Var& v = op->var;
   if (defined_.count(v.get())) {
     return scope_.WithNewScope([&]() -> Stmt {
@@ -212,7 +212,7 @@ UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const ForNode* op, InplaceMode inplace_
       SetVarRemap(v, new_var);
       Stmt stmt =
           StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-      auto n = ffi::make_object<ForNode>(*stmt.as<ForNode>());
+      auto n = ffi::make_object<ForObj>(*stmt.as<ForObj>());
       n->var = new_var.as_or_throw<PrimVar>();
       return For(n);
     });
@@ -225,13 +225,13 @@ UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const ForNode* op, InplaceMode inplace_
   }
 }
 
-UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const WhileNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const WhileObj* op, InplaceMode inplace_mode) {
   return scope_.WithNewScope([&]() -> Stmt {
     return StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
   });
 }
 
-UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> SIRConvertSSA::Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) {
   auto attrs = Mutate(op->attrs, InplaceMode::kDisallow)
                    .as_or_throw<UnchangedOr<DictAttrs>>()
                    .ValueOrUnchanged(op->attrs);
@@ -261,7 +261,7 @@ IRModule SIRConvertSSA::VisitIRModule(IRModule mod) {
   ffi::Map<GlobalVar, BaseFunc> functions;
   bool made_change = false;
   for (auto [gvar, base_func] : mod->functions) {
-    if (auto* ptr = base_func.as<tirx::FunctionNode>()) {
+    if (auto* ptr = base_func.as<tirx::FunctionObj>()) {
       auto updated = VisitFunction(ffi::GetRef<tirx::Function>(ptr));
       if (!updated.same_as(base_func)) {
         made_change = true;
@@ -349,7 +349,7 @@ ffi::Array<Range> ConvertRegion(const MatchTensorRegion& match_tensor,
 class StorageAlignCollector : public StmtExprVisitor {
  public:
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
@@ -358,7 +358,7 @@ class StorageAlignCollector : public StmtExprVisitor {
       const Stmt& body);
 
   /*! \brief SBlock: resolve each annotation's tensor index through the write regions. */
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     auto it = op->annotations.find(attr::kTensorDimAlign.name);
     if (it != op->annotations.end()) {
       auto annotation = (*it).second.as_or_throw<StorageAlignAnnotation>();
@@ -370,15 +370,15 @@ class StorageAlignCollector : public StmtExprVisitor {
   }
 
   /*! \brief AllocTensor: check for tensor_dim_align annotations. */
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
-    if (const auto* call = op->value.as<CallNode>();
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return DispatchAllocTensor(op, call);
     }
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindNode* op, const CallNode* call) {
+  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindObj* op, const CallObj* call) {
     DictAttrs annotations = call->attrs.as_or_throw<DictAttrs>();
     auto it = annotations->dict.find(attr::kTensorDimAlign.name);
     if (it != annotations->dict.end()) {

@@ -42,16 +42,16 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
  public:
   using s_tir::StmtExprMutator::Mutate;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) final {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return s_tir::StmtExprMutator::Mutate(value, inplace_mode);
   }
 
   explicit SplitFunctionLayoutRewrite(const tirx::Function& func) : original_func_(func) {}
   std::tuple<ffi::Optional<tirx::Function>, tirx::Function> Transform(const tirx::Function& func) {
     TVM_FFI_ICHECK(func->body.has_value() && func->body.value()->size() == 1 &&
-                   func->body.value()->seq[0].as<s_tir::SBlockRealizeNode>())
+                   func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>())
         << "The body of the function should be a root block.";
-    const auto& block = func->body.value()->seq[0].as<s_tir::SBlockRealizeNode>()->block;
+    const auto& block = func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()->block;
     visit_root_block(block.get());
     if (layout_rewrite_preproc_stmts_.size() > 0) {
       return std::make_tuple(create_layout_rewrite_preproc_func(), create_compute_func());
@@ -118,7 +118,7 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
     // Step 2: Create the body for the new tirx::Function
     Stmt body = SeqStmt(compute_stmts_);
     s_tir::SBlock original_block =
-        original_func_->body.value()->seq[0].as<s_tir::SBlockRealizeNode>()->block;
+        original_func_->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()->block;
     ffi::Array<TensorVar> alloc_tensors;
     for (const auto& tensor : original_block->alloc_tensors) {
       auto it =
@@ -152,7 +152,7 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
     return tirx::RenewDef(func);
   }
 
-  void visit_root_block(const s_tir::SBlockNode* op) {
+  void visit_root_block(const s_tir::SBlockObj* op) {
     for (const auto& stmt : op->body->seq) {
       current_subtree_ = 0;
       Stmt new_stmt = this->Mutate(stmt).ValueOrUnchanged(stmt);
@@ -166,7 +166,7 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
       }
     }
   }
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlock block = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                               .as_or_throw<s_tir::SBlock>();
@@ -210,7 +210,7 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
 
       auto new_annotations = op->annotations;
       new_annotations.erase(tvm::s_tir::attr::kMetaScheduleLayoutRewritePreproc.name);
-      auto n = ffi::make_object<s_tir::SBlockNode>(*block.get());
+      auto n = ffi::make_object<s_tir::SBlockObj>(*block.get());
       n->annotations = new_annotations;
       return s_tir::SBlock(n);
     }
@@ -250,7 +250,7 @@ class SplitLayoutRewritePreproc : public ExprMutator {
 
     // Step 1: Split the function into preproc and compute
     for (auto [gv, func] : mod->functions) {
-      if (func->IsInstance<tirx::FunctionNode>()) {
+      if (func->IsInstance<tirx::FunctionObj>()) {
         auto tir_rewriter =
             ffi::make_object<tirx::SplitFunctionLayoutRewrite>(func.as_or_throw<tirx::Function>());
         auto [preproc_func, compute_func] =
@@ -264,7 +264,7 @@ class SplitLayoutRewritePreproc : public ExprMutator {
     }
 
     for (auto [gv, func] : mod->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         auto relax_func = func.as_or_throw<relax::Function>();
         mutator.builder_->UpdateFunction(gv, mutator(relax_func).as_or_throw<relax::Function>());
       }
@@ -276,7 +276,7 @@ class SplitLayoutRewritePreproc : public ExprMutator {
   explicit SplitLayoutRewritePreproc(const IRModule& mod) : ExprMutator(mod) {}
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     Call call = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
@@ -310,7 +310,7 @@ class SplitLayoutRewritePreproc : public ExprMutator {
       preproc_args.push_back(call_tir_args[info.tensor_index]);
       tirx::TensorVar rewritten_tensor = info.post_rewrite_tensor;
       for (const auto& shape_expr : rewritten_tensor.shape()) {
-        TVM_FFI_ICHECK(shape_expr.as<IntImmNode>())
+        TVM_FFI_ICHECK(shape_expr.as<IntImmObj>())
             << "Currently does not support rewrite tensor with "
                "dynamic shape.";
       }
@@ -338,8 +338,8 @@ class SplitLayoutRewritePreproc : public ExprMutator {
   }
 
  private:
-  std::unordered_map<const GlobalVarNode*, std::tuple<tirx::Function, tirx::Function>> split_funcs_;
-  std::unordered_map<const GlobalVarNode*,
+  std::unordered_map<const GlobalVarObj*, std::tuple<tirx::Function, tirx::Function>> split_funcs_;
+  std::unordered_map<const GlobalVarObj*,
                      std::vector<tirx::SplitFunctionLayoutRewrite::RewriteInfo>>
       rewrite_infos_;
 };

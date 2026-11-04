@@ -52,47 +52,47 @@ enum class TensorIndexType : int32_t {
 /**************** Random variable: SBlockRV ****************/
 
 /*! \brief A random variable that evaluates to a TensorIR block */
-class SBlockRVNode : public ffi::Object {
+class SBlockRVObj : public ffi::Object {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBlockRVNode>();
+    refl::ObjectDef<SBlockRVObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockRV", SBlockRVNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockRV", SBlockRVObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to SBlockRVNode
- * \sa SBlockRVNode
+ * \brief Managed reference to SBlockRVObj
+ * \sa SBlockRVObj
  */
 class SBlockRV : public ffi::ObjectRef {
  public:
   /*! \brief Constructor */
   TVM_DLL SBlockRV();
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlockRV, ffi::ObjectRef, SBlockRVNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlockRV, ffi::ObjectRef, SBlockRVObj);
 };
 
 /**************** Random variable: LoopRV ****************/
 
 /*! \brief A random variable that evaluates to a TensorIR for loop */
-class LoopRVNode : public ffi::Object {
+class LoopRVObj : public ffi::Object {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<LoopRVNode>();
+    refl::ObjectDef<LoopRVObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.LoopRV", LoopRVNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.LoopRV", LoopRVObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to LoopRVNode
- * \sa LoopRVNode
+ * \brief Managed reference to LoopRVObj
+ * \sa LoopRVObj
  */
 class LoopRV : public ffi::ObjectRef {
  public:
   /*! \brief Constructor */
   TVM_DLL LoopRV();
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(LoopRV, ffi::ObjectRef, LoopRVNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(LoopRV, ffi::ObjectRef, LoopRVObj);
 };
 
 /**************** Random variable: ExprRV ****************/
@@ -100,7 +100,7 @@ class LoopRV : public ffi::ObjectRef {
 /*! \brief An expr random variable */
 using ExprRV = PrimExpr;
 
-using ExprRVNode = ExprNode;
+using ExprRVObj = ExprObj;
 
 /**************** The Schedule class ****************/
 
@@ -200,7 +200,7 @@ class ScheduleObj : public ffi::Object {
    * \param stmt The statement to be looked up
    * \return The corresponding block/loop sref
    */
-  virtual StmtSRef GetSRef(const StmtNode* stmt) const;
+  virtual StmtSRef GetSRef(const StmtObj* stmt) const;
   /*!
    * \brief Get the block/loop sref corresponding to the specific statement
    * \param stmt The statement to be looked up

@@ -27,19 +27,19 @@ using namespace tvm::tirx;
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::ObjectDef<ScheduleObj>();
-  SBlockRVNode::RegisterReflection();
-  LoopRVNode::RegisterReflection();
+  SBlockRVObj::RegisterReflection();
+  LoopRVObj::RegisterReflection();
 }
 
 /**************** Constructor ****************/
 
-SBlockRV::SBlockRV() { this->data_ = ffi::make_object<SBlockRVNode>(); }
+SBlockRV::SBlockRV() { this->data_ = ffi::make_object<SBlockRVObj>(); }
 
-LoopRV::LoopRV() { this->data_ = ffi::make_object<LoopRVNode>(); }
+LoopRV::LoopRV() { this->data_ = ffi::make_object<LoopRVObj>(); }
 
 /**************** GetSRef ****************/
 
-StmtSRef ScheduleObj::GetSRef(const StmtNode* stmt) const {
+StmtSRef ScheduleObj::GetSRef(const StmtObj* stmt) const {
   ScheduleState state = this->state();
   auto it = state->stmt2ref.find(stmt);
   if (it == state->stmt2ref.end()) {

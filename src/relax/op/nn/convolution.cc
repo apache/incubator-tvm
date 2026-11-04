@@ -626,9 +626,9 @@ InferLayoutOutput InferLayoutConv2d(
       TensorType data_ty = data_si.as<TensorType>().value();
       TensorType kernel_ty = kernel_si.as<TensorType>().value();
       ffi::Optional<ShapeExpr> data_shape =
-          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprObj>());
       ffi::Optional<ShapeExpr> kernel_shape =
-          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprObj>());
 
       bool can_data_proved =
           CanProveLayoutTransform(input_layout, desired_data_layout, data_shape.value()->values);
@@ -1247,9 +1247,9 @@ InferLayoutOutput InferLayoutConv2dTranspose(
       TensorType data_ty = data_si.as<TensorType>().value();
       TensorType kernel_ty = kernel_si.as<TensorType>().value();
       ffi::Optional<ShapeExpr> data_shape =
-          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprObj>());
       ffi::Optional<ShapeExpr> kernel_shape =
-          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprObj>());
 
       bool can_data_proved =
           CanProveLayoutTransform(input_layout, desired_data_layout, data_shape.value()->values);
@@ -1495,9 +1495,9 @@ InferLayoutOutput InferLayoutConv3dTranspose(
       TensorType data_ty = data_si.as<TensorType>().value();
       TensorType kernel_ty = kernel_si.as<TensorType>().value();
       ffi::Optional<ShapeExpr> data_shape =
-          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(data_ty->shape.as<ShapeExprObj>());
       ffi::Optional<ShapeExpr> kernel_shape =
-          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprNode>());
+          ffi::GetRef<ShapeExpr>(kernel_ty->shape.as<ShapeExprObj>());
 
       bool can_data_proved =
           CanProveLayoutTransform(input_layout, desired_data_layout, data_shape.value()->values);

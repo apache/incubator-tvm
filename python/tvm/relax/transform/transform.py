@@ -1088,7 +1088,7 @@ def LegalizeOps(
         List of ops that need to be skipped from legalization
 
     enable_warning : bool
-        A boolean value indicating if to print warnings for CallNode whose op's
+        A boolean value indicating if to print warnings for CallObj whose op's
         legalization function is not registered. By default we don't print
         warnings.
 

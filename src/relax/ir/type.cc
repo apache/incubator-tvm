@@ -50,15 +50,15 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> PackedFuncTypeMaybeInpl
 }  // namespace
 
 PackedFuncType::PackedFuncType(Location loc) : Type(ffi::UnsafeInit{}) {
-  ffi::ObjectPtr<PackedFuncTypeNode> n = ffi::make_object<PackedFuncTypeNode>();
+  ffi::ObjectPtr<PackedFuncTypeObj> n = ffi::make_object<PackedFuncTypeObj>();
   n->loc = loc;
   data_ = std::move(n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  PackedFuncTypeNode::RegisterReflection();
-  refl::TypeAttrDef<PackedFuncTypeNode>()
+  PackedFuncTypeObj::RegisterReflection();
+  refl::TypeAttrDef<PackedFuncTypeObj>()
       .attr(ffi::type_attr::kStructuralVisit,
             ffi::FStructuralVisit::FromNative<&PackedFuncTypeVisit>())
       .attr(ffi::type_attr::kStructuralMutate,

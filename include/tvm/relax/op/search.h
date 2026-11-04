@@ -30,21 +30,21 @@ namespace tvm {
 namespace relax {
 
 /*! \brief Attributes for search operators */
-struct ArgmaxArgminAttrs : public AttrsNode {
+struct ArgmaxArgminAttrs : public AttrsObj {
   ffi::Optional<int64_t> axis;
   bool keepdims;
 
   static void RegisterReflection();
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.ArgmaxArgminAttrs", ArgmaxArgminAttrs, AttrsNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.ArgmaxArgminAttrs", ArgmaxArgminAttrs, AttrsObj);
 };  // struct ArgmaxArgminAttrs
 
 /*! \brief Attributes for bucketize operator */
-struct BucketizeAttrs : public tvm::AttrsNode {
+struct BucketizeAttrs : public tvm::AttrsObj {
   bool out_int32;
   bool right;
 
   static void RegisterReflection();
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.BucketizeAttrs", BucketizeAttrs, AttrsNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.BucketizeAttrs", BucketizeAttrs, AttrsObj);
 };  // struct BucketizeAttrs
 
 }  // namespace relax

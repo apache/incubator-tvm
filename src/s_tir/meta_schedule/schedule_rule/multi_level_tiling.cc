@@ -34,12 +34,12 @@ namespace s_tir {
 using namespace tvm::tirx;
 
 std::vector<int> GetReadTensorNDims(const StmtSRef& block_sref) {
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
-  const VarNode* write_tensor = block->writes[0]->source.as_or_throw<tvm::tirx::TensorVar>().get();
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const VarObj* write_tensor = block->writes[0]->source.as_or_throw<tvm::tirx::TensorVar>().get();
   int n = block->reads.size();
   std::vector<int> results(n, -1);
   for (int i = 0; i < n; ++i) {
-    const VarNode* read_tensor = block->reads[i]->source.as_or_throw<tvm::tirx::TensorVar>().get();
+    const VarObj* read_tensor = block->reads[i]->source.as_or_throw<tvm::tirx::TensorVar>().get();
     if (read_tensor != write_tensor) {
       results[i] = ffi::GetRef<Var>(read_tensor).as_or_throw<TensorVar>().shape().size();
     }
@@ -238,7 +238,7 @@ std::vector<State> MultiLevelTilingObj::TileLoopNest(State state,
       if (spatial_loop_product != -1) {
         PrimExpr extent_imm_expr =
             Range::GetExtentFromBeginEnd(sch->Get(loop)->begin, sch->Get(loop)->end);
-        const auto* extent_imm = extent_imm_expr.as<IntImmNode>();
+        const auto* extent_imm = extent_imm_expr.as<IntImmObj>();
         if (auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
             extent.has_value()) {
           spatial_loop_product *= *extent;
@@ -342,13 +342,13 @@ std::vector<State> MultiLevelTilingObj::AddAsyncPipeline(State state) const {
   // check the reduce loop contains exactly 3 for loops
   // therefore it matches the notation array size in the following code
   tirx::StmtSRef r_loop_sref = state->sch->GetSRef(state->tiles[r_indices_[0]].back());
-  const ForNode* r_for_loop = TVM_SREF_TO_FOR(r_loop_sref);
+  const ForObj* r_for_loop = TVM_SREF_TO_FOR(r_loop_sref);
   ffi::Array<Stmt> seq = r_for_loop->body->seq;
   if (seq.size() != 3) {
     return {state};
   }
   for (auto& stmt : seq) {
-    if (!stmt.as<ForNode>()) {
+    if (!stmt.as<ForObj>()) {
       return {state};
     }
   }
@@ -372,7 +372,7 @@ std::vector<State> MultiLevelTilingObj::AddAsyncPipeline(State state) const {
 void MultiLevelTilingObj::AnnotateCooperativeFetching(Schedule* sch,
                                                       const s_tir::SBlockRV& block) const {
   // Filter out invalid vector lanes according to the data type.
-  const s_tir::SBlockNode* block_node = (*sch)->GetSRef(block)->StmtAs<s_tir::SBlockNode>();
+  const s_tir::SBlockObj* block_node = (*sch)->GetSRef(block)->StmtAs<s_tir::SBlockObj>();
   TVM_FFI_ICHECK_EQ(block_node->writes.size(), 1);
   const DLDataType dtype =
       block_node->writes[0]->source.as_or_throw<tvm::tirx::TensorVar>().dtype()->dtype;

@@ -70,15 +70,15 @@ class GPUCodeVerifier : public StmtExprVisitor {
     return errors_;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
-    if (const auto* call = op->value.as<CallNode>();
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return DispatchAllocTensor(op, call);
     }
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindNode* op, const CallNode* call) {
+  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindObj* op, const CallObj* call) {
     static const auto scope_local = runtime::MemoryScope::Get("local");
     static const auto scope_shared = runtime::MemoryScope::Get("shared");
     static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
@@ -90,7 +90,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
     runtime::MemoryScope storage_scope = scope;
     int64_t const_size = 1;
     for (const Expr& e : shape->fields) {
-      if (auto* imm = e.as<IntImmNode>()) {
+      if (auto* imm = e.as<IntImmObj>()) {
         const_size = static_cast<int64_t>(const_size * imm->value);
       } else {
         const_size = 0;
@@ -117,7 +117,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     if (op->op.same_as(tirx::launch_thread_op())) {
       if (nest_level_ == 0) {
         // enter a new kernel, reset statistics
@@ -125,7 +125,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
         kernels_launched_++;
       }
 
-      const auto* extent = op->args[1].as_or_throw<PrimExpr>().as<IntImmNode>();
+      const auto* extent = op->args[1].as_or_throw<PrimExpr>().as<IntImmObj>();
       TVM_FFI_ICHECK(extent);
 
       std::string name = op->args[0].as_or_throw<StringImm>()->value;
@@ -215,10 +215,10 @@ class GPUCodeVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) {
     if (op->var->name == "vthread.s") {
       PrimExpr extent_expr = Range::GetExtentFromBeginEnd(op->begin, op->end);
-      const auto* extent = extent_expr.as<IntImmNode>();
+      const auto* extent = extent_expr.as<IntImmObj>();
       TVM_FFI_ICHECK(extent);
 
       size_t num_vthread = extent->value.as<size_t>().value();
@@ -235,7 +235,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
 
   void CheckTensorIndicesVectorizable(const ffi::Array<PrimExpr> indices) {
     for (const auto index : indices) {
-      if (const auto* ramp = index.as<RampNode>()) {
+      if (const auto* ramp = index.as<RampObj>()) {
         PrimType ramp_ty = ramp->ty.as_or_throw<PrimType>();
         if (!IsOne(ramp->stride) && ramp_ty.IsFixedLengthVector() &&
             ElementBytes(ramp_ty) > max_vector_bytes_) {
@@ -249,7 +249,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
     }
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CastNode* op) {
+  ffi::Optional<VisitInterrupt> Visit_(const CastObj* op) {
     PrimType op_ty = op->ty.as_or_throw<PrimType>();
     if (op_ty.IsFixedLengthVector()) {
       if (ElementBytes(op_ty) > max_vector_bytes_) {
@@ -263,7 +263,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) {
     PrimType op_ty = op->ty.as_or_throw<PrimType>();
     if (op_ty.IsFixedLengthVector()) {
       if (ElementBytes(op_ty) > max_vector_bytes_) {
@@ -278,7 +278,7 @@ class GPUCodeVerifier : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) {
     PrimType value_ty = op->value.ty();
     if (value_ty.IsFixedLengthVector()) {
       if (ElementBytes(value_ty) > max_vector_bytes_) {
@@ -345,7 +345,7 @@ std::vector<ffi::String> VerifyGPUCode_(const Function& func,
   int64_t max_kernels = INT64_MAX;
 
   for (auto iter : constraints) {
-    const IntImmNode* val = iter.second.as<IntImmNode>();
+    const IntImmObj* val = iter.second.as<IntImmObj>();
     if (iter.first == "max_local_memory_per_block") {
       max_local_memory_per_block = static_cast<int64_t>(val->value);
     } else if (iter.first == "max_shared_memory_per_block") {

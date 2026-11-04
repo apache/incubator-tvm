@@ -60,7 +60,7 @@ class SBlockDependenceInfoObj : public ffi::Object {
    */
   std::unordered_map<StmtSRef, SBlockScope, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> sref2scope;
   /*! \brief The reverse mapping from block/for-loop to their corresponding srefs */
-  std::unordered_map<const StmtNode*, StmtSRef> stmt2ref;
+  std::unordered_map<const StmtObj*, StmtSRef> stmt2ref;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;

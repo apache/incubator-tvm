@@ -339,9 +339,9 @@ ffi::Array<Any> UnpackedInstTraits<TTraits>::ApplyToSchedule(const Schedule& sch
   ffi::Function pf([](const ffi::PackedArgs& args, ffi::Any* rv) -> void {
     constexpr size_t kNumArgs = details::NumArgs<method_type>;
     TVM_FFI_ICHECK_EQ(args.size(), kNumArgs);
-    ffi::details::unpack_call<return_type>(std::make_index_sequence<kNumArgs>{}, nullptr,
-                                           TTraits::UnpackedApplyToSchedule, args.data(),
-                                           args.size(), rv);
+    ffi::detail::unpack_call<return_type>(std::make_index_sequence<kNumArgs>{}, nullptr,
+                                          TTraits::UnpackedApplyToSchedule, args.data(),
+                                          args.size(), rv);
   });
   ffi::Any rv;
   pf.CallPacked(ffi::PackedArgs(packed_args, kNumArgs), &rv);
@@ -374,8 +374,8 @@ ffi::String UnpackedInstTraits<TTraits>::AsPython(const ffi::Array<Any>& inputs,
   ffi::Function pf([](const ffi::PackedArgs& args, ffi::Any* rv) -> void {
     constexpr size_t kNumArgs = details::NumArgs<method_type>;
     TVM_FFI_ICHECK_EQ(args.size(), kNumArgs);
-    ffi::details::unpack_call<return_type>(std::make_index_sequence<kNumArgs>{}, nullptr,
-                                           TTraits::UnpackedAsPython, args.data(), args.size(), rv);
+    ffi::detail::unpack_call<return_type>(std::make_index_sequence<kNumArgs>{}, nullptr,
+                                          TTraits::UnpackedAsPython, args.data(), args.size(), rv);
   });
   ffi::Any rv;
   pf.CallPacked(ffi::PackedArgs(packed_args, kNumArgs), &rv);

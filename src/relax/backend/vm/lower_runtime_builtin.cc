@@ -42,7 +42,7 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
  public:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) final {
+  Expr VisitExpr_(const CallObj* call_node) final {
     static const auto& lower_builtin_fmap = Op::GetAttrMap(tvm::relax::op_attr::kLowerBuiltin);
     // post-order mutation
     Call call = VisitExprPostOrder_(call_node).as_or_throw<Call>();
@@ -74,7 +74,7 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
       return MakeMemAllocTensor(call);
     } else if (call->op.same_as(mem_kill_storage_op_) || call->op.same_as(mem_kill_tensor_op_)) {
       return MakeMemKillObject(call);
-    } else if (const auto* op_node = call->op.as<OpNode>()) {
+    } else if (const auto* op_node = call->op.as<OpObj>()) {
       Op op = ffi::GetRef<Op>(op_node);
       if (lower_builtin_fmap.count(op)) {
         return lower_builtin_fmap[op](builder_, call);
@@ -110,8 +110,8 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
 
   Expr CallTIRDyn(const Call& call_node) {
     TVM_FFI_ICHECK(call_node->args.size() == 2);
-    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<GlobalVarNode>());
-    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleNode>());
+    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<GlobalVarObj>());
+    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleObj>());
     ffi::Array<Expr> args;
 
     auto tir_args = call_node->args[1].as_or_throw<Tuple>();
@@ -127,9 +127,9 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
     TVM_FFI_ICHECK(!call_node->ty.as<MissingType>().has_value());
     auto arg = call_node->args[1];
 
-    TVM_FFI_CHECK(arg->ty->IsInstance<ShapeTypeNode>(), TypeError)
+    TVM_FFI_CHECK(arg->ty->IsInstance<ShapeTypeObj>(), TypeError)
         << "LowerRuntimeBuiltin expects the shape arg of R.reshape "
-        << "to be a ShapeExpr or VarNode bound to a ShapeExpr.  "
+        << "to be a ShapeExpr or VarObj bound to a ShapeExpr.  "
         << "However, in expression " << call_node << ", the shape argument " << arg << " has type "
         << arg->ty;
 
@@ -187,8 +187,8 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
 
   Expr MakeClosure(const Call& call_node) {
     TVM_FFI_ICHECK(call_node->args.size() == 2);
-    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<GlobalVarNode>());
-    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleNode>());
+    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<GlobalVarObj>());
+    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleObj>());
 
     ffi::Array<Expr> args;
     auto func = call_node->args[0];
@@ -204,8 +204,8 @@ class LowerRuntimeBuiltinMutator : public ExprMutator {
 
   Expr InvokeClosure(const Call& call_node) {
     TVM_FFI_ICHECK(call_node->args.size() == 2);
-    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<VarNode>());
-    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleNode>());
+    TVM_FFI_ICHECK(call_node->args[0]->IsInstance<VarObj>());
+    TVM_FFI_ICHECK(call_node->args[1]->IsInstance<TupleObj>());
 
     ffi::Array<Expr> args;
 

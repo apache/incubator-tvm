@@ -43,28 +43,28 @@ class UnusedTrivialBindingRemover : public ExprMutator {
  public:
   static Expr Apply(Expr expr) {
     struct UsedCollector : ExprVisitor {
-      void VisitExpr_(const VarNode* val) override { used.insert(val); }
-      void VisitExpr_(const DataflowVarNode* val) override {
-        VisitExpr_(static_cast<const VarNode*>(val));
+      void VisitExpr_(const VarObj* val) override { used.insert(val); }
+      void VisitExpr_(const DataflowVarObj* val) override {
+        VisitExpr_(static_cast<const VarObj*>(val));
       }
 
-      void VisitBinding_(const VarBindingNode* binding, const VarNode* val) override {
+      void VisitBinding_(const VarBindingObj* binding, const VarObj* val) override {
         has_trivial_binding.insert(binding->var.get());
         ExprVisitor::VisitBinding_(binding, val);
       }
-      void VisitBinding_(const MatchCastNode* binding) override {
-        if (binding->value.as<VarNode>() &&
+      void VisitBinding_(const MatchCastObj* binding) override {
+        if (binding->value.as<VarObj>() &&
             ffi::StructuralEqual()(GetType(binding->var), GetType(binding->value))) {
           has_trivial_binding.insert(binding->var.get());
         }
         ExprVisitor::VisitBinding_(binding);
       }
-      void VisitBinding_(const VarBindingNode* binding, const DataflowVarNode* val) override {
-        VisitBinding_(binding, static_cast<const VarNode*>(val));
+      void VisitBinding_(const VarBindingObj* binding, const DataflowVarObj* val) override {
+        VisitBinding_(binding, static_cast<const VarObj*>(val));
       }
 
-      std::unordered_set<const VarNode*> used;
-      std::unordered_set<const VarNode*> has_trivial_binding;
+      std::unordered_set<const VarObj*> used;
+      std::unordered_set<const VarObj*> has_trivial_binding;
     };
 
     UsedCollector collector;
@@ -80,7 +80,7 @@ class UnusedTrivialBindingRemover : public ExprMutator {
   }
 
  private:
-  explicit UnusedTrivialBindingRemover(std::unordered_set<const VarNode*> to_remove)
+  explicit UnusedTrivialBindingRemover(std::unordered_set<const VarObj*> to_remove)
       : to_remove_(std::move(to_remove)) {}
 
   void VisitBinding(const Binding& binding) override {
@@ -89,17 +89,17 @@ class UnusedTrivialBindingRemover : public ExprMutator {
     }
   }
 
-  std::unordered_set<const VarNode*> to_remove_;
+  std::unordered_set<const VarObj*> to_remove_;
 };
 
 class CollectLastUsage : public ExprVisitor {
  public:
   struct LastUsage {
-    std::vector<const VarNode*> tensors;
-    std::vector<const VarNode*> storage;
-    std::vector<const VarNode*> objects;
+    std::vector<const VarObj*> tensors;
+    std::vector<const VarObj*> storage;
+    std::vector<const VarObj*> objects;
   };
-  using Result = std::unordered_map<const VarNode*, LastUsage>;
+  using Result = std::unordered_map<const VarObj*, LastUsage>;
 
   static Result Collect(const Expr& expr) {
     CollectLastUsage visitor;
@@ -124,13 +124,12 @@ class CollectLastUsage : public ExprVisitor {
         // codegen special case should be reflected here as well.
         bool stored_in_vm_register =
             !(visitor.constant_tensors_.count(var) || visitor.null_value_objects_.count(var) ||
-              var->ty.as<FuncTypeNode>() || var->ty.as<ShapeTypeNode>() ||
-              var->ty.as<PrimTypeNode>());
+              var->ty.as<FuncTypeObj>() || var->ty.as<ShapeTypeObj>() || var->ty.as<PrimTypeObj>());
 
         if (!is_output && !already_killed) {
           if (visitor.storage_objects_.count(var)) {
             output[last_usage_point].storage.push_back(var);
-          } else if (var->ty.as<TensorTypeNode>() && stored_in_vm_register) {
+          } else if (var->ty.as<TensorTypeObj>() && stored_in_vm_register) {
             output[last_usage_point].tensors.push_back(var);
           } else if (stored_in_vm_register) {
             output[last_usage_point].objects.push_back(var);
@@ -150,7 +149,7 @@ class CollectLastUsage : public ExprVisitor {
     current_binding_ = cache;
   }
 
-  void VisitExpr_(const VarNode* op) override {
+  void VisitExpr_(const VarObj* op) override {
     ExprVisitor::VisitExpr_(op);
     // Overwrite any previous usage, such that after the visitor
     // completes, last_usage_of_ contains the last usage point.  If
@@ -159,7 +158,7 @@ class CollectLastUsage : public ExprVisitor {
     last_usage_of_[op] = current_binding_;
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* val) override {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* val) override {
     static const Op vm_alloc_storage = Op::Get("relax.vm.alloc_storage");
     static const Op mem_alloc_storage = Op::Get("relax.memory.alloc_storage");
     static const Op null_value_op = Op::Get("relax.null_value");
@@ -177,7 +176,7 @@ class CollectLastUsage : public ExprVisitor {
       TVM_FFI_ICHECK_EQ(val->args.size(), 1)
           << "Operator " << val->op << " should have one argument, "
           << "but instead found " << val->args.size() << " arguments: " << val->args;
-      auto killed_object = val->args[0].as<VarNode>();
+      auto killed_object = val->args[0].as<VarObj>();
       TVM_FFI_ICHECK(killed_object)
           << "Internal error: non-normalized expression " << ffi::GetRef<Call>(val);
       killed_objects_.insert(killed_object);
@@ -187,54 +186,54 @@ class CollectLastUsage : public ExprVisitor {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const GenericConstNode* val) override {
+  void VisitBinding_(const VarBindingObj* binding, const GenericConstObj* val) override {
     if (val->value.as<ffi::TensorObj>()) constant_tensors_.insert(binding->var.get());
   }
 
  private:
   // The current binding being visited, or nullptr if no binding is
   // being visited.
-  const VarNode* current_binding_{nullptr};
+  const VarObj* current_binding_{nullptr};
 
   // Order of bindings, to ensure consistent order of destruction, in
   // case a Binding is the last usage for more than one variable.
-  std::vector<const VarNode*> binding_order_;
+  std::vector<const VarObj*> binding_order_;
 
   // Map from a variable to the last variable binding that makes use
   // of it.
-  std::unordered_map<const VarNode*, const VarNode*> last_usage_of_;
+  std::unordered_map<const VarObj*, const VarObj*> last_usage_of_;
 
   // Storage objects, eligible for R.vm.kill_object.  This cannot be
   // determined solely from the Type, because the
   // `R.*.alloc_storage` operators return AnyType
-  std::unordered_set<const VarNode*> storage_objects_;
+  std::unordered_set<const VarObj*> storage_objects_;
 
   // Constants, which do not have a VM register, and may *not* have
   // R.builtin.kill_tensor called on them.
-  std::unordered_set<const VarNode*> constant_tensors_;
+  std::unordered_set<const VarObj*> constant_tensors_;
 
   // Variables bound to `relax.null_value`, which do not occupy a VM
   // register in CodeGenVM, and therefore must
   // never be passed to R.vm.kill_object.
-  std::unordered_set<const VarNode*> null_value_objects_;
+  std::unordered_set<const VarObj*> null_value_objects_;
 
   // Set of objects that already have a call node to kill them.  Should not have a duplicate
-  std::unordered_set<const VarNode*> killed_objects_;
+  std::unordered_set<const VarObj*> killed_objects_;
 
   // Trivial var-to-var bindings.
-  std::unordered_map<const VarNode*, const VarNode*> trivial_bindings_;
+  std::unordered_map<const VarObj*, const VarObj*> trivial_bindings_;
 };
 
 class KillInserter : public ExprMutator {
  private:
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     last_usage_ = CollectLastUsage::Collect(ffi::GetRef<Expr>(op));
     auto mutated = ExprMutator::VisitExpr_(op);
     last_usage_.clear();
     return mutated;
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) override {
+  Expr VisitExpr_(const SeqExprObj* op) override {
     last_usage_ = CollectLastUsage::Collect(ffi::GetRef<Expr>(op));
     auto mutated = ExprMutator::VisitExpr_(op);
     last_usage_.clear();
@@ -251,13 +250,13 @@ class KillInserter : public ExprMutator {
       }
 
       static const Op mem_kill_storage = Op::Get("relax.memory.kill_storage");
-      for (const VarNode* storage_obj : it->second.storage) {
+      for (const VarObj* storage_obj : it->second.storage) {
         builder_->Emit(Call(Type::Missing(), mem_kill_storage, {ffi::GetRef<Expr>(storage_obj)}),
                        /*name_hint=*/"_");
       }
 
       static const Op vm_kill_object = Op::Get("relax.vm.kill_object");
-      for (const VarNode* obj : it->second.objects) {
+      for (const VarObj* obj : it->second.objects) {
         builder_->Emit(Call(Type::Missing(), vm_kill_object, {ffi::GetRef<Expr>(obj)}),
                        /*name_hint=*/"_");
       }

@@ -33,7 +33,7 @@
 namespace tvm {
 namespace relax {
 
-Type InferTypeUnaryCheck(const CallNode* call_node) {
+Type InferTypeUnaryCheck(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return InferTypeUnary<false>(call, [](const TensorType& input_ty) { return PrimType::Bool(); });
 }

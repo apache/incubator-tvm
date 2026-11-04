@@ -85,10 +85,10 @@ class CollectCLMLFromCompositeFunctionBody : public ExprVisitor {
   explicit CollectCLMLFromCompositeFunctionBody(OpenCLMLJSONSerializer* serializer)
       : serializer_(serializer), node_(std::make_shared<JSONGraphNode>()) {}
 
-  void VisitExpr_(const GenericConstNode* constant_node) final;
-  void VisitExpr_(const CallNode* call_node) final;
+  void VisitExpr_(const GenericConstObj* constant_node) final;
+  void VisitExpr_(const CallObj* call_node) final;
 
-  void SetGenericAttributes(const CallNode* call_node) {
+  void SetGenericAttributes(const CallObj* call_node) {
     if (backend::IsOp(call_node, "relax.nn.relu")) {
       node_->SetAttr("activation_type", ffi::String("relu"));
     }
@@ -124,19 +124,19 @@ class OpenCLMLJSONSerializer : public JSONSerializer {
    * convolution. Supports nn.conv2d
    */
   struct CompositeConvNode {
-    const CallNode* pad = nullptr;
-    const CallNode* conv = nullptr;
-    const CallNode* bn = nullptr;
-    const CallNode* bias = nullptr;
-    const CallNode* activation = nullptr;
+    const CallObj* pad = nullptr;
+    const CallObj* conv = nullptr;
+    const CallObj* bn = nullptr;
+    const CallObj* bias = nullptr;
+    const CallObj* activation = nullptr;
     std::string act_type;
   };
 
   using JSONSerializer::VisitExpr_;
 
-  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallNode* call_node) final {
+  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallObj* call_node) final {
     // The call must be to an inline "Composite" function
-    const auto* fn_var = call_node->op.as<VarNode>();
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
 
@@ -177,7 +177,7 @@ class OpenCLMLJSONSerializer : public JSONSerializer {
       VLOG(1) << name << " has " << node->GetInputs().size() << " inputs";
     }
 
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
   /*!
@@ -186,10 +186,10 @@ class OpenCLMLJSONSerializer : public JSONSerializer {
    * \param cn The call node of the composite function.
    * \return Extracted composite convolution nodes.
    */
-  CompositeConvNode UnpackCompositeConvolution(const CallNode* cn) {
+  CompositeConvNode UnpackCompositeConvolution(const CallObj* cn) {
     CompositeConvNode nodes{};
 
-    const auto* fn_var = cn->op.as<VarNode>();
+    const auto* fn_var = cn->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     auto opt_composite = fn->GetAttr(tvm::relax::attr::kComposite);
@@ -215,10 +215,10 @@ class OpenCLMLJSONSerializer : public JSONSerializer {
    * \param cn The call to be represented.
    * \return A JSON representation of a specific operator.
    */
-  std::shared_ptr<JSONGraphNode> CreateCompositeConvJSONNode(const CallNode* cn) {
+  std::shared_ptr<JSONGraphNode> CreateCompositeConvJSONNode(const CallObj* cn) {
     CompositeConvNode nodes = UnpackCompositeConvolution(cn);
 
-    const auto* fn_var = cn->op.as<VarNode>();
+    const auto* fn_var = cn->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     auto opt_composite = fn->GetAttr(tvm::relax::attr::kComposite);
@@ -278,13 +278,13 @@ class OpenCLMLJSONSerializer : public JSONSerializer {
   ffi::Map<Var, Expr> bindings_;
 };
 
-void CollectCLMLFromCompositeFunctionBody::VisitExpr_(const GenericConstNode* constant_node) {
+void CollectCLMLFromCompositeFunctionBody::VisitExpr_(const GenericConstObj* constant_node) {
   for (const auto& entry : serializer_->VisitExpr(ffi::GetRef<GenericConst>(constant_node))) {
     args_.emplace_back(entry);
   }
 }
 
-void CollectCLMLFromCompositeFunctionBody::VisitExpr_(const CallNode* call_node) {
+void CollectCLMLFromCompositeFunctionBody::VisitExpr_(const CallObj* call_node) {
   SetGenericAttributes(call_node);
   ExprVisitor::VisitExpr_(call_node);
 }

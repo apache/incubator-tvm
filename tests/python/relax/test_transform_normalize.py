@@ -57,7 +57,7 @@ def test_normalize_function():
 def test_normalize_if():
     cond = relax.Var("cond", R.Tensor([], "bool"))
     x = relax.Var("x", R.Tensor([1], "float32"))
-    # TODO(relax-team): add type and shape inference for IfExprNode
+    # TODO(relax-team): add type and shape inference for IfExprObj
     y = relax.Var("y")
 
     # Note: the parser automatically normalize the IR written in TVMScript,
@@ -237,7 +237,7 @@ def test_normalize_if_branches():
 def test_normalize_if_condition():
     cond = relax.Var("cond", R.Tensor([], "bool"))
     x = relax.Var("x", R.Tensor([1], "float32"))
-    # TODO(relax-team): add type and shape inference for IfExprNode
+    # TODO(relax-team): add type and shape inference for IfExprObj
     y = relax.Var("y")
 
     # The condition is wrapped in a tuple and then indexed

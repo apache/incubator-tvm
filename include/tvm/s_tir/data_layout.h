@@ -101,7 +101,7 @@ class SLayoutAxis {
  *  Here subordinate axis channel_block=16 is the factor size of the primal axis C (channel).
  *  SLayout for scalar is defined, while both its name and axes have size 0.
  */
-class SLayoutNode : public ffi::Object {
+class SLayoutObj : public ffi::Object {
  public:
   /*! \brief string representation of layout, "" for scalar. */
   ffi::String name;
@@ -115,16 +115,16 @@ class SLayoutNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SLayoutNode>()
-        .def_ro("name", &SLayoutNode::name)
-        .def_ro("axes", &SLayoutNode::axes);
+    refl::ObjectDef<SLayoutObj>()
+        .def_ro("name", &SLayoutObj::name)
+        .def_ro("axes", &SLayoutObj::axes);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SLayout", SLayoutNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SLayout", SLayoutObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to SLayoutNode
- * \sa SLayoutNode
+ * \brief Managed reference to SLayoutObj
+ * \sa SLayoutObj
  */
 class SLayout : public ffi::ObjectRef {
  public:
@@ -154,7 +154,7 @@ class SLayout : public ffi::ObjectRef {
    * \brief access the internal node container
    * \return the pointer to the internal node container
    */
-  SLayoutNode* operator->() { return static_cast<SLayoutNode*>(get_mutable()); }
+  SLayoutObj* operator->() { return static_cast<SLayoutObj*>(get_mutable()); }
 
   /*!
    * \brief Return an undefined layout.
@@ -342,15 +342,15 @@ class SLayout : public ffi::ObjectRef {
     return os;
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SLayout, ffi::ObjectRef, SLayoutNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SLayout, ffi::ObjectRef, SLayoutObj);
 };
 
 // Internal node container SBijectiveLayout
-class SBijectiveLayoutNode : public ffi::Object {
+class SBijectiveLayoutObj : public ffi::Object {
  public:
-  explicit SBijectiveLayoutNode(ffi::UnsafeInit tag) : src_layout(tag), dst_layout(tag) {}
+  explicit SBijectiveLayoutObj(ffi::UnsafeInit tag) : src_layout(tag), dst_layout(tag) {}
 
-  SBijectiveLayoutNode(SLayout src, SLayout dst)
+  SBijectiveLayoutObj(SLayout src, SLayout dst)
       : src_layout(std::move(src)), dst_layout(std::move(dst)) {}
   /*! \brief Describes how source axes can be mapped to the destination axes,
    *   e.g., [i0 / 16, i1, i0 % 16] can describe NC -> NC16n
@@ -370,15 +370,15 @@ class SBijectiveLayoutNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBijectiveLayoutNode>()
-        .def_ro("src_layout", &SBijectiveLayoutNode::src_layout)
-        .def_ro("dst_layout", &SBijectiveLayoutNode::dst_layout)
-        .def_ro("index_forward_rule", &SBijectiveLayoutNode::index_forward_rule)
-        .def_ro("index_backward_rule", &SBijectiveLayoutNode::index_backward_rule)
-        .def_ro("shape_forward_rule", &SBijectiveLayoutNode::shape_forward_rule)
-        .def_ro("shape_backward_rule", &SBijectiveLayoutNode::shape_backward_rule);
+    refl::ObjectDef<SBijectiveLayoutObj>()
+        .def_ro("src_layout", &SBijectiveLayoutObj::src_layout)
+        .def_ro("dst_layout", &SBijectiveLayoutObj::dst_layout)
+        .def_ro("index_forward_rule", &SBijectiveLayoutObj::index_forward_rule)
+        .def_ro("index_backward_rule", &SBijectiveLayoutObj::index_backward_rule)
+        .def_ro("shape_forward_rule", &SBijectiveLayoutObj::shape_forward_rule)
+        .def_ro("shape_backward_rule", &SBijectiveLayoutObj::shape_backward_rule);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBijectiveLayout", SBijectiveLayoutNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBijectiveLayout", SBijectiveLayoutObj, ffi::Object);
 };
 
 /*!
@@ -389,7 +389,7 @@ class SBijectiveLayoutNode : public ffi::Object {
  */
 class SBijectiveLayout : public ffi::ObjectRef {
  public:
-  explicit SBijectiveLayout(ffi::UnsafeInit tag, ffi::ObjectPtr<SBijectiveLayoutNode> data)
+  explicit SBijectiveLayout(ffi::UnsafeInit tag, ffi::ObjectPtr<SBijectiveLayoutObj> data)
       : ffi::ObjectRef(tag) {
     data_ = std::move(data);
   }
@@ -412,7 +412,7 @@ class SBijectiveLayout : public ffi::ObjectRef {
   TVM_DLL ffi::Array<PrimExpr> BackwardIndex(const ffi::Array<PrimExpr>& dst_index) const;
 
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBijectiveLayout, ffi::ObjectRef,
-                                                SBijectiveLayoutNode);
+                                                SBijectiveLayoutObj);
 };
 
 }  // namespace tirx

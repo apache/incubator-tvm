@@ -32,15 +32,15 @@ using namespace tvm::prim;
 
 using namespace tirx;
 
-TVM_FFI_STATIC_INIT_BLOCK() { ScanOpNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ScanOpObj::RegisterReflection(); }
 
 // Pattern A (RM): auto-default repr from reflection.
 
-int ScanOpNode::num_outputs() const { return static_cast<int>(update.size()); }
+int ScanOpObj::num_outputs() const { return static_cast<int>(update.size()); }
 
-PrimType ScanOpNode::output_dtype(size_t i) const { return update[i]->GetDataType(); }
+PrimType ScanOpObj::output_dtype(size_t i) const { return update[i]->GetDataType(); }
 
-ffi::Array<PrimExpr> ScanOpNode::output_shape(size_t i) const {
+ffi::Array<PrimExpr> ScanOpObj::output_shape(size_t i) const {
   TVM_FFI_ICHECK_LT(i, state_placeholder.size());
   return state_placeholder[i]->shape;
 }
@@ -53,7 +53,7 @@ ScanOp::ScanOp(std::string name, std::string tag,
   if (!attrs.has_value()) {
     attrs = ffi::Map<ffi::String, ffi::Any>();
   }
-  auto n = ffi::make_object<ScanOpNode>();
+  auto n = ffi::make_object<ScanOpObj>();
   TVM_FFI_ICHECK_EQ(init.size(), update.size());
   TVM_FFI_ICHECK_EQ(init.size(), state_placeholder.size());
   sym::Analyzer analyzer;
@@ -126,7 +126,7 @@ ffi::Array<Tensor> scan(ffi::Array<Tensor> init, ffi::Array<Tensor> update,
   return res;
 }
 
-ffi::Array<Tensor> ScanOpNode::InputTensors() const {
+ffi::Array<Tensor> ScanOpObj::InputTensors() const {
   ffi::Array<Tensor> ret;
   for (Tensor t : init) {
     ret.push_back(t);

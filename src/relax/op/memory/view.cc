@@ -74,13 +74,13 @@ Type InferTypeView(const Call& call, const BlockBuilder& ctx) {
                                << "but received " << arg_data << " with type " << ty;
     }
   }();
-  auto view_shape_ty = [&]() -> const ShapeTypeNode* {
+  auto view_shape_ty = [&]() -> const ShapeTypeObj* {
     Type ty = GetType(arg_shape);
     if (HasVoidType(arg_shape)) {
       // No shape change is applied.  The input tensor's shape is
       // kept as-is.
       return nullptr;
-    } else if (auto ptr = ty.as<ShapeTypeNode>()) {
+    } else if (auto ptr = ty.as<ShapeTypeObj>()) {
       // The `R.view` operation returns a different shape.
       return ptr;
     } else {
@@ -111,7 +111,7 @@ Type InferTypeView(const Call& call, const BlockBuilder& ctx) {
     }
 
     static const Op null_value_op = Op::Get("relax.null_value");
-    if (const CallNode* call_node = arg_value.as<CallNode>()) {
+    if (const CallObj* call_node = arg_value.as<CallObj>()) {
       if (call_node->op.same_as(null_value_op)) {
         // No datatype change is applied.  This is the non-void
         // representation used for missing optional dtype arguments.
@@ -126,14 +126,14 @@ Type InferTypeView(const Call& call, const BlockBuilder& ctx) {
     // themselves.  However, dtype DataTypeImm uses
     // `AnyType`, so we need to inspect the argument itself
     // in this case.
-    if (auto dtype_imm = arg_value.as<DataTypeImmNode>()) {
+    if (auto dtype_imm = arg_value.as<DataTypeImmObj>()) {
       // We know the datatype for the view.
       TVM_FFI_CHECK(!PrimType(dtype_imm->value).IsVoid(), TypeError)
           << "Operator " << call->op
           << " expects the dtype argument to be a concrete tensor datatype, "
           << "but received void.  Use relax.null_value() if no dtype change is requested.";
       return PrimType(dtype_imm->value);
-    } else if (ty.as<AnyTypeNode>()) {
+    } else if (ty.as<AnyTypeObj>()) {
       // The view changes the datatype, but we don't know what it is
       // being changed into.
       return std::nullopt;
@@ -150,12 +150,12 @@ Type InferTypeView(const Call& call, const BlockBuilder& ctx) {
     if (HasVoidType(arg_relative_byte_offset)) {
       // No byte offset is specified, so no change is applied.
       return IntImm::Int64(0);
-    } else if (auto prim_ty = ty.as<PrimTypeNode>()) {
+    } else if (auto prim_ty = ty.as<PrimTypeObj>()) {
       TVM_FFI_CHECK_EQ(prim_ty->dtype, (DLDataType{kDLInt, 64, 1}), TypeError)
           << "Operator " << call->op
           << " expects the relative_byte_offset to be a 64-bit integer, but received "
           << arg_relative_byte_offset << ", which has type " << ty;
-      if (arg_relative_byte_offset.as<DataflowVarNode>()) {
+      if (arg_relative_byte_offset.as<DataflowVarObj>()) {
         // A primitive DataflowVar is a runtime value, not a symbolic value
         // that can be analyzed.
         return std::nullopt;
@@ -341,7 +341,7 @@ Expr LowerBuiltinView(const BlockBuilder& bb, const Call& call) {
     }
 
     static const Op null_value_op = Op::Get("relax.null_value");
-    if (const CallNode* call_node = arg.as<CallNode>()) {
+    if (const CallObj* call_node = arg.as<CallObj>()) {
       return call_node->op.same_as(null_value_op);
     }
     return false;
@@ -415,7 +415,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.memory.ensure_zero_offset", ensure_zero_offset);
 }
 
-Type InferTypeEnsureZeroOffset(const CallNode* call_node) {
+Type InferTypeEnsureZeroOffset(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 1) {
     TVM_FFI_VISIT_THROW(ValueError, call)

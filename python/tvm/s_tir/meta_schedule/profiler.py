@@ -37,7 +37,8 @@ class Profiler(tvm_ffi.Object):
 
     def get(self) -> dict[str, float]:
         """Get the profiling results in seconds"""
-        return _ffi_api.ProfilerGet(self)  # type: ignore # pylint: disable=no-member
+        results = _ffi_api.ProfilerGet(self)  # type: ignore # pylint: disable=no-member
+        return {str(name): float(value.value) for name, value in results.items()}
 
     def table(self) -> str:
         """Get the profiling results in a table format"""

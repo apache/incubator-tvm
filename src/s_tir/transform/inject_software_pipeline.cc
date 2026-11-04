@@ -55,7 +55,7 @@ ffi::Optional<Var> GetBufferDataVar(const ffi::Any& data) {
   if (auto var = data.as<Var>()) {
     return var;
   }
-  if (const auto* call = data.as<CallNode>();
+  if (const auto* call = data.as<CallObj>();
       call && call->op.same_as(tirx::tensor_data_ptr_op()) && call->args.size() == 1) {
     return call->args[0].as<Var>();
   }
@@ -76,8 +76,8 @@ ffi::Optional<Var> GetBufferDataVar(const ffi::Any& data) {
  * \return The result block.
  */
 SBlock MakeSBlock(const SeqStmt& body, const ffi::Map<Var, TensorVar>& tensor_data_to_tensor) {
-  if (const SBlockRealizeNode* block_realize =
-          body->size() == 1 ? body->seq[0].as<SBlockRealizeNode>() : nullptr) {
+  if (const SBlockRealizeObj* block_realize =
+          body->size() == 1 ? body->seq[0].as<SBlockRealizeObj>() : nullptr) {
     if (IsOne(block_realize->predicate)) {
       // no need to create a new block
       return block_realize->block;
@@ -86,7 +86,7 @@ SBlock MakeSBlock(const SeqStmt& body, const ffi::Map<Var, TensorVar>& tensor_da
   SBlock block(/*iter_vars=*/{}, /*reads=*/{}, /*writes=*/{}, /*name_hint=*/"", /*body*/ body);
   ffi::Array<ffi::Array<TensorRegion>> access =
       GetSBlockReadWriteRegion(block, tensor_data_to_tensor);
-  SBlockNode* n = block.CopyOnWrite();
+  SBlockObj* n = block.CopyOnWrite();
   n->reads = access[0];
   n->writes = access[1];
   return block;
@@ -117,10 +117,10 @@ class PipelineOpaqueAccessRewriter {
    * \param pipeline_loop The original loop to be software pipelined.
    * \param fragment_info Information about tensor core fragment
    */
-  PipelineOpaqueAccessRewriter(
-      const ffi::Map<Var, TensorVar>& tensor_data_to_tensor,
-      const ffi::Map<TensorVar, TensorVar>& tensor_remap, const For& pipeline_loop,
-      const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info)
+  PipelineOpaqueAccessRewriter(const ffi::Map<Var, TensorVar>& tensor_data_to_tensor,
+                               const ffi::Map<TensorVar, TensorVar>& tensor_remap,
+                               const For& pipeline_loop,
+                               const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info)
       : tensor_data_to_tensor_(tensor_data_to_tensor),
         tensor_remap_(tensor_remap),
         pipeline_loop_(pipeline_loop),
@@ -187,7 +187,7 @@ class PipelineOpaqueAccessRewriter {
   const ffi::Map<Var, TensorVar>& tensor_data_to_tensor_;
   const ffi::Map<TensorVar, TensorVar>& tensor_remap_;
   const For& pipeline_loop_;
-  const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info_;
+  const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info_;
 };
 
 /*!
@@ -213,7 +213,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
   PipelineBodyRewriter(const ffi::Map<Var, TensorVar>& tensor_data_to_tensor,
                        const ffi::Map<TensorVar, TensorVar>& tensor_remap, For pipeline_loop,
                        bool access_all_versions,
-                       const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info)
+                       const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info)
       : tensor_data_to_tensor_(tensor_data_to_tensor),
         pipeline_loop_(pipeline_loop),
         access_all_versions_(access_all_versions),
@@ -245,7 +245,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
     return tensor_region;
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     for (const TensorVar& alloc_tensor : op->alloc_tensors) {
       tensor_data_to_tensor_.Set(alloc_tensor, alloc_tensor);
     }
@@ -258,7 +258,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
     return block;
   }
 
-  UnchangedOr<Expr> Mutate_(const TensorRegionNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const TensorRegionObj* op, InplaceMode inplace_mode) final {
     if (!op->source.as<TensorVar>()) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
     }
@@ -266,7 +266,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
     return StmtExprMutator::Mutate_(region.get(), InplaceMode::kDisallow).ValueOrUnchanged(region);
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     auto replacement = VarRemapGet(op->dest.as_or_throw<TensorVar>()).as<TensorVar>();
     TensorStore store = StmtExprMutator::Mutate_(op, inplace_mode)
                             .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
@@ -283,7 +283,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
     return store;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     auto replacement = VarRemapGet(op->source).as<TensorVar>();
     if (!replacement) return StmtExprMutator::Mutate_(op, inplace_mode);
     auto indices = Mutate(op->indices, inplace_mode)
@@ -296,7 +296,7 @@ class PipelineBodyRewriter : public StmtExprMutator {
     return TensorLoad(new_tensor, indices, op->loc);
   }
 
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) final {
     const auto scope_mma_matrixA = GetRegisteredMemoryScope("mma.matrixA");
     const auto scope_mma_matrixB = GetRegisteredMemoryScope("mma.matrixB");
 
@@ -342,7 +342,7 @@ class PipelineRewriter : public StmtExprMutator {
       const std::unordered_set<TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>& double_buffers,
       const ffi::Array<TensorVar> pipeline_allocs, const For& pipeline_loop,
       const PipelineInfo& pipeline_info,
-      const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info,
+      const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info,
       const ffi::Map<ffi::String, ffi::Any> preserved_annotations) {
     auto rewriter = ffi::make_object<PipelineRewriter>(
         tensor_data_to_tensor, double_buffers, pipeline_allocs, pipeline_loop, pipeline_info,
@@ -355,7 +355,7 @@ class PipelineRewriter : public StmtExprMutator {
       const std::unordered_set<TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>& double_buffers,
       const ffi::Array<TensorVar>& pipeline_allocs, const For& pipeline_loop,
       const PipelineInfo& pipeline_info,
-      const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info,
+      const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info,
       const ffi::Map<ffi::String, ffi::Any> preserved_annotations)
 
       : tensor_data_to_tensor_(std::move(tensor_data_to_tensor)),
@@ -561,8 +561,7 @@ class PipelineRewriter : public StmtExprMutator {
    * \return The resized tensor.
    */
   TensorVar RewriteAllocTensor(const TensorVar& tensor, int num_versions) {
-    ffi::ObjectPtr<TensorTypeNode> new_tensor =
-        ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+    ffi::ObjectPtr<TensorTypeObj> new_tensor = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
     auto strides = tvm::tirx::MatchShapeStridePattern(tensor.ty()).value().get<1>();
     new_tensor->shape.insert(new_tensor->shape.begin(), PrimExpr(num_versions));
     if (new_tensor->layout.has_value()) {
@@ -585,7 +584,7 @@ class PipelineRewriter : public StmtExprMutator {
   // Per-stage states that need to be tracked across pipeline prologue, body, and epilogue.
   struct AsyncStateGlobal {
     // Tensors that this stage asynchronously writes.
-    std::unordered_set<const VarNode*> dst_tensors;
+    std::unordered_set<const VarObj*> dst_tensors;
     // An imaginary index that the latest async operation associated with this stage has written
     // into. Only valid if all associated predicates are true, so that we can count the number of
     // async invocations exactly. When it is valid, it is the "sum of extents of loops that have
@@ -619,7 +618,7 @@ class PipelineRewriter : public StmtExprMutator {
     // until a point where we encounter a consumer of async result tensors. This is used to decide
     // if the producer_head of each tensor points to a copy written in the current or previous
     // iteration.
-    std::unordered_set<const VarNode*> seen;
+    std::unordered_set<const VarObj*> seen;
 
     // A symbolic expression representing the index the latest async operation associated with this
     // stage has written into, at the "current" iteration.
@@ -647,7 +646,7 @@ class PipelineRewriter : public StmtExprMutator {
   // Determine where to insert async_wait and the corresponding wait count.
   void PopulateWaitCounts(const std::vector<RewrittenSBlockInfo>& new_blocks,
                           sym::AnalyzerObj* ana_normalized,
-                          const std::unordered_map<const VarNode*, int>& tensor_to_commit_group,
+                          const std::unordered_map<const VarObj*, int>& tensor_to_commit_group,
                           std::map<int, AsyncStateLocal>* async_states_local) {
     for (size_t i = 0; i < new_blocks.size(); ++i) {
       if (new_blocks[i].is_async) {
@@ -799,7 +798,7 @@ class PipelineRewriter : public StmtExprMutator {
       if (state.pending_wait.valid()) {
         auto attach_wait = [&new_blocks](int i, int stage_id, PrimExpr wait_count) {
           auto& block = new_blocks[i].block;
-          SBlockNode* n = block.CopyOnWrite();
+          SBlockObj* n = block.CopyOnWrite();
           n->body = SeqStmt({Evaluate(Call(PrimType::Void(), s_tir::async_wait(),
                                            {IntImm::Int32(stage_id), wait_count})),
                              n->body});
@@ -873,21 +872,30 @@ class PipelineRewriter : public StmtExprMutator {
       new_loop_var = start;  // use constants as the loop var for unit loops
     } else {
       new_loop_var = pipeline_loop_->var.CopyWithSuffix("");
-      analyzer_->Bind(new_loop_var.as_or_throw<Var>(), Range(start, end));
+      {
+        auto context = analyzer_->GetConstraintContext();
+        context->Append(sym::RangeConstraint(new_loop_var.as_or_throw<Var>(), Range(start, end)));
+        analyzer_->SyncConstraintContext(context);
+      }
     }
 
     // In contrast to analyzer_ which is bound to [start, end), this one is bound to
     // the "normalized" range, [pipeline_loop_->begin, extent).
     sym::Analyzer ana_normalized;
     if (!is_unit_loop) {
-      ana_normalized->Bind(new_loop_var.as_or_throw<Var>(), Range(pipeline_loop_->begin, extent));
+      {
+        auto context = ana_normalized->GetConstraintContext();
+        context->Append(sym::RangeConstraint(new_loop_var.as_or_throw<Var>(),
+                                             Range(pipeline_loop_->begin, extent)));
+        ana_normalized->SyncConstraintContext(context);
+      }
     }
 
     std::vector<RewrittenSBlockInfo> new_blocks;
 
     // Async related
     std::map<int, AsyncStateLocal> async_states_local;
-    std::unordered_map<const VarNode*, int> tensor_to_commit_group;
+    std::unordered_map<const VarObj*, int> tensor_to_commit_group;
 
     for (const SBlock& block : ordered_stmts_) {
       int stage = pipeline_info_.at(block).stage;
@@ -976,7 +984,7 @@ class PipelineRewriter : public StmtExprMutator {
           local_state.predicate = ana_normalized->Simplify(local_state.predicate.value() & inbound);
         }
 
-        SBlockNode* n = new_block.CopyOnWrite();
+        SBlockObj* n = new_block.CopyOnWrite();
         n->body = RegionStmt(s_tir::async_copy_scope(), {}, {}, DictAttrs(), n->body);
       }
 
@@ -1039,7 +1047,7 @@ class PipelineRewriter : public StmtExprMutator {
   ffi::Array<TensorVar> pipeline_allocs_;
   For pipeline_loop_;
   PipelineInfo pipeline_info_;
-  const std::unordered_map<const VarNode*, FragmentInfo>& fragment_info_;
+  const std::unordered_map<const VarObj*, FragmentInfo>& fragment_info_;
   int max_stage_ = -1;
   ffi::Map<TensorVar, TensorVar> tensor_remap_;
   ffi::Array<SBlock> ordered_stmts_;
@@ -1148,7 +1156,7 @@ class PipelineInjector : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     // Step 1: Recursively rewrite the children first.
     For for_node = StmtExprMutator::Mutate_(op, inplace_mode)
                        .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
@@ -1161,9 +1169,8 @@ class PipelineInjector : public StmtExprMutator {
     // child of the block.
     SeqStmt pipeline_body = for_node->body;
     ffi::Array<TensorVar> pipeline_allocs;
-    if (const auto* realize = for_node->body->size() == 1
-                                  ? for_node->body->seq[0].as<SBlockRealizeNode>()
-                                  : nullptr) {
+    if (const auto* realize =
+            for_node->body->size() == 1 ? for_node->body->seq[0].as<SBlockRealizeObj>() : nullptr) {
       const auto& block = realize->block;
       for (const auto& tensor : block->alloc_tensors) {
         tensor_data_to_tensor_.Set(tensor, tensor);
@@ -1172,7 +1179,7 @@ class PipelineInjector : public StmtExprMutator {
       pipeline_allocs = block->alloc_tensors;
     }
 
-    const SeqStmtNode* pipeline_body_seq = pipeline_body.get();
+    const SeqStmtObj* pipeline_body_seq = pipeline_body.get();
     TVM_FFI_CHECK_GT(pipeline_body_seq->size(), 1, ValueError)
         << "The body of the software pipeline should contain multiple statements";
 
@@ -1185,7 +1192,7 @@ class PipelineInjector : public StmtExprMutator {
       original_order.push_back(MakeSBlock(child, tensor_data_to_tensor_));
     };
     for (size_t i = 0; i < pipeline_body_seq->seq.size(); i++) {
-      const auto* nested_block_realize = pipeline_body_seq->seq[i].as<SBlockRealizeNode>();
+      const auto* nested_block_realize = pipeline_body_seq->seq[i].as<SBlockRealizeObj>();
       if (nested_block_realize && IsOne(nested_block_realize->predicate) &&
           nested_block_realize->block->body->size() > 1) {
         const SBlock& nested_pipeline_block = nested_block_realize->block;
@@ -1250,7 +1257,7 @@ class PipelineInjector : public StmtExprMutator {
                                               fragment_info_, preserved_annotations);
 
     if (const auto* realize =
-            op->body->size() == 1 ? op->body->seq[0].as<SBlockRealizeNode>() : nullptr) {
+            op->body->size() == 1 ? op->body->seq[0].as<SBlockRealizeObj>() : nullptr) {
       const auto& block = realize->block;
       for (const auto& tensor : block->alloc_tensors) {
         tensor_data_to_tensor_.erase(tensor);
@@ -1264,7 +1271,7 @@ class PipelineInjector : public StmtExprMutator {
    * \param n The block pointer to which the tensor allocations are added.
    * \param alloc_tensors The tensor allocations to be added.
    */
-  void AddAllocTensors(SBlockNode* n, const ffi::Array<TensorVar> alloc_tensors) {
+  void AddAllocTensors(SBlockObj* n, const ffi::Array<TensorVar> alloc_tensors) {
     for (const TensorVar& alloc_tensor : alloc_tensors) {
       n->alloc_tensors.push_back(alloc_tensor);
       ffi::Array<Range> region;
@@ -1276,7 +1283,7 @@ class PipelineInjector : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     for (const auto& tensor : op->alloc_tensors) {
       tensor_data_to_tensor_.Set(tensor, tensor);
     }
@@ -1300,7 +1307,7 @@ class PipelineInjector : public StmtExprMutator {
     return block;
   }
 
-  bool HasPipelineAnnotation(const ForNode* op) const {
+  bool HasPipelineAnnotation(const ForObj* op) const {
     auto it1 = op->annotations.find(tvm::s_tir::attr::kSoftwarePipelineStage.name);
     auto it2 = op->annotations.find(tvm::s_tir::attr::kSoftwarePipelineOrder.name);
     bool has_stage = it1 != op->annotations.end();
@@ -1318,7 +1325,7 @@ class PipelineInjector : public StmtExprMutator {
   }
 
   ffi::Map<Var, TensorVar> tensor_data_to_tensor_;
-  std::unordered_map<const VarNode*, FragmentInfo> fragment_info_;
+  std::unordered_map<const VarObj*, FragmentInfo> fragment_info_;
   std::unordered_set<TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> double_buffers;
   ffi::Optional<ffi::String> global_symbol_;
 };

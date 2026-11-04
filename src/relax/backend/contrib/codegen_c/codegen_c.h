@@ -332,19 +332,19 @@ class CodegenCBase {
    * \return The dtype string.
    */
   std::string GetDtypeString(const Var& var) {
-    auto tensor_ty = var->ty.as<TensorTypeNode>();
-    TVM_FFI_ICHECK(tensor_ty) << "Expect TensorTypeNode";
+    auto tensor_ty = var->ty.as<TensorTypeObj>();
+    TVM_FFI_ICHECK(tensor_ty) << "Expect TensorTypeObj";
     return GetDtypeString(tensor_ty);
   }
 
   /*!
    * \brief Returns dtype string
    *
-   * \param ttype TensorTypeNode* to get the dtype of
+   * \param ttype TensorTypeObj* to get the dtype of
    *
    * \return The dtype string.
    */
-  std::string GetDtypeString(const TensorTypeNode* tensor_ty) {
+  std::string GetDtypeString(const TensorTypeObj* tensor_ty) {
     std::string dtype;
     DLDataType raw_dtype = tensor_ty->dtype.value()->dtype;
     if (raw_dtype == DLDataType{kDLFloat, 32, 1}) {

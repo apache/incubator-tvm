@@ -104,8 +104,8 @@ EinsumEquation EinsumEquation::FromString(const std::string& equation) {
 }
 
 PrimExpr GetBroadcastedExtent(const PrimExpr& extent1, const PrimExpr& extent2) {
-  const IntImmNode* extent1_imm = extent1.as<IntImmNode>();
-  const IntImmNode* extent2_imm = extent2.as<IntImmNode>();
+  const IntImmObj* extent1_imm = extent1.as<IntImmObj>();
+  const IntImmObj* extent2_imm = extent2.as<IntImmObj>();
   if (extent1_imm != nullptr && extent2_imm != nullptr) {
     if (extent1_imm->value == extent2_imm->value) {
       return extent1;

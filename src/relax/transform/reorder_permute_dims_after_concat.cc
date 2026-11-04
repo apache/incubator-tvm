@@ -83,7 +83,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
   }
 
   auto get_permute_dims_optional_axes = [](const Expr& expr) -> ffi::Optional<ffi::Array<int64_t>> {
-    auto call = expr.as<CallNode>();
+    auto call = expr.as<CallObj>();
     TVM_FFI_ICHECK(call);
     auto attrs = call->attrs.as<PermuteDimsAttrs>();
     TVM_FFI_ICHECK(attrs);
@@ -99,7 +99,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
 
     auto call = expr.as_or_throw<Call>();
     ffi::Array<int64_t> permutation;
-    auto arg_ty = call->args[0]->ty.as<TensorTypeNode>();
+    auto arg_ty = call->args[0]->ty.as<TensorTypeObj>();
     TVM_FFI_ICHECK(arg_ty) << "Expected permute_dims to have a single tensor argument, "
                            << "but argument " << call->args[0] << " has type " << call->args[0]->ty;
 

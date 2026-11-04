@@ -37,7 +37,7 @@ using namespace tvm::tirx;
 class CollectManagedAllocations : public StmtExprVisitor {
  public:
   using StmtExprVisitor::Visit_;
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     for (const auto& tensor : op->alloc_tensors) {
       managed_allocations.insert(tensor.get());
     }
@@ -49,7 +49,7 @@ class CollectManagedAllocations : public StmtExprVisitor {
 
   /*! \brief Tensors that are allocated outside of the BlockNode, and should not be moved by
    * TensorAllocationLocator. */
-  std::unordered_set<const VarNode*> managed_allocations;
+  std::unordered_set<const VarObj*> managed_allocations;
 };
 
 /*! \brief Collect the allocate tensor order. */
@@ -73,7 +73,7 @@ class TensorAllocateOrderCollector : public StmtExprVisitor {
            tensor_alloc_recorder_.end();
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     for (const TensorVar& tensor : op->alloc_tensors) {
       tensor_alloc_recorder_.push_back(tensor);
     }
@@ -89,14 +89,14 @@ class TensorAllocateOrderCollector : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     if (!find(op->source.as_or_throw<tvm::tirx::TensorVar>())) {
       tensor_alloc_recorder_.push_back(op->source.as_or_throw<tvm::tirx::TensorVar>());
     }
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     if (!find(op->dest.as_or_throw<TensorVar>())) {
       tensor_alloc_recorder_.push_back(op->dest.as_or_throw<TensorVar>());
     }
@@ -117,7 +117,7 @@ class TensorAllocationLocator : public StmtExprMutator {
     // The tensor_alloc_recorder Array is used to keep the tensor allocation order
     // since the tensor_lca Map is unordered.
     ffi::Array<TensorVar> tensor_alloc_recorder = TensorAllocateOrderCollector::Collect(func);
-    std::unordered_set<const VarNode*> arg_tensor_vars;
+    std::unordered_set<const VarObj*> arg_tensor_vars;
     auto collector = ffi::make_object<CollectManagedAllocations>();
     collector->Visit(func->body);
     managed_allocations_ = collector->managed_allocations;
@@ -132,7 +132,7 @@ class TensorAllocationLocator : public StmtExprMutator {
     for (const auto& tensor : tensor_alloc_recorder) {
       auto it = tensor_lca.find(tensor);
       if (it != tensor_lca.end()) {
-        const StmtNode* stmt = (*it).second.has_value() ? (*it).second.value().get() : nullptr;
+        const StmtObj* stmt = (*it).second.has_value() ? (*it).second.value().get() : nullptr;
         if (arg_tensor_vars.count(tensor.get())) {
           continue;
         }
@@ -145,7 +145,7 @@ class TensorAllocationLocator : public StmtExprMutator {
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     auto it = alloc_tensors_.find(op);
     if (it == alloc_tensors_.end()) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
@@ -172,7 +172,7 @@ class TensorAllocationLocator : public StmtExprMutator {
     return node;
   }
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
     auto it = alloc_tensors_.find(op);
     if (it == alloc_tensors_.end()) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
@@ -199,7 +199,7 @@ class TensorAllocationLocator : public StmtExprMutator {
     return node;
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     TVM_FFI_ICHECK(!op->init.has_value());
     ffi::Array<TensorVar> alloc_tensors;
     auto it = alloc_tensors_.find(op);
@@ -218,7 +218,7 @@ class TensorAllocationLocator : public StmtExprMutator {
     SBlock stmt = StmtExprMutator::Mutate_(op, inplace_mode)
                       .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                       .as_or_throw<SBlock>();
-    op = stmt.as<SBlockNode>();
+    op = stmt.as<SBlockObj>();
     TVM_FFI_ICHECK(op != nullptr);
 
     // No longer consider tensors created by match_tensor inside the block when updating access
@@ -234,7 +234,7 @@ class TensorAllocationLocator : public StmtExprMutator {
       }
     }
 
-    SBlockNode* n = stmt.CopyOnWrite();
+    SBlockObj* n = stmt.CopyOnWrite();
     n->alloc_tensors = std::move(alloc_tensors);
     // Erase tensor allocated inside the block from access region.
     n->reads = RemoveRedundantTensorRegion(n->reads);
@@ -251,7 +251,7 @@ class TensorAllocationLocator : public StmtExprMutator {
                         /*body=*/std::move(body),
                         /*init=*/std::nullopt,
                         /*alloc_tensors=*/alloc_tensors);
-    SBlockNode* n = opaque_block.CopyOnWrite();
+    SBlockObj* n = opaque_block.CopyOnWrite();
     ffi::Array<ffi::Array<TensorRegion>> access =
         GetSBlockReadWriteRegion(opaque_block, tensor_data_to_tensor_);
     n->reads = access[0];
@@ -272,11 +272,11 @@ class TensorAllocationLocator : public StmtExprMutator {
   }
 
   /*! \brief The map from stmt to the tensors to be allocated under it. */
-  std::unordered_map<const StmtNode*, ffi::Array<TensorVar>> alloc_tensors_;
+  std::unordered_map<const StmtObj*, ffi::Array<TensorVar>> alloc_tensors_;
   /*! \brief The tensor already allocated during recursive visiting. */
   ffi::Map<Var, TensorVar> tensor_data_to_tensor_;
   /*! \brief Tensors that are allocated within a BlockNode, and may be moved. */
-  std::unordered_set<const VarNode*> managed_allocations_;
+  std::unordered_set<const VarObj*> managed_allocations_;
 };
 
 namespace transform {

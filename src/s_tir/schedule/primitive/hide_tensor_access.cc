@@ -91,7 +91,7 @@ void UnsafeHideTensorAccess(ScheduleState self, const StmtSRef& block_sref,
    *   - validity of tensor_index_array
    *   - validity of tensor_type
    */
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   int num_access_regions = 0;
   if (tensor_type == "read") {
     num_access_regions = block->reads.size();
@@ -135,7 +135,7 @@ void UnsafeHideTensorAccess(ScheduleState self, const StmtSRef& block_sref,
 
   /* Step 1: Replace old block with the new block */
 
-  auto n = ffi::make_object<SBlockNode>(*block);
+  auto n = ffi::make_object<SBlockObj>(*block);
   n->reads = reads;
   n->writes = writes;
   SBlock new_block = SBlock(n);

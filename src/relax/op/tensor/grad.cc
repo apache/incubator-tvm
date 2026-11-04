@@ -52,7 +52,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.grad.no_grad", no_grad);
 }
 
-Type InferTypeNoGrad(const CallNode* call_node) {
+Type InferTypeNoGrad(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetType(call->args[0]);
 }
@@ -76,7 +76,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 Type InferTypeStartCheckpoint(const Call& call, const BlockBuilder& ctx) {
-  if (!call->args[0].as<VarNode>()) {
+  if (!call->args[0].as<VarObj>()) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "The argument of relax.op.grad.start_checkpoint should be a Var.";
   }
@@ -102,7 +102,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 Type InferTypeEndCheckpoint(const Call& call, const BlockBuilder& ctx) {
-  if (!call->args[0].as<VarNode>()) {
+  if (!call->args[0].as<VarObj>()) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "The argument of relax.op.grad.end_checkpoint should be a Var.";
   }
@@ -142,7 +142,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.grad.nll_loss_backward", nll_loss_backward);
 }
 
-Type InferTypeNLLLossBackward(const CallNode* call_node) {
+Type InferTypeNLLLossBackward(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetType(call->args[1]);
 }
@@ -180,7 +180,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.grad.max_pool2d_backward", max_pool2d_backward);
 }
 
-Type InferTypeMaxPool2DBackward(const CallNode* call_node) {
+Type InferTypeMaxPool2DBackward(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetType(call->args[1]);
 }
@@ -216,7 +216,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.grad.avg_pool2d_backward", avg_pool2d_backward);
 }
 
-Type InferTypeAvgPool2DBackward(const CallNode* call_node) {
+Type InferTypeAvgPool2DBackward(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetType(call->args[1]);
 }
@@ -246,7 +246,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.grad.take_backward", take_backward);
 }
 
-Type InferTypeTakeBackward(const CallNode* call_node) {
+Type InferTypeTakeBackward(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   return GetType(call->args[1]);
 }

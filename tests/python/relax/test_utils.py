@@ -82,7 +82,7 @@ def test_copy_with_new_vars_on_ir_module():
         "global_symbol", "func_copied"
     )
 
-    # Assertion will fail if the f_copied contains the same VarNode that's used in
+    # Assertion will fail if the f_copied contains the same VarObj that's used in
     # the original function, due to var mapping during structural equal.
     assert_structural_equal(Actual, Expected)
 

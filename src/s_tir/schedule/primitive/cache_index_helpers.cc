@@ -150,8 +150,8 @@ ComputationTable BuildTableForThreeChildrenNode(const ComputationTable& table_ch
 ComputationTable ComputationsDoneBy::GetComputationsDoneBy(
     const PrimExpr& expr, std::function<bool(const PrimExpr&)> is_eligible_computation,
     std::function<bool(const PrimExpr&)> can_contain_computations) {
-  if (expr.as<IntImmNode>() != nullptr || expr.as<FloatImmNode>() != nullptr ||
-      expr.as<StringImmNode>() != nullptr || expr.as<PrimVar>()) {
+  if (expr.as<IntImmObj>() != nullptr || expr.as<FloatImmObj>() != nullptr ||
+      expr.as<StringImmObj>() != nullptr || expr.as<PrimVar>()) {
     return {};
   }
 
@@ -218,8 +218,8 @@ ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit(ffi::AnyView expr_value)
     return s_tir::StmtExprVisitor::Visit(expr_value);
   }
   PrimExpr expr = opt_expr.value();
-  if (expr.as<IntImmNode>() != nullptr || expr.as<FloatImmNode>() != nullptr ||
-      expr.as<StringImmNode>() != nullptr || expr.as<PrimVar>()) {
+  if (expr.as<IntImmObj>() != nullptr || expr.as<FloatImmObj>() != nullptr ||
+      expr.as<StringImmObj>() != nullptr || expr.as<PrimVar>()) {
     return std::nullopt;
   }
 
@@ -244,9 +244,9 @@ ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit(ffi::AnyView expr_value)
 }
 
 /*!
- * \brief The method which overrides the specific treatment for an IfNode
+ * \brief The method which overrides the specific treatment for an IfObj
  */
-ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const IfNode* op) {
+ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const IfObj* op) {
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->condition));
   ComputationTable computations_done_by_cond = table_of_computations_;
   table_of_computations_.clear();
@@ -271,9 +271,9 @@ ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const IfNode* op) {
 }
 
 /*!
- * \brief The method which overrides the specific treatment for a ForNode
+ * \brief The method which overrides the specific treatment for a ForObj
  */
-ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const ForNode* op) {
+ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const ForObj* op) {
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->begin));
   ComputationTable computations_done_by_min = table_of_computations_;
   table_of_computations_.clear();
@@ -296,9 +296,9 @@ ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const ForNode* op) {
 }
 
 /*!
- * \brief The method which overrides the specific treatment for a WhileNode
+ * \brief The method which overrides the specific treatment for a WhileObj
  */
-ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const WhileNode* op) {
+ffi::Optional<VisitInterrupt> ComputationsDoneBy::Visit_(const WhileObj* op) {
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->condition));
   ComputationTable computations_done_by_condition = table_of_computations_;
   table_of_computations_.clear();

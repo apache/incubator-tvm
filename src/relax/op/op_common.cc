@@ -89,7 +89,7 @@ ffi::Array<TensorType> GetInputTensorType(const Call& call) {
 }
 
 ffi::Array<TensorType> GetTensorTypeFromTuple(const Call& call, const Expr& tup) {
-  const auto* tuple_ty = GetTypeAs<TupleTypeNode>(tup);
+  const auto* tuple_ty = GetTypeAs<TupleTypeObj>(tup);
   if (tuple_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << call->op << " expects the input to be a Tuple of Tensors. However, the given input is "
@@ -99,7 +99,7 @@ ffi::Array<TensorType> GetTensorTypeFromTuple(const Call& call, const Expr& tup)
   ffi::Array<TensorType> tensor_ty;
   tensor_ty.reserve(tuple_ty->fields.size());
   for (Type field_ty : tuple_ty->fields) {
-    const auto* field_tensor_ty = field_ty.as<TensorTypeNode>();
+    const auto* field_tensor_ty = field_ty.as<TensorTypeObj>();
     if (field_tensor_ty == nullptr) {
       TVM_FFI_VISIT_THROW(TypeError, call)
           << call->op << " expects the input to be a Tuple of Tensors. However, the given input is "
@@ -125,8 +125,8 @@ BinaryBroadcastShapeInferResult InferBinaryBroadcastShape(sym::AnalyzerObj* anal
   for (; i <= std::min(x1_ndim, x2_ndim); ++i) {
     const PrimExpr& dim0 = x1_shape[x1_ndim - i];
     const PrimExpr& dim1 = x2_shape[x2_ndim - i];
-    const auto* int_dim0 = dim0.as<IntImmNode>();
-    const auto* int_dim1 = dim1.as<IntImmNode>();
+    const auto* int_dim0 = dim0.as<IntImmObj>();
+    const auto* int_dim1 = dim1.as<IntImmObj>();
     if (int_dim0 != nullptr && int_dim0->value == 1) {
       output_shape.push_back(dim1);
     } else if (int_dim1 != nullptr && int_dim1->value == 1) {

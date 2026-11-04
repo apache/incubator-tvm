@@ -57,7 +57,7 @@ using FTraceDecisionProvider =
  * their decisions accordingly. Re-sampling is invoked if a sampling instruction doesn't have its
  * corresponding decision; Otherwise the existing decision will be reused accordingly.
  */
-class TraceNode : public ffi::Object {
+class TraceObj : public ffi::Object {
  public:
   /*! \brief The instructions invoked so far in the program execution */
   ffi::Array<Instruction> insts;
@@ -66,13 +66,13 @@ class TraceNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TraceNode>()
-        .def_ro("insts", &TraceNode::insts)
-        .def_ro("decisions", &TraceNode::decisions);
+    refl::ObjectDef<TraceObj>()
+        .def_ro("insts", &TraceObj::insts)
+        .def_ro("decisions", &TraceObj::decisions);
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.Trace", TraceNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.Trace", TraceObj, ffi::Object);
 
  public:
   /*!
@@ -139,8 +139,8 @@ class TraceNode : public ffi::Object {
 };
 
 /*!
- * \brief Managed reference to TraceNode
- * \sa TraceNode
+ * \brief Managed reference to TraceObj
+ * \sa TraceObj
  */
 class Trace : public ffi::ObjectRef {
  public:
@@ -159,7 +159,7 @@ class Trace : public ffi::ObjectRef {
    */
   static void ApplyJSONToSchedule(ffi::ObjectRef json, Schedule sch);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Trace, ffi::ObjectRef, TraceNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Trace, ffi::ObjectRef, TraceObj);
 };
 
 }  // namespace s_tir

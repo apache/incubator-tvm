@@ -48,8 +48,8 @@ class cuDNNJSONSerializer : public JSONSerializer {
 
   using JSONSerializer::VisitExpr_;
 
-  NodeEntries VisitExpr_(const CallNode* call_node) final {
-    const auto* fn_var = call_node->op.as<VarNode>();
+  NodeEntries VisitExpr_(const CallObj* call_node) final {
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     TVM_FFI_ICHECK(fn.defined()) << "Expects the callee to be a function.";
@@ -68,7 +68,7 @@ class cuDNNJSONSerializer : public JSONSerializer {
     }
   }
 
-  NodeEntries HandleConv2D(const CallNode* call_node, const Function& fn,
+  NodeEntries HandleConv2D(const CallObj* call_node, const Function& fn,
                            const std::string& composite_name) {
     NodeEntries inputs_tmp;
     for (const auto& arg : call_node->args) {
@@ -90,12 +90,12 @@ class cuDNNJSONSerializer : public JSONSerializer {
                                                 "kernel",       /* op_type_ */
                                                 inputs, 1 /* num_outputs_ */);
 
-    const CallNode* root_call = backend::GetOpInFunction(fn, "relax.nn.conv2d");
+    const CallObj* root_call = backend::GetOpInFunction(fn, "relax.nn.conv2d");
     SetCallNodeAttribute(node, root_call);
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
-  NodeEntries HandleAttention(const CallNode* call_node, const Function& fn,
+  NodeEntries HandleAttention(const CallObj* call_node, const Function& fn,
                               const std::string& composite_name) {
     std::string layout = composite_name.substr(composite_name.find_last_of(".") + 1);
     NodeEntries inputs;
@@ -107,17 +107,17 @@ class cuDNNJSONSerializer : public JSONSerializer {
     auto node = std::make_shared<JSONGraphNode>(composite_name, /* name_ */
                                                 "kernel",       /* op_type_ */
                                                 inputs, 1 /* num_outputs_ */);
-    const CallNode* root_call = backend::GetOpInFunction(fn, "relax.nn.attention");
+    const CallObj* root_call = backend::GetOpInFunction(fn, "relax.nn.attention");
     auto q_shape =
         root_call->args[0]->ty.as_or_throw<TensorType>()->shape.value().as_or_throw<ShapeExpr>();
     auto k_shape =
         root_call->args[1]->ty.as_or_throw<TensorType>()->shape.value().as_or_throw<ShapeExpr>();
     auto v_shape =
         root_call->args[2]->ty.as_or_throw<TensorType>()->shape.value().as_or_throw<ShapeExpr>();
-    int num_heads = q_shape->values[2].as<IntImmNode>()->value.as<int>().value();
-    int num_kv_heads = k_shape->values[2].as<IntImmNode>()->value.as<int>().value();
-    int head_size = q_shape->values[3].as<IntImmNode>()->value.as<int>().value();
-    int head_size_v = v_shape->values[3].as<IntImmNode>()->value.as<int>().value();
+    int num_heads = q_shape->values[2].as<IntImmObj>()->value.as<int>().value();
+    int num_kv_heads = k_shape->values[2].as<IntImmObj>()->value.as<int>().value();
+    int head_size = q_shape->values[3].as<IntImmObj>()->value.as<int>().value();
+    int head_size_v = v_shape->values[3].as<IntImmObj>()->value.as<int>().value();
     SetCallNodeAttribute(node, root_call);
 
     node->SetAttr("num_heads", static_cast<int64_t>(num_heads));
@@ -125,7 +125,7 @@ class cuDNNJSONSerializer : public JSONSerializer {
     node->SetAttr("head_size", static_cast<int64_t>(head_size));
     node->SetAttr("head_size_v", static_cast<int64_t>(head_size_v));
     node->SetAttr("layout", ffi::String(layout));
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
  private:

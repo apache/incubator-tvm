@@ -25,7 +25,7 @@
 #include <tvm/s_tir/schedule/state.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 
 #include <unordered_map>
 #include <utility>
@@ -43,7 +43,7 @@ using namespace tvm::tirx;
  * \param attr_value The annotation value to be added
  * \return A new block with the given annotation as its last annotation
  */
-SBlock WithAnnotation(const SBlockNode* block, const ffi::String& attr_key,
+SBlock WithAnnotation(const SBlockObj* block, const ffi::String& attr_key,
                       const ffi::ObjectRef& attr_value);
 
 /******** Tensor Related ********/
@@ -142,11 +142,11 @@ class ReplaceTensorMutator : public StmtExprMutator {
                        ffi::Map<SBlock, SBlock>* block_sref_reuse);
 
  protected:
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) override;
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) override;
 
   virtual MatchTensorRegion VisitMatchTensorRegion(const MatchTensorRegion& match_tensor);
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) override;
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) override;
 
   /*! \brief The block sref reuse map for the following replacement */
   ffi::Map<SBlock, SBlock>* block_sref_reuse_;
@@ -211,10 +211,10 @@ ffi::Optional<s_tir::LoopRV> TileWithTensorIntrin(const s_tir::Schedule& sch,
 /*!
  * \brief Simplifier for indices of tensor access and block tensor access regions.
  */
-class BlockTensorAccessSimplifier : public s_tir::StmtExprMutatorWithAnalyzer {
+class BlockTensorAccessSimplifier : public s_tir::StmtExprMutatorWithConstraintContext {
  public:
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate;
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate_;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate_;
 
   /*!
    * \brief Simplify indices of tensor access and block tensor access regions in the statement
@@ -228,15 +228,15 @@ class BlockTensorAccessSimplifier : public s_tir::StmtExprMutatorWithAnalyzer {
   }
 
   explicit BlockTensorAccessSimplifier(const sym::Analyzer& analyzer)
-      : StmtExprMutatorWithAnalyzer(analyzer) {}
+      : StmtExprMutatorWithConstraintContext(analyzer->GetConstraintContext()) {}
 
  private:
   void SimplifyAccessRegion(ffi::Array<TensorRegion>* old_access_regions);
   void SimplifyTensorIndices(ffi::Array<PrimExpr>* indices);
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final;
 };
 
 }  // namespace s_tir

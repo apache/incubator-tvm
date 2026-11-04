@@ -64,13 +64,13 @@ Instruction ReplaceAnnValue(Instruction inst, int64_t ann_val) {
  * \param inst The instruction to be checked
  * \return The output of the instruction Get-Block
  */
-const SBlockRVNode* GetInstGetSBlockOutput(const Instruction& inst) {
+const SBlockRVObj* GetInstGetSBlockOutput(const Instruction& inst) {
   static const InstructionKind& inst_get_sblock = InstructionKind::Get("GetSBlock");
   if (!inst->kind.same_as(inst_get_sblock)) {
     return nullptr;
   }
   TVM_FFI_ICHECK_EQ(inst->outputs.size(), 1);
-  const SBlockRVNode* block = TVM_TYPE_AS(inst->outputs[0], SBlockRVNode);
+  const SBlockRVObj* block = TVM_TYPE_AS(inst->outputs[0], SBlockRVObj);
   return block;
 }
 
@@ -88,20 +88,20 @@ std::vector<std::vector<int64_t>> AnalyzeParallel(const ScheduleState& self,
   ffi::Array<StmtSRef> block_srefs =
       GetSBlocks(self, block_name, self->mod->GetGlobalVar(func_name));
   TVM_FFI_ICHECK_EQ(block_srefs.size(), 1);
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_srefs[0]);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_srefs[0]);
   ScopeBlockLoopInfo info = GetScopeBlockLoopInfo(ffi::GetRef<SBlock>(block));
   std::vector<std::vector<int64_t>> results;
   results.reserve(info.realizes.size());
   for (const SBlockRealize& realize : info.realizes) {
     // Step 1. Extract static loop extents for spatial loops
     std::vector<int64_t> loop_extents;
-    const ForNode* loop = nullptr;
+    const ForObj* loop = nullptr;
     for (const StmtSRefObj* loop_sref = self->stmt2ref.at(realize->block.get())->parent;
-         (loop = loop_sref->StmtAs<ForNode>()) != nullptr;  //
+         (loop = loop_sref->StmtAs<ForObj>()) != nullptr;  //
          loop_sref = loop_sref->parent) {
       int64_t loop_extent = -1;
       PrimExpr ext_imm_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
-      const auto* ext_imm = ext_imm_expr.as<IntImmNode>();
+      const auto* ext_imm = ext_imm_expr.as<IntImmObj>();
       if (auto ext = ext_imm ? ext_imm->value.as<int64_t>() : std::nullopt; ext.has_value()) {
         if (!info.non_spatial_vars.count(loop->var.get())) {
           loop_extent = *ext;
@@ -226,17 +226,17 @@ struct MutateParallelObj::Candidate {
  */
 bool FindParallelDecision(const Trace& trace, TRandState* rand_state,
                           MutateParallelObj::Candidate* candidate) {
-  using s_tir::InstructionNode;
-  using s_tir::SBlockRVNode;
-  std::unordered_map<const SBlockRVNode*, const InstructionNode*> get_sblock_insts;
-  std::vector<const InstructionNode*> ann_insts;
+  using s_tir::InstructionObj;
+  using s_tir::SBlockRVObj;
+  std::unordered_map<const SBlockRVObj*, const InstructionObj*> get_sblock_insts;
+  std::vector<const InstructionObj*> ann_insts;
   get_sblock_insts.reserve(trace->insts.size());
   ann_insts.reserve(trace->insts.size());
   for (const Instruction& inst : trace->insts) {
     if (s_tir::IsAnnotateWithParallel(inst)) {
       ann_insts.push_back(inst.get());
     }
-    if (const SBlockRVNode* block_rv = s_tir::GetInstGetSBlockOutput(inst)) {
+    if (const SBlockRVObj* block_rv = s_tir::GetInstGetSBlockOutput(inst)) {
       get_sblock_insts[block_rv] = inst.get();
     }
   }
@@ -244,9 +244,9 @@ bool FindParallelDecision(const Trace& trace, TRandState* rand_state,
   if (n_ann_insts == 0) {
     return false;
   }
-  const InstructionNode* ann_inst = ann_insts[s_tir::SampleInt(rand_state, 0, n_ann_insts)];
+  const InstructionObj* ann_inst = ann_insts[s_tir::SampleInt(rand_state, 0, n_ann_insts)];
   TVM_FFI_ICHECK_EQ(ann_inst->inputs.size(), 2);
-  const InstructionNode* get_sblock_inst =
+  const InstructionObj* get_sblock_inst =
       get_sblock_insts.at(ann_inst->inputs[0].as_or_throw<s_tir::SBlockRV>().get());
   TVM_FFI_ICHECK_EQ(get_sblock_inst->attrs.size(), 2);
   candidate->inst = ffi::GetRef<Instruction>(ann_inst);

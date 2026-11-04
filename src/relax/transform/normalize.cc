@@ -44,7 +44,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return builder_->Normalize(ExprMutatorBase::VisitExpr(expr));
   }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     Expr body = this->VisitWithNewScope(op->body, op->params);
 
     if (body.same_as(op->body)) {
@@ -54,7 +54,7 @@ class NormalizeMutator : public ExprMutatorBase {
     }
   }
 
-  Expr VisitExpr_(const IfExprNode* op) final {
+  Expr VisitExpr_(const IfExprObj* op) final {
     Expr guard = this->VisitExpr(op->cond);
     Expr true_b = this->VisitWithNewScope(op->true_branch);
     Expr false_b = this->VisitWithNewScope(op->false_branch);
@@ -82,7 +82,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return ret;
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) final {
+  Expr VisitExpr_(const SeqExprObj* op) final {
     bool all_blocks_unchanged = true;
     ffi::Array<BindingBlock> blocks;
     for (auto block : op->blocks) {
@@ -110,9 +110,9 @@ class NormalizeMutator : public ExprMutatorBase {
 
   BindingBlock VisitBindingBlock(const BindingBlock& block) final {
     BindingBlock ret(ffi::UnsafeInit{});
-    if (const auto* node = block.as<DataflowBlockNode>()) {
+    if (const auto* node = block.as<DataflowBlockObj>()) {
       ret = VisitBindingBlock_(node);
-    } else if (const auto* node = block.as<BindingBlockNode>()) {
+    } else if (const auto* node = block.as<BindingBlockObj>()) {
       ret = VisitBindingBlock_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << block->GetTypeKey();
@@ -120,7 +120,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return ret;
   }
 
-  BindingBlock VisitBindingBlock_(const BindingBlockNode* block) {
+  BindingBlock VisitBindingBlock_(const BindingBlockObj* block) {
     builder_->BeginBindingBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
@@ -128,7 +128,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return builder_->EndBlock();
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) {
     builder_->BeginDataflowBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
@@ -137,16 +137,16 @@ class NormalizeMutator : public ExprMutatorBase {
   }
 
   void VisitBinding(const Binding& binding) {
-    if (const auto* node = binding.as<VarBindingNode>()) {
+    if (const auto* node = binding.as<VarBindingObj>()) {
       VisitBinding_(node);
-    } else if (const auto* node = binding.as<MatchCastNode>()) {
+    } else if (const auto* node = binding.as<MatchCastObj>()) {
       VisitBinding_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << binding->GetTypeKey();
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding) {
+  void VisitBinding_(const VarBindingObj* binding) {
     Expr new_value = this->VisitExpr(binding->value);
     if (binding->var->ty.as<MissingType>().has_value()) {
       UpdateType(binding->var, GetType(new_value));
@@ -159,7 +159,7 @@ class NormalizeMutator : public ExprMutatorBase {
     }
   }
 
-  void VisitBinding_(const MatchCastNode* binding) {
+  void VisitBinding_(const MatchCastObj* binding) {
     Expr new_value = this->VisitExpr(binding->value);
 
     if (new_value.same_as(binding->value)) {
@@ -202,7 +202,7 @@ class GlobalVarNormalizer : private ExprMutator {
 
     // Step 3. Substitute global vars in functions
     for (auto [gvar, func] : module_->functions) {
-      if (!func->IsInstance<FunctionNode>()) {
+      if (!func->IsInstance<FunctionObj>()) {
         continue;
       }
       auto new_func = this->VisitExpr(func).as_or_throw<BaseFunc>();
@@ -263,7 +263,7 @@ class GlobalVarNormalizer : private ExprMutator {
     }
   }
 
-  Expr VisitExpr_(const GlobalVarNode* op) final {
+  Expr VisitExpr_(const GlobalVarObj* op) final {
     TVM_FFI_ICHECK(gvar_map_.count(ffi::GetRef<GlobalVar>(op)));
     return gvar_map_[ffi::GetRef<GlobalVar>(op)];
   }

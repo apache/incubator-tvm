@@ -30,18 +30,18 @@
 namespace tvm {
 namespace relax {
 
-// Pattern A (RM): auto-default repr from reflection for RXPlaceholderOpNode.
+// Pattern A (RM): auto-default repr from reflection for RXPlaceholderOpObj.
 
-TVM_FFI_STATIC_INIT_BLOCK() { RXPlaceholderOpNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { RXPlaceholderOpObj::RegisterReflection(); }
 
 te::Tensor TETensor(Expr value, ffi::Map<tvm::Var, PrimExpr> tir_var_map, std::string name) {
-  auto n = ffi::make_object<RXPlaceholderOpNode>(value);
+  auto n = ffi::make_object<RXPlaceholderOpObj>(value);
   n->name = name;
 
   // If the value is a constant, it might come as an argument of EmitTE and thus its shape and
   // checked-type might not be properly set. In this case we set the shape and dtype of the returned
   // TE tensor.
-  if (const auto* constant = value.as<GenericConstNode>()) {
+  if (const auto* constant = value.as<GenericConstObj>()) {
     n->dtype = PrimType(constant->value.cast<ffi::Tensor>().dtype());
 
     int ndim = constant->value.cast<ffi::Tensor>().ndim();
@@ -56,9 +56,9 @@ te::Tensor TETensor(Expr value, ffi::Map<tvm::Var, PrimExpr> tir_var_map, std::s
   }
   TVM_FFI_ICHECK(!value->ty.as<MissingType>().has_value())
       << "value must be normalized and contain Type";
-  auto* tensor_ty = GetTypeAs<TensorTypeNode>(value);
+  auto* tensor_ty = GetTypeAs<TensorTypeObj>(value);
   TVM_FFI_ICHECK(tensor_ty) << "Value must be a tensor";
-  auto* shape_expr = tensor_ty->shape.as<ShapeExprNode>();
+  auto* shape_expr = tensor_ty->shape.as<ShapeExprObj>();
   TVM_FFI_CHECK(shape_expr, ValueError)
       << "Expression does not have an known symbolic shape, please consider use "
          "match_cast "

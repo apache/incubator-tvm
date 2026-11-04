@@ -42,8 +42,8 @@ using namespace tvm::tirx;
  */
 std::pair<Stmt, ffi::Optional<For>> TileWmmaBlock(Stmt stmt) {
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -135,8 +135,8 @@ Stmt RewriteWmmaLoad(Stmt stmt) {
   const PrimType int32_ty = PrimType::Int(32);
 
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -151,8 +151,8 @@ Stmt RewriteWmmaLoad(Stmt stmt) {
                              Range::GetExtentFromBeginEnd(loops[n - 2]->begin, loops[n - 2]->end))},
   };
   // TODO(tian): the assumption that the RHS of TensorStore is TensorLoad may not be accurate
-  const TensorStoreNode* tensor_store = TVM_TYPE_AS(body, TensorStoreNode);
-  const TensorLoadNode* tensor_load = TVM_TYPE_AS(tensor_store->value, TensorLoadNode);
+  const TensorStoreObj* tensor_store = TVM_TYPE_AS(body, TensorStoreObj);
+  const TensorLoadObj* tensor_load = TVM_TYPE_AS(tensor_store->value, TensorLoadObj);
 
   TensorVar src_tensor = tensor_load->source.as_or_throw<tvm::tirx::TensorVar>();
   TensorVar tgt_tensor = tensor_store->dest.as_or_throw<TensorVar>();
@@ -244,8 +244,8 @@ Stmt RewriteWmmaStore(Stmt stmt) {
   const PrimType int32_ty = PrimType::Int(32);
 
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -260,8 +260,8 @@ Stmt RewriteWmmaStore(Stmt stmt) {
                              Range::GetExtentFromBeginEnd(loops[n - 2]->begin, loops[n - 2]->end))},
   };
   // TODO(tian): the assumption that the RHS of TensorStore is TensorLoad may not be accurate
-  const TensorStoreNode* tensor_store = TVM_TYPE_AS(body, TensorStoreNode);
-  const TensorLoadNode* tensor_load = nullptr;
+  const TensorStoreObj* tensor_store = TVM_TYPE_AS(body, TensorStoreObj);
+  const TensorLoadObj* tensor_load = nullptr;
   auto walk_fn = [&](const TensorLoad& load) -> ffi::Expected<ffi::WalkResult> {
     if (load->source.as_or_throw<tvm::tirx::TensorVar>().scope() == scope_wmma_accumulator) {
       TVM_FFI_ICHECK(tensor_load == nullptr ||
@@ -364,11 +364,11 @@ class WmmaToGlobalRewriter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  WmmaToGlobalRewriter(const SeqStmtNode* tgt_stmt, const ConstraintSet& constraints)
+  WmmaToGlobalRewriter(const SeqStmtObj* tgt_stmt, const ConstraintSet& constraints)
       : tgt_stmt_(tgt_stmt), constraints_(constraints) {}
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SeqStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SeqStmtObj* op, InplaceMode inplace_mode) final {
     if (op == tgt_stmt_) {
       TVM_FFI_ICHECK_EQ(op->seq.size(), 2);
       Stmt wmma_to_shared = RewriteWmmaStore(op->seq[0]);
@@ -379,7 +379,7 @@ class WmmaToGlobalRewriter : public StmtExprMutator {
     }
   }
 
-  const SeqStmtNode* tgt_stmt_;
+  const SeqStmtObj* tgt_stmt_;
   const ConstraintSet& constraints_;
 };
 
@@ -404,8 +404,8 @@ std::pair<Stmt, ffi::Optional<For>> TileMmaToGlobalBlock(Stmt stmt) {
   // j_0, j_1 = sch.split(j, factors=[None, 8])
   // sch.reorder(i_0, j_0, i_1, j_1)
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -480,8 +480,8 @@ Stmt RewriteMmaStore(Stmt stmt) {
 
   // Step 1. Get inner loop body
   Stmt body = stmt;
-  std::vector<const ForNode*> loops;
-  while (const ForNode* loop = body.as<ForNode>()) {
+  std::vector<const ForObj*> loops;
+  while (const ForObj* loop = body.as<ForObj>()) {
     loops.push_back(loop);
     body = loop->body->size() == 1 ? loop->body->seq[0] : loop->body;
   }
@@ -497,8 +497,8 @@ Stmt RewriteMmaStore(Stmt stmt) {
   };
 
   // Step 2. Find matrixC tensor
-  const TensorStoreNode* tensor_store = TVM_TYPE_AS(body, TensorStoreNode);
-  const TensorLoadNode* tensor_load = nullptr;
+  const TensorStoreObj* tensor_store = TVM_TYPE_AS(body, TensorStoreObj);
+  const TensorLoadObj* tensor_load = nullptr;
   auto walk_fn = [&](const TensorLoad& load) -> ffi::Expected<ffi::WalkResult> {
     if (load->source.as_or_throw<tvm::tirx::TensorVar>().scope() == scope_mma_matrixC) {
       TVM_FFI_ICHECK(tensor_load == nullptr ||
@@ -588,11 +588,11 @@ class MmaToGlobalRewriter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  MmaToGlobalRewriter(const SeqStmtNode* tgt_stmt, const ConstraintSet& constraints)
+  MmaToGlobalRewriter(const SeqStmtObj* tgt_stmt, const ConstraintSet& constraints)
       : tgt_stmt_(tgt_stmt), constraints_(constraints) {}
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SeqStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SeqStmtObj* op, InplaceMode inplace_mode) final {
     if (op == tgt_stmt_) {
       TVM_FFI_ICHECK_EQ(op->seq.size(), 2);
       // Rewrite for local to shared.dyn
@@ -606,7 +606,7 @@ class MmaToGlobalRewriter : public StmtExprMutator {
     }
   }
 
-  const SeqStmtNode* tgt_stmt_;
+  const SeqStmtObj* tgt_stmt_;
   const ConstraintSet& constraints_;
 };
 

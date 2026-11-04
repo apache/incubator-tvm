@@ -168,9 +168,9 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
 
     for (const auto& arg : ext_func_args_) {
       auto ty = GetType(arg);
-      if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+      if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
         arg_types.emplace_back(backend::DType2String(tensor_ty->dtype.value()->dtype));
-      } else if (const auto* shape_ty = ty.as<ShapeTypeNode>()) {
+      } else if (const auto* shape_ty = ty.as<ShapeTypeObj>()) {
         arg_types.emplace_back(backend::DType2String(shape_ty->values.value()[0].ty()->dtype));
       } else {
         TVM_FFI_THROW(InternalError) << "Unimplemented";
@@ -202,7 +202,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
   ffi::Array<ffi::String> GetHeaders() { return headers_; }
 
  protected:
-  OutputType VisitExpr_(const VarNode* node) final {
+  OutputType VisitExpr_(const VarObj* node) final {
     Output output;
     auto it = var_name_map_.find(node);
     TVM_FFI_ICHECK(it != var_name_map_.end());
@@ -210,8 +210,8 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return {output};
   }
 
-  OutputType VisitExpr_(const CallNode* call) final {
-    const auto* fn_var = call->op.as<VarNode>();
+  OutputType VisitExpr_(const CallObj* call) final {
+    const auto* fn_var = call->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto func = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     const auto pattern_name_opt = func->GetAttr(tvm::relax::attr::kComposite);
@@ -222,16 +222,16 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return ret.outputs;
   }
 
-  OutputType VisitExpr_(const FunctionNode* fn) final {
+  OutputType VisitExpr_(const FunctionObj* fn) final {
     TVM_FFI_ICHECK(fn->GetAttr(tvm::relax::attr::kComposite).has_value())
         << "JSON runtime only supports composite functions";
-    // FunctionNode should be handled by the caller.
+    // FunctionObj should be handled by the caller.
     return {};
   }
 
   OutputType VisitBinding(const Binding& binding) {
     OutputType outputs;
-    if (const auto* node = binding.as<VarBindingNode>()) {
+    if (const auto* node = binding.as<VarBindingObj>()) {
       auto from_b = VisitBinding_(node);
       outputs.insert(outputs.end(), from_b.begin(), from_b.end());
     } else {
@@ -242,10 +242,10 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
 
   OutputType VisitBindingBlock(const BindingBlock& block) {
     OutputType outputs;
-    if (const auto* node = block.as<DataflowBlockNode>()) {
+    if (const auto* node = block.as<DataflowBlockObj>()) {
       auto from_bb = VisitBindingBlock_(node);
       outputs.insert(outputs.end(), from_bb.begin(), from_bb.end());
-    } else if (const auto* node = block.as<BindingBlockNode>()) {
+    } else if (const auto* node = block.as<BindingBlockObj>()) {
       auto from_bb = VisitBindingBlock_(node);
       outputs.insert(outputs.end(), from_bb.begin(), from_bb.end());
     } else {
@@ -254,7 +254,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return outputs;
   }
 
-  OutputType VisitBindingBlock_(const BindingBlockNode* block) {
+  OutputType VisitBindingBlock_(const BindingBlockObj* block) {
     OutputType outputs;
     for (Binding binding : block->bindings) {
       auto from_b = VisitBinding(binding);
@@ -263,7 +263,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return outputs;
   }
 
-  OutputType VisitBindingBlock_(const DataflowBlockNode* block) {
+  OutputType VisitBindingBlock_(const DataflowBlockObj* block) {
     OutputType outputs;
     for (Binding binding : block->bindings) {
       auto from_b = VisitBinding(binding);
@@ -272,7 +272,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return outputs;
   }
 
-  OutputType VisitExpr_(const SeqExprNode* op) final {
+  OutputType VisitExpr_(const SeqExprObj* op) final {
     OutputType outputs;
 
     for (BindingBlock block : op->blocks) {
@@ -286,7 +286,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
   }
 
  private:
-  ffi::Array<ffi::String> GetArgumentNames(const CallNode* call) {
+  ffi::Array<ffi::String> GetArgumentNames(const CallObj* call) {
     ffi::Array<ffi::String> arg_names;
     for (size_t i = 0; i < call->args.size(); ++i) {
       auto res = VisitExpr(call->args[i]);
@@ -297,13 +297,13 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
     return arg_names;
   }
 
-  GenerateBodyOutput GenerateBody(const CallNode* call, const std::string& func_name,
+  GenerateBodyOutput GenerateBody(const CallObj* call, const std::string& func_name,
                                   const ffi::Map<ffi::String, ffi::Any>& attrs) {
     auto func_args = GetArgumentNames(call);
     auto ty = GetType(ffi::GetRef<Call>(call));
 
     std::vector<std::string> out_types;
-    if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
       out_types.emplace_back(backend::DType2String(tensor_ty->dtype.value()->dtype));
     } else {
       TVM_FFI_THROW(InternalError) << "Unimplemented ty type: " << ty;
@@ -334,7 +334,7 @@ class CodegenCutlass : public relax::MemoizedExprTranslator<OutputType>,
    * We use this since sometimes different parameters to the same function end up having the same
    * name.
    */
-  std::unordered_map<const VarNode*, std::string> var_name_map_;
+  std::unordered_map<const VarObj*, std::string> var_name_map_;
   /*! \brief A unique name supply to generate a unique name for each parameter. */
   UniqueNameSupply name_sup_;
 };

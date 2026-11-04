@@ -272,7 +272,7 @@ inline std::string Concat(const ffi::Array<ffi::String>& strs, const std::string
  */
 inline s_tir::SBlockRV GetRVFromSRef(const s_tir::Schedule& sch, const tirx::StmtSRef& block_sref,
                                      const ffi::String& global_var_name) {
-  const s_tir::SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const s_tir::SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   return sch->GetSBlock(block->name_hint, global_var_name);
 }
 
@@ -588,7 +588,7 @@ class SBlockCollector : public s_tir::StmtExprVisitor {
   using s_tir::StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return s_tir::StmtExprVisitor::Visit(value);
   }
 
@@ -619,7 +619,7 @@ class SBlockCollector : public s_tir::StmtExprVisitor {
       for (const auto& [gv, base_func] : sch_->mod()->functions) {
         // `gv->name_hint` is the name of the function
         // `base_func` can be Function or relax::Function
-        if (const auto* func = base_func.as<tirx::FunctionNode>()) {
+        if (const auto* func = base_func.as<tirx::FunctionObj>()) {
           f_collect(ffi::GetRef<tirx::Function>(func), gv->name_hint);
         }
       }
@@ -633,7 +633,7 @@ class SBlockCollector : public s_tir::StmtExprVisitor {
 
  private:
   /*! \brief Override the Stmt visiting behaviour */
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* block) override {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* block) override {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(block));
     TVM_FFI_ICHECK(block_names_.count(block->name_hint) == 0)
         << "Duplicated block name " << block->name_hint << " in function " << func_name_

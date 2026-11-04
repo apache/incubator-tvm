@@ -32,7 +32,7 @@ struct DynamicExtentFinder : public StmtExprVisitor {
     auto finder = ffi::make_object<DynamicExtentFinder>();
     for (const auto& kv : mod->functions) {
       const BaseFunc& func = kv.second;
-      if (const auto* function = func.as<FunctionNode>()) {
+      if (const auto* function = func.as<FunctionObj>()) {
         finder->Visit(function->body);
         if (finder->found_) {
           return true;
@@ -43,8 +43,8 @@ struct DynamicExtentFinder : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
-    if (!Range::GetExtentFromBeginEnd(loop->begin, loop->end)->IsInstance<IntImmNode>()) {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
+    if (!Range::GetExtentFromBeginEnd(loop->begin, loop->end)->IsInstance<IntImmObj>()) {
       found_ = true;
     } else {
       return StmtExprVisitor::Visit_(loop);
@@ -53,7 +53,7 @@ struct DynamicExtentFinder : public StmtExprVisitor {
   }
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView stmt) final {
-    if (stmt.as<ExprNode>()) return std::nullopt;
+    if (stmt.as<ExprObj>()) return std::nullopt;
     if (!found_) {
       return StmtExprVisitor::Visit(stmt);
     }

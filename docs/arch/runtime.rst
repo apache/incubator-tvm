@@ -216,35 +216,35 @@ We can also define subclass ``ObjectRef`` to hold each subtypes of ``Object``. E
 RegisterReflection function.
 
 
-Each ``Object`` subclass will override this to register its members. Here is an example implementation of IntImmNode.
+Each ``Object`` subclass will override this to register its members. Here is an example implementation of IntImmObj.
 
 .. code:: c
 
-  class IntImmNode : public PrimExprNode {
+  class IntImmObj : public PrimExprNode {
   public:
     /*! \brief the Internal value. */
     int64_t value;
 
     static void RegisterReflection() {
       namespace refl = tvm::ffi::reflection;
-      refl::ObjectDef<IntImmNode>().def_ro("value", &IntImmNode::value);
+      refl::ObjectDef<IntImmObj>().def_ro("value", &IntImmObj::value);
     }
-    TVM_FFI_DECLARE_OBJECT_INFO_FINAL("ir.IntImm", IntImmNode, PrimExprNode);
+    TVM_FFI_DECLARE_OBJECT_INFO_FINAL("ir.IntImm", IntImmObj, PrimExprNode);
   };
   // in cc file
-  TVM_FFI_STATIC_INIT_BLOCK() { IntImmNode::RegisterReflection(); }
+  TVM_FFI_STATIC_INIT_BLOCK() { IntImmObj::RegisterReflection(); }
 
 The RegisterReflection gives us a reflection API to register each member of the object.
 We can use this function to visit the node and serialize any language object recursively.
 It also allows us to get members of an object easily in front-end language.
-For example,  we can access the value field of the IntImmNode.
+For example,  we can access the value field of the IntImmObj.
 
 .. code:: python
 
     import tvm
 
     x = tvm_tirx.ir.IntImm("int32", 1)
-    # access the value field of IntImmNode
+    # access the value field of IntImmObj
     print(x.value)
 
 New ``Object`` can be added to C++ without changing the front-end runtime, making it easy to make extensions to the compiler stack.

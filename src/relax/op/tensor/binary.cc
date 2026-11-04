@@ -40,17 +40,17 @@ Type InferTypeBroadcast(const Call& call, const BlockBuilder& ctx, FType f_compu
   auto lhs_ty = GetType(call->args[0]);
   auto rhs_ty = GetType(call->args[1]);
 
-  TVM_FFI_CHECK(lhs_ty.as<PrimTypeNode>() || lhs_ty.as<TensorTypeNode>(), TypeError)
+  TVM_FFI_CHECK(lhs_ty.as<PrimTypeObj>() || lhs_ty.as<TensorTypeObj>(), TypeError)
       << "Arguments to binary operators must be either R.Tensor or R.Prim types, "
       << "but " << call->op << " has LHS type " << lhs_ty;
-  TVM_FFI_CHECK(rhs_ty.as<PrimTypeNode>() || rhs_ty.as<TensorTypeNode>(), TypeError)
+  TVM_FFI_CHECK(rhs_ty.as<PrimTypeObj>() || rhs_ty.as<TensorTypeObj>(), TypeError)
       << "Arguments to binary operators must be either R.Tensor or R.Prim types, "
       << "but " << call->op << " has RHS type " << rhs_ty;
 
   // Dtype
   ffi::Optional<PrimType> output_dtype = f_compute_out_dtype(call, ctx, lhs_ty, rhs_ty);
 
-  if (lhs_ty.as<PrimTypeNode>() && rhs_ty.as<PrimTypeNode>()) {
+  if (lhs_ty.as<PrimTypeObj>() && rhs_ty.as<PrimTypeObj>()) {
     TVM_FFI_ICHECK(output_dtype.has_value());
     return output_dtype.value();
   }
@@ -59,9 +59,9 @@ Type InferTypeBroadcast(const Call& call, const BlockBuilder& ctx, FType f_compu
   ffi::Optional<VDevice> vdevice = InferBinaryArithOpOutVDevice(call, ctx, lhs_ty, rhs_ty);
 
   auto get_ndim = [&](const Type& ty) -> int {
-    if (ty.as<PrimTypeNode>()) {
+    if (ty.as<PrimTypeObj>()) {
       return 1;
-    } else if (const auto* tensor = ty.as<TensorTypeNode>()) {
+    } else if (const auto* tensor = ty.as<TensorTypeObj>()) {
       return tensor->ndim;
     } else {
       return kUnknownNDim;
@@ -82,9 +82,9 @@ Type InferTypeBroadcast(const Call& call, const BlockBuilder& ctx, FType f_compu
   // Shapes
 
   auto get_shape = [](const Type& ty) -> ffi::Optional<ffi::Array<PrimExpr>> {
-    if (ty.as<PrimTypeNode>()) {
+    if (ty.as<PrimTypeObj>()) {
       return ffi::Array<PrimExpr>{IntImm::Int64(1)};
-    } else if (const auto* tensor = ty.as<TensorTypeNode>()) {
+    } else if (const auto* tensor = ty.as<TensorTypeObj>()) {
       return tensor->GetShape();
     } else {
       return std::nullopt;
@@ -105,7 +105,7 @@ Type InferTypeBroadcast(const Call& call, const BlockBuilder& ctx, FType f_compu
   }
 
   auto get_shape_expr = [](const Type& ty) -> ffi::Optional<Expr> {
-    if (const auto* tensor = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor = ty.as<TensorTypeObj>()) {
       return tensor->shape;
     } else {
       return std::nullopt;
@@ -146,8 +146,8 @@ InferLayoutOutput InferLayoutBinaryEwise(
   LayoutDecision layout1 = GetLayoutDecision(var_layout_map, call->args[0]);
   LayoutDecision layout2 = GetLayoutDecision(var_layout_map, call->args[1]);
 
-  auto* x1_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  auto* x2_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  auto* x1_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  auto* x2_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
 
   TVM_FFI_ICHECK(!x1_ty->IsUnknownNdim() && !x2_ty->IsUnknownNdim())
       << "Unknown dim tensors should not be handled by this function";

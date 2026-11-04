@@ -93,7 +93,7 @@ class AlterOpImplMutator : public ExprMutator {
   IRModule Run() {
     for (const auto& gv : mod_->GetGlobalVars()) {
       const auto& func = mod_->Lookup(gv);
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         relax::Function update_func = VisitExpr(func).as_or_throw<Function>();
         builder_->UpdateFunction(gv, update_func);
       }
@@ -104,7 +104,7 @@ class AlterOpImplMutator : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     auto call = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     // TODO(@tvm-team): When we differentiate the call for tirx function and packed function,
@@ -112,10 +112,10 @@ class AlterOpImplMutator : public ExprMutator {
     if (!call->op.same_as(call_tir_op_)) return call;
 
     // Do not do anything for external function
-    if (call->args[0].as<ExternFuncNode>()) return call;
+    if (call->args[0].as<ExternFuncObj>()) return call;
 
     // Get operator name from callee
-    TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarNode>());
+    TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarObj>());
     const tirx::Function& old_func =
         mod_->Lookup(call->args[0].as_or_throw<GlobalVar>()).as_or_throw<tirx::Function>();
     ffi::Optional<ffi::String> maybe_op_kind =
@@ -140,7 +140,7 @@ class AlterOpImplMutator : public ExprMutator {
 
     GlobalVar replacement_gv = GetOrCreateGlobalVarForFunc(replacement_func, op_kind);
 
-    auto call_tir_inputs_tuple = ffi::GetRef<Tuple>(call->args[1].as<TupleNode>());
+    auto call_tir_inputs_tuple = ffi::GetRef<Tuple>(call->args[1].as<TupleObj>());
     Tuple updated_inputs = UpdateInputs(call_tir_inputs_tuple, tensor_transforms);
 
     TVM_FFI_ICHECK_EQ(call->ty_args.size(), 1) << "call_tir ty_args.size() is expected to be 1";
@@ -154,15 +154,15 @@ class AlterOpImplMutator : public ExprMutator {
   }
 
   ffi::Array<TensorType> GetTensorTypePerOutput(const Type& output_ty) {
-    if (const auto* tensor_ty = output_ty.as<TensorTypeNode>())
+    if (const auto* tensor_ty = output_ty.as<TensorTypeObj>())
       return {ffi::GetRef<TensorType>(tensor_ty)};
-    const auto* tuple_ty = output_ty.as<TupleTypeNode>();
+    const auto* tuple_ty = output_ty.as<TupleTypeObj>();
     TVM_FFI_ICHECK(tuple_ty);
 
     ffi::Array<TensorType> tensor_tys;
     tensor_tys.reserve(tuple_ty->fields.size());
     for (const auto& ty : tuple_ty->fields) {
-      const auto* tensor_ty = ty.as<TensorTypeNode>();
+      const auto* tensor_ty = ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK(tensor_ty) << "Nested tuples in output of call_tir is not supported yet";
       tensor_tys.push_back(ffi::GetRef<TensorType>(tensor_ty));
     }
@@ -170,9 +170,9 @@ class AlterOpImplMutator : public ExprMutator {
   }
 
   bool IsScalarConstant(const Expr& expr) {
-    if (expr->IsInstance<GenericConstNode>() &&
-        expr.as<GenericConstNode>()->value.as<ffi::TensorObj>() &&
-        expr.as<GenericConstNode>()->value.cast<ffi::Tensor>().ndim() == 0) {
+    if (expr->IsInstance<GenericConstObj>() &&
+        expr.as<GenericConstObj>()->value.as<ffi::TensorObj>() &&
+        expr.as<GenericConstObj>()->value.cast<ffi::Tensor>().ndim() == 0) {
       return true;
     }
     return false;
@@ -296,11 +296,11 @@ class AlterOpImplMutator : public ExprMutator {
                         const ffi::Array<ffi::Optional<IndexMap>>& tensor_transforms) {
     if (tensor_transforms.empty()) return out_ty;
 
-    if (out_ty->IsInstance<TensorTypeNode>())
+    if (out_ty->IsInstance<TensorTypeObj>())
       return UpdateOutputType(out_ty.as_or_throw<TensorType>(),
                               tensor_transforms[tensor_transforms.size() - 1]);
 
-    TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeNode>())
+    TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeObj>())
         << "Expect output type of call_tir to be either TupleType or "
            "TensorType, but got "
         << out_ty;
@@ -310,7 +310,7 @@ class AlterOpImplMutator : public ExprMutator {
     size_t first_output_index = tensor_transforms.size() - tuple_ty->fields.size();
     size_t i = 0;
     for (const auto& si : tuple_ty->fields) {
-      TVM_FFI_ICHECK(si->IsInstance<TensorTypeNode>())
+      TVM_FFI_ICHECK(si->IsInstance<TensorTypeObj>())
           << "Fields of TupleType must be TensorType for call_tir "
              "output structinfo, but got "
           << si;

@@ -23,14 +23,14 @@
 
 namespace tvm::script::printer::details {
 TVM_FFI_STATIC_INIT_BLOCK() {
-  RegisterScriptRepr<te::CommReducerNode>();
-  RegisterScriptRepr<te::ReduceNode>();
+  RegisterScriptRepr<te::CommReducerObj>();
+  RegisterScriptRepr<te::ReduceObj>();
 }
 namespace {
 ffi::Optional<ExprDoc> CommReducerDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                const ffi::Object*) {
   const auto* reducer =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const te::CommReducerNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const te::CommReducerObj>(input);
   TVM_FFI_CHECK(reducer->lhs.size() == reducer->rhs.size(), TypeError)
       << "printer comm reducer arguments must be paired";
   ffi::Array<IdDoc> args;
@@ -50,7 +50,7 @@ ffi::Optional<ExprDoc> CommReducerDocTranslate(DocTranslatorObj* d, ffi::AnyView
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<te::CommReducerNode>().attr(
+  ffi::reflection::TypeAttrDef<te::CommReducerObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&CommReducerDocTranslate>());
 }
@@ -58,7 +58,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> ReduceDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                           const ffi::Object*) {
   const auto* node =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const te::ReduceNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const te::ReduceObj>(input);
   // Reduction axes bind the source and predicate. Their declarations must use
   // the same identifiers as the IterVars, without becoming external captures.
   for (const s_tir::IterVar& axis : node->axis) {
@@ -85,7 +85,7 @@ ffi::Optional<ExprDoc> ReduceDocTranslate(DocTranslatorObj* d, ffi::AnyView inpu
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<te::ReduceNode>().attr(
+  ffi::reflection::TypeAttrDef<te::ReduceObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&ReduceDocTranslate>());
 }

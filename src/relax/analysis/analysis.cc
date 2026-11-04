@@ -102,9 +102,9 @@ class VarVisitor : protected ExprVisitor {
 
   void VisitExprDepTypeField(const Type&) final {}
 
-  void VisitExpr_(const VarNode* var) final { vars_.Insert(ffi::GetRef<Var>(var)); }
+  void VisitExpr_(const VarObj* var) final { vars_.Insert(ffi::GetRef<Var>(var)); }
 
-  void VisitExpr_(const FunctionNode* op) final {
+  void VisitExpr_(const FunctionObj* op) final {
     for (const auto& param : op->params) {
       MarkBounded(param);
       MarkTypeDefinitionsBound(GetType(param));
@@ -112,11 +112,9 @@ class VarVisitor : protected ExprVisitor {
     VisitExpr(op->body);
   }
 
-  void VisitExpr_(const GlobalVarNode* op) final {
-    global_vars_.Insert(ffi::GetRef<GlobalVar>(op));
-  }
+  void VisitExpr_(const GlobalVarObj* op) final { global_vars_.Insert(ffi::GetRef<GlobalVar>(op)); }
 
-  void VisitExpr_(const CallNode* call_node) final {
+  void VisitExpr_(const CallObj* call_node) final {
     VisitLoc(call_node->loc);
     VisitExpr(call_node->op);
 
@@ -129,13 +127,13 @@ class VarVisitor : protected ExprVisitor {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
+  void VisitBinding_(const VarBindingObj* binding) final {
     MarkBounded(binding->var);
     VisitExpr(binding->value);
     VisitVarDef(binding->var);
   }
 
-  void VisitBinding_(const MatchCastNode* binding) final {
+  void VisitBinding_(const MatchCastObj* binding) final {
     MarkBounded(binding->var);
     MarkTypeDefinitionsBound(binding->ty);
     ExprVisitor::VisitBinding_(binding);
@@ -176,7 +174,7 @@ ffi::Optional<Expr> FindImpureCall(const Expr& expr, const ffi::Optional<Expr>& 
       }
     }
 
-    void VisitExpr_(const FunctionNode* func) override {
+    void VisitExpr_(const FunctionObj* func) override {
       // we don't visit inner functions because an impure call in an inner function
       // does *not* mean the outer function contains an impure call
     }
@@ -187,7 +185,7 @@ ffi::Optional<Expr> FindImpureCall(const Expr& expr, const ffi::Optional<Expr>& 
       // as part of the Relax expression being checked.
     }
 
-    void VisitExpr_(const CallNode* call) override {
+    void VisitExpr_(const CallObj* call) override {
       // ignore recursive calls if we find one
       bool is_recursive = (own_name_ && own_name_.value().same_as(call->op));
       auto expr = ffi::GetRef<Call>(call);
@@ -204,12 +202,12 @@ ffi::Optional<Expr> FindImpureCall(const Expr& expr, const ffi::Optional<Expr>& 
   };
 
   if (own_name) {
-    TVM_FFI_ICHECK(own_name.value().as<VarNode>() || own_name.value().as<GlobalVarNode>())
+    TVM_FFI_ICHECK(own_name.value().as<VarObj>() || own_name.value().as<GlobalVarObj>())
         << "Must pass a Var or GlobalVar for own_name";
   }
 
   Expr to_check = expr;
-  if (auto func = to_check.as<FunctionNode>()) {
+  if (auto func = to_check.as<FunctionObj>()) {
     to_check = func->body;
   }
   return ImpureCallChecker::Check(to_check, own_name);

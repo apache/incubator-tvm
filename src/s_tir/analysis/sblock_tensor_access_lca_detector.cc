@@ -91,14 +91,14 @@ class LCADetector : public s_tir::StmtExprVisitor {
     // The parent scope info
     const ScopeInfo* parent_scope_info;
     // The parent scope stmt node
-    const StmtNode* stmt;
+    const StmtObj* stmt;
     // The scope depth in the AST
     int depth;
-    ScopeInfo(const ScopeInfo* parent_info, const StmtNode* stmt, int depth)
+    ScopeInfo(const ScopeInfo* parent_info, const StmtObj* stmt, int depth)
         : parent_scope_info(parent_info), stmt(stmt), depth(depth) {}
   };
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     int n = ancestor_scopes_.size();
     const ScopeInfo* parent_scope = ancestor_scopes_.back();
     auto* current_scope = arena_.make<ScopeInfo>(parent_scope, op, n);
@@ -118,8 +118,8 @@ class LCADetector : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeNode* op) final {
-    const s_tir::SBlockNode* block = op->block.get();
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeObj* op) final {
+    const s_tir::SBlockObj* block = op->block.get();
     int n = ancestor_scopes_.size();
     for (const TensorVar& tensor : block->alloc_tensors) {
       tensor_var_map_.emplace(tensor.get(), tensor.get());
@@ -150,9 +150,9 @@ class LCADetector : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  void UpdateDominateScopeOfNonDataParIter(const s_tir::SBlockRealizeNode* block_realize) {
+  void UpdateDominateScopeOfNonDataParIter(const s_tir::SBlockRealizeObj* block_realize) {
     // map iter var to the scope which dominate all loop carried dependencies.
-    std::unordered_map<const VarNode*, const ScopeInfo*> opaque_var_scope;
+    std::unordered_map<const VarObj*, const ScopeInfo*> opaque_var_scope;
     // maintain highest scope which dominate all reduce loop iters. null denotes non-reduce block.
     const ScopeInfo* highest_reduce_scope = nullptr;
 
@@ -163,7 +163,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
       const ScopeInfo* highest_scope = nullptr;
       auto walk_fn = [this, &highest_scope](const Var& var) -> ffi::Expected<ffi::WalkResult> {
         if (auto prim_var = var.as<PrimVar>()) {
-          const VarNode* loop_var = prim_var.value().get();
+          const VarObj* loop_var = prim_var.value().get();
           auto it = loop_scope_map_.find(loop_var);
           if (it == loop_scope_map_.end()) {
             return ffi::WalkResult::Advance();
@@ -216,7 +216,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
       auto handle_itervar = [&opaque_var_scope,
                              &scope](const Var& var) -> ffi::Expected<ffi::WalkResult> {
         if (auto prim_var = var.as<PrimVar>()) {
-          const VarNode* iter_var = prim_var.value().get();
+          const VarObj* iter_var = prim_var.value().get();
           auto dom_scope_it = opaque_var_scope.find(iter_var);
           if (dom_scope_it == opaque_var_scope.end()) {
             return ffi::WalkResult::Advance();
@@ -259,7 +259,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
     }
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     // Operands belong to the enclosing scope, before the local definitions.
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->args));
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->attrs));
@@ -279,7 +279,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
   }
 
   // Declared regions carry bounds, not opaque runtime accesses.
-  ffi::Optional<VisitInterrupt> Visit_(const TensorRegionNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorRegionObj* op) final {
     if (!op->source.as<TensorVar>()) return s_tir::StmtExprVisitor::Visit_(op);
     for (const Range& range : op->region) {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(range->begin));
@@ -288,7 +288,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     UpdateTensorLCA(op->source.as_or_throw<tvm::tirx::TensorVar>().get(), ancestor_scopes_.back());
     for (const auto& index : op->indices) {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(index));
@@ -296,7 +296,7 @@ class LCADetector : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     UpdateTensorLCA(op->dest.as_or_throw<TensorVar>().get(), ancestor_scopes_.back());
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->value));
     for (const auto& index : op->indices) {
@@ -306,20 +306,20 @@ class LCADetector : public s_tir::StmtExprVisitor {
   }
 
   // Works for Load/Store and opaque access.
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (def_region_kind() != kTVMFFIDefRegionKindNone) return StmtExprVisitor::Visit_(op);
     VisitTensorVar(op);
     return std::nullopt;
   }
 
-  void VisitTensorVar(const VarNode* op) {
+  void VisitTensorVar(const VarObj* op) {
     auto it = tensor_var_map_.find(op);
     if (it != tensor_var_map_.end()) {
       UpdateTensorLCA(it->second, ancestor_scopes_.back());
     }
   }
 
-  void UpdateTensorLCA(const VarNode* tensor, const ScopeInfo* scope) {
+  void UpdateTensorLCA(const VarObj* tensor, const ScopeInfo* scope) {
     tensor_var_map_.emplace(tensor, tensor);
     if (match_tensors_.find(tensor) == match_tensors_.end()) {
       // Ingore tensor created by block match_tensor
@@ -371,16 +371,16 @@ class LCADetector : public s_tir::StmtExprVisitor {
    *  the root scope.
    */
   std::vector<const ScopeInfo*> ancestor_scopes_ = {};
-  /*! \brief The map from TensorVar to its LCA ForNode/BlockNode. */
-  std::unordered_map<const VarNode*, const ScopeInfo*> tensor_lca_ = {};
+  /*! \brief The map from TensorVar to its LCA ForObj/BlockNode. */
+  std::unordered_map<const VarObj*, const ScopeInfo*> tensor_lca_ = {};
   /*! \brief The map from TensorVar data to the TensorVar. */
-  std::unordered_map<const VarNode*, const VarNode*> tensor_var_map_ = {};
+  std::unordered_map<const VarObj*, const VarObj*> tensor_var_map_ = {};
   /*! \brief The match tensors inside blocks. */
-  std::unordered_set<const VarNode*> match_tensors_ = {};
+  std::unordered_set<const VarObj*> match_tensors_ = {};
   /*! \brief The ForNodes/BlockNodes which contain immediate `blockIdx` launch. */
   std::vector<const ScopeInfo*> blockidx_scopes_ = {};
   /*! \brief The map from loop var to the corresponding scope. */
-  std::unordered_map<const VarNode*, const ScopeInfo*> loop_scope_map_ = {};
+  std::unordered_map<const VarObj*, const ScopeInfo*> loop_scope_map_ = {};
   /*! \brief Internal arena. */
   support::Arena arena_;
 };

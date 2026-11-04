@@ -106,11 +106,11 @@ enum IterVarType : int {
  *
  *  The dtype of the extent of the `dom` of the IterVar must match the dtype of the internal Var.
  */
-class IterVarNode : public OpaqueExprNode {
+class IterVarObj : public OpaqueExprObj {
  public:
-  explicit IterVarNode(ffi::UnsafeInit tag) : var(tag) {}
+  explicit IterVarObj(ffi::UnsafeInit tag) : var(tag) {}
 
-  explicit IterVarNode(PrimVar var) : var(std::move(var)) { ty = this->var.ty(); }
+  explicit IterVarObj(PrimVar var) : var(std::move(var)) { ty = this->var.ty(); }
 
   /*!
    * \brief the domain of iteration, if known, can be None
@@ -128,15 +128,15 @@ class IterVarNode : public OpaqueExprNode {
   ffi::String thread_tag;
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<IterVarNode>()
-        .def_ro("dom", &IterVarNode::dom)
-        .def_ro("var", &IterVarNode::var, refl::AttachFieldFlag::SEqHashDefSimple())
-        .def_ro("iter_type", &IterVarNode::iter_type)
-        .def_ro("thread_tag", &IterVarNode::thread_tag);
+    refl::ObjectDef<IterVarObj>()
+        .def_ro("dom", &IterVarObj::dom)
+        .def_ro("var", &IterVarObj::var, refl::AttachFieldFlag::SEqHashDefSimple())
+        .def_ro("iter_type", &IterVarObj::iter_type)
+        .def_ro("thread_tag", &IterVarObj::thread_tag);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.IterVar", IterVarNode, OpaqueExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.IterVar", IterVarObj, OpaqueExprObj);
 };
 
 /*!
@@ -150,11 +150,11 @@ class IterVar : public PrimExpr {
   TVM_DLL IterVar(ffi::Optional<Range> dom, PrimVar var, IterVarType iter_type,
                   ffi::String thread_tag = "", Location loc = UnknownLoc());
 
-  explicit IterVar(ffi::ObjectPtr<IterVarNode> node) : PrimExpr(std::move(node)) {}
+  explicit IterVar(ffi::ObjectPtr<IterVarObj> node) : PrimExpr(std::move(node)) {}
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(IterVar, PrimExpr, IterVarNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(IterVar, PrimExpr, IterVarObj);
   static constexpr bool _type_container_is_exact = true;
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(IterVarNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(IterVarObj);
 };
 
 inline const char* IterVarType2String(IterVarType t) {

@@ -37,7 +37,7 @@ namespace relax {
 using namespace tvm::prim;
 
 namespace {
-std::optional<int64_t> GetNumInputParams(const FunctionNode* func) {
+std::optional<int64_t> GetNumInputParams(const FunctionObj* func) {
   if (auto opt_int_imm = func->GetAttr<IntImm>(tvm::relax::attr::kNumInput.name)) {
     int64_t num_input_params = static_cast<int64_t>(opt_int_imm.value()->value);
     TVM_FFI_CHECK_GE(num_input_params, 0, ValueError)
@@ -55,7 +55,7 @@ std::optional<int64_t> GetNumInputParams(const FunctionNode* func) {
 
 class LazyInputMutator : public ExprMutator {
  public:
-  Expr VisitExpr_(const FunctionNode* func) override {
+  Expr VisitExpr_(const FunctionObj* func) override {
     if (plan_.has_value()) {
       return ExprMutator::VisitExpr_(func);
     }
@@ -94,7 +94,7 @@ class LazyInputMutator : public ExprMutator {
     return output;
   }
 
-  Expr VisitExpr_(const VarNode* op) override {
+  Expr VisitExpr_(const VarObj* op) override {
     if (plan_) {
       Var var = ffi::GetRef<Var>(op);
       if (auto it = plan_->param_lookup.find(var); it != plan_->param_lookup.end()) {
@@ -121,7 +121,7 @@ class LazyInputMutator : public ExprMutator {
 
 class LazyOutputMutator : public ExprMutator {
  public:
-  Expr VisitExpr_(const FunctionNode* func) override {
+  Expr VisitExpr_(const FunctionObj* func) override {
     if (plan_.has_value()) {
       return ExprMutator::VisitExpr_(func);
     }
@@ -137,7 +137,7 @@ class LazyOutputMutator : public ExprMutator {
     };
 
     auto func_body = func->body.as_or_throw<SeqExpr>();
-    if (auto tuple_output = func_body->body.as<TupleNode>()) {
+    if (auto tuple_output = func_body->body.as<TupleObj>()) {
       for (size_t i = 0; i < tuple_output->fields.size(); i++) {
         define_lookup(i, tuple_output->fields[i]);
       }

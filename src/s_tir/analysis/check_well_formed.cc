@@ -64,7 +64,7 @@ class BlockVarAccessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     auto it = loop_vars_.find(op);
     if (it != loop_vars_.end() && it->second < block_stack_.size()) {
       has_error_ = true;
@@ -88,7 +88,7 @@ class BlockVarAccessVerifier : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     TVM_FFI_ICHECK(loop_vars_.find(op->var.get()) == loop_vars_.end());
     loop_vars_[op->var.get()] = block_stack_.size();
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
@@ -96,7 +96,7 @@ class BlockVarAccessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     // Do not check boundary if it's a opaque block.
     bool is_non_opaque = op->iter_vars.size();
     if (is_non_opaque) {
@@ -139,11 +139,11 @@ class BlockVarAccessVerifier : public StmtExprVisitor {
 
  private:
   /*! \brief The map from outside loop vars to its corresponding block level. */
-  std::unordered_map<const VarNode*, size_t> loop_vars_;
+  std::unordered_map<const VarObj*, size_t> loop_vars_;
   /*! \brief Whether it's in assert mode. */
   bool assert_mode_;
   /*! \brief Current nested block stack level. */
-  std::vector<const SBlockNode*> block_stack_;
+  std::vector<const SBlockObj*> block_stack_;
   /*! \brief Whether there is error. */
   bool has_error_{false};
 };
@@ -206,9 +206,9 @@ class WellFormednessVerifier : public StmtExprVisitor {
 
   static void InitVTable(VTable* table) {
     StmtExprVisitor::InitVTable(table);
-    StmtExprVisitor::SetDispatch<WellFormednessVerifier, IRModuleNode>(table);
-    StmtExprVisitor::SetDispatch<WellFormednessVerifier, FunctionNode>(table);
-    StmtExprVisitor::SetDispatch<WellFormednessVerifier, LambdaExprNode>(table);
+    StmtExprVisitor::SetDispatch<WellFormednessVerifier, IRModuleObj>(table);
+    StmtExprVisitor::SetDispatch<WellFormednessVerifier, FunctionObj>(table);
+    StmtExprVisitor::SetDispatch<WellFormednessVerifier, LambdaExprObj>(table);
   }
 
   Result Visit(ffi::AnyView value) override {
@@ -234,8 +234,8 @@ class WellFormednessVerifier : public StmtExprVisitor {
       TVM_FFI_VISIT_END(object.value());
     }
     if (value.as<Expr>() && !table_->CanDispatch(value)) {
-      if (value.as<OpaqueExprNode>()) return std::nullopt;
-      if (auto var = value.as<VarNode>()) {
+      if (value.as<OpaqueExprObj>()) return std::nullopt;
+      if (auto var = value.as<VarObj>()) {
         TVM_FFI_VISIT_BEGIN();
         return this->Visit_(var);
         TVM_FFI_VISIT_END(object.value());
@@ -363,7 +363,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
       };
       ffi::StructuralWalk<ffi::WalkOrder::kPostOrder>(tensor.shape()[i], walk);
     }
-    if (const auto* tile = tensor.ty()->layout.as<TileLayoutNode>();
+    if (const auto* tile = tensor.ty()->layout.as<TileLayoutObj>();
         tile && MatchShapeStridePattern(tensor.ty()).has_value()) {
       auto site = field->Attr("layout");
       for (size_t i = 0; i < tile->shard.size(); ++i) {
@@ -381,7 +381,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     }
   }
 
-  Result Visit_(const IRModuleNode* op) {
+  Result Visit_(const IRModuleObj* op) {
     std::vector<GlobalVar> globals;
     for (const auto& [global, function] : op->functions) globals.push_back(global);
     std::sort(globals.begin(), globals.end(), [&](const GlobalVar& a, const GlobalVar& b) {
@@ -395,13 +395,13 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const FunctionNode* op) {
+  Result Visit_(const FunctionObj* op) {
     int enclosing_depth = loop_depth_;
     loop_depth_ = 0;
     WithScope([&]() -> Result {
       auto params = AccessPath::Root()->Attr("params");
       for (size_t i = 0; i < op->params.size(); ++i) {
-        if (!op->params[i]->ty.as<TensorTypeNode>()) Define(op->params[i], params->ArrayItem(i));
+        if (!op->params[i]->ty.as<TensorTypeObj>()) Define(op->params[i], params->ArrayItem(i));
       }
       for (size_t i = 0; i < op->params.size(); ++i) {
         if (auto tensor = op->params[i].as<TensorVar>()) {
@@ -421,7 +421,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const VarNode* op) override {
+  Result Visit_(const VarObj* op) override {
     auto var = ffi::GetRef<Var>(op);
     if (check_ == Check::kVariables) {
       auto verify = Verify(current_.count(var));
@@ -449,13 +449,13 @@ class WellFormednessVerifier : public StmtExprVisitor {
     }
   }
 
-  Result Visit_(const BindNode* op) override {
+  Result Visit_(const BindObj* op) override {
     this->Visit(op->value);
     Define(op->var, AccessPath::Root()->Attr("var"));
     return std::nullopt;
   }
 
-  Result Visit_(const RegionStmtNode* op) override {
+  Result Visit_(const RegionStmtObj* op) override {
     this->Visit(op->args);
     this->Visit(op->attrs);
     for (const auto& param : op->body_params) this->Visit(param->ty);
@@ -471,7 +471,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const ForNode* op) override {
+  Result Visit_(const ForObj* op) override {
     if (check_ == Check::kThreadBinding) {
       if (auto tag = op->annotations.Get(attr::kThreadBinding.name)) {
         Verify(op->kind == ForKind::kParallel)
@@ -497,7 +497,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     });
   }
 
-  Result Visit_(const WhileNode* op) override {
+  Result Visit_(const WhileObj* op) override {
     this->Visit(op->condition);
     ++loop_depth_;
     WithScope([&]() { return this->Visit(op->body); });
@@ -505,13 +505,13 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const IfNode* op) override {
+  Result Visit_(const IfObj* op) override {
     this->Visit(op->condition);
     WithScope([&]() { return this->Visit(op->then_case); });
     return WithScope([&]() { return this->Visit(op->else_case); });
   }
 
-  Result Visit_(const prim::LetNode* op) override {
+  Result Visit_(const prim::LetObj* op) override {
     this->Visit(op->value);
     return WithScope([&]() -> Result {
       Define(op->var, AccessPath::Root()->Attr("var"));
@@ -519,7 +519,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     });
   }
 
-  Result Visit_(const LambdaExprNode* op) {
+  Result Visit_(const LambdaExprObj* op) {
     this->Visit(op->ty);
     return WithScope([&]() -> Result {
       for (size_t i = 0; i < op->vars.size(); ++i) {
@@ -529,18 +529,18 @@ class WellFormednessVerifier : public StmtExprVisitor {
     });
   }
 
-  Result Visit_(const CallNode* op) override {
-    if (op->op.as<GlobalVar>() || op->op.as<OpaqueExprNode>()) this->Visit(op->op);
+  Result Visit_(const CallObj* op) override {
+    if (op->op.as<GlobalVar>() || op->op.as<OpaqueExprObj>()) this->Visit(op->op);
     return this->Visit(op->args);
   }
 
-  Result Visit_(const TensorStoreNode* op) override {
+  Result Visit_(const TensorStoreObj* op) override {
     this->Visit(op->value);
     TensorUse(op->dest.as_or_throw<TensorVar>());
     return this->Visit(op->indices);
   }
 
-  Result Visit_(const TensorRegionNode* op) override {
+  Result Visit_(const TensorRegionObj* op) override {
     if (auto tensor = op->source.as<TensorVar>()) {
       TensorUse(tensor.value());
     } else {
@@ -549,26 +549,26 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return this->Visit(op->region);
   }
 
-  Result Visit_(const GenericConstNode* op) override { return std::nullopt; }
+  Result Visit_(const GenericConstObj* op) override { return std::nullopt; }
 
-  Result Visit_(const AssertStmtNode* op) override {
+  Result Visit_(const AssertStmtObj* op) override {
     this->Visit(op->condition);
     this->Visit(op->error_kind);
     return this->Visit(op->message_parts);
   }
 
-  Result Visit_(const prim::RampNode* op) override {
+  Result Visit_(const prim::RampObj* op) override {
     this->Visit(op->base);
     this->Visit(op->stride);
     return this->Visit(op->lanes);
   }
 
-  Result Visit_(const prim::BroadcastNode* op) override {
+  Result Visit_(const prim::BroadcastObj* op) override {
     this->Visit(op->value);
     return this->Visit(op->lanes);
   }
 
-  Result Visit_(const BreakNode* op) override {
+  Result Visit_(const BreakObj* op) override {
     if (check_ == Check::kLoopControl) {
       Verify(loop_depth_ > 0) << "ValueError: break at <current location> requires an enclosing "
                                  "loop in the same function.";
@@ -576,7 +576,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const ContinueNode* op) override {
+  Result Visit_(const ContinueObj* op) override {
     if (check_ == Check::kLoopControl) {
       Verify(loop_depth_ > 0) << "ValueError: continue at <current location> requires an enclosing "
                                  "loop in the same function.";
@@ -584,9 +584,9 @@ class WellFormednessVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const TensorLoadNode* op) override;
+  Result Visit_(const TensorLoadObj* op) override;
 
-  Result Visit_(const SBlockNode* op) override {
+  Result Visit_(const SBlockObj* op) override {
     return WithScope([&]() -> Result {
       for (size_t i = 0; i < op->iter_vars.size(); ++i) {
         const auto& axis = op->iter_vars[i];
@@ -635,7 +635,7 @@ class WellFormednessVerifier : public StmtExprVisitor {
   std::unordered_map<Var, DefinitionSite> previous_;
 };
 
-auto WellFormednessVerifier::Visit_(const TensorLoadNode* op) -> Result {
+auto WellFormednessVerifier::Visit_(const TensorLoadObj* op) -> Result {
   if (check_ != Check::kTensorLoadType) {
     TensorUse(op->source.as_or_throw<TensorVar>());
     return this->Visit(op->indices);

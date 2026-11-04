@@ -63,8 +63,8 @@ Type InferDistTypeMatmul(const Call& call, const BlockBuilder& ctx) {
   }
   int output_ndim = std::max(x1_ndim, x2_ndim) - x1_prepended - x2_appended;
 
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   if (x1_shape == nullptr || x2_shape == nullptr) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "input of distributed operator must have shape";
   }

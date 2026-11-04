@@ -64,15 +64,15 @@ class PurityChecker : public StmtExprVisitor {
           << "Do not have a default for " << stmt.value()->GetTypeKey();
     }
     if (auto expr = value.as<Expr>(); expr && !GlobalVTable()->CanDispatch(value)) {
-      if (value.as<OpaqueExprNode>() || value.as<VarNode>()) return std::nullopt;
+      if (value.as<OpaqueExprObj>() || value.as<VarObj>()) return std::nullopt;
       TVM_FFI_VISIT_THROW(TypeError, expr.value())
           << "Unsupported non-primitive TIR expression " << expr.value()->GetTypeKey();
     }
     return StmtExprVisitor::Visit(value);
   }
 
-  Result Visit_(const BindNode* op) final {
-    if (const auto* call = op->value.as<CallNode>();
+  Result Visit_(const BindObj* op) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       internal_allocations_.insert(op->var);
       allocation_calls_.insert(call);
@@ -81,7 +81,7 @@ class PurityChecker : public StmtExprVisitor {
     return this->Visit(op->var->ty);
   }
 
-  Result Visit_(const TensorStoreNode* op) override {
+  Result Visit_(const TensorStoreObj* op) override {
     this->Visit(op->value);
     this->Visit(op->indices);
 
@@ -97,8 +97,8 @@ class PurityChecker : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const CallNode* call) override {
-    if (call->op.as<GlobalVar>() || call->op.as<OpaqueExprNode>()) this->Visit(call->op);
+  Result Visit_(const CallObj* call) override {
+    if (call->op.as<GlobalVar>() || call->op.as<OpaqueExprObj>()) this->Visit(call->op);
     this->Visit(call->args);
     if (allocation_calls_.count(call)) return std::nullopt;
 
@@ -124,23 +124,23 @@ class PurityChecker : public StmtExprVisitor {
   }
 
   // Match the analysis' traversal policy without introducing binder state.
-  Result Visit_(const FunctionNode* op) {
+  Result Visit_(const FunctionObj* op) {
     for (const auto& param : op->params) {
-      if (!param->ty.as<TensorTypeNode>()) this->Visit(param->ty);
+      if (!param->ty.as<TensorTypeObj>()) this->Visit(param->ty);
     }
     for (const auto& param : op->params) {
-      if (param->ty.as<TensorTypeNode>()) this->Visit(param->ty);
+      if (param->ty.as<TensorTypeObj>()) this->Visit(param->ty);
     }
     return this->Visit(op->body);
   }
 
-  Result Visit_(const LambdaExprNode* op) {
+  Result Visit_(const LambdaExprObj* op) {
     this->Visit(op->ty);
     for (const auto& var : op->vars) this->Visit(var->ty);
     return this->Visit(op->body);
   }
 
-  Result Visit_(const RegionStmtNode* op) override {
+  Result Visit_(const RegionStmtObj* op) override {
     this->Visit(op->args);
     this->Visit(op->attrs);
     for (const auto& param : op->body_params) this->Visit(param->ty);
@@ -149,7 +149,7 @@ class PurityChecker : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  Result Visit_(const ForNode* op) override {
+  Result Visit_(const ForObj* op) override {
     this->Visit(op->begin);
     this->Visit(op->end);
     this->Visit(op->step);
@@ -157,39 +157,39 @@ class PurityChecker : public StmtExprVisitor {
     return this->Visit(op->body);
   }
 
-  Result Visit_(const prim::LetNode* op) override {
+  Result Visit_(const prim::LetObj* op) override {
     this->Visit(op->value);
     this->Visit(op->var->ty);
     return this->Visit(op->body);
   }
 
-  Result Visit_(const TensorLoadNode* op) override { return this->Visit(op->indices); }
+  Result Visit_(const TensorLoadObj* op) override { return this->Visit(op->indices); }
 
-  Result Visit_(const TensorRegionNode* op) override {
+  Result Visit_(const TensorRegionObj* op) override {
     if (!op->source.as<TensorVar>()) this->Visit(op->source);
     return this->Visit(op->region);
   }
 
-  Result Visit_(const GenericConstNode* op) override { return std::nullopt; }
+  Result Visit_(const GenericConstObj* op) override { return std::nullopt; }
 
-  Result Visit_(const AssertStmtNode* op) override {
+  Result Visit_(const AssertStmtObj* op) override {
     this->Visit(op->condition);
     this->Visit(op->error_kind);
     return this->Visit(op->message_parts);
   }
 
-  Result Visit_(const prim::RampNode* op) override {
+  Result Visit_(const prim::RampObj* op) override {
     this->Visit(op->base);
     this->Visit(op->stride);
     return this->Visit(op->lanes);
   }
 
-  Result Visit_(const prim::BroadcastNode* op) override {
+  Result Visit_(const prim::BroadcastObj* op) override {
     this->Visit(op->value);
     return this->Visit(op->lanes);
   }
 
-  Result Visit_(const SBlockNode* op) override {
+  Result Visit_(const SBlockObj* op) override {
     for (const auto& axis : op->iter_vars) {
       this->Visit(axis->dom);
       this->Visit(axis->var.as_or_throw<Var>()->ty);
@@ -209,8 +209,8 @@ class PurityChecker : public StmtExprVisitor {
     static const VTable table = [] {
       VTable table;
       StmtExprVisitor::InitVTable(&table);
-      SetDispatch<PurityChecker, FunctionNode>(&table);
-      SetDispatch<PurityChecker, LambdaExprNode>(&table);
+      SetDispatch<PurityChecker, FunctionObj>(&table);
+      SetDispatch<PurityChecker, LambdaExprObj>(&table);
       table.Finalize();
       return table;
     }();
@@ -221,7 +221,7 @@ class PurityChecker : public StmtExprVisitor {
   bool assert_on_error_{false};
   bool is_pure_{true};
   std::unordered_set<Var> internal_allocations_;
-  std::unordered_set<const CallNode*> allocation_calls_;
+  std::unordered_set<const CallObj*> allocation_calls_;
 };
 }  // namespace
 

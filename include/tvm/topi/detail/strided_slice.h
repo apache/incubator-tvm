@@ -97,7 +97,7 @@ inline ffi::Array<PrimExpr> StridedSliceCanonicalizeBegin(const ffi::Array<PrimE
   ffi::Array<PrimExpr> begin_expr;
   for (size_t i = 0; i < axes.size(); ++i) {
     int64_t ax = axes[i];
-    if (ishape[ax]->IsInstance<tvm::IntImmNode>()) {
+    if (ishape[ax]->IsInstance<tvm::IntImmObj>()) {
       int64_t dim_i = GetConstInt(ishape[ax]);
       int64_t begin_i = CanonicalizeIndex(begin[i], dim_i, strides[i]);
       begin_expr.push_back(MakeConst(dtype, begin_i));
@@ -131,9 +131,9 @@ inline ffi::Array<PrimExpr> StridedSliceOutputShape(
 
   for (size_t i = 0; i < axes.size(); ++i) {
     int64_t ax = axes[i];
-    if (ishape[ax]->IsInstance<tvm::IntImmNode>()) {
+    if (ishape[ax]->IsInstance<tvm::IntImmObj>()) {
       const int64_t dim_i = GetConstInt(ishape[ax]);
-      TVM_FFI_ICHECK(begin_canonicalized[i]->IsInstance<tvm::IntImmNode>());
+      TVM_FFI_ICHECK(begin_canonicalized[i]->IsInstance<tvm::IntImmObj>());
       int64_t begin_i = GetConstInt(begin_canonicalized[i]);
       int64_t end_i = CanonicalizeIndex(end[i], dim_i, strides[i]);
       int interval = std::abs(end_i - begin_i);

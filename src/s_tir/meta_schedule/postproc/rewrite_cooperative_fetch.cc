@@ -186,7 +186,7 @@ bool RewriteCooperativeFetchObj::Apply(const s_tir::Schedule& sch) {
       int64_t fused_extent = -1;
       PrimExpr extent_imm_expr =
           Range::GetExtentFromBeginEnd(sch->Get(fused)->begin, sch->Get(fused)->end);
-      const auto* extent_imm = extent_imm_expr.as<IntImmNode>();
+      const auto* extent_imm = extent_imm_expr.as<IntImmObj>();
       if (auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
           extent.has_value()) {
         fused_extent = *extent;

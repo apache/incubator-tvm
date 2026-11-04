@@ -112,7 +112,7 @@ LayoutDecision InitialLayoutDecision(int ndim) {
 
 NLayout InitialNLayout(const Type& ty) {
   auto fmapleaf = [&](const Type& ty) -> NLayout {
-    if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
       return NLayout(InitialLayoutDecision(tensor_ty->ndim));
     }
     return LayoutDecision::InitUnknownDim();
@@ -130,14 +130,14 @@ LayoutDecision GetLayoutDecision(const VarLayoutMap& var_layout_map, const Expr&
 
 NLayout GetNLayout(const VarLayoutMap& var_layout_map, const Expr& arg) {
   auto fmapleaf = [&](const Expr& expr) -> NLayout {
-    if (const auto* var = expr.as<VarNode>()) {
+    if (const auto* var = expr.as<VarObj>()) {
       auto it = var_layout_map.find(ffi::GetRef<Var>(var));
       if (it != var_layout_map.end()) {
         return (*it).second;
       } else {
         return InitialNLayout(expr);
       }
-    } else if (const auto* constant = expr.as<GenericConstNode>();
+    } else if (const auto* constant = expr.as<GenericConstObj>();
                constant && constant->value.as<ffi::TensorObj>()) {
       return InitialLayoutDecision(constant->value.cast<ffi::Tensor>().shape().size());
     }
@@ -148,7 +148,7 @@ NLayout GetNLayout(const VarLayoutMap& var_layout_map, const Expr& arg) {
 
 bool NoDesiredLayout(const Call& call,
                      const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts) {
-  const OpNode* op_node = call->op.as<OpNode>();
+  const OpObj* op_node = call->op.as<OpObj>();
   if (op_node == nullptr) return false;
   const auto& it = desired_layouts.find(op_node->name);
   return it == desired_layouts.end();

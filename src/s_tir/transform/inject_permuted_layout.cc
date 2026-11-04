@@ -27,7 +27,7 @@
 #include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/sym/analyzer.h>
 #include <tvm/tirx/function.h>
@@ -39,16 +39,17 @@ using namespace tvm::tirx;
 using namespace sym;
 using namespace runtime;
 
-class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
+class PermutedLayoutInjector : public StmtExprMutatorWithConstraintContext {
  public:
-  using StmtExprMutatorWithAnalyzer::Mutate;
-  using StmtExprMutatorWithAnalyzer::Mutate_;
+  using StmtExprMutatorWithConstraintContext::Mutate;
+  using StmtExprMutatorWithConstraintContext::Mutate_;
 
   static Function Transform(Function func) {
     Analyzer analyzer;
 
     auto new_body = ffi::make_object<PermutedLayoutInjector>(analyzer)
                         ->Mutate(func->body)
+                        .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>()
                         .ValueOrUnchanged(func->body);
     auto func_node = func.CopyOnWrite();
     func_node->body = new_body;
@@ -56,7 +57,7 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
   }
 
   explicit PermutedLayoutInjector(const Analyzer& analyzer)
-      : StmtExprMutatorWithAnalyzer(analyzer) {}
+      : StmtExprMutatorWithConstraintContext(analyzer->GetConstraintContext()) {}
 
  private:
   ffi::Array<PrimExpr> PermuteIndices(PrimExpr row_idx, PrimExpr col_idx, int row_size) {
@@ -100,14 +101,14 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
       auto row_idx_sub = floormod(row_idx, 8);
       new_col_idx_outer = col_idx_outer ^ floordiv(row_idx_sub, 2);
     }
-    return {row_idx, analyzer_->Simplify(new_col_idx_outer * 8 + col_idx_inner)};
+    return {row_idx, GetSyncedAnalyzer()->Simplify(new_col_idx_outer * 8 + col_idx_inner)};
   }
 
   static bool CheckAnnotation(const Any& annotation) {
     if (auto opt_str = annotation.as<ffi::String>()) {
       // Support string annotation for backward compatibility
       return *opt_str != "";
-    } else if (auto* node = annotation.as<IntImmNode>()) {
+    } else if (auto* node = annotation.as<IntImmObj>()) {
       return node->value != 0;
     } else if (auto opt_val = annotation.try_cast<int64_t>()) {
       return *opt_val != 0;
@@ -116,16 +117,16 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     if (op->annotations.count(tvm::s_tir::attr::kPermutedLayout) == 0 ||
         !CheckAnnotation(op->annotations.at(tvm::s_tir::attr::kPermutedLayout))) {
-      return StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode);
+      return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
     }
 
     auto prev_permute = permute_;
     permute_ = true;
 
-    SBlock block = StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+    SBlock block = StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                        .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                        .as_or_throw<SBlock>();
 
@@ -143,8 +144,8 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
         << " should be at least 2";
 
     auto dim = tensor.shape().size();
-    auto tensor_row_size = tensor.shape()[dim - 1].as<IntImmNode>()->value;
-    auto tensor_col_size = tensor.shape()[dim - 2].as<IntImmNode>()->value;
+    auto tensor_row_size = tensor.shape()[dim - 1].as<IntImmObj>()->value;
+    auto tensor_col_size = tensor.shape()[dim - 2].as<IntImmObj>()->value;
 
     if (tensor_row_size % 64 != 0) {
       TVM_FFI_ICHECK(tensor_row_size % 32 == 0)
@@ -174,14 +175,14 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
     return indices;
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     static const auto scope_shared = runtime::MemoryScope::Get("shared");
     static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
     // Rewrite write from global to shared.dyn or shared
     // We assume the shape of the shared memory is [..., row_size, col_size],
     // where row_size is divisible by 64, or divisible by 32 and col_size is divisible by 2.
-    auto store = StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+    auto store = StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                      .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                      .as_or_throw<TensorStore>();
 
@@ -200,12 +201,12 @@ class PermutedLayoutInjector : public StmtExprMutatorWithAnalyzer {
     return store;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     static const auto scope_shared = runtime::MemoryScope::Get("shared");
     static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
     // Rewrite load from shared or shared.dyn to global
-    auto load = StmtExprMutatorWithAnalyzer::Mutate_(op, inplace_mode)
+    auto load = StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
                     .ValueOrUnchanged(ffi::GetRef<PrimExpr>(op))
                     .as_or_throw<TensorLoad>();
 

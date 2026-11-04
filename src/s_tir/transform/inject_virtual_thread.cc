@@ -29,7 +29,7 @@
 #include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/tirx/op/memory.h>
 #include <tvm/tirx/op/region.h>
@@ -49,7 +49,7 @@ ffi::Optional<Var> GetBufferDataVar(const ffi::Any& data) {
   if (auto var = data.as<Var>()) {
     return var;
   }
-  if (const auto* call = data.as<CallNode>();
+  if (const auto* call = data.as<CallObj>();
       call && call->op.same_as(tirx::tensor_data_ptr_op()) && call->args.size() == 1) {
     return call->args[0].as<Var>();
   }
@@ -62,7 +62,7 @@ ffi::Optional<Var> GetBufferDataVar(const ffi::Any& data) {
 class ExprTouched final : public StmtExprVisitor {
  public:
   using StmtExprVisitor::Visit_;
-  explicit ExprTouched(const std::unordered_set<const VarNode*>& touched) : touched_var_(touched) {}
+  explicit ExprTouched(const std::unordered_set<const VarObj*>& touched) : touched_var_(touched) {}
 
   void Reset(bool check_write) {
     expr_touched_ = false;
@@ -77,18 +77,18 @@ class ExprTouched final : public StmtExprVisitor {
     return StmtExprVisitor::Visit(n);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     HandleUseVar(op->source.as_or_throw<tvm::tirx::TensorVar>().get());
     return StmtExprVisitor::Visit_(op);
   }
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     HandleUseVar(op);
     return std::nullopt;
   }
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(tirx::masked_load_op()) || op->op.same_as(tirx::masked_store_op())) {
       bool is_load = op->op.same_as(tirx::masked_load_op());
-      const VarNode* tensor = op->args[0].as_or_throw<Var>().get();
+      const VarObj* tensor = op->args[0].as_or_throw<Var>().get();
       if (is_load) {
         HandleUseVar(tensor);
       } else {
@@ -98,15 +98,15 @@ class ExprTouched final : public StmtExprVisitor {
         TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(this->Visit(op->args[i]));
       }
     } else if (op->op.same_as(tirx::tensor_data_ptr_op())) {
-      const VarNode* tensor = op->args[0].as_or_throw<Var>().get();
+      const VarObj* tensor = op->args[0].as_or_throw<Var>().get();
       HandleUseVar(tensor);
       // An escaping address carries no direction information.  Conservatively
       // connect it to the other operands of an opaque statement so virtual
       // threads never share storage that the statement may write.
       if (check_write_) HandleWriteVar(tensor);
-    } else if (op->op.same_as(tirx::address_of_op()) && op->args[0].as<TensorLoadNode>()) {
-      const auto* load = op->args[0].as<TensorLoadNode>();
-      const VarNode* tensor = load->source.as_or_throw<TensorVar>().get();
+    } else if (op->op.same_as(tirx::address_of_op()) && op->args[0].as<TensorLoadObj>()) {
+      const auto* load = op->args[0].as<TensorLoadObj>();
+      const VarObj* tensor = load->source.as_or_throw<TensorVar>().get();
       HandleUseVar(tensor);
       if (check_write_) HandleWriteVar(tensor);
       for (const PrimExpr& index : load->indices) {
@@ -117,7 +117,7 @@ class ExprTouched final : public StmtExprVisitor {
     }
     return std::nullopt;
   }
-  void HandleUseVar(const VarNode* var) {
+  void HandleUseVar(const VarObj* var) {
     auto it = touched_var_.find(var);
     if (it != touched_var_.end()) {
       expr_touched_ = true;
@@ -128,12 +128,12 @@ class ExprTouched final : public StmtExprVisitor {
       used_vars_.push_back(var);
     }
   }
-  void HandleWriteVar(const VarNode* var) { write_vars_.push_back(var); }
+  void HandleWriteVar(const VarObj* var) { write_vars_.push_back(var); }
   // the fields.
   bool expr_touched_{false};
-  std::vector<const VarNode*> used_vars_;
-  std::vector<const VarNode*> write_vars_;
-  const std::unordered_set<const VarNode*>& touched_var_;
+  std::vector<const VarObj*> used_vars_;
+  std::vector<const VarObj*> write_vars_;
+  const std::unordered_set<const VarObj*>& touched_var_;
   bool check_write_{false};
 };
 
@@ -142,15 +142,15 @@ class VarTouchedAnalysis : public StmtExprVisitor {
  public:
   using StmtExprVisitor::Visit_;
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
-    if (const auto* call = op->value.as<CallNode>();
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return DispatchAllocTensor(op, call);
     }
-    if (const auto* call = op->value.as<CallNode>();
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::decl_tensor_op()))
       return StmtExprVisitor::Visit_(op);
     expr_touched_->Reset(false);
@@ -159,7 +159,7 @@ class VarTouchedAnalysis : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     expr_touched_->Reset(false);
     expr_touched_->Visit(op->value);
     for (const auto& index : op->indices) {
@@ -168,7 +168,7 @@ class VarTouchedAnalysis : public StmtExprVisitor {
     Record(op->dest.as_or_throw<TensorVar>().get(), *expr_touched_);
     return std::nullopt;
   }
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     expr_touched_->Reset(false);
     expr_touched_->Visit(op->begin);
     expr_touched_->Visit(op->end);
@@ -176,7 +176,7 @@ class VarTouchedAnalysis : public StmtExprVisitor {
     Record(op->var.get(), *expr_touched_);
     return this->Visit(op->body);
   }
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     if (!op->op.same_as(tirx::launch_thread_op())) has_opaque_region_ = true;
     expr_touched_->Reset(false);
     for (const Expr& arg : op->args) expr_touched_->Visit(arg);
@@ -187,15 +187,15 @@ class VarTouchedAnalysis : public StmtExprVisitor {
   bool has_opaque_region_{false};
 
   // external function call
-  ffi::Optional<VisitInterrupt> Visit_(const EvaluateNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const EvaluateObj* op) final {
     expr_touched_->Reset(true);
     expr_touched_->Visit(op->value);
-    for (const VarNode* var : expr_touched_->write_vars_) {
+    for (const VarObj* var : expr_touched_->write_vars_) {
       Record(var, *expr_touched_);
     }
     return std::nullopt;
   }
-  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindNode* op, const CallNode* call) {
+  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindObj* op, const CallObj* call) {
     expr_touched_->Reset(false);
     tvm::Tuple shape = tvm::Tuple(call->ty_args[0].as_or_throw<tirx::TensorType>()->shape);
     for (const Expr& extent : shape->fields) {
@@ -204,12 +204,12 @@ class VarTouchedAnalysis : public StmtExprVisitor {
     Record(op->var.as_or_throw<TensorVar>().get(), *expr_touched_);
     return StmtExprVisitor::Visit_(op);
   }
-  void Record(const VarNode* var, const ExprTouched& tc) {
+  void Record(const VarObj* var, const ExprTouched& tc) {
     if (touched_var_.count(var)) return;
     if (tc.expr_touched_) {
       touched_var_.insert(var);
     } else {
-      for (const VarNode* r : tc.used_vars_) {
+      for (const VarObj* r : tc.used_vars_) {
         if (r != var) {
           affect_[r].push_back(var);
         }
@@ -217,15 +217,15 @@ class VarTouchedAnalysis : public StmtExprVisitor {
     }
   }
 
-  std::unordered_set<const VarNode*> TouchedVar(const Stmt& stmt, const VarNode* var) {
+  std::unordered_set<const VarObj*> TouchedVar(const Stmt& stmt, const VarObj* var) {
     touched_var_.insert(var);
     this->Visit(stmt);
     // do a DFS to push affect around dependency.
-    std::vector<const VarNode*> pending(touched_var_.begin(), touched_var_.end());
+    std::vector<const VarObj*> pending(touched_var_.begin(), touched_var_.end());
     while (!pending.empty()) {
-      const VarNode* v = pending.back();
+      const VarObj* v = pending.back();
       pending.pop_back();
-      for (const VarNode* r : affect_[v]) {
+      for (const VarObj* r : affect_[v]) {
         if (!touched_var_.count(r)) {
           touched_var_.insert(r);
           pending.push_back(r);
@@ -237,23 +237,23 @@ class VarTouchedAnalysis : public StmtExprVisitor {
 
  private:
   // Whether variable is touched by the thread variable.
-  std::unordered_set<const VarNode*> touched_var_;
+  std::unordered_set<const VarObj*> touched_var_;
   ffi::ObjectPtr<ExprTouched> expr_touched_ = ffi::make_object<ExprTouched>(touched_var_);
   // x -> all the buffers x read from
-  std::unordered_map<const VarNode*, std::vector<const VarNode*>> affect_;
+  std::unordered_map<const VarObj*, std::vector<const VarObj*>> affect_;
 };
 
 // Inject virtual thread loop
 // rewrite the buffer access pattern when necessary.
-class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
+class VTInjector : public s_tir::StmtExprMutatorWithConstraintContext {
  public:
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate;
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate_;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate_;
 
   // constructor
   VTInjector(sym::AnalyzerObj* analyzer, Var var, int num_threads,
-             const std::unordered_set<const VarNode*>& touched_var, bool allow_share)
-      : StmtExprMutatorWithAnalyzer(analyzer),
+             const std::unordered_set<const VarObj*>& touched_var, bool allow_share)
+      : StmtExprMutatorWithConstraintContext(analyzer->GetConstraintContext()),
         var_(var),
         num_threads_(num_threads),
         touched_var_(touched_var),
@@ -261,9 +261,10 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   // Inject VTLoop when needed.
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value,
                                InplaceMode inplace_mode = InplaceMode::kDisallow) final {
-    if (!value.as<StmtNode>()) return StmtExprMutator::Mutate(value, inplace_mode);
+    if (!value.as<StmtObj>())
+      return StmtExprMutatorWithConstraintContext::Mutate(value, inplace_mode);
     TVM_FFI_ICHECK(!visit_touched_var_);
-    auto result = StmtExprMutator::Mutate(value, inplace_mode);
+    auto result = StmtExprMutatorWithConstraintContext::Mutate(value, inplace_mode);
     if (visit_touched_var_ || trigger_base_inject_) {
       if (!vt_loop_injected_) {
         Stmt stmt = std::move(result).ValueOrUnchanged(value).as_or_throw<Stmt>();
@@ -275,9 +276,9 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     return result;
   }
   // Variable
-  UnchangedOr<Expr> Mutate_(const TensorRegionNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const TensorRegionObj* op, InplaceMode inplace_mode) final {
     if (!op->source.as<TensorVar>()) {
-      return StmtExprMutator::Mutate_(op, inplace_mode);
+      return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
     }
     auto region = Mutate(op->region).as_or_throw<UnchangedOr<ffi::Array<Range>>>();
     if (region.UnchangedOrSameAs(op->region)) return ffi::Unchanged();
@@ -286,7 +287,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     return node;
   }
 
-  UnchangedOr<Expr> Mutate_(const VarNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const VarObj* op, InplaceMode inplace_mode) final {
     if (def_region_kind() == kTVMFFIDefRegionKindNone) {
       TVM_FFI_ICHECK(!alloc_remap_.count(op))
           << "TensorVar address may get rewritten in virtual thread";
@@ -294,13 +295,13 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
         visit_touched_var_ = true;
       }
     }
-    return StmtExprMutator::Mutate_(op, inplace_mode);
+    return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
   }
-  PrimExpr RewriteIndex(PrimExpr index, PrimExpr alloc_extent) const {
-    return analyzer_->Simplify(index + var_.as_or_throw<PrimExpr>() * alloc_extent);
+  PrimExpr RewriteIndex(PrimExpr index, PrimExpr alloc_extent) {
+    return GetSyncedAnalyzer()->Simplify(index + var_.as_or_throw<PrimExpr>() * alloc_extent);
   }
   // Expression.
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) final {
     if (op->op.same_as(tirx::masked_load_op()) || op->op.same_as(tirx::masked_store_op())) {
       bool is_load = op->op.same_as(tirx::masked_load_op());
       TensorVar tensor = op->args[0].as_or_throw<TensorVar>();
@@ -331,7 +332,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
       auto tensor_var = GetBufferDataVar(ffi::GetRef<Call>(op)).value();
       auto it = alloc_remap_.find(tensor_var.get());
       if (it == alloc_remap_.end()) {
-        return StmtExprMutator::Mutate_(op, inplace_mode);
+        return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
       }
       visit_touched_var_ = true;
       TensorVar tensor = tensor_var.as_or_throw<TensorVar>();
@@ -342,15 +343,15 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
                    RewriteIndex(PrimExpr(0), it->second) * bytes},
                   {}, {}, op->loc);
     } else {
-      return StmtExprMutator::Mutate_(op, inplace_mode);
+      return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
     }
   }
-  UnchangedOr<Stmt> Mutate_(const EvaluateNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const EvaluateObj* op, InplaceMode inplace_mode) final {
     trigger_base_inject_ = !allow_share_;
-    return StmtExprMutator::Mutate_(op, inplace_mode);
+    return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
   }
   // TensorLoad
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     auto indices = Mutate(op->indices).as_or_throw<UnchangedOr<ffi::Array<PrimExpr>>>();
     TensorLoad node = ffi::GetRef<TensorLoad>(op);
     if (!indices.UnchangedOrSameAs(op->indices)) {
@@ -359,7 +360,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     return VisitTensorAccess(std::move(node));
   }
   // TensorStore
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     auto value = Mutate(op->value);
     auto indices = Mutate(op->indices).as_or_throw<UnchangedOr<ffi::Array<PrimExpr>>>();
     TensorStore node = ffi::GetRef<TensorStore>(op);
@@ -406,20 +407,21 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   }
 
   TensorVar GetRemappedTensor(TensorVar tensor, PrimExpr alloc_extent) {
-    if (auto replacement = VarRemapGet(tensor).as<TensorVar>()) return replacement.value();
+    if (auto replacement = VarRemapGetExpected(tensor).value().as<TensorVar>())
+      return replacement.value();
     TensorVar original = tensor;
 
     TVM_FFI_ICHECK_EQ(tensor.shape().size(), 1)
         << "Expected tensors being rewritten to already be flattened.";
-    auto writer = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+    auto writer = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
     writer->shape = {tensor.shape()[0] * alloc_extent};
     tensor = TensorVar(tensor->name, TensorType(std::move(writer)), tensor->loc);
 
-    VarRemapSet(original, tensor);
+    VarRemapSetExpected(original, tensor).value();
     return tensor;
   }
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
     // A launch extent is evaluated before entering its body. If it depends on
     // the virtual index, put the virtual loop outside the entire launch.
     auto args =
@@ -438,14 +440,14 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   }
 
   // Bind
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
-    if (const auto* call = op->value.as<CallNode>();
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return Mutate_AllocTensor(op, call, inplace_mode);
     }
-    if (const auto* call = op->value.as<CallNode>();
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::decl_tensor_op()))
-      return StmtExprMutator::Mutate_(op, inplace_mode);
+      return StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode);
     auto value_result = this->Mutate(op->value, inplace_mode);
     bool value_unchanged = value_result.UnchangedOrSameAs(op->value);
     Expr value = std::move(value_result).ValueOrUnchanged(op->value);
@@ -460,7 +462,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     }
   }
   // For
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     TVM_FFI_ICHECK(IsZero(op->begin));
     auto extent_result = this->Mutate(op->end, inplace_mode);
     bool extent_unchanged = extent_result.UnchangedOrSameAs(op->end);
@@ -479,12 +481,12 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
       return ffi::Unchanged();
     } else {
       if (inplace_mode == InplaceMode::kAllow) {
-        auto* writable = const_cast<ForNode*>(op);
+        auto* writable = const_cast<ForObj*>(op);
         writable->end = std::move(extent);
         writable->body = std::move(body);
         return ffi::Unchanged();
       } else {
-        auto copy = ffi::make_object<ForNode>(*op);
+        auto copy = ffi::make_object<ForObj>(*op);
         copy->end = std::move(extent);
         copy->body = std::move(body);
         return For(std::move(copy));
@@ -492,7 +494,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     }
   }
   // If
-  UnchangedOr<Stmt> Mutate_(const IfNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const IfObj* op, InplaceMode inplace_mode) final {
     auto condition_result = this->Mutate(op->condition, inplace_mode);
     bool condition_unchanged = condition_result.UnchangedOrSameAs(op->condition);
     PrimExpr condition = std::move(condition_result).ValueOrUnchanged(op->condition);
@@ -520,9 +522,9 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   }
 
   // While
-  UnchangedOr<Stmt> Mutate_(const WhileNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const WhileObj* op, InplaceMode inplace_mode) final {
     // TODO(masahi): What should we do for While nodes?
-    TVM_FFI_THROW(InternalError) << "WhileNode in InjectVirtualThread not supported yet";
+    TVM_FFI_THROW(InternalError) << "WhileObj in InjectVirtualThread not supported yet";
     TVM_FFI_UNREACHABLE();
   }
 
@@ -533,7 +535,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   // With flat Bind (no body), a Bind whose value touches vt_var must be
   // grouped with all remaining siblings and wrapped in a VT loop together.
   // This preserves the scoping that was implicit when Bind carried a body.
-  UnchangedOr<Stmt> Mutate_(const SeqStmtNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SeqStmtObj* op, InplaceMode inplace_mode) final {
     TVM_FFI_ICHECK_EQ(max_loop_depth_, 0);
     ffi::Array<Stmt> new_seq;
     bool changed = false;
@@ -543,7 +545,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
       // For Bind children, pre-check if the value touches vt_var before
       // visiting.  If so, group the Bind with all remaining siblings and
       // wrap the group with InjectVTLoop.
-      if (const auto* bind = op->seq[i].as<BindNode>(); bind && !vt_loop_injected_) {
+      if (const auto* bind = op->seq[i].as<BindObj>(); bind && !vt_loop_injected_) {
         // Visit just the value expression to probe for vt_var dependency.
         TVM_FFI_ICHECK(!visit_touched_var_);
         // This is a probe: the original Bind is revisited when forming the group.
@@ -582,7 +584,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   }
   // Allocate
   // AllocTensor
-  UnchangedOr<Stmt> Mutate_AllocTensor(const BindNode* op, const CallNode* call,
+  UnchangedOr<Stmt> Mutate_AllocTensor(const BindObj* op, const CallObj* call,
                                        InplaceMode inplace_mode) {
     tvm::Tuple shape = tvm::Tuple(call->ty_args[0].as_or_throw<tirx::TensorType>()->shape);
     ffi::Array<PrimExpr> original_shape = shape->fields.as_or_throw<ffi::Array<PrimExpr>>();
@@ -612,12 +614,12 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
     if (new_shape.same_as(original_shape) && args.same_as(call->args)) {
       return ffi::Unchanged();
     } else {
-      auto type = ffi::make_object<TensorTypeNode>(*op->var.as_or_throw<TensorVar>().ty().get());
+      auto type = ffi::make_object<TensorTypeObj>(*op->var.as_or_throw<TensorVar>().ty().get());
       type->shape = new_shape;
       TensorVar new_tensor =
           TensorVar(op->var.as_or_throw<TensorVar>()->name, TensorType(std::move(type)),
                     op->var.as_or_throw<TensorVar>()->loc);
-      VarRemapSet(op->var.as_or_throw<TensorVar>(), new_tensor);
+      VarRemapSetExpected(op->var.as_or_throw<TensorVar>(), new_tensor).value();
 
       return Bind(new_tensor,
                   Call(new_tensor.ty(), tirx::alloc_tensor_op(), args, call->attrs,
@@ -684,7 +686,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
   // the counter of loops in after mutation.
   int max_loop_depth_{0};
   // The variables that get touched.
-  const std::unordered_set<const VarNode*>& touched_var_;
+  const std::unordered_set<const VarObj*>& touched_var_;
   // Whether allow shareding.
   bool allow_share_;
   /* \brief The allocations that get touched -> extent
@@ -693,7 +695,7 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
    * extent of the allocation.  Used when rewriting the indices of
    * TensorLoad/TensorStore.
    */
-  std::unordered_map<const VarNode*, PrimExpr> alloc_remap_;
+  std::unordered_map<const VarObj*, PrimExpr> alloc_remap_;
   /*! \brief Map of tensors that are modified.
    *
    * Tensors allocated or written to within the virtual thread loop
@@ -703,20 +705,21 @@ class VTInjector : public s_tir::StmtExprMutatorWithAnalyzer {
    */
 };
 
-class VirtualThreadInjector : public s_tir::StmtExprMutatorWithAnalyzer {
+class VirtualThreadInjector : public s_tir::StmtExprMutatorWithConstraintContext {
  public:
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate;
-  using s_tir::StmtExprMutatorWithAnalyzer::Mutate_;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate_;
 
-  using StmtExprMutatorWithAnalyzer::StmtExprMutatorWithAnalyzer;
+  using StmtExprMutatorWithConstraintContext::StmtExprMutatorWithConstraintContext;
 
-  UnchangedOr<Stmt> Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) final {
-    Stmt stmt = StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-    op = stmt.as<RegionStmtNode>();
+  UnchangedOr<Stmt> Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) final {
+    Stmt stmt = StmtExprMutatorWithConstraintContext::Mutate_(op, inplace_mode)
+                    .ValueOrUnchanged(ffi::GetRef<Stmt>(op));
+    op = stmt.as<RegionStmtObj>();
     if (op && op->op.same_as(tirx::launch_thread_op()) &&
         std::string(op->args[0].as_or_throw<StringImm>()->value).rfind("vthread", 0) == 0) {
       PrimVar var = op->body_params[0].as_or_throw<PrimVar>();
-      const auto* extent = op->args[1].as_or_throw<PrimExpr>().as<IntImmNode>();
+      const auto* extent = op->args[1].as_or_throw<PrimExpr>().as<IntImmObj>();
       TVM_FFI_ICHECK(extent) << "Virtual thread extent must be a constant integer";
       int nthread = extent->value.as<int>().value();
       TVM_FFI_ICHECK_GT(nthread, 0) << "Virtual thread extent must be positive";
@@ -728,8 +731,8 @@ class VirtualThreadInjector : public s_tir::StmtExprMutatorWithAnalyzer {
         return For(var, IntImm(var.ty(), 0), op->args[1].as_or_throw<PrimExpr>(),
                    IntImm(var.ty(), 1), ForKind::kDefault, op->body);
       }
-      auto injector =
-          ffi::make_object<VTInjector>(analyzer_, var, nthread, touched, /*allow_share=*/true);
+      auto injector = ffi::make_object<VTInjector>(GetSyncedAnalyzer(), var, nthread, touched,
+                                                   /*allow_share=*/true);
       return injector->Mutate(op->body).ValueOrUnchanged(op->body);
     } else {
       return stmt;
@@ -746,7 +749,7 @@ Pass InjectVirtualThread() {
 
     sym::Analyzer analyzer;
 
-    n->body = ffi::make_object<VirtualThreadInjector>(analyzer)
+    n->body = ffi::make_object<VirtualThreadInjector>(analyzer->GetConstraintContext())
                   ->Mutate(n->body.value(), InplaceMode::kAllow)
                   .ValueOrUnchanged(std::move(n->body).value());
     n->body = s_tir::ConvertSSA(std::move(n->body).value());

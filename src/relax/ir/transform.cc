@@ -127,7 +127,7 @@ IRModule FunctionPassObj::operator()(IRModule mod, const PassContext& pass_ctx) 
   std::vector<std::pair<GlobalVar, Function> > updates;
   for (const auto& it : updated_mod->functions) {
     // only picks up relax::Function
-    if (auto* n = it.second.as<FunctionNode>()) {
+    if (auto* n = it.second.as<FunctionObj>()) {
       Function func = ffi::GetRef<Function>(n);
       // Enrich at this leaf executor, rendering the location local to the
       // currently-processed function (the access path is function-rooted).
@@ -216,12 +216,12 @@ class DataflowBlockMutator : public ExprMutator {
       : pass_func_(pass_func), mod_(mod), pass_ctx_(pass_ctx) {}
 
   /*!
-   * \brief Rewrite the DataflowBlockNode with pass_func_
+   * \brief Rewrite the DataflowBlockObj with pass_func_
    *
    * This function will check that there are no rewrites of the global-scope
    * Vars or symbolic Vars defined inside the dataflow block.
    */
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* n) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* n) final {
     PreservedVars preserved_vars = CollectPreservedVars(n->bindings);
 
     // apply pass_func_ to the DataflowBlock
@@ -229,11 +229,11 @@ class DataflowBlockMutator : public ExprMutator {
     DataflowBlock updated_block = pass_func_(block, mod_, pass_ctx_);
 
     PreservedVars updated_vars = CollectPreservedVars(updated_block->bindings);
-    for (const VarNode* var : preserved_vars.binding_vars) {
+    for (const VarObj* var : preserved_vars.binding_vars) {
       TVM_FFI_ICHECK(updated_vars.binding_vars.count(var))
           << "Error: DataflowBlock Pass should not rewrite or delete any global-scope Var.";
     }
-    for (const VarNode* var : preserved_vars.match_cast_symbolic_vars) {
+    for (const VarObj* var : preserved_vars.match_cast_symbolic_vars) {
       TVM_FFI_ICHECK(updated_vars.match_cast_symbolic_vars.count(var))
           << "Error: DataflowBlock Pass should not rewrite or delete any symbolic Var declared "
              "by a MatchCast.";
@@ -243,7 +243,7 @@ class DataflowBlockMutator : public ExprMutator {
   }
 
  private:
-  using VarSet = std::unordered_set<const VarNode*>;
+  using VarSet = std::unordered_set<const VarObj*>;
 
   struct PreservedVars {
     VarSet binding_vars;
@@ -253,12 +253,12 @@ class DataflowBlockMutator : public ExprMutator {
   static PreservedVars CollectPreservedVars(const ffi::Array<Binding>& bindings) {
     PreservedVars vars;
     for (const Binding& binding : bindings) {
-      if (const auto* match_cast = binding.as<MatchCastNode>()) {
+      if (const auto* match_cast = binding.as<MatchCastObj>()) {
         for (const tvm::Var& var : DefinableTIRVarsInType(match_cast->ty)) {
           vars.match_cast_symbolic_vars.insert(var.get());
         }
       }
-      if (!binding->var.as<DataflowVarNode>()) {
+      if (!binding->var.as<DataflowVarObj>()) {
         vars.binding_vars.insert(binding->var.get());
       }
     }
@@ -309,7 +309,7 @@ IRModule DataflowBlockPassObj::operator()(IRModule mod, const PassContext& pass_
   std::vector<std::pair<GlobalVar, Function> > updates;
   for (const auto& it : updated_mod->functions) {
     // only picks up relax::Function
-    if (auto* n = it.second.as<FunctionNode>()) {
+    if (auto* n = it.second.as<FunctionObj>()) {
       Function func = ffi::GetRef<Function>(n);
       // Enrich at this leaf executor, rendering the location local to the
       // currently-processed function.

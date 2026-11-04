@@ -30,7 +30,7 @@ namespace tvm {
 namespace relax {
 Expr MakeCallTIRDist(Expr func, Tuple args, ffi::Array<distributed::DTensorType> out_ty_list) {
   for (const distributed::DTensorType& ty : out_ty_list) {
-    const auto* shape = ty->tensor_ty->shape.as<ShapeExprNode>();
+    const auto* shape = ty->tensor_ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK(shape != nullptr)
         << "out_ty of call_tir should have defined ShapeExpr as shape. "
            "However, one given type information is "

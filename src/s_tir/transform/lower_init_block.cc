@@ -36,12 +36,12 @@ class InitBlockLower : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) final {
     if (!block->init.has_value()) {
       return StmtExprMutator::Mutate_(block, inplace_mode);
     }
@@ -49,12 +49,12 @@ class InitBlockLower : public StmtExprMutator {
     Stmt body = Mutate(block->body, inplace_mode).ValueOrUnchanged(block->body);
     body = SeqStmt({init, body});
     if (inplace_mode == InplaceMode::kAllow) {
-      auto* writable = const_cast<SBlockNode*>(block);
+      auto* writable = const_cast<SBlockObj*>(block);
       writable->init = std::nullopt;
       writable->body = std::move(body);
       return ffi::Unchanged();
     } else {
-      auto copy = ffi::make_object<SBlockNode>(*block);
+      auto copy = ffi::make_object<SBlockObj>(*block);
       copy->init = std::nullopt;
       copy->body = std::move(body);
       return SBlock(std::move(copy));

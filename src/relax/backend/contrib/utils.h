@@ -48,7 +48,7 @@ namespace backend {
 inline std::vector<int64_t> GetIntShape(const ffi::Array<PrimExpr>& shape) {
   std::vector<int64_t> ret;
   for (const auto& dim : shape) {
-    const auto* imm = dim.as<IntImmNode>();
+    const auto* imm = dim.as<IntImmObj>();
     auto pval = imm ? imm->value.as<int64_t>() : std::nullopt;
     ret.push_back(pval.has_value() ? *pval : -1);
   }
@@ -69,8 +69,8 @@ inline std::string DType2String(DLDataType dtype) { return tvm::ffi::DLDataTypeT
  * \param op_name The name of the op
  * \return true if the callee op matches with the op name
  */
-inline bool IsOp(const CallNode* call, const std::string& op_name) {
-  const auto* op_node = call->op.as<OpNode>();
+inline bool IsOp(const CallObj* call, const std::string& op_name) {
+  const auto* op_node = call->op.as<OpObj>();
   if (!op_node) return false;
   Op op = ffi::GetRef<Op>(op_node);
   return op.same_as(Op::Get(op_name));
@@ -83,10 +83,10 @@ inline bool IsOp(const CallNode* call, const std::string& op_name) {
  * \param op_name The name of the op
  * \return A call node which calls an op with the given name or nullptr if not
  */
-inline const CallNode* TryGetOpInFunction(Function f, const std::string& op_name) {
+inline const CallObj* TryGetOpInFunction(Function f, const std::string& op_name) {
   auto local_bindings = AnalyzeVar2Value(f);
   for (const auto& entry : local_bindings) {
-    if (auto call = entry.second.as<CallNode>(); call && backend::IsOp(call, op_name)) {
+    if (auto call = entry.second.as<CallObj>(); call && backend::IsOp(call, op_name)) {
       return call;
     }
   }
@@ -100,8 +100,8 @@ inline const CallNode* TryGetOpInFunction(Function f, const std::string& op_name
  * \param op_name The name of the op
  * \return A call node which calls an op with the given name
  */
-inline const CallNode* GetOpInFunction(Function f, const std::string& op_name) {
-  const CallNode* op = TryGetOpInFunction(f, op_name);
+inline const CallObj* GetOpInFunction(Function f, const std::string& op_name) {
+  const CallObj* op = TryGetOpInFunction(f, op_name);
   TVM_FFI_ICHECK(op) << op_name << " not found in the function:\n" << f;
   return op;
 }

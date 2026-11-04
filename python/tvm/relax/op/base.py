@@ -406,7 +406,7 @@ def invoke_closure(
         The input arguments.
 
     type_args: Union[List[Type], Type]
-        The type information arguments of the CallNode
+        The type information arguments of the CallObj
 
     Returns
     -------
@@ -808,7 +808,7 @@ def invoke_pure_closure(
         The input arguments.
 
     type_args: Union[List[Type], Type]
-        The type information arguments of the CallNode
+        The type information arguments of the CallObj
 
     Returns
     -------

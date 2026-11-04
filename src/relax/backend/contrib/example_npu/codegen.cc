@@ -48,8 +48,8 @@ class ExampleNPUJSONSerializer : public JSONSerializer {
 
   using JSONSerializer::VisitExpr_;
 
-  NodeEntries VisitExpr_(const CallNode* call_node) final {
-    const auto* fn_var = call_node->op.as<VarNode>();
+  NodeEntries VisitExpr_(const CallObj* call_node) final {
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
     TVM_FFI_ICHECK(fn.defined()) << "Expects the callee to be a function.";
@@ -65,7 +65,7 @@ class ExampleNPUJSONSerializer : public JSONSerializer {
       inputs.insert(inputs.end(), res.begin(), res.end());
     }
     auto node = std::make_shared<JSONGraphNode>(composite_name, "kernel", inputs, 1);
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
  private:

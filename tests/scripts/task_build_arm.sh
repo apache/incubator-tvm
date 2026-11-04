@@ -37,7 +37,7 @@ export CMAKE_ARGS="
     -DTVM_USE_GTEST=ON
     -DBUILD_TESTING=ON
     -DTVM_TIRX_BUILD_TESTS=ON
-    -DTVM_TIRX_USE_LLVM=llvm-config-17
+    -DTVM_TIRX_USE_LLVM=ON
 "
 uv build --wheel --no-build-isolation --offline --python python3 --out-dir dist ./3rdparty/tvm-tirx/3rdparty/tvm-ffi
 uv build --wheel --no-build-isolation --offline --python python3 --out-dir dist ./3rdparty/tvm-tirx

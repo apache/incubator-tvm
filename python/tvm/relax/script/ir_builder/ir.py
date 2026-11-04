@@ -33,10 +33,18 @@ from tvm.relax.distributed import Placement as _Placement
 from tvm.relax.distributed import device_mesh
 from tvm.relax.dpl import PatternMatchingRewriter
 from tvm.relax.global_info import DummyGlobalInfo, VDevice
+from tvm.relax.type import FuncType as Func
 from tvm_tirx import ir as _ir
 from tvm_tirx.ir import IRModule
 from tvm_tirx.ir.location import UNKNOWN_LOC, Location
-from tvm_tirx.ir.type import _init_type_api, _normalize_type
+from tvm_tirx.ir.type import MissingType as Missing
+from tvm_tirx.ir.type import NoneType as NoneType
+from tvm_tirx.ir.type import OpaqueType as Opaque
+from tvm_tirx.ir.type import PrimType as Prim
+from tvm_tirx.ir.type import PtrType as Ptr
+from tvm_tirx.ir.type import StringType as String
+from tvm_tirx.ir.type import TensorRegionType as TensorRegion
+from tvm_tirx.ir.type import _normalize_type
 from tvm_tirx.runtime._tensor import (
     cpu,
     cuda,
@@ -555,12 +563,20 @@ __all__ = [
     "Callable",
     "DTensor",
     "ExternFunc",
+    "Func",
+    "Missing",
+    "NoneType",
     "Object",
+    "Opaque",
     "PackedFunc",
+    "Prim",
+    "Ptr",
     "Range",
     "Shape",
     "ShapeExpr",
+    "String",
     "Tensor",
+    "TensorRegion",
     "Tuple",
     "TupleGetItem",
     "const",
@@ -587,6 +603,3 @@ __all__ = [
     "vulkan",
     "webgpu",
 ]
-
-
-_init_type_api("relax", __name__)

@@ -85,7 +85,7 @@ using PrimExprSlotMap =
 
 using LiveVarSet = std::unordered_set<Var, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>;
 
-static bool IsRelaxOwnedCall(const CallNode* call) {
+static bool IsRelaxOwnedCall(const CallObj* call) {
   auto op = call->op.as<Op>();
   if (!op) return true;
   static auto infer_type_map = Op::GetAttrMap(tvm::op_attr::kInferType);
@@ -120,7 +120,7 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
   }
 
  private:
-  void VisitBinding_(const VarBindingNode* op) final {
+  void VisitBinding_(const VarBindingObj* op) final {
     if (!collect_slots_) {
       VisitVarDef(op->var);
       return;
@@ -139,13 +139,13 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
   void MarkLive(const Var& var) {
     if (!live_vars_.insert(var).second) return;
     if (auto it = bound_values_->find(var); it != bound_values_->end()) {
-      for (const VarNode* used : GetUsedVars((*it).second)) MarkLive(ffi::GetRef<Var>(used));
+      for (const VarObj* used : GetUsedVars((*it).second)) MarkLive(ffi::GetRef<Var>(used));
     }
   }
 
-  void VisitExpr_(const VarNode* op) final {
+  void VisitExpr_(const VarObj* op) final {
     Var var = ffi::GetRef<Var>(op);
-    if (collect_scalar_ && !var.as<DataflowVarNode>()) {
+    if (collect_scalar_ && !var.as<DataflowVarObj>()) {
       if (auto prim_var = var.as<PrimVar>();
           prim_var && prim_var.value().ty()->dtype == DLDataType{kDLInt, 64, 1}) {
         HandlePrimExpr(prim_var.value());
@@ -154,7 +154,7 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
     ExprVisitor::VisitExpr_(op);
   }
 
-  void VisitExpr_(const ShapeExprNode* op) final {
+  void VisitExpr_(const ShapeExprObj* op) final {
     for (const PrimExpr& value : op->values) HandlePrimExpr(value);
   }
 
@@ -163,8 +163,8 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
   }
 
   void CollectPrimExprSlot(const PrimExpr& expr) {
-    if (expr->IsInstance<IntImmNode>()) return;
-    if (const auto* call = expr.as<CallNode>()) {
+    if (expr->IsInstance<IntImmObj>()) return;
+    if (const auto* call = expr.as<CallObj>()) {
       TVM_FFI_CHECK(!IsRelaxOwnedCall(call), ValueError)
           << "VM shape expressions cannot compile a Relax-owned Call: " << ffi::GetRef<Call>(call);
     }
@@ -180,17 +180,17 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
     }
   }
 
-  void VisitBinding_(const MatchCastNode* op) final {
+  void VisitBinding_(const MatchCastObj* op) final {
     // Visit the match cast type so we can define
     // the symbolic variables here.
     this->VisitType(op->ty);
   }
 
-  void VisitExpr_(const FunctionNode* op) final {
+  void VisitExpr_(const FunctionObj* op) final {
     // Do not recurse into function node as it is self-contained
   }
 
-  void VisitType_(const FuncTypeNode* op) final {
+  void VisitType_(const FuncTypeObj* op) final {
     // Do not recurse into function type as it is self-contained
   }
 
@@ -259,7 +259,7 @@ class PrimExprSlotCollector : public ExprVisitor, public TypeVisitor {
  * - CheckMatchCast: recursively structinfo unpacking, generate checks and match items.
  * - RunMatch: generate symbolic shape matches
  * - EmitOutstandingPrimExprCompute: tracks the variables to be computed and emit shape computation
- * - VisitExpr_(ShapeExprNode*): makes symbolic shape tuple.
+ * - VisitExpr_(ShapeExprObj*): makes symbolic shape tuple.
  *
  * The checks and symbolic shape all maps to runtime builtin functions. Please checkout
  * runtime/vm/builtin.cc for their definitions.
@@ -292,7 +292,7 @@ class VMShapeLowerMutator
     VMShapeLowerMutator mutator(mod, emit_err_ctx);
 
     for (auto& kv : mod->functions) {
-      if (auto* func = kv.second.as<FunctionNode>()) {
+      if (auto* func = kv.second.as<FunctionObj>()) {
         Function updated_func = mutator.Rewrite(kv.first, ffi::GetRef<Function>(func));
         mutator.builder_->UpdateFunction(kv.first, updated_func);
       }
@@ -306,9 +306,9 @@ class VMShapeLowerMutator
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const VarNode* op) final {
+  Expr VisitExpr_(const VarObj* op) final {
     Var var = ffi::GetRef<Var>(op);
-    if (!var.as<DataflowVarNode>()) {
+    if (!var.as<DataflowVarObj>()) {
       if (auto prim_var = var.as<PrimVar>(); prim_var && slot_map_.count(*prim_var)) {
         return RewritePrimValue(*prim_var);
       }
@@ -316,7 +316,7 @@ class VMShapeLowerMutator
     return ExprMutator::VisitExpr_(op);
   }
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     if (auto prim_expr = ffi::GetRef<Call>(op).as<PrimExpr>();
         prim_expr && slot_map_.count(prim_expr.value()) && !IsRelaxOwnedCall(op)) {
       return RewritePrimValue(prim_expr.value());
@@ -324,7 +324,7 @@ class VMShapeLowerMutator
     return ExprMutator::VisitExpr_(op);
   }
 
-  Expr VisitExprFallback_(const ExprNode* op) final {
+  Expr VisitExprFallback_(const ExprObj* op) final {
     if (auto prim_expr = ffi::GetRef<Expr>(op).as<PrimExpr>();
         prim_expr && slot_map_.count(prim_expr.value())) {
       return RewritePrimValue(prim_expr.value());
@@ -332,8 +332,8 @@ class VMShapeLowerMutator
     return ExprMutator::VisitExprFallback_(op);
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
-    if (binding->var.as<DataflowVarNode>()) {
+  void VisitBinding_(const VarBindingObj* binding) final {
+    if (binding->var.as<DataflowVarObj>()) {
       ExprMutator::VisitBinding_(binding);
       return;
     }
@@ -426,7 +426,7 @@ class VMShapeLowerMutator
   static DLDataType ShapeDType() { return DLDataType{kDLInt, 64, 1}; }
 
   PrimExprSlot* GetPrimValueSlot(const Var& var) const {
-    if (var.as<DataflowVarNode>()) return nullptr;
+    if (var.as<DataflowVarObj>()) return nullptr;
     auto prim_var = var.as<PrimVar>();
     if (!prim_var) return nullptr;
     auto it = slot_map_.find(PrimExpr(*prim_var));
@@ -452,7 +452,7 @@ class VMShapeLowerMutator
   void PopulateSlotInfo() {
     for (auto& kv : slot_map_) {
       auto* slot = kv.second;
-      if (!slot->expr.as<tvm::VarNode>()) {
+      if (!slot->expr.as<tvm::VarObj>()) {
         ffi::Array<tvm::Var> dep_vars = tvm::UndefinedVars(slot->expr);
         for (auto var : dep_vars) {
           auto it = slot_map_.find(var.as_or_throw<PrimExpr>());
@@ -495,7 +495,7 @@ class VMShapeLowerMutator
   //-------------------------------------------------------
   // Expr mutation overloading.
   //-------------------------------------------------------
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     TVM_FFI_THROW(InternalError) << "VMShapeLower do not work for local functions, make sure "
                                  << " to run it after LambdaLift";
     return ffi::GetRef<Expr>(op);
@@ -504,7 +504,7 @@ class VMShapeLowerMutator
   std::pair<Expr, Expr> MakeSymbolicShapeArg(const PrimExpr& expr) {
     using runtime::vm::MakeShapeCode;
 
-    if (auto* int_expr = expr.as<IntImmNode>()) {
+    if (auto* int_expr = expr.as<IntImmObj>()) {
       return {IntImm::Int64(static_cast<int>(MakeShapeCode::kUseImm)),
               IntImm::Int64(int_expr->value)};
     } else {
@@ -521,7 +521,7 @@ class VMShapeLowerMutator
   Expr RewritePrimValue(const PrimExpr& value) {
     using runtime::vm::MakeShapeCode;
     // Constant shape can be preserved.
-    bool is_const_value = value->IsInstance<IntImmNode>() || value->IsInstance<FloatImmNode>();
+    bool is_const_value = value->IsInstance<IntImmObj>() || value->IsInstance<FloatImmObj>();
     if (is_const_value) {
       return value;
     }
@@ -536,12 +536,11 @@ class VMShapeLowerMutator
     return call;
   }
 
-  Expr VisitExpr_(const ShapeExprNode* op) final {
+  Expr VisitExpr_(const ShapeExprObj* op) final {
     using runtime::vm::MakeShapeCode;
     // Constant shape can be preserved.
-    bool is_const_shape = std::all_of(op->values.begin(), op->values.end(), [](const PrimExpr& e) {
-      return e->IsInstance<IntImmNode>();
-    });
+    bool is_const_shape = std::all_of(op->values.begin(), op->values.end(),
+                                      [](const PrimExpr& e) { return e->IsInstance<IntImmObj>(); });
     if (is_const_shape) {
       return ffi::GetRef<Expr>(op);
     }
@@ -559,7 +558,7 @@ class VMShapeLowerMutator
     return call;
   }
 
-  void VisitBinding_(const MatchCastNode* binding) final {
+  void VisitBinding_(const MatchCastObj* binding) final {
     std::ostringstream err_ctx;
     err_ctx << "ErrorContext(match_cast, ty=" << binding->ty << ") ";
     Expr value = this->VisitExpr(binding->value);
@@ -599,7 +598,7 @@ class VMShapeLowerMutator
                                                              bool require_value_computed) {
     using runtime::vm::MatchShapeCode;
 
-    if (auto* int_expr = expr.as<IntImmNode>()) {
+    if (auto* int_expr = expr.as<IntImmObj>()) {
       return {MatchShapeCode::kAssertEqualToImm, IntImm::Int64(int_expr->value)};
     }
 
@@ -612,7 +611,7 @@ class VMShapeLowerMutator
 
     // the value is not yet computed
     TVM_FFI_ICHECK(!require_value_computed) << "PrimExpr " << expr << " is not computed";
-    if (expr.as<tvm::VarNode>()) {
+    if (expr.as<tvm::VarObj>()) {
       // It is a var we will populate it in this round.
 
       slot->value_computed = true;
@@ -654,9 +653,9 @@ class VMShapeLowerMutator
 
       ffi::Array<Expr> args = {item.input, shape_heap_};
 
-      Expr match_op = item.input->ty.as<PrimTypeNode>() ? Expr(builtin_match_prim_value_)
-                                                        : Expr(builtin_match_shape_);
-      if (item.input->ty.as<PrimTypeNode>()) {
+      Expr match_op = item.input->ty.as<PrimTypeObj>() ? Expr(builtin_match_prim_value_)
+                                                       : Expr(builtin_match_shape_);
+      if (item.input->ty.as<PrimTypeObj>()) {
         TVM_FFI_ICHECK_EQ(item.pattern.size(), 1);
       } else {
         args.push_back(IntImm::Int64(item.pattern.size()));
@@ -795,10 +794,10 @@ class VMShapeLowerMutator
     return TypeFunctor::VisitType(ty, value, always_check, dynamic_only, err_ctx, match_todos);
   }
 
-  void VisitType_(const AnyTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const AnyTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {}
 
-  void VisitType_(const StringTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const StringTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
     if (always_check || !IsBaseOf(StringType(), GetType(value))) {
       builder_->Emit(Call(Type::Missing(), ExternFunc("vm.builtin.check_string_info"),
@@ -807,7 +806,7 @@ class VMShapeLowerMutator
     }
   }
 
-  void VisitType_(const PrimTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const PrimTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
     // emit runtime check of shape
     if (always_check || !IsBaseOf(PrimType(op->dtype), GetType(value))) {
@@ -818,7 +817,7 @@ class VMShapeLowerMutator
     }
   }
 
-  void VisitType_(const ShapeTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const ShapeTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
     // emit runtime check of shape
     if (always_check || !IsBaseOf(ShapeType(op->ndim), GetType(value))) {
@@ -832,13 +831,12 @@ class VMShapeLowerMutator
     }
   }
 
-  void VisitType_(const TensorTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const TensorTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
     // emit runtime check of shape
-    auto* shape_expr = op->shape.as<ShapeExprNode>();
-    if (dynamic_only &&
-        std::all_of(shape_expr->values.begin(), shape_expr->values.end(),
-                    [](const PrimExpr& e) { return e->IsInstance<IntImmNode>(); })) {
+    auto* shape_expr = op->shape.as<ShapeExprObj>();
+    if (dynamic_only && std::all_of(shape_expr->values.begin(), shape_expr->values.end(),
+                                    [](const PrimExpr& e) { return e->IsInstance<IntImmObj>(); })) {
       // if we only check dynamic shapes, and the shape is static, we can skip.
       return;
     }
@@ -854,7 +852,7 @@ class VMShapeLowerMutator
 
     if (shape_expr != nullptr) {
       match_todos->push_back(MatchShapeTodoItem{value, shape_expr->values, err_ctx});
-    } else if (op->shape.as<VarNode>()) {
+    } else if (op->shape.as<VarObj>()) {
       // NOTE: This part of the logic is left empty for future support as it is less common.
       // Future implementors: we can emit a binding here and assert here.
       TVM_FFI_THROW(InternalError)
@@ -868,9 +866,9 @@ class VMShapeLowerMutator
   // This function will try to simplify constant tuples
   // the return value **always** have type.
   Expr MakeTupleGetItem(Expr value, int64_t index) {
-    if (auto* tuple_expr = value.as<TupleNode>()) {
+    if (auto* tuple_expr = value.as<TupleObj>()) {
       return tuple_expr->fields[index];
-    } else if (GetTypeAs<TupleTypeNode>(value)) {
+    } else if (GetTypeAs<TupleTypeObj>(value)) {
       // value is tuple type, it is OK to run tuple get item.
       return TupleGetItem(value, index);
     } else {
@@ -882,9 +880,9 @@ class VMShapeLowerMutator
     }
   }
 
-  void VisitType_(const TupleTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const TupleTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
-    auto* value_tinfo = GetTypeAs<TupleTypeNode>(value);
+    auto* value_tinfo = GetTypeAs<TupleTypeObj>(value);
     if (value_tinfo) {
       TVM_FFI_CHECK_EQ(value_tinfo->fields.size(), op->fields.size(), TypeError)
           << err_ctx << " during match-cast we find tuple size mismatch";
@@ -904,7 +902,7 @@ class VMShapeLowerMutator
     }
   }
 
-  void VisitType_(const FuncTypeNode* op, Expr value, bool always_check, bool dynamic_only,
+  void VisitType_(const FuncTypeObj* op, Expr value, bool always_check, bool dynamic_only,
                   const ffi::String& err_ctx, std::vector<MatchShapeTodoItem>* match_todos) final {
     // we only check function is callable.
     if (!always_check && MatchType<FuncType>(value)) return;

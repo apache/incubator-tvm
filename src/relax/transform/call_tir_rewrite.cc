@@ -52,7 +52,7 @@ class CallTIRMutator : public ExprMutator {
 
   IRModule Run() {
     for (const auto& [gv, func] : mod_->functions) {
-      if (func->IsInstance<FunctionNode>()) {
+      if (func->IsInstance<FunctionObj>()) {
         auto updated_func = this->VisitExpr(func).as_or_throw<Function>();
         builder_->UpdateFunction(gv, updated_func);
       }
@@ -62,10 +62,10 @@ class CallTIRMutator : public ExprMutator {
 
  private:
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const CallNode* call) override {
+  Expr VisitExpr_(const CallObj* call) override {
     // post-order mutation
     Expr expr = VisitExprPostOrder_(call);
-    call = expr.as<CallNode>();
+    call = expr.as<CallObj>();
 
     static const Op call_tir_op = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op = Op::Get("relax.call_tir_inplace");
@@ -96,7 +96,7 @@ class CallTIRMutator : public ExprMutator {
         tuple_output_type = output_ty;
         bool has_nested_tuple =
             std::any_of(output_ty->fields.begin(), output_ty->fields.end(),
-                        [](const Type& field) { return field->IsInstance<TupleTypeNode>(); });
+                        [](const Type& field) { return field->IsInstance<TupleTypeObj>(); });
 
         if (has_nested_tuple) {
           TVM_FFI_ICHECK(!is_inplace)
@@ -106,7 +106,7 @@ class CallTIRMutator : public ExprMutator {
           for (size_t i = 0; i < output_ty->fields.size(); ++i) {
             const auto& field = output_ty->fields[i];
 
-            TVM_FFI_ICHECK(field->IsInstance<TensorTypeNode>())
+            TVM_FFI_ICHECK(field->IsInstance<TensorTypeObj>())
                 << "call_tir expects Tuple of TensorType, but got " << field
                 << " as an element of TupleType";
             const auto& field_tensor = field.as_or_throw<TensorType>();
@@ -126,7 +126,7 @@ class CallTIRMutator : public ExprMutator {
       }
 
       ffi::Array<Expr> args;
-      if (call->args[1].as<TupleNode>()) {
+      if (call->args[1].as<TupleObj>()) {
         args = call->args[1].as_or_throw<Tuple>()->fields;
         // for call_tir_inplace, don't reinsert in-place args, only the newly allocated ones
         if (!is_inplace) {
@@ -193,11 +193,11 @@ class CallTIRMutator : public ExprMutator {
 
   void FlattenAndAllocateOutputs(const Type& type, const Op& alloc_tensor_op,
                                  ffi::Array<Expr>* outs) {
-    if (const auto* tensor_ty = type.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = type.as<TensorTypeObj>()) {
       outs->push_back(AllocateOutputTensor(ffi::GetRef<TensorType>(tensor_ty), alloc_tensor_op));
       return;
     }
-    if (const auto* tuple_ty = type.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = type.as<TupleTypeObj>()) {
       for (const Type& field : tuple_ty->fields) {
         FlattenAndAllocateOutputs(field, alloc_tensor_op, outs);
       }
@@ -209,11 +209,11 @@ class CallTIRMutator : public ExprMutator {
   }
 
   Expr RebuildOutputTuple(const Type& type, const ffi::Array<Expr>& outs, size_t* index) {
-    if (type->IsInstance<TensorTypeNode>()) {
+    if (type->IsInstance<TensorTypeObj>()) {
       TVM_FFI_ICHECK_LT(*index, outs.size());
       return outs[(*index)++];
     }
-    if (const auto* tuple_ty = type.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = type.as<TupleTypeObj>()) {
       ffi::Array<Expr> fields;
       fields.reserve(tuple_ty->fields.size());
       for (const Type& field : tuple_ty->fields) {

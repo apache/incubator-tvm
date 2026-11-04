@@ -70,13 +70,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 ///////////////////////////////// Vars //////////////////////////////////
 
-using tvm::script::ir_builder::details::Namer;
+using tvm::script::ir_builder::detail::Namer;
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  Namer::vtable().SetDispatch<tvm::relax::DataflowVarNode>(
+  Namer::vtable().SetDispatch<tvm::relax::DataflowVarObj>(
       [](const ffi::ObjectRef& node, ffi::String name) -> void {
-        using tvm::relax::DataflowVarNode;
-        DataflowVarNode* var = const_cast<DataflowVarNode*>(node.as<DataflowVarNode>());
+        using tvm::relax::DataflowVarObj;
+        DataflowVarObj* var = const_cast<DataflowVarObj*>(node.as<DataflowVarObj>());
         var->name = name;
       });
 }
@@ -178,7 +178,7 @@ void FuncRetValue(const tvm::relax::Expr& value) {
   if (auto opt = ir_builder->GetLastFrame<BindingBlockFrame>()) {
     auto block_frame = opt.value();
     for (const auto& var : tvm::relax::FreeVars(normalized_value)) {
-      if (var->IsInstance<tvm::relax::DataflowVarNode>()) {
+      if (var->IsInstance<tvm::relax::DataflowVarObj>()) {
         block_frame->output_vars.push_back(var);
       }
     }
@@ -302,10 +302,10 @@ namespace {
 
 tvm::Var RecordBindingLoc(tvm::Var var, const Location& name_loc, const Location& statement_loc) {
   Location loc = IRBuilder::Current()->ResolveLoc(statement_loc);
-  if (!loc.as<UnknownLocNode>()) {
+  if (!loc.as<UnknownLocObj>()) {
     CheckBindingBlockFrameExistAndUnended()->binding_locs.Set(var, loc);
   }
-  var->loc = name_loc.as<UnknownLocNode>() ? loc : name_loc;
+  var->loc = name_loc.as<UnknownLocObj>() ? loc : name_loc;
   return var;
 }
 

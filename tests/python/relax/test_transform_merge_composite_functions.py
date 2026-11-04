@@ -1015,7 +1015,7 @@ def test_mixed_non_composite():
 
 
 def test_reshape():
-    # Verify that the non-CallNode input (shape in reshape) can be handled properly.
+    # Verify that the non-CallObj input (shape in reshape) can be handled properly.
     @I.ir_module
     class Module:
         @R.function(private=True)

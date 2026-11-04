@@ -30,12 +30,12 @@ namespace tvm {
 namespace relax {
 
 /*! \brief Attributes used in multinomial_from_uniform operator */
-struct MultinomialFromUniformAttrs : public AttrsNode {
+struct MultinomialFromUniformAttrs : public AttrsObj {
   DLDataType dtype;
 
   static void RegisterReflection();
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.MultinomialFromUniformAttrs",
-                                    MultinomialFromUniformAttrs, AttrsNode);
+                                    MultinomialFromUniformAttrs, AttrsObj);
 };  // struct MultinomialFromUniformAttrs
 
 }  // namespace relax

@@ -81,18 +81,18 @@ class Var2TensorCollector : public StmtExprVisitor {
       var2tensor_;
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     var2tensor_[op->dest.as_or_throw<TensorVar>()].insert(op->dest.as_or_throw<TensorVar>());
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TensorVar tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
     var2tensor_[tensor].insert(tensor);
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     for (const TensorVar& tensor : op->alloc_tensors) {
       var2tensor_[tensor].insert(tensor);
     }
@@ -104,7 +104,7 @@ class Var2TensorCollector : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
     if (auto tensor = op->var.as<TensorVar>()) {
       var2tensor_[op->var].insert(tensor.value());
     }
@@ -158,7 +158,7 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
   /**************** Visitor overload ****************/
 
   // Declared regions carry bounds, not opaque runtime accesses.
-  ffi::Optional<VisitInterrupt> Visit_(const TensorRegionNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorRegionObj* op) final {
     if (!op->source.as<TensorVar>()) return StmtExprVisitor::Visit_(op);
     for (const Range& range : op->region) {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(range->begin));
@@ -167,12 +167,12 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     VisitTensorAccess(s_tir::TensorRegionFromPoint(op->dest.as_or_throw<TensorVar>(), op->indices));
     return Visit(op->value);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TensorVar tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
     auto explicit_it = explicit_access_annotations_.find(tensor);
     if (explicit_it != explicit_access_annotations_.end()) {
@@ -186,60 +186,82 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (def_region_kind() != kTVMFFIDefRegionKindNone) return StmtExprVisitor::Visit_(op);
     VisitTensorVar(ffi::GetRef<Var>(op));
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
+    auto outer_context = dom_analyzer_->GetConstraintContext();
     Range loop_range = Range(op->begin, op->end);
     IterVar iter = tvm::s_tir::GetThreadBinding(op).has_value()
                        ? IterVar(std::nullopt, op->var, IterVarType::kThreadIndex,
                                  tvm::s_tir::GetThreadBinding(op).value())
                        : IterVar(std::nullopt, op->var, IterVarType::kDataPar);
     ancestor_iters_.push_back(iter);
-    dom_analyzer_->Bind(op->var, loop_range);
+    {
+      auto context = dom_analyzer_->GetConstraintContext();
+      context->Append(sym::RangeConstraint(op->var, loop_range));
+      dom_analyzer_->SyncConstraintContext(context);
+    }
     dom_map_.Set(op->var, sym::IntSet::FromRange(loop_range));
     size_t n_pending_before = pending_flat_alloc_tensors_.size();
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
+    if (auto interrupt = StmtExprVisitor::Visit_(op)) {
+      dom_analyzer_->SyncConstraintContext(outer_context);
+      return interrupt;
+    }
     // Compact flat AllocTensors defined inside this For scope
     CompactPendingFlatAllocTensors(n_pending_before);
+    dom_analyzer_->SyncConstraintContext(outer_context);
     dom_map_.erase(op->var);
     ancestor_iters_.pop_back();
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
-    if (const auto* call = op->value.as<CallNode>();
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return DispatchAllocTensor(op);
     }
-    if (const auto* call = op->value.as<CallNode>();
+    if (const auto* call = op->value.as<CallObj>();
         call && call->op.same_as(tirx::decl_tensor_op()))
       return StmtExprVisitor::Visit_(op);
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->value));
     if (auto value = op->value.as<PrimExpr>(); value && IsIndexTypedExpr(value.value())) {
-      dom_analyzer_->Bind(op->var, value.value());
+      {
+        auto context = dom_analyzer_->GetConstraintContext();
+        context->Append(sym::BindingConstraint(op->var, value.value()));
+        dom_analyzer_->SyncConstraintContext(context);
+      }
       dom_map_.Set(op->var, sym::IntSet::SinglePoint(value.value()));
     }
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const LetNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const LetObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->value));
+    auto outer_context = dom_analyzer_->GetConstraintContext();
     if (IsIndexTypedExpr(op->value)) {
-      dom_analyzer_->Bind(op->var, op->value);
+      {
+        auto context = dom_analyzer_->GetConstraintContext();
+        context->Append(sym::BindingConstraint(op->var, op->value));
+        dom_analyzer_->SyncConstraintContext(context);
+      }
       dom_map_.Set(op->var, sym::IntSet::SinglePoint(op->value));
     }
-    TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->body));
+    if (auto interrupt = StmtExprVisitor::Visit(op->body)) {
+      dom_analyzer_->SyncConstraintContext(outer_context);
+      return interrupt;
+    }
+    dom_analyzer_->SyncConstraintContext(outer_context);
     if (IsIndexTypedExpr(op->value)) {
       dom_map_.erase(op->var);
     }
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const IfNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const IfObj* op) final {
     // Visit condition
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->condition));
     {
@@ -257,7 +279,7 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
     if (op->op.same_as(prim::if_then_else_op())) {
       PrimExpr condition = op->args[0].as_or_throw<PrimExpr>();
       PrimExpr then_value = op->args[1].as_or_throw<PrimExpr>();
@@ -279,7 +301,7 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     // Step 0. Check there is no init part and block is opaque
     TVM_FFI_ICHECK(!op->init.has_value());
     TVM_FFI_ICHECK_EQ(op->iter_vars.size(), 0) << "CompactTensorRegion only works on opaque blocks";
@@ -349,30 +371,39 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* op) final {
     With<ConditionalBoundsContext> ctx(op->predicate, &dom_map_, &hint_map_, &pending_conditions_);
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindNode* op) {
+  ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindObj* op) {
     // AllocTensor is flat: register the tensor def and track for post-scope compaction.
     RecordTensorDefinition(op->var.as_or_throw<TensorVar>());
     pending_flat_alloc_tensors_.push_back(op->var.as_or_throw<TensorVar>());
     return StmtExprVisitor::Visit_(op);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     if (op->op.same_as(tirx::launch_thread_op())) {
+      auto outer_context = dom_analyzer_->GetConstraintContext();
       PrimExpr extent = op->args[1].as_or_throw<PrimExpr>();
       Range dom = Range::FromMinExtent(IntImm(extent.ty(), 0), extent);
       IterVar iter(dom, op->body_params[0].as_or_throw<PrimVar>(), IterVarType::kThreadIndex,
                    op->args[0].as_or_throw<StringImm>()->value);
       ancestor_iters_.push_back(iter);
-      dom_analyzer_->Bind(iter->var, dom);
+      {
+        auto context = dom_analyzer_->GetConstraintContext();
+        context->Append(sym::RangeConstraint(iter->var, dom));
+        dom_analyzer_->SyncConstraintContext(context);
+      }
       dom_map_.Set(iter->var, sym::IntSet::FromRange(dom));
       size_t n_pending_before = pending_flat_alloc_tensors_.size();
-      TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
+      if (auto interrupt = StmtExprVisitor::Visit_(op)) {
+        dom_analyzer_->SyncConstraintContext(outer_context);
+        return interrupt;
+      }
       CompactPendingFlatAllocTensors(n_pending_before);
+      dom_analyzer_->SyncConstraintContext(outer_context);
       dom_map_.erase(iter->var);
       ancestor_iters_.pop_back();
       return std::nullopt;
@@ -511,7 +542,7 @@ class TensorAccessRegionCollector : public StmtExprVisitor {
         result_region.Set(i, original);
         continue;
       }
-      auto is_loop_var = [this](const VarNode* v) {
+      auto is_loop_var = [this](const VarObj* v) {
         return std::any_of(ancestor_iters_.begin(), ancestor_iters_.end(),
                            [v](const IterVar& n) { return n->var.get() == v; });
       };
@@ -626,19 +657,19 @@ class TensorCompactor : public StmtExprMutator {
   explicit TensorCompactor(std::unordered_map<Var, TensorAllocInfo> tensor_info)
       : tensor_info_(std::move(tensor_info)) {}
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* _op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* _op, InplaceMode inplace_mode) final {
     TensorVar original_tensor = _op->dest.as_or_throw<TensorVar>();
     TensorStore store = StmtExprMutator::Mutate_(_op, inplace_mode)
                             .ValueOrUnchanged(ffi::GetRef<Stmt>(_op))
                             .as_or_throw<TensorStore>();
-    TensorStoreNode* op = store.CopyOnWrite();
+    TensorStoreObj* op = store.CopyOnWrite();
     TensorVar tensor = op->dest.as_or_throw<TensorVar>();
     RewriteTensorAccess(original_tensor, &tensor, &op->indices);
     op->dest = std::move(tensor);
     return store;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* _op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* _op, InplaceMode inplace_mode) final {
     TensorVar original_tensor = _op->source.as_or_throw<tvm::tirx::TensorVar>();
     TensorLoad load = StmtExprMutator::Mutate_(_op, inplace_mode)
                           .ValueOrUnchanged(ffi::GetRef<PrimExpr>(_op))
@@ -649,12 +680,12 @@ class TensorCompactor : public StmtExprMutator {
     return TensorLoad(tensor, indices, load->loc);
   }
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     // Step 0. Check there is no Init part.
     TVM_FFI_ICHECK(!op->init.has_value());
     // Rewrite the signature while its tensor identities still match tensor_info_.
     SBlock block = ffi::GetRef<SBlock>(op);
-    SBlockNode* n = block.CopyOnWrite();
+    SBlockObj* n = block.CopyOnWrite();
     RewriteTensorRegions(&n->reads);
     RewriteTensorRegions(&n->writes);
     RewriteMatchTensors(&n->match_tensors);
@@ -666,8 +697,8 @@ class TensorCompactor : public StmtExprMutator {
         .ValueOrUnchanged(block);
   }
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
-    const auto* call = op->value.as<CallNode>();
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
+    const auto* call = op->value.as<CallObj>();
     if (!call ||
         (!call->op.same_as(tirx::alloc_tensor_op()) && !call->op.same_as(tirx::decl_tensor_op()))) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
@@ -682,7 +713,7 @@ class TensorCompactor : public StmtExprMutator {
 
     // Update the producer before generic Bind mutation propagates its result type.
     ffi::Array<Expr> args = call->args;
-    auto rewritten = ffi::make_object<BindNode>(*op);
+    auto rewritten = ffi::make_object<BindObj>(*op);
     rewritten->value =
         Call(new_tensor.ty(), call->op, args, call->attrs, {new_tensor.ty()}, call->loc);
     tvm::Bind binding(std::move(rewritten));
@@ -743,7 +774,7 @@ class TensorCompactor : public StmtExprMutator {
     new_regions.reserve(regions->size());
     for (const auto& region : *regions) {
       TensorRegion tensor_region = region;
-      TensorRegionNode* p = tensor_region.CopyOnWrite();
+      TensorRegionObj* p = tensor_region.CopyOnWrite();
       TensorVar source = p->source.as_or_throw<tvm::tirx::TensorVar>();
       RewriteTensorRegion(&source, &p->region);
       p->source = source;
@@ -757,7 +788,7 @@ class TensorCompactor : public StmtExprMutator {
     result.reserve(match_tensors->size());
     for (const auto& match_tensor : *match_tensors) {
       const TensorRegion& tensor_region = match_tensor->source;
-      auto p = ffi::make_object<TensorRegionNode>(*tensor_region.get());
+      auto p = ffi::make_object<TensorRegionObj>(*tensor_region.get());
       TensorVar source = p->source.as_or_throw<tvm::tirx::TensorVar>();
       RewriteTensorRegion(&source, &p->region);
       p->source = source;
@@ -822,13 +853,13 @@ Stmt TensorCompactorCompact(
     // prepare new tensor
     ffi::Array<PrimExpr> shape = region.Map([](const Range& range) { return range->extent; });
     ffi::Array<PrimExpr> strides = CalcStrides(alloc_info, shape);
-    ffi::ObjectPtr<TensorTypeNode> n = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+    ffi::ObjectPtr<TensorTypeObj> n = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
     n->shape = std::move(shape);
     if (strides.empty()) {
       if (n->layout.has_value()) {
         auto tile = n->layout.value().as_or_throw<tvm::tirx::TileLayout>();
-        n->layout = tvm::tirx::TileLayout(tvm::tirx::TileLayoutNode::DefaultLayout(n->shape)->shard,
-                                          {}, tile->offset);
+        n->layout = tvm::tirx::TileLayout(tvm::tirx::TileLayout::DefaultLayout(n->shape)->shard, {},
+                                          tile->offset);
       }
     } else {
       static const auto memory_axis = tvm::tirx::Axis::Get("m");
@@ -855,7 +886,7 @@ namespace transform {
 Pass CompactTensorAllocation(bool is_strict) {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
     if (!f->body.has_value()) return f;
-    FunctionNode* fptr = f.CopyOnWrite();
+    FunctionObj* fptr = f.CopyOnWrite();
     auto region = TensorAccessRegionCollector::Collect(f, /*collect_inbound=*/is_strict);
     auto storage_align = CollectStorageAlignAnnotation(f->body.value());
     fptr->body = TensorCompactorCompact(f, region, storage_align);

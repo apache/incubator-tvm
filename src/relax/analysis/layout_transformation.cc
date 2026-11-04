@@ -71,11 +71,11 @@ class IndexAnalyzer : public s_tir::StmtExprVisitor {
  private:
   /*! \brief Override Visit for iter expr type processing */
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (const auto* op = value.as<sym::IterSumExprNode>()) {
+    if (const auto* op = value.as<sym::IterSumExprObj>()) {
       for (const auto& arg : op->args) TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(arg));
       return Visit(op->base);
     }
-    if (const auto* op = value.as<sym::IterSplitExprNode>()) {
+    if (const auto* op = value.as<sym::IterSplitExprObj>()) {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(VisitIterMark(op->source));
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->lower_factor));
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(op->extent));
@@ -485,14 +485,14 @@ class BlockAnalyzer : public s_tir::StmtExprVisitor {
     }
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     // Blocks with nested blocks cannot be handled yet.
     LOG(WARNING) << "[LayoutInference] Nested blocks are not supported for layout inference yet";
     can_transform_block_ = false;
 
     return std::nullopt;
   }
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
 
     TensorAccessInfo& access_info =
@@ -526,7 +526,7 @@ class BlockAnalyzer : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TensorVar read_tensor = op->source.as_or_throw<tvm::tirx::TensorVar>();
     TensorAccessInfo& access_info =
         tensor_access_info_[op->source.as_or_throw<tvm::tirx::TensorVar>()];
@@ -604,7 +604,7 @@ class FunctionAnalyzer : public s_tir::StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     if (op->name_hint == "root") {
       // Skip the root block
       return s_tir::StmtExprVisitor::Visit_(op);

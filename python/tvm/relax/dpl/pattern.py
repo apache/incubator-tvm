@@ -317,7 +317,7 @@ class VarPattern(DFPattern):
     ----------
     name_hint: str
         The name of the variable. Optional, if not provided,
-        the pattern will match any VarNode.
+        the pattern will match any VarObj.
     """
 
     def __init__(self, name_hint: str = ""):
@@ -332,7 +332,7 @@ class DataflowVarPattern(VarPattern):
     ----------
     name_hint: str
         The name of the variable. Optional, if not provided,
-        the pattern will match any VarNode.
+        the pattern will match any VarObj.
     """
 
     def __init__(self, name_hint: str = ""):
@@ -347,7 +347,7 @@ class GlobalVarPattern(DFPattern):
     ----------
     name_hint: str
         The name of the variable. Optional, if not provided,
-        the pattern will match any GlobalVarNode.
+        the pattern will match any GlobalVarObj.
     """
 
     def __init__(self, name_hint: str = ""):
@@ -362,7 +362,7 @@ class ExternFuncPattern(DFPattern):
     ----------
     global_symbol: str
         The name of the function. Optional, if not provided,
-        the pattern will match any ExternFuncNode.
+        the pattern will match any ExternFuncObj.
     """
 
     def __init__(self, global_symbol: str = ""):

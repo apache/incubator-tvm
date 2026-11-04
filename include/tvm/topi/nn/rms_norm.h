@@ -76,7 +76,7 @@ inline Tensor rms_norm(const Tensor& data, const Tensor& weight, const ffi::Arra
       }
     }
     auto output = tvm::prim::rsqrt(square_sum(non_reduce_indices) / reduce_extent +
-                                   MakeConst(PrimType(data_type), epsilon));
+                                   MakeConst(PrimType(data_fp32->dtype), epsilon));
     return output;
   };
   auto rsqrt_shape = ffi::Array<PrimExpr>();

@@ -97,9 +97,9 @@ Type InferTypeAttention(const Call& call, const BlockBuilder& ctx) {
   diag_dim(q_ty, "query");
   diag_dim(k_ty, "key");
   diag_dim(v_ty, "value");
-  const ShapeExprNode* q_shape = q_ty->shape.as<ShapeExprNode>();
-  const ShapeExprNode* k_shape = k_ty->shape.as<ShapeExprNode>();
-  const ShapeExprNode* v_shape = v_ty->shape.as<ShapeExprNode>();
+  const ShapeExprObj* q_shape = q_ty->shape.as<ShapeExprObj>();
+  const ShapeExprObj* k_shape = k_ty->shape.as<ShapeExprObj>();
+  const ShapeExprObj* v_shape = v_ty->shape.as<ShapeExprObj>();
   PrimExpr num_batches = q_shape->values[0];
   PrimExpr num_queries = q_shape->values[1];
   PrimExpr num_heads = q_shape->values[2];
@@ -134,7 +134,7 @@ Type InferTypeAttention(const Call& call, const BlockBuilder& ctx) {
 
   if (input_ty.size() == 4) {
     TensorType bias_ty = input_ty[3];
-    const ShapeExprNode* bias_shape = bias_ty->shape.as<ShapeExprNode>();
+    const ShapeExprObj* bias_shape = bias_ty->shape.as<ShapeExprObj>();
     if (bias_ty->ndim != 4) {
       TVM_FFI_VISIT_THROW(ValueError, call)
           << "The bias should have 4 dimensions."

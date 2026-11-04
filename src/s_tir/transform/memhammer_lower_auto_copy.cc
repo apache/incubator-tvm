@@ -127,12 +127,12 @@ class AutoPadder {
         for (int k = n - 2; k >= 0; k--) {  // dims
           int max_pad_size = static_cast<int>(std::min(
               max_pad_factor_ *
-                  static_cast<double>((stride * tensor.shape()[k + 1]).as<IntImmNode>()->value),
+                  static_cast<double>((stride * tensor.shape()[k + 1]).as<IntImmObj>()->value),
               static_cast<double>(32 * 32 / data_bits)));
           int min_conflict = INT32_MAX;
           int min_conflict_pad = -1;
           for (int pad = 0; pad <= max_pad_size; pad += pad_min) {  // select padding
-            int padded_stride = (((stride * tensor.shape()[k + 1]).as<IntImmNode>()->value + pad) %
+            int padded_stride = (((stride * tensor.shape()[k + 1]).as<IntImmObj>()->value + pad) %
                                  (32 * 32 / data_bits))
                                     .as<int>()
                                     .value();
@@ -160,7 +160,7 @@ class AutoPadder {
             auto iter_space = iter_spaces[i][k];
             if (!iter_space.empty()) {
               int padded_stride =
-                  (((stride * tensor.shape()[k + 1]).as<IntImmNode>()->value + min_conflict_pad) %
+                  (((stride * tensor.shape()[k + 1]).as<IntImmObj>()->value + min_conflict_pad) %
                    (32 * 32 / data_bits))
                       .as<int>()
                       .value();
@@ -177,7 +177,7 @@ class AutoPadder {
           reverse_strides.push_back(stride);
         }
         // Step 3. create the new padded tensor
-        ffi::ObjectPtr<TensorTypeNode> b = ffi::make_object<TensorTypeNode>(*tensor.ty().get());
+        ffi::ObjectPtr<TensorTypeObj> b = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
         ffi::Array<PrimExpr> strides;
         for (int i = static_cast<int>(reverse_strides.size()) - 1; i >= 0; i--) {
           strides.push_back(reverse_strides[i]);
@@ -218,7 +218,7 @@ class AutoPadder {
       }
 
      private:
-      UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* _op, InplaceMode inplace_mode) final {
+      UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* _op, InplaceMode inplace_mode) final {
         TensorLoad load = StmtExprMutator::Mutate_(_op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<PrimExpr>(_op))
                               .as_or_throw<TensorLoad>();
@@ -229,18 +229,18 @@ class AutoPadder {
         return load;
       }
 
-      UnchangedOr<Stmt> Mutate_(const TensorStoreNode* _op, InplaceMode inplace_mode) final {
+      UnchangedOr<Stmt> Mutate_(const TensorStoreObj* _op, InplaceMode inplace_mode) final {
         TensorStore store = StmtExprMutator::Mutate_(_op, inplace_mode)
                                 .ValueOrUnchanged(ffi::GetRef<Stmt>(_op))
                                 .as_or_throw<TensorStore>();
-        TensorStoreNode* op = store.CopyOnWrite();
+        TensorStoreObj* op = store.CopyOnWrite();
         if (auto replacement = VarRemapGet(op->dest.as_or_throw<TensorVar>()).as<TensorVar>()) {
           op->dest = replacement.value();
         }
         return store;
       }
 
-      UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+      UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
         // To reduce the number of blocks in block sref reuse map, we check whether the block is
         // really mutated (i.e., the old tensor appears in the block). If so, we return the block
         // after mutation. Otherwise we just return the original block.
@@ -292,7 +292,7 @@ class AutoPadder {
 
         if (changed) {
           SBlock block = std::move(res).as_or_throw<SBlock>();
-          SBlockNode* n = block.CopyOnWrite();
+          SBlockObj* n = block.CopyOnWrite();
           n->reads = std::move(reads);
           n->writes = std::move(writes);
           n->match_tensors = std::move(match_tensors);
@@ -322,12 +322,12 @@ class AutoPadder {
     using StmtExprVisitor::Visit_;
 
    private:
-    ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
       if (!success_) {
         return std::nullopt;
       }
       int extent =
-          var_range_[ffi::GetRef<Var>(op)]->extent.as<IntImmNode>()->value.as<int>().value();
+          var_range_[ffi::GetRef<Var>(op)]->extent.as<IntImmObj>()->value.as<int>().value();
       if (extent > 1) {
         stack_.push({{extent, 1}});
       } else {
@@ -336,7 +336,7 @@ class AutoPadder {
       return std::nullopt;
     }
 
-    ffi::Optional<VisitInterrupt> Visit_(const AddNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const AddObj* op) final {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
       if (!success_) {
         return std::nullopt;
@@ -370,14 +370,14 @@ class AutoPadder {
       return std::nullopt;
     }
 
-    ffi::Optional<VisitInterrupt> Visit_(const FloorDivNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const FloorDivObj* op) final {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
       if (!success_) {
         return std::nullopt;
       }
       std::vector<Pattern> inner = stack_.top();
       stack_.pop();
-      int lower_factor = op->b.as<IntImmNode>()->value.as<int>().value();
+      int lower_factor = op->b.as<IntImmObj>()->value.as<int>().value();
       std::vector<Pattern> ret;
       for (const Pattern& pattern : inner) {
         if (pattern.scale >= lower_factor) {
@@ -398,14 +398,14 @@ class AutoPadder {
       return std::nullopt;
     }
 
-    ffi::Optional<VisitInterrupt> Visit_(const FloorModNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const FloorModObj* op) final {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
       if (!success_) {
         return std::nullopt;
       }
       std::vector<Pattern> inner = stack_.top();
       stack_.pop();
-      int extent = op->b.as<IntImmNode>()->value.as<int>().value();
+      int extent = op->b.as<IntImmObj>()->value.as<int>().value();
       std::vector<Pattern> ret;
       for (const Pattern& pattern : inner) {
         if (pattern.scale < extent) {
@@ -424,14 +424,14 @@ class AutoPadder {
       return std::nullopt;
     }
 
-    ffi::Optional<VisitInterrupt> Visit_(const MulNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const MulObj* op) final {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
       if (!success_) {
         return std::nullopt;
       }
       std::vector<Pattern> inner = stack_.top();
       stack_.pop();
-      int scale = op->b.as<IntImmNode>()->value.as<int>().value();
+      int scale = op->b.as<IntImmObj>()->value.as<int>().value();
       std::vector<Pattern> ret;
       for (const Pattern& pattern : inner) {
         ret.push_back({pattern.extent, pattern.scale * scale});
@@ -527,7 +527,7 @@ class AutoPadder {
       return !analyzer->CanProve(delta != 1);
     }
 
-    ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
       if (!tvm::s_tir::GetThreadBinding(op).has_value()) {
         substitute_map_.Set(op->var, op->begin);
       } else {
@@ -538,7 +538,7 @@ class AutoPadder {
       if (op->kind == ForKind::kVectorized) {
         vector_var = op->var;
         vector_length_ = Range::GetExtentFromBeginEnd(op->begin, op->end)
-                             .as<IntImmNode>()
+                             .as<IntImmObj>()
                              ->value.as<int>()
                              .value();
       }
@@ -558,7 +558,7 @@ class AutoPadder {
      * The iteration space would be {{0, 1}, {0, 4, ..., 60}}.
      * \param op the tensor store
      */
-    ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
       static const auto scope_shared = runtime::MemoryScope::Get("shared");
       static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
@@ -596,7 +596,7 @@ class AutoPadder {
      * The iteration space would be {{0, 1}, {0, 4, ..., 60}}.
      * \param op the tensor load
      */
-    ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
       static const auto scope_shared = runtime::MemoryScope::Get("shared");
       static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
@@ -635,13 +635,12 @@ class AutoPadder {
      * threadIdx. The iteration space would be {{0, 1, ..., 15}, {0, 1, ..., 15}}.
      * \param op the call node
      */
-    ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
       static const auto scope_shared = runtime::MemoryScope::Get("shared");
       static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
 
-      if (const auto* eval =
-              op->body->size() == 1 ? op->body->seq[0].as<EvaluateNode>() : nullptr) {
-        if (const auto* call = eval->value.as<CallNode>()) {
+      if (const auto* eval = op->body->size() == 1 ? op->body->seq[0].as<EvaluateObj>() : nullptr) {
+        if (const auto* call = eval->value.as<CallObj>()) {
           static const Op gpu_load_matrix_sync_op = Op::Get("tirx.gpu_load_matrix_sync");
           static const Op gpu_store_matrix_sync_op = Op::Get("tirx.gpu_store_matrix_sync");
           if (call->op.same_as(gpu_load_matrix_sync_op) ||
@@ -729,7 +728,7 @@ class AutoPadder {
   /*! \brief A map from the old tensors to the new padded tensors */
   ffi::Map<TensorVar, TensorVar> padded_tensor_map_;
   /*! \brief A map from each tensor to the iteration spaces of the accesses*/
-  std::unordered_map<const VarNode*, std::vector<std::vector<std::vector<int>>>> iter_spaces_;
+  std::unordered_map<const VarObj*, std::vector<std::vector<std::vector<int>>>> iter_spaces_;
   /*! \brief A map from each tensor to their minimal padding size */
   ffi::Map<TensorVar, int64_t> padding_min_;
   /*! \brief max padding size in relative to the original shape*/
@@ -753,7 +752,7 @@ class AutoCopyMutator : public StmtExprMutator {
   Stmt RewritePaddingBody(const Stmt& stmt) { return padder.RewriteTensorAccess(stmt); }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     static const auto scope_wmma_accumulator = runtime::MemoryScope::Get("wmma.accumulator");
 
     SBlock block = StmtExprMutator::Mutate_(op, inplace_mode)
@@ -761,7 +760,7 @@ class AutoCopyMutator : public StmtExprMutator {
                        .as_or_throw<SBlock>();
     // only rewrite the block annotated with "auto_copy"
     if (!GetAnn<bool>(op, tvm::s_tir::attr::kAutoCopy.name).value_or(false)) {
-      SBlockNode* n = block.CopyOnWrite();
+      SBlockObj* n = block.CopyOnWrite();
       n->alloc_tensors = padder.PadSharedMemory(std::move(n->alloc_tensors));
       return block;
     }
@@ -788,7 +787,7 @@ class AutoCopyMutator : public StmtExprMutator {
                               block->writes[0],      //
                               data_bits,             //
                               block->annotations);
-    SBlockNode* n = block.CopyOnWrite();
+    SBlockObj* n = block.CopyOnWrite();
     OutputSet outputs;
     TVM_FFI_ICHECK_EQ(n->body->size(), 1);
     Stmt rewritten = n->body->seq[0];
@@ -808,7 +807,7 @@ class AutoCopyMutator : public StmtExprMutator {
     return block;
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     outer_loops_.push_back(ffi::GetRef<For>(op));
     Stmt stmt = StmtExprMutator::Mutate_(op, InplaceMode::kDisallow)
                     .ValueOrUnchanged(ffi::GetRef<Stmt>(op));
@@ -840,7 +839,7 @@ class ThreadExtentCollector : public StmtExprVisitor {
  public:
   using StmtExprVisitor::Visit_;
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
   static ffi::Map<ffi::String, int64_t> CollectThreadExtent(const Stmt& stmt) {
@@ -850,7 +849,7 @@ class ThreadExtentCollector : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op) final {
     if (ffi::Optional<int64_t> warp_execution =
             GetAnn<int64_t>(op, tvm::s_tir::attr::kWarpExecution.name)) {
       if (warp_execution.value() != 0) {
@@ -859,10 +858,10 @@ class ThreadExtentCollector : public StmtExprVisitor {
     }
     return StmtExprVisitor::Visit_(op);
   }
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
     if (tvm::s_tir::GetThreadBinding(op).has_value()) {
       PrimExpr extent_expr = Range::GetExtentFromBeginEnd(op->begin, op->end);
-      if (const auto* extent = extent_expr.as<IntImmNode>()) {
+      if (const auto* extent = extent_expr.as<IntImmObj>()) {
         thread_extent_.Set(tvm::s_tir::GetThreadBinding(op).value(),
                            static_cast<int64_t>(extent->value));
       }

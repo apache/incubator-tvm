@@ -25,10 +25,10 @@ namespace distributed {
 bool TypeCompatibleWithDistIR(ffi::Array<Type> tys) {
   bool compatible = true;
   for (const auto& ty : tys) {
-    if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       compatible &= TypeCompatibleWithDistIR(tuple_ty->fields);
     } else {
-      compatible &= !ty->IsInstance<TensorTypeNode>();
+      compatible &= !ty->IsInstance<TensorTypeObj>();
     }
   }
   return compatible;
@@ -37,10 +37,10 @@ bool TypeCompatibleWithDistIR(ffi::Array<Type> tys) {
 bool TypeCompatibleWithRelax(ffi::Array<Type> tys) {
   bool compatible = true;
   for (const auto& ty : tys) {
-    if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       compatible &= TypeCompatibleWithRelax(tuple_ty->fields);
     } else {
-      compatible &= !ty->IsInstance<DTensorTypeNode>();
+      compatible &= !ty->IsInstance<DTensorTypeObj>();
     }
   }
   return compatible;
@@ -65,7 +65,7 @@ bool IsDistIRFunc(Function func) {
 bool IsShardingAnnotatedFunc(Function func) {
   bool has_annotate_sharding = false;
   PostOrderVisit(func, [&has_annotate_sharding](const Expr& e) {
-    const CallNode* call = e.as<CallNode>();
+    const CallObj* call = e.as<CallObj>();
     if (!call) {
       return;
     }

@@ -64,7 +64,7 @@ class UDChain : relax::ExprVisitor {
 
   ffi::Optional<Var> cur_user_;
 
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     TVM_FFI_ICHECK(!bound_values.count(binding->var))
         << "Variable " << binding->var << " was defined multiple times";
     bound_values.Set(binding->var, binding->value);
@@ -75,7 +75,7 @@ class UDChain : relax::ExprVisitor {
     cur_user_ = cache;
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const FunctionNode* func) override {
+  void VisitBinding_(const VarBindingObj* binding, const FunctionObj* func) override {
     // A local Relax function may be recursively defined.  References to
     // `binding->var` that appear within `func` are valid.
     DefineVar(binding->var);
@@ -90,7 +90,7 @@ class UDChain : relax::ExprVisitor {
       DefineVar(var);
     }
   }
-  void VisitExpr_(const VarNode* op) override {
+  void VisitExpr_(const VarObj* op) override {
     auto var = ffi::GetRef<Var>(op);
 
     if (cur_user_) {
@@ -100,7 +100,7 @@ class UDChain : relax::ExprVisitor {
     }
   }
 
-  void VisitExpr_(const FunctionNode* op) override {
+  void VisitExpr_(const FunctionObj* op) override {
     cur_user_ = std::nullopt;
     ExprVisitor::VisitExpr_(op);
   }
@@ -129,7 +129,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("relax.analysis.used_vars", [](const Expr& expr) {
         auto used_vars = GetUsedVars(expr);
         ffi::Array<Var> result;
-        for (const VarNode* var_node : used_vars) {
+        for (const VarObj* var_node : used_vars) {
           result.push_back(ffi::GetRef<Var>(var_node));
         }
         return result;
@@ -138,12 +138,12 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 VarUsageInfo CollectVarUsage(const Expr& expr) { return UDChain::Collect(expr); }
 
-std::set<const VarNode*> GetUsedVars(const Expr& expr) {
+std::set<const VarObj*> GetUsedVars(const Expr& expr) {
   class UsedVars : public ExprVisitor {
    public:
-    std::set<const VarNode*> used_vars;
+    std::set<const VarObj*> used_vars;
     void VisitExprDepTypeField(const Type&) final {}
-    void VisitExpr_(const VarNode* op) override { used_vars.insert(op); }
+    void VisitExpr_(const VarObj* op) override { used_vars.insert(op); }
   } visitor;
   visitor.VisitExpr(expr);
   return std::move(visitor.used_vars);

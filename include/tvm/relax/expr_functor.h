@@ -146,55 +146,55 @@ class ExprFunctor<R(const Expr& n, Args...)> {
   // Functions that can be overriden by subclass
   // NOTE: cross dialect calls are invoked through global var
   // We do not expect inline tirx::Function to appear in relax IR.
-  virtual R VisitExpr_(const GenericConstNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const TupleNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const VarNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const DataflowVarNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const ShapeExprNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const ExternFuncNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const GlobalVarNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const FunctionNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const CallNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const TensorLoadNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const tvm::IntImmNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const tvm::FloatImmNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const SeqExprNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const IfExprNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const OpNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const TupleGetItemNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const StringImmNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const DataTypeImmNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::LetNode* op, Args...) EXPR_FUNCTOR_DISABLED;
-  virtual R VisitExpr_(const prim::AddNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::LShiftNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::RShiftNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::BitwiseAndNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::BitwiseOrNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::BitwiseXorNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::BitwiseNotNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::SubNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::MulNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::DivNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::ModNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::FloorDivNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::FloorModNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::MinNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::MaxNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::EQNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::NENode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::LTNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::LENode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::GTNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::GENode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::AndNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::OrNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::CastNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::NotNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::SelectNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::RampNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::BroadcastNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExpr_(const prim::ShuffleNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
-  virtual R VisitExprFallback_(const ExprNode* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const GenericConstObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const TupleObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const VarObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const DataflowVarObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const ShapeExprObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const ExternFuncObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const GlobalVarObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const FunctionObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const CallObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const TensorLoadObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const tvm::IntImmObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const tvm::FloatImmObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const SeqExprObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const IfExprObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const OpObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const TupleGetItemObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const StringImmObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const DataTypeImmObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::LetObj* op, Args...) EXPR_FUNCTOR_DISABLED;
+  virtual R VisitExpr_(const prim::AddObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::LShiftObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::RShiftObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::BitwiseAndObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::BitwiseOrObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::BitwiseXorObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::BitwiseNotObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::SubObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::MulObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::DivObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::ModObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::FloorDivObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::FloorModObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::MinObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::MaxObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::EQObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::NEObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::LTObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::LEObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::GTObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::GEObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::AndObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::OrObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::CastObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::NotObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::SelectObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::RampObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::BroadcastObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExpr_(const prim::ShuffleObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
+  virtual R VisitExprFallback_(const ExprObj* op, Args... args) EXPR_FUNCTOR_DEFAULT;
   virtual R VisitExprDefault_(const ffi::Object* op, Args...) {
     TVM_FFI_THROW(InternalError) << "Do not have a default for " << op->GetTypeKey();
     throw;
@@ -205,54 +205,54 @@ class ExprFunctor<R(const Expr& n, Args...)> {
   static FType InitVTable() {
     FType vtable;
     // Set dispatch
-    RELAX_EXPR_FUNCTOR_DISPATCH(GenericConstNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(TupleNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(VarNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(DataflowVarNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(ShapeExprNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(ExternFuncNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(GlobalVarNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(FunctionNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(CallNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LetNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(TensorLoadNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::AddNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LShiftNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::RShiftNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseAndNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseOrNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseXorNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseNotNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::SubNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MulNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::DivNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::ModNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::FloorDivNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::FloorModNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MinNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MaxNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::EQNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::NENode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LTNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LENode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::GTNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::GENode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::AndNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::OrNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::CastNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::NotNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::SelectNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::RampNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BroadcastNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(prim::ShuffleNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(tvm::IntImmNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(tvm::FloatImmNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(SeqExprNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(IfExprNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(OpNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(TupleGetItemNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(StringImmNode);
-    RELAX_EXPR_FUNCTOR_DISPATCH(DataTypeImmNode);
+    RELAX_EXPR_FUNCTOR_DISPATCH(GenericConstObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(TupleObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(VarObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(DataflowVarObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(ShapeExprObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(ExternFuncObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(GlobalVarObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(FunctionObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(CallObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LetObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(TensorLoadObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::AddObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LShiftObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::RShiftObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseAndObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseOrObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseXorObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BitwiseNotObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::SubObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MulObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::DivObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::ModObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::FloorDivObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::FloorModObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MinObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::MaxObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::EQObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::NEObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LTObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::LEObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::GTObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::GEObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::AndObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::OrObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::CastObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::NotObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::SelectObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::RampObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::BroadcastObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(prim::ShuffleObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(tvm::IntImmObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(tvm::FloatImmObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(SeqExprObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(IfExprObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(OpObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(TupleGetItemObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(StringImmObj);
+    RELAX_EXPR_FUNCTOR_DISPATCH(DataTypeImmObj);
     vtable.Finalize();
     return vtable;
   }
@@ -270,54 +270,54 @@ class ExprVisitor : public ExprFunctor<void(const Expr&)> {
    */
   void VisitExpr(const Expr& expr) override;
   // specific leaf level visitor functions
-  void VisitExpr_(const GenericConstNode* op) override;
-  void VisitExpr_(const TupleNode* op) override;
-  void VisitExpr_(const VarNode* op) override;
-  void VisitExpr_(const DataflowVarNode* op) override;
-  void VisitExpr_(const ShapeExprNode* op) override;
-  void VisitExpr_(const ExternFuncNode* op) override;
-  void VisitExpr_(const GlobalVarNode* op) override;
-  void VisitExpr_(const FunctionNode* op) override;
-  void VisitExpr_(const CallNode* op) override;
-  void VisitExpr_(const TensorLoadNode* op) override;
-  void VisitExpr_(const tvm::IntImmNode* op) override;
-  void VisitExpr_(const tvm::FloatImmNode* op) override;
-  void VisitExpr_(const SeqExprNode* op) override;
-  void VisitExpr_(const IfExprNode* op) override;
-  void VisitExpr_(const OpNode* op) override;
-  void VisitExpr_(const TupleGetItemNode* op) override;
-  void VisitExpr_(const StringImmNode* op) override;
-  void VisitExpr_(const DataTypeImmNode* op) override;
-  void VisitExpr_(const prim::AddNode* op) override;
-  void VisitExpr_(const prim::LShiftNode* op) override;
-  void VisitExpr_(const prim::RShiftNode* op) override;
-  void VisitExpr_(const prim::BitwiseAndNode* op) override;
-  void VisitExpr_(const prim::BitwiseOrNode* op) override;
-  void VisitExpr_(const prim::BitwiseXorNode* op) override;
-  void VisitExpr_(const prim::BitwiseNotNode* op) override;
-  void VisitExpr_(const prim::SubNode* op) override;
-  void VisitExpr_(const prim::MulNode* op) override;
-  void VisitExpr_(const prim::DivNode* op) override;
-  void VisitExpr_(const prim::ModNode* op) override;
-  void VisitExpr_(const prim::FloorDivNode* op) override;
-  void VisitExpr_(const prim::FloorModNode* op) override;
-  void VisitExpr_(const prim::MinNode* op) override;
-  void VisitExpr_(const prim::MaxNode* op) override;
-  void VisitExpr_(const prim::EQNode* op) override;
-  void VisitExpr_(const prim::NENode* op) override;
-  void VisitExpr_(const prim::LTNode* op) override;
-  void VisitExpr_(const prim::LENode* op) override;
-  void VisitExpr_(const prim::GTNode* op) override;
-  void VisitExpr_(const prim::GENode* op) override;
-  void VisitExpr_(const prim::AndNode* op) override;
-  void VisitExpr_(const prim::OrNode* op) override;
-  void VisitExpr_(const prim::CastNode* op) override;
-  void VisitExpr_(const prim::NotNode* op) override;
-  void VisitExpr_(const prim::SelectNode* op) override;
-  void VisitExpr_(const prim::RampNode* op) override;
-  void VisitExpr_(const prim::BroadcastNode* op) override;
-  void VisitExpr_(const prim::ShuffleNode* op) override;
-  void VisitExprFallback_(const ExprNode* op) override;
+  void VisitExpr_(const GenericConstObj* op) override;
+  void VisitExpr_(const TupleObj* op) override;
+  void VisitExpr_(const VarObj* op) override;
+  void VisitExpr_(const DataflowVarObj* op) override;
+  void VisitExpr_(const ShapeExprObj* op) override;
+  void VisitExpr_(const ExternFuncObj* op) override;
+  void VisitExpr_(const GlobalVarObj* op) override;
+  void VisitExpr_(const FunctionObj* op) override;
+  void VisitExpr_(const CallObj* op) override;
+  void VisitExpr_(const TensorLoadObj* op) override;
+  void VisitExpr_(const tvm::IntImmObj* op) override;
+  void VisitExpr_(const tvm::FloatImmObj* op) override;
+  void VisitExpr_(const SeqExprObj* op) override;
+  void VisitExpr_(const IfExprObj* op) override;
+  void VisitExpr_(const OpObj* op) override;
+  void VisitExpr_(const TupleGetItemObj* op) override;
+  void VisitExpr_(const StringImmObj* op) override;
+  void VisitExpr_(const DataTypeImmObj* op) override;
+  void VisitExpr_(const prim::AddObj* op) override;
+  void VisitExpr_(const prim::LShiftObj* op) override;
+  void VisitExpr_(const prim::RShiftObj* op) override;
+  void VisitExpr_(const prim::BitwiseAndObj* op) override;
+  void VisitExpr_(const prim::BitwiseOrObj* op) override;
+  void VisitExpr_(const prim::BitwiseXorObj* op) override;
+  void VisitExpr_(const prim::BitwiseNotObj* op) override;
+  void VisitExpr_(const prim::SubObj* op) override;
+  void VisitExpr_(const prim::MulObj* op) override;
+  void VisitExpr_(const prim::DivObj* op) override;
+  void VisitExpr_(const prim::ModObj* op) override;
+  void VisitExpr_(const prim::FloorDivObj* op) override;
+  void VisitExpr_(const prim::FloorModObj* op) override;
+  void VisitExpr_(const prim::MinObj* op) override;
+  void VisitExpr_(const prim::MaxObj* op) override;
+  void VisitExpr_(const prim::EQObj* op) override;
+  void VisitExpr_(const prim::NEObj* op) override;
+  void VisitExpr_(const prim::LTObj* op) override;
+  void VisitExpr_(const prim::LEObj* op) override;
+  void VisitExpr_(const prim::GTObj* op) override;
+  void VisitExpr_(const prim::GEObj* op) override;
+  void VisitExpr_(const prim::AndObj* op) override;
+  void VisitExpr_(const prim::OrObj* op) override;
+  void VisitExpr_(const prim::CastObj* op) override;
+  void VisitExpr_(const prim::NotObj* op) override;
+  void VisitExpr_(const prim::SelectObj* op) override;
+  void VisitExpr_(const prim::RampObj* op) override;
+  void VisitExpr_(const prim::BroadcastObj* op) override;
+  void VisitExpr_(const prim::ShuffleObj* op) override;
+  void VisitExprFallback_(const ExprObj* op) override;
 
   /*!
    * \brief Generic dispatcher for bindings.
@@ -325,39 +325,39 @@ class ExprVisitor : public ExprFunctor<void(const Expr&)> {
    */
   virtual void VisitBinding(const Binding& binding);
   // specific leaf level visitor functions
-  virtual void VisitBinding_(const VarBindingNode* binding);
-  virtual void VisitBinding_(const MatchCastNode* binding);
+  virtual void VisitBinding_(const VarBindingObj* binding);
+  virtual void VisitBinding_(const MatchCastObj* binding);
   // second level dispatching based on binding value type.
   // these dispatching functions get called from first-level dispatch on VarBinding
-  virtual void VisitBinding_(const VarBindingNode* binding, const GenericConstNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const TupleNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const VarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const DataflowVarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ShapeExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ExternFuncNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const GlobalVarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const FunctionNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const CallNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const SeqExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const IfExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const OpNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const StringImmNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const DataTypeImmNode* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const GenericConstObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const TupleObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const VarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const DataflowVarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ShapeExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ExternFuncObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const GlobalVarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const FunctionObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const CallObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const SeqExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const IfExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const OpObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const StringImmObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const DataTypeImmObj* val);
   /*!
    * \brief Generic dispatcher for binding blocks.
    * \param block The binding block to be visited.
    */
   virtual void VisitBindingBlock(const BindingBlock& block);
   // specific leaf level visitor functions
-  virtual void VisitBindingBlock_(const BindingBlockNode* block);
-  virtual void VisitBindingBlock_(const DataflowBlockNode* block);
+  virtual void VisitBindingBlock_(const BindingBlockObj* block);
+  virtual void VisitBindingBlock_(const DataflowBlockObj* block);
 
   /*!
    * \brief Generic dispatcher for visiting the var definition site.
    * \param var The var to be visited.
-   * \note VisitExpr_(const VarNode*) will only visit the usage site of an Var
+   * \note VisitExpr_(const VarObj*) will only visit the usage site of an Var
    */
   virtual void VisitVarDef(const Var& var);
 
@@ -379,8 +379,8 @@ class ExprVisitor : public ExprFunctor<void(const Expr&)> {
   virtual void VisitExprDepTypeField(const Type& ty);
 
   // specific leaf level visitor functions
-  virtual void VisitVarDef_(const VarNode* var);
-  virtual void VisitVarDef_(const DataflowVarNode* var);
+  virtual void VisitVarDef_(const VarObj* var);
+  virtual void VisitVarDef_(const DataflowVarObj* var);
 
   virtual void VisitLoc(const Location& loc);
   virtual void VisitTypePrimExprField(const PrimExpr& expr);
@@ -388,7 +388,7 @@ class ExprVisitor : public ExprFunctor<void(const Expr&)> {
  private:
   using TSelf = ExprVisitor;
   using VisitBindingVTable = tvm::ObjectFunctor<void(const ffi::ObjectRef& n, ExprVisitor* self,
-                                                     const VarBindingNode* binding)>;
+                                                     const VarBindingObj* binding)>;
   // initialize the vtable.
   static VisitBindingVTable InitVisitBindingVTable();
   /*!
@@ -407,7 +407,7 @@ class ExprVisitor : public ExprFunctor<void(const Expr&)> {
     // Override defaults in type visitor.
     void VisitTypeExprField(const Expr& expr) final;
     void VisitTypeExprField(const PrimExpr& expr) final;
-    void VisitType_(const FuncTypeNode* op) final;
+    void VisitType_(const FuncTypeObj* op) final;
 
    private:
     ExprVisitor* parent_;
@@ -430,54 +430,54 @@ void PostOrderVisit(const Expr& node, std::function<void(const Expr&)> fvisit);
 class ExprMutatorBase : public ExprFunctor<Expr(const Expr&)> {
  public:
   Expr VisitExpr(const Expr& expr) override;
-  Expr VisitExpr_(const GenericConstNode* op) override;
-  Expr VisitExpr_(const TupleNode* op) override;
-  Expr VisitExpr_(const VarNode* op) override;
-  Expr VisitExpr_(const DataflowVarNode* op) override;
-  Expr VisitExpr_(const ShapeExprNode* op) override;
-  Expr VisitExpr_(const ExternFuncNode* op) override;
-  Expr VisitExpr_(const GlobalVarNode* op) override;
-  Expr VisitExpr_(const FunctionNode* op) override;
-  Expr VisitExpr_(const CallNode* op) override;
-  Expr VisitExpr_(const TensorLoadNode* op) override;
-  Expr VisitExpr_(const tvm::IntImmNode* op) override;
-  Expr VisitExpr_(const tvm::FloatImmNode* op) override;
-  Expr VisitExpr_(const SeqExprNode* op) override;
-  Expr VisitExpr_(const IfExprNode* op) override;
-  Expr VisitExpr_(const OpNode* op) override;
-  Expr VisitExpr_(const TupleGetItemNode* op) override;
-  Expr VisitExpr_(const StringImmNode* op) override;
-  Expr VisitExpr_(const DataTypeImmNode* op) override;
-  Expr VisitExpr_(const prim::AddNode* op) override;
-  Expr VisitExpr_(const prim::LShiftNode* op) override;
-  Expr VisitExpr_(const prim::RShiftNode* op) override;
-  Expr VisitExpr_(const prim::BitwiseAndNode* op) override;
-  Expr VisitExpr_(const prim::BitwiseOrNode* op) override;
-  Expr VisitExpr_(const prim::BitwiseXorNode* op) override;
-  Expr VisitExpr_(const prim::BitwiseNotNode* op) override;
-  Expr VisitExpr_(const prim::SubNode* op) override;
-  Expr VisitExpr_(const prim::MulNode* op) override;
-  Expr VisitExpr_(const prim::DivNode* op) override;
-  Expr VisitExpr_(const prim::ModNode* op) override;
-  Expr VisitExpr_(const prim::FloorDivNode* op) override;
-  Expr VisitExpr_(const prim::FloorModNode* op) override;
-  Expr VisitExpr_(const prim::MinNode* op) override;
-  Expr VisitExpr_(const prim::MaxNode* op) override;
-  Expr VisitExpr_(const prim::EQNode* op) override;
-  Expr VisitExpr_(const prim::NENode* op) override;
-  Expr VisitExpr_(const prim::LTNode* op) override;
-  Expr VisitExpr_(const prim::LENode* op) override;
-  Expr VisitExpr_(const prim::GTNode* op) override;
-  Expr VisitExpr_(const prim::GENode* op) override;
-  Expr VisitExpr_(const prim::AndNode* op) override;
-  Expr VisitExpr_(const prim::OrNode* op) override;
-  Expr VisitExpr_(const prim::CastNode* op) override;
-  Expr VisitExpr_(const prim::NotNode* op) override;
-  Expr VisitExpr_(const prim::SelectNode* op) override;
-  Expr VisitExpr_(const prim::RampNode* op) override;
-  Expr VisitExpr_(const prim::BroadcastNode* op) override;
-  Expr VisitExpr_(const prim::ShuffleNode* op) override;
-  Expr VisitExprFallback_(const ExprNode* op) override;
+  Expr VisitExpr_(const GenericConstObj* op) override;
+  Expr VisitExpr_(const TupleObj* op) override;
+  Expr VisitExpr_(const VarObj* op) override;
+  Expr VisitExpr_(const DataflowVarObj* op) override;
+  Expr VisitExpr_(const ShapeExprObj* op) override;
+  Expr VisitExpr_(const ExternFuncObj* op) override;
+  Expr VisitExpr_(const GlobalVarObj* op) override;
+  Expr VisitExpr_(const FunctionObj* op) override;
+  Expr VisitExpr_(const CallObj* op) override;
+  Expr VisitExpr_(const TensorLoadObj* op) override;
+  Expr VisitExpr_(const tvm::IntImmObj* op) override;
+  Expr VisitExpr_(const tvm::FloatImmObj* op) override;
+  Expr VisitExpr_(const SeqExprObj* op) override;
+  Expr VisitExpr_(const IfExprObj* op) override;
+  Expr VisitExpr_(const OpObj* op) override;
+  Expr VisitExpr_(const TupleGetItemObj* op) override;
+  Expr VisitExpr_(const StringImmObj* op) override;
+  Expr VisitExpr_(const DataTypeImmObj* op) override;
+  Expr VisitExpr_(const prim::AddObj* op) override;
+  Expr VisitExpr_(const prim::LShiftObj* op) override;
+  Expr VisitExpr_(const prim::RShiftObj* op) override;
+  Expr VisitExpr_(const prim::BitwiseAndObj* op) override;
+  Expr VisitExpr_(const prim::BitwiseOrObj* op) override;
+  Expr VisitExpr_(const prim::BitwiseXorObj* op) override;
+  Expr VisitExpr_(const prim::BitwiseNotObj* op) override;
+  Expr VisitExpr_(const prim::SubObj* op) override;
+  Expr VisitExpr_(const prim::MulObj* op) override;
+  Expr VisitExpr_(const prim::DivObj* op) override;
+  Expr VisitExpr_(const prim::ModObj* op) override;
+  Expr VisitExpr_(const prim::FloorDivObj* op) override;
+  Expr VisitExpr_(const prim::FloorModObj* op) override;
+  Expr VisitExpr_(const prim::MinObj* op) override;
+  Expr VisitExpr_(const prim::MaxObj* op) override;
+  Expr VisitExpr_(const prim::EQObj* op) override;
+  Expr VisitExpr_(const prim::NEObj* op) override;
+  Expr VisitExpr_(const prim::LTObj* op) override;
+  Expr VisitExpr_(const prim::LEObj* op) override;
+  Expr VisitExpr_(const prim::GTObj* op) override;
+  Expr VisitExpr_(const prim::GEObj* op) override;
+  Expr VisitExpr_(const prim::AndObj* op) override;
+  Expr VisitExpr_(const prim::OrObj* op) override;
+  Expr VisitExpr_(const prim::CastObj* op) override;
+  Expr VisitExpr_(const prim::NotObj* op) override;
+  Expr VisitExpr_(const prim::SelectObj* op) override;
+  Expr VisitExpr_(const prim::RampObj* op) override;
+  Expr VisitExpr_(const prim::BroadcastObj* op) override;
+  Expr VisitExpr_(const prim::ShuffleObj* op) override;
+  Expr VisitExprFallback_(const ExprObj* op) override;
 
   /*!
    * \brief Mutate BindingBlock.
@@ -522,7 +522,7 @@ class ExprMutatorBase : public ExprFunctor<Expr(const Expr&)> {
    *       node without ty, and trigger normalizer to re-derive.
    */
   bool VisitAndCheckTypeFieldUnchanged(const ffi::ObjectRef& ty) {
-    if (const TypeNode* ty_node = ty.as<TypeNode>()) {
+    if (const TypeObj* ty_node = ty.as<TypeObj>()) {
       Type type = ffi::GetRef<Type>(ty_node);
       return type.as<MissingType>().has_value() || this->VisitExprDepTypeField(type).same_as(ty);
     } else {
@@ -545,7 +545,7 @@ class ExprMutatorBase : public ExprFunctor<Expr(const Expr&)> {
     // Override defaults in type visitor.
     Expr VisitTypeExprField(const Expr& expr) final;
     PrimExpr VisitTypeExprField(const PrimExpr& expr) final;
-    Type VisitType_(const FuncTypeNode* op) final;
+    Type VisitType_(const FuncTypeObj* op) final;
 
    private:
     ExprMutatorBase* parent_;
@@ -568,11 +568,11 @@ class ExprMutator : public ExprMutatorBase {
 
   ExprMutator(ffi::Optional<IRModule> mod = std::nullopt) : builder_(BlockBuilder::Create(mod)) {}
   Expr VisitExpr(const Expr& expr) override;
-  Expr VisitExpr_(const VarNode* op) override;
-  Expr VisitExpr_(const DataflowVarNode* op) override;
-  Expr VisitExpr_(const FunctionNode* op) override;
-  Expr VisitExpr_(const SeqExprNode* op) override;
-  Expr VisitExpr_(const IfExprNode* op) override;
+  Expr VisitExpr_(const VarObj* op) override;
+  Expr VisitExpr_(const DataflowVarObj* op) override;
+  Expr VisitExpr_(const FunctionObj* op) override;
+  Expr VisitExpr_(const SeqExprObj* op) override;
+  Expr VisitExpr_(const IfExprObj* op) override;
 
   /*!
    * \brief Generic dispatcher for bindings.
@@ -580,26 +580,26 @@ class ExprMutator : public ExprMutatorBase {
    */
   virtual void VisitBinding(const Binding& binding);
   // specific leaf level visitor functions
-  virtual void VisitBinding_(const VarBindingNode* binding);
-  virtual void VisitBinding_(const MatchCastNode* binding);
+  virtual void VisitBinding_(const VarBindingObj* binding);
+  virtual void VisitBinding_(const MatchCastObj* binding);
   // second level dispatching based on binding value type.
   // these dispatching functions get called from first-level dispatch on VarBinding
-  virtual void VisitBinding_(const VarBindingNode* binding, const GenericConstNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const TupleNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const VarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const DataflowVarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ShapeExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ExternFuncNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const GlobalVarNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const FunctionNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const CallNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const SeqExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const IfExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const OpNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const TupleGetItemNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const ExprNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const StringImmNode* val);
-  virtual void VisitBinding_(const VarBindingNode* binding, const DataTypeImmNode* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const GenericConstObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const TupleObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const VarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const DataflowVarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ShapeExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ExternFuncObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const GlobalVarObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const FunctionObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const CallObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const SeqExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const IfExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const OpObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const TupleGetItemObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const ExprObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const StringImmObj* val);
+  virtual void VisitBinding_(const VarBindingObj* binding, const DataTypeImmObj* val);
   /*!
    * \brief Generic dispatcher for binding blocks.
    * \param block The binding block to be visited.
@@ -607,19 +607,19 @@ class ExprMutator : public ExprMutatorBase {
    */
   virtual BindingBlock VisitBindingBlock(const BindingBlock& block) override;  // NOLINT(*)
   // specific leaf level visitor functions
-  virtual BindingBlock VisitBindingBlock_(const BindingBlockNode* block);
-  virtual BindingBlock VisitBindingBlock_(const DataflowBlockNode* block);
+  virtual BindingBlock VisitBindingBlock_(const BindingBlockObj* block);
+  virtual BindingBlock VisitBindingBlock_(const DataflowBlockObj* block);
 
   /*!
    * \brief Generic dispatcher for rewriting the var definition site.
    * \param var The var to be visited.
    * \return The var after post-order rewritten.
-   * \note VisitExpr_(const VarNode*) will only visit the usage site of an Var
+   * \note VisitExpr_(const VarObj*) will only visit the usage site of an Var
    */
   virtual Var VisitVarDef(const Var& var);
   // specific leaf level visitor functions
-  virtual Var VisitVarDef_(const VarNode* var);
-  virtual Var VisitVarDef_(const DataflowVarNode* var);
+  virtual Var VisitVarDef_(const VarObj* var);
+  virtual Var VisitVarDef_(const DataflowVarObj* var);
 
  protected:
   /*!
@@ -633,7 +633,7 @@ class ExprMutator : public ExprMutatorBase {
    * Otherwise, a new binding will be emitted to replace the var specified in
    * the current binding.
    */
-  void ReEmitBinding(const VarBindingNode* binding, Expr new_value);
+  void ReEmitBinding(const VarBindingObj* binding, Expr new_value);
 
   /*!
    * \brief Rewrite the expr with a new scope, used in a Function's body.
@@ -703,7 +703,7 @@ class ExprMutator : public ExprMutatorBase {
  private:
   using TSelf = ExprMutator;
   using VisitBindingVTable = tvm::ObjectFunctor<void(const ffi::ObjectRef& n, ExprMutator* self,
-                                                     const VarBindingNode* binding)>;
+                                                     const VarBindingObj* binding)>;
   // initialize the vtable.
   static VisitBindingVTable InitVisitBindingVTable();
 };

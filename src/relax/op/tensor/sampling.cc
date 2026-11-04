@@ -63,7 +63,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.multinomial_from_uniform", multinomial_from_uniform);
 }
 
-Type InferTypeMultinomialFromUniform(const CallNode* call_node) {
+Type InferTypeMultinomialFromUniform(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (RequiresTensorInputNormalization(call)) return Type::Missing();
   CheckNumArguments(call);
@@ -121,11 +121,11 @@ Type InferTypeMultinomialFromUniform(const CallNode* call_node) {
   }
 
   // Expected to be `(batch, vocab_size)`
-  const auto* prob_shape = prob_ty->shape.as<ShapeExprNode>();
+  const auto* prob_shape = prob_ty->shape.as<ShapeExprObj>();
   // Expected to be `(n, 1)`
-  const auto* uniform_sample_shape = uniform_sample_ty->shape.as<ShapeExprNode>();
+  const auto* uniform_sample_shape = uniform_sample_ty->shape.as<ShapeExprObj>();
   // Expected to be `(n, 1)`
-  const auto* sample_indices_shape = sample_indices_ty->shape.as<ShapeExprNode>();
+  const auto* sample_indices_shape = sample_indices_ty->shape.as<ShapeExprObj>();
   // The output shape is expected to be `(n, 1)`
 
   if (prob_shape == nullptr || uniform_sample_shape == nullptr || sample_indices_shape == nullptr) {

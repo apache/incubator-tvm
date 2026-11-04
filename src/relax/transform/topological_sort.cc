@@ -43,8 +43,8 @@ using DataflowNode = std::variant<InputNode, OutputNode, tvm::Var>;
 bool operator==(const DataflowNode& a, const DataflowNode& b) {
   if (const tvm::Var* var_a = std::get_if<tvm::Var>(&a)) {
     if (const tvm::Var* var_b = std::get_if<tvm::Var>(&b)) {
-      const tvm::VarNode* ptr_a = var_a->get();
-      const tvm::VarNode* ptr_b = var_b->get();
+      const tvm::VarObj* ptr_a = var_a->get();
+      const tvm::VarObj* ptr_b = var_b->get();
       return ptr_a == ptr_b;
     }
   }
@@ -58,7 +58,7 @@ template <>
 struct std::hash<DataflowNode> {
   std::size_t operator()(const DataflowNode& node) const noexcept {
     if (const tvm::Var* var = std::get_if<tvm::Var>(&node)) {
-      const tvm::VarNode* ptr = var->get();
+      const tvm::VarObj* ptr = var->get();
       std::hash<decltype(ptr)> hasher;
       return hasher(ptr);
     } else {
@@ -134,7 +134,7 @@ class BindingOrderCollector : ExprVisitor {
  private:
   void VisitVarDef(const Var&) override {}
 
-  void VisitExpr_(const FunctionNode* op) override {
+  void VisitExpr_(const FunctionObj* op) override {
     for (const auto& var : op->params) {
       graph_vars_.insert(var);
       dependencies_.downstream_users[InputNode()].push_back(var);
@@ -152,7 +152,7 @@ class BindingOrderCollector : ExprVisitor {
     current_binding_ = cache;
   }
 
-  void VisitExpr_(const VarNode* op) override {
+  void VisitExpr_(const VarObj* op) override {
     Var upstream_requirement = ffi::GetRef<Var>(op);
     if (!graph_vars_.count(upstream_requirement)) {
       return;
@@ -173,7 +173,7 @@ class TopologicalSorter : public ExprMutator {
   TopologicalSorter(TraversalOrder order, StartingLocation starting_location)
       : order_(order), starting_location_(starting_location) {}
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto cached = dependencies_;
     dependencies_ = BindingOrderCollector::Collect(ffi::GetRef<Expr>(op));
 
@@ -191,7 +191,7 @@ class TopologicalSorter : public ExprMutator {
     return output;
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* op) override {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* op) override {
     auto block = ffi::GetRef<DataflowBlock>(op);
 
     // A map from not-yet-defined variables to the binding that will

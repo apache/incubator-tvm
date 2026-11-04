@@ -34,8 +34,8 @@ namespace {
 
 TVM_FFI_INLINE ffi::Expected<ffi::Optional<ffi::VisitInterrupt>> DTensorTypeVisit(
     ffi::StructuralVisitorObj* visitor, ffi::AnyView value) noexcept {
-  const DTensorTypeNode* self =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeNode>(value);
+  const DTensorTypeObj* self =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeObj>(value);
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(self->device_mesh));
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(self->placement));
   TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(visitor->VisitExpected(self->tensor_ty));
@@ -44,8 +44,8 @@ TVM_FFI_INLINE ffi::Expected<ffi::Optional<ffi::VisitInterrupt>> DTensorTypeVisi
 
 TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> DTensorTypeMutate(
     ffi::StructuralMutatorObj* mutator, ffi::AnyView value) noexcept {
-  const DTensorTypeNode* self =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeNode>(value);
+  const DTensorTypeObj* self =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeObj>(value);
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<DeviceMesh>, mapped_device_mesh,
                                     mutator->MutateExpected(self->device_mesh));
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(ffi::UnchangedOr<Placement>, mapped_placement,
@@ -57,7 +57,7 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> DTensorTypeMutate(
       mapped_tensor_ty.UnchangedOrSameAs(self->tensor_ty)) {
     return ffi::Unchanged();
   }
-  ffi::ObjectPtr<DTensorTypeNode> copy = ffi::make_object<DTensorTypeNode>(*self);
+  ffi::ObjectPtr<DTensorTypeObj> copy = ffi::make_object<DTensorTypeObj>(*self);
   copy->device_mesh = std::move(mapped_device_mesh).ValueOrUnchanged(std::move(copy->device_mesh));
   copy->placement = std::move(mapped_placement).ValueOrUnchanged(std::move(copy->placement));
   copy->tensor_ty = std::move(mapped_tensor_ty).ValueOrUnchanged(std::move(copy->tensor_ty));
@@ -66,8 +66,8 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> DTensorTypeMutate(
 
 TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> DTensorTypeMaybeInplaceMutate(
     ffi::StructuralMutatorObj* mutator, ffi::AnyView value) noexcept {
-  DTensorTypeNode* self = const_cast<DTensorTypeNode*>(
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeNode>(value));
+  DTensorTypeObj* self = const_cast<DTensorTypeObj*>(
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const DTensorTypeObj>(value));
   TVM_FFI_S_MUTATE_ASSIGN_OR_RETURN(
       ffi::UnchangedOr<DeviceMesh>, mapped_device_mesh,
       mutator->MutateExpected(self->device_mesh, ffi::InplaceMode::kAllow));
@@ -92,19 +92,19 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> DTensorTypeMaybeInplace
 }  // namespace
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  PlacementNode::RegisterReflection();
-  PlacementSpecNode::RegisterReflection();
+  PlacementObj::RegisterReflection();
+  PlacementSpecObj::RegisterReflection();
 }
 
 PlacementSpec PlacementSpec::Sharding(int axis) {
-  ffi::ObjectPtr<PlacementSpecNode> n = ffi::make_object<PlacementSpecNode>();
+  ffi::ObjectPtr<PlacementSpecObj> n = ffi::make_object<PlacementSpecObj>();
   n->axis = axis;
   n->kind = PlacementSpecKind::kSharding;
   return PlacementSpec(ffi::UnsafeInit{}, std::move(n));
 }
 
 PlacementSpec PlacementSpec::Replica() {
-  ffi::ObjectPtr<PlacementSpecNode> n = ffi::make_object<PlacementSpecNode>();
+  ffi::ObjectPtr<PlacementSpecObj> n = ffi::make_object<PlacementSpecObj>();
   n->axis = -1;
   n->kind = PlacementSpecKind::kReplica;
   return PlacementSpec(ffi::UnsafeInit{}, std::move(n));
@@ -117,7 +117,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("relax.distributed.Replica", []() { return PlacementSpec::Replica(); });
 }
 
-ffi::String PlacementNode::ToString() const {
+ffi::String PlacementObj::ToString() const {
   std::stringstream ss;
   for (size_t i = 0; i < dim_specs.size(); ++i) {
     if (i != 0) {
@@ -133,7 +133,7 @@ ffi::String PlacementNode::ToString() const {
 }
 
 Placement::Placement(ffi::Array<PlacementSpec> dim_specs) {
-  ffi::ObjectPtr<PlacementNode> n = ffi::make_object<PlacementNode>();
+  ffi::ObjectPtr<PlacementObj> n = ffi::make_object<PlacementObj>();
   n->dim_specs = std::move(dim_specs);
   data_ = std::move(n);
 }
@@ -193,7 +193,7 @@ DTensorType::DTensorType(TensorType tensor_ty, DeviceMesh device_mesh, Placement
     TVM_FFI_CHECK_LT(spec->axis, tensor_ty->ndim, ValueError)
         << "Sharding dimension should be smaller than tensor ndim";
   }
-  ffi::ObjectPtr<DTensorTypeNode> n = ffi::make_object<DTensorTypeNode>(
+  ffi::ObjectPtr<DTensorTypeObj> n = ffi::make_object<DTensorTypeObj>(
       std::move(tensor_ty), std::move(device_mesh), std::move(placement));
   n->loc = loc;
   data_ = std::move(n);
@@ -201,8 +201,8 @@ DTensorType::DTensorType(TensorType tensor_ty, DeviceMesh device_mesh, Placement
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  DTensorTypeNode::RegisterReflection();
-  refl::TypeAttrDef<DTensorTypeNode>()
+  DTensorTypeObj::RegisterReflection();
+  refl::TypeAttrDef<DTensorTypeObj>()
       .attr(ffi::type_attr::kStructuralVisit,
             ffi::FStructuralVisit::FromNative<&DTensorTypeVisit>())
       .attr(ffi::type_attr::kStructuralMutate,

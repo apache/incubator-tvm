@@ -43,9 +43,9 @@ using s_tir::Instruction;
 using s_tir::InstructionKind;
 using s_tir::IsSpatial;
 using s_tir::LoopRV;
-using s_tir::LoopRVNode;
+using s_tir::LoopRVObj;
 using s_tir::SBlockRV;
-using s_tir::SBlockRVNode;
+using s_tir::SBlockRVObj;
 using s_tir::Schedule;
 using s_tir::Trace;
 using s_tir::TranslateAddOutputRVs;
@@ -132,8 +132,8 @@ std::vector<SBlockRV> ApplyAnchorTrace(Schedule sch, Trace anchor_trace) {
   auto is_inst_applicable = [&foreign_blocks, &foreign_loops](Instruction inst) {
     for (auto input : inst->inputs) {
       if (input == nullptr) continue;
-      if ((input.as<SBlockRVNode>() && foreign_blocks.count(input.as_or_throw<SBlockRV>())) ||
-          (input.as<LoopRVNode>() && foreign_loops.count(input.as_or_throw<LoopRV>()))) {
+      if ((input.as<SBlockRVObj>() && foreign_blocks.count(input.as_or_throw<SBlockRV>())) ||
+          (input.as<LoopRVObj>() && foreign_loops.count(input.as_or_throw<LoopRV>()))) {
         return false;
       }
     }
@@ -145,9 +145,9 @@ std::vector<SBlockRV> ApplyAnchorTrace(Schedule sch, Trace anchor_trace) {
       // If we find an instruction that is not applicable, its outputs are recorded as "foreign"
       // to the target schedule.
       for (auto output : inst->outputs) {
-        if (output.as<SBlockRVNode>()) {
+        if (output.as<SBlockRVObj>()) {
           foreign_blocks.insert(output.as_or_throw<SBlockRV>());
-        } else if (output.as<LoopRVNode>()) {
+        } else if (output.as<LoopRVObj>()) {
           foreign_loops.insert(output.as_or_throw<LoopRV>());
         }
       }

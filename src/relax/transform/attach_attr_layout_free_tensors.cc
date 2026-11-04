@@ -37,7 +37,7 @@ class AttrAttacher : public ExprMutator {
   static IRModule Transform(const IRModule& mod) {
     AttrAttacher mutator(mod);
     for (auto [gvar, func] : mod->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         // clear the layout_free_exprs_ for each function
         mutator.layout_free_exprs_.clear();
         mutator.builder_->UpdateFunction(gvar, mutator.VisitExpr(func).as_or_throw<BaseFunc>());
@@ -50,7 +50,7 @@ class AttrAttacher : public ExprMutator {
   explicit AttrAttacher(IRModule mod) : ExprMutator(mod), mod_(mod) {}
 
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     if (auto opt_num_input = op->attrs.GetAttr(tvm::relax::attr::kNumInput)) {
       TVM_FFI_ICHECK(layout_free_exprs_.empty())
           << "meet a non-global function with num_input attr";
@@ -62,12 +62,12 @@ class AttrAttacher : public ExprMutator {
     return ExprMutator::VisitExpr_(op);
   }
 
-  Expr VisitExpr_(const GenericConstNode* op) final {
+  Expr VisitExpr_(const GenericConstObj* op) final {
     if (op->value.as<ffi::TensorObj>()) layout_free_exprs_.insert(op);
     return ExprMutator::VisitExpr_(op);
   }
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     Call call = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
     if (!call->op.same_as(call_tir_op_)) {
@@ -92,14 +92,14 @@ class AttrAttacher : public ExprMutator {
     // So we don't need to worry about the duplicate insertion
     GlobalVar new_gv = builder_->AddFunction(func, gv->name_hint);
     // Create a new call node with the updated tirx::Function
-    auto n = ffi::make_object<CallNode>(*op);
+    auto n = ffi::make_object<CallObj>(*op);
     n->args = {new_gv, Tuple(call_tir_args)};
     return Call(n);
   }
 
  private:
   IRModule mod_;
-  std::unordered_set<const ExprNode*> layout_free_exprs_;
+  std::unordered_set<const ExprObj*> layout_free_exprs_;
 };
 namespace transform {
 

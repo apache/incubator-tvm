@@ -50,42 +50,42 @@ class TensorizeComparator : public ExprComparator, public StmtComparator {
   bool Dispatch(const Expr& n, const PrimExpr& other) override;
   bool Dispatch(const Stmt& n, const Stmt& other) override;
 
-  bool Dispatch_(const CallNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const ForNode* op, const Stmt& other) override;
-  bool Dispatch_(const SeqStmtNode* op, const Stmt& other) override;
-  bool Dispatch_(const TensorStoreNode* op, const Stmt& other) override;
-  bool Dispatch_(const SBlockRealizeNode* op, const Stmt& other) override;
-  bool Dispatch_(const SBlockNode* op, const Stmt& other) override;
+  bool Dispatch_(const CallObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const ForObj* op, const Stmt& other) override;
+  bool Dispatch_(const SeqStmtObj* op, const Stmt& other) override;
+  bool Dispatch_(const TensorStoreObj* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockRealizeObj* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockObj* op, const Stmt& other) override;
 
-  bool Dispatch_(const prim::LShiftNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::RShiftNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseAndNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseOrNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseXorNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseNotNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const AddNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const SubNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MulNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const DivNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const ModNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const EQNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const NENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const LTNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const LENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const GTNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const GENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const AndNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const OrNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MinNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MaxNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloorDivNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloorModNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const IntImmNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloatImmNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const CastNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const VarNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const TensorLoadNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const SelectNode* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::LShiftObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::RShiftObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseAndObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseOrObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseXorObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseNotObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const AddObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const SubObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MulObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const DivObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const ModObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const EQObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const NEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const LTObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const LEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const GTObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const GEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const AndObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const OrObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MinObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MaxObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloorDivObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloorModObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const IntImmObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloatImmObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const CastObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const VarObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const TensorLoadObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const SelectObj* op, const PrimExpr& other) override;
 
   /*! \brief Map from RHS tensor to LHS tensor */
   std::unordered_map<TensorVar, TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rhs_tensor_map_;
@@ -148,10 +148,10 @@ class AutoTensorizeComparator : public TensorizeComparator {
   bool DispatchDefault_(const ffi::Object* op, const PrimExpr& other) override;
   bool DispatchDefault_(const ffi::Object* op, const Stmt& other) override;
 
-  bool Dispatch_(const SBlockNode* op, const Stmt& other) override;
-  bool Dispatch_(const TensorStoreNode* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockObj* op, const Stmt& other) override;
+  bool Dispatch_(const TensorStoreObj* op, const Stmt& other) override;
 
-  bool Dispatch_(const TensorLoadNode* op, const PrimExpr& other) override;
+  bool Dispatch_(const TensorLoadObj* op, const PrimExpr& other) override;
 
   bool CompareTensor(const TensorVar& lhs, const TensorVar& rhs) override;
   template <typename T>

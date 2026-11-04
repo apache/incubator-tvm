@@ -36,7 +36,7 @@ class ThreadExtentChecker : public StmtExprVisitor {
   using StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
@@ -54,11 +54,11 @@ class ThreadExtentChecker : public StmtExprVisitor {
   explicit ThreadExtentChecker(int thread_warp_size) : thread_warp_size_(thread_warp_size) {}
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) {
     support::GPUThreadTag thread_scope = GetThreadBindingTag(loop);
     if (IsThreadIdx(thread_scope)) {
       PrimExpr p_ext_imm_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
-      const auto* p_ext_imm = p_ext_imm_expr.as<IntImmNode>();
+      const auto* p_ext_imm = p_ext_imm_expr.as<IntImmObj>();
       if (auto p_ext = p_ext_imm ? p_ext_imm->value.as<int64_t>() : std::nullopt;
           p_ext.has_value()) {
         int64_t ext = *p_ext;
@@ -85,7 +85,7 @@ class ThreadExtentChecker : public StmtExprVisitor {
     return StmtExprVisitor::Visit_(loop);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) {
     int old_thread_idx_x = thread_idx_x;
     if (block->annotations.count(tvm::s_tir::attr::kWarpExecution.name)) {
       thread_idx_x = thread_warp_size_;
@@ -166,7 +166,7 @@ class VerifyGPUCodeObj : public PostprocObj {
     for (const auto& kv : mod->functions) {
       const GlobalVar& g_var = kv.first;
       const BaseFunc& base_func = kv.second;
-      if (const auto* function = base_func.as<tirx::FunctionNode>()) {
+      if (const auto* function = base_func.as<tirx::FunctionObj>()) {
         if (function->body.has_value() &&
             !s_tir::ThreadExtentChecker::Check(function->body.value(), thread_warp_size_)) {
           return false;

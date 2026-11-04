@@ -28,7 +28,7 @@ namespace tvm {
 namespace {
 // File-local helper: true if `expr` is a call to prim::vscale_op().
 bool IsVScaleCall(const PrimExpr& expr) {
-  if (const auto* call = expr.as<CallNode>()) {
+  if (const auto* call = expr.as<CallObj>()) {
     return call->op.same_as(prim::vscale_op());
   }
   return false;
@@ -62,7 +62,7 @@ class TensorIntrinMismatchError : public ScheduleErrorContextObj {
         lhs_stmt_(std::move(lhs_stmt)),
         rhs_stmt_(std::move(rhs_stmt)),
         error_messages_(std::move(error_messages)) {
-    TVM_FFI_ICHECK(lhs_stmt_->IsInstance<ForNode>() || lhs_stmt_->IsInstance<SBlockNode>());
+    TVM_FFI_ICHECK(lhs_stmt_->IsInstance<ForObj>() || lhs_stmt_->IsInstance<SBlockObj>());
   }
 
   ffi::String FastErrorString() const final {
@@ -95,7 +95,7 @@ class TensorIntrinMismatchError : public ScheduleErrorContextObj {
 bool TensorizeComparator::Dispatch(const Stmt& n, const Stmt& other) {
   bool equal = n.same_as(other) ||
                ((n->type_index() == other->type_index()) && StmtComparator::Dispatch(n, other));
-  if (!equal && assert_mode_ && (n->IsInstance<ForNode>() || n->IsInstance<SBlockNode>())) {
+  if (!equal && assert_mode_ && (n->IsInstance<ForObj>() || n->IsInstance<SBlockObj>())) {
     throw MakeScheduleError<TensorIntrinMismatchError>(lhs_mod_, n, other,
                                                        std::move(error_messages_));
   }
@@ -142,13 +142,13 @@ bool TensorizeComparator::CompareExpr(const Expr& lhs, const Expr& rhs) {
   return ffi::StructuralEqual()(lhs, rhs);
 }
 
-bool TensorizeComparator::Dispatch_(const CallNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<CallNode>();
+bool TensorizeComparator::Dispatch_(const CallObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<CallObj>();
   if (!rhs->op.same_as(op->op)) return false;
   if (op->ty.as_or_throw<PrimType>().code() != rhs->ty.as_or_throw<PrimType>().code()) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "CallNode data type codes do not match: op->dtype.code()="
+      os << "CallObj data type codes do not match: op->dtype.code()="
          << op->ty.as_or_throw<PrimType>().code()
          << " vs rhs->dtype.code()=" << rhs->ty.as_or_throw<PrimType>().code();
       EmitError(os.str());
@@ -158,7 +158,7 @@ bool TensorizeComparator::Dispatch_(const CallNode* op, const PrimExpr& other) {
   if (op->args.size() != rhs->args.size()) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "CallNode arg size mismatch: op->args.size()=" << op->args.size()
+      os << "CallObj arg size mismatch: op->args.size()=" << op->args.size()
          << " vs rhs->args.size()=" << rhs->args.size();
       EmitError(os.str());
     }
@@ -168,7 +168,7 @@ bool TensorizeComparator::Dispatch_(const CallNode* op, const PrimExpr& other) {
     if (!CompareExpr(op->args[i], rhs->args[i])) {
       if (assert_mode_) {
         std::ostringstream os;
-        os << "CallNode args do not match at index " << i << ": op->args[i]=" << op->args[i]
+        os << "CallObj args do not match at index " << i << ": op->args[i]=" << op->args[i]
            << " vs rhs->args[i]=" << rhs->args[i];
         EmitError(os.str());
       }
@@ -178,12 +178,12 @@ bool TensorizeComparator::Dispatch_(const CallNode* op, const PrimExpr& other) {
   return true;
 }
 
-bool TensorizeComparator::Dispatch_(const ForNode* op, const Stmt& other) {
-  const auto* rhs = other.as<ForNode>();
+bool TensorizeComparator::Dispatch_(const ForObj* op, const Stmt& other) {
+  const auto* rhs = other.as<ForObj>();
   if (!DefEqual(op->var, rhs->var)) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "ForNode loop vars do not match: op->var=" << op->var << " vs rhs->var=" << rhs->var;
+      os << "ForObj loop vars do not match: op->var=" << op->var << " vs rhs->var=" << rhs->var;
       EmitError(os.str());
     }
     return false;
@@ -191,7 +191,7 @@ bool TensorizeComparator::Dispatch_(const ForNode* op, const Stmt& other) {
   if (!Dispatch(op->begin, rhs->begin)) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "ForNode begin values do not match: op->begin=" << op->begin
+      os << "ForObj begin values do not match: op->begin=" << op->begin
          << " vs rhs->begin=" << rhs->begin;
       EmitError(os.str());
     }
@@ -200,21 +200,21 @@ bool TensorizeComparator::Dispatch_(const ForNode* op, const Stmt& other) {
   if (!Dispatch(op->end, rhs->end)) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "ForNode end values do not match: op->end=" << op->end << " vs rhs->end=" << rhs->end;
+      os << "ForObj end values do not match: op->end=" << op->end << " vs rhs->end=" << rhs->end;
       EmitError(os.str());
     }
     return false;
   }
   if (!Dispatch(op->step, rhs->step)) {
     if (assert_mode_) {
-      EmitError("ForNode step values do not match");
+      EmitError("ForObj step values do not match");
     }
     return false;
   }
   if (op->kind != rhs->kind) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "ForNode kinds do not match: op->kind=" << op->kind << " vs rhs->kind=" << rhs->kind;
+      os << "ForObj kinds do not match: op->kind=" << op->kind << " vs rhs->kind=" << rhs->kind;
       EmitError(os.str());
     }
     return false;
@@ -222,7 +222,7 @@ bool TensorizeComparator::Dispatch_(const ForNode* op, const Stmt& other) {
   if (!CompareAnnotationMap(op->annotations, rhs->annotations)) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "ForNode annotation maps do not match: op->annotations=" << op->annotations
+      os << "ForObj annotation maps do not match: op->annotations=" << op->annotations
          << " vs rhs->annotations=" << rhs->annotations;
       EmitError(os.str());
     }
@@ -231,20 +231,20 @@ bool TensorizeComparator::Dispatch_(const ForNode* op, const Stmt& other) {
   return Dispatch(op->body, rhs->body);
 }
 
-bool TensorizeComparator::Dispatch_(const SeqStmtNode* op, const Stmt& other) {
-  const auto* rhs = other.as<SeqStmtNode>();
+bool TensorizeComparator::Dispatch_(const SeqStmtObj* op, const Stmt& other) {
+  const auto* rhs = other.as<SeqStmtObj>();
   return CompareArray(op->seq, rhs->seq,
                       static_cast<bool (TensorizeComparator::*)(const Stmt&, const Stmt&)>(
                           &TensorizeComparator::Dispatch));
 }
 
-bool TensorizeComparator::Dispatch_(const TensorStoreNode* op, const Stmt& other) {
-  const auto* rhs = other.as<TensorStoreNode>();
+bool TensorizeComparator::Dispatch_(const TensorStoreObj* op, const Stmt& other) {
+  const auto* rhs = other.as<TensorStoreObj>();
   return CompareTensorAccess(op, rhs) && Dispatch(op->value, rhs->value);
 }
 
-bool TensorizeComparator::Dispatch_(const SBlockRealizeNode* op, const Stmt& other) {
-  const auto* rhs = other.as<SBlockRealizeNode>();
+bool TensorizeComparator::Dispatch_(const SBlockRealizeObj* op, const Stmt& other) {
+  const auto* rhs = other.as<SBlockRealizeObj>();
   if (!is_scope_block) {
     if (!CompareArray(op->iter_values, rhs->iter_values,
                       static_cast<bool (TensorizeComparator::*)(const Expr&, const PrimExpr&)>(
@@ -261,10 +261,14 @@ bool TensorizeComparator::Dispatch_(const SBlockRealizeNode* op, const Stmt& oth
   return Dispatch(op->predicate, rhs->predicate) && Dispatch(op->block, rhs->block);
 }
 
-bool TensorizeComparator::Dispatch_(const SBlockNode* op, const Stmt& other) {
-  const auto* rhs = other.as<SBlockNode>();
+bool TensorizeComparator::Dispatch_(const SBlockObj* op, const Stmt& other) {
+  const auto* rhs = other.as<SBlockObj>();
   for (const IterVar& iter : op->iter_vars) {
-    lhs_analyzer_->Bind(iter->var, iter->dom.value());
+    {
+      auto context = lhs_analyzer_->GetConstraintContext();
+      context->Append(sym::RangeConstraint(iter->var, iter->dom.value()));
+      lhs_analyzer_->SyncConstraintContext(context);
+    }
   }
   // Check block equality.
   // All iter vars and tensor regions including the order should match.
@@ -318,41 +322,41 @@ bool TensorizeComparator::Dispatch_(const SBlockNode* op, const Stmt& other) {
     return Dispatch(op->a, rhs->a) && Dispatch(op->b, rhs->b);                   \
   }
 
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(AddNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(SubNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MulNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(DivNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(ModNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(EQNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(NENode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(LTNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(LENode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(GTNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(GENode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(AndNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(OrNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MinNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MaxNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(FloorDivNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(FloorModNode);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(AddObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(SubObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MulObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(DivObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(ModObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(EQObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(NEObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(LTObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(LEObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(GTObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(GEObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(AndObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(OrObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MinObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(MaxObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(FloorDivObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(FloorModObj);
 
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::LShiftNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::RShiftNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseAndNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseOrNode);
-TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseXorNode);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::LShiftObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::RShiftObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseAndObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseOrObj);
+TVM_DECLARE_TENSORIZE_COMPARATOR_BINOP(prim::BitwiseXorObj);
 
-bool TensorizeComparator::Dispatch_(const prim::BitwiseNotNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<prim::BitwiseNotNode>();
+bool TensorizeComparator::Dispatch_(const prim::BitwiseNotObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<prim::BitwiseNotObj>();
   return Dispatch(op->a, rhs->a);
 }
 
-bool TensorizeComparator::Dispatch_(const IntImmNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<IntImmNode>();
+bool TensorizeComparator::Dispatch_(const IntImmObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<IntImmObj>();
   if (op->value != rhs->value) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "IntImmNode values do not match: op->value=" << op->value
+      os << "IntImmObj values do not match: op->value=" << op->value
          << " vs rhs->value=" << rhs->value;
       EmitError(os.str());
     }
@@ -361,12 +365,12 @@ bool TensorizeComparator::Dispatch_(const IntImmNode* op, const PrimExpr& other)
   return true;
 }
 
-bool TensorizeComparator::Dispatch_(const FloatImmNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<FloatImmNode>();
+bool TensorizeComparator::Dispatch_(const FloatImmObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<FloatImmObj>();
   if (op->value != rhs->value) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "FloatImmNode values do not match: op->value=" << op->value
+      os << "FloatImmObj values do not match: op->value=" << op->value
          << " vs rhs->value=" << rhs->value;
       EmitError(os.str());
     }
@@ -375,12 +379,12 @@ bool TensorizeComparator::Dispatch_(const FloatImmNode* op, const PrimExpr& othe
   return true;
 }
 
-bool TensorizeComparator::Dispatch_(const CastNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<CastNode>();
+bool TensorizeComparator::Dispatch_(const CastObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<CastObj>();
   return Dispatch(op->value, rhs->value);
 }
 
-bool TensorizeComparator::Dispatch_(const VarNode* op, const PrimExpr& other) {
+bool TensorizeComparator::Dispatch_(const VarObj* op, const PrimExpr& other) {
   auto rhs_ref = other.as<PrimVar>();
   if (!rhs_ref.has_value()) return false;
   const auto* rhs = rhs_ref.value().get();
@@ -391,7 +395,7 @@ bool TensorizeComparator::Dispatch_(const VarNode* op, const PrimExpr& other) {
   if (lhs_ty.code() != rhs_ty.code()) {
     if (assert_mode_) {
       std::ostringstream os;
-      os << "VarNode data type codes do not match: op->dtype.code()=" << lhs_ty.code()
+      os << "VarObj data type codes do not match: op->dtype.code()=" << lhs_ty.code()
          << " vs rhs->dtype.code()=" << rhs_ty.code();
       EmitError(os.str());
     }
@@ -401,13 +405,13 @@ bool TensorizeComparator::Dispatch_(const VarNode* op, const PrimExpr& other) {
   return it != equal_map_.end() && it->second.same_as(other);
 }
 
-bool TensorizeComparator::Dispatch_(const TensorLoadNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<TensorLoadNode>();
+bool TensorizeComparator::Dispatch_(const TensorLoadObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<TensorLoadObj>();
   return CompareTensorAccess(op, rhs);
 }
 
-bool TensorizeComparator::Dispatch_(const SelectNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<SelectNode>();
+bool TensorizeComparator::Dispatch_(const SelectObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<SelectObj>();
   return Dispatch(op->condition, rhs->condition) && Dispatch(op->true_value, rhs->true_value) &&
          Dispatch(op->false_value, rhs->false_value);
 }
@@ -428,7 +432,12 @@ bool TensorizeComparator::DefEqual(const Var& lhs, const Var& rhs) {
   equal_map_.insert_or_assign(lhs, rhs);
   // Cast if necessary. This allows the workload and the tensor intrin to have different dtypes in
   // the indices.
-  analyzer_->Bind(lhs, cast(rhs.as_or_throw<PrimExpr>(), lhs_prim_type.value()));
+  {
+    auto context = analyzer_->GetConstraintContext();
+    context->Append(
+        sym::BindingConstraint(lhs, cast(rhs.as_or_throw<PrimExpr>(), lhs_prim_type.value())));
+    analyzer_->SyncConstraintContext(context);
+  }
   return true;
 }
 
@@ -644,11 +653,11 @@ bool TensorizeComparator::CompareTensorRegion(const TensorRegion& lhs, const Ten
   return true;
 }
 
-// Comparator for TensorStoreNode and TensorLoadNode
-inline TensorVar GetTensorAccessTensor(const TensorStoreNode* op) {
+// Comparator for TensorStoreObj and TensorLoadObj
+inline TensorVar GetTensorAccessTensor(const TensorStoreObj* op) {
   return op->dest.as_or_throw<TensorVar>();
 }
-inline TensorVar GetTensorAccessTensor(const TensorLoadNode* op) {
+inline TensorVar GetTensorAccessTensor(const TensorLoadObj* op) {
   return op->source.as_or_throw<tvm::tirx::TensorVar>();
 }
 
@@ -728,8 +737,8 @@ bool AutoTensorizeComparator::DispatchDefault_(const ffi::Object* op, const Stmt
   return false;
 }
 
-bool AutoTensorizeComparator::Dispatch_(const SBlockNode* op, const Stmt& other) {
-  const auto* rhs = other.as<SBlockNode>();
+bool AutoTensorizeComparator::Dispatch_(const SBlockObj* op, const Stmt& other) {
+  const auto* rhs = other.as<SBlockObj>();
   // Check block equality.
   // All iter vars and tensor regions including the order should match.
   // When checking iter vars, DefEqual is used to remap variables.
@@ -748,9 +757,13 @@ bool AutoTensorizeComparator::Dispatch_(const SBlockNode* op, const Stmt& other)
       inner_iter_dom_map_.Set(block_iter->var, sym::IntSet::FromRange(block_iter->dom.value()));
     }
   } else {
-    auto collect_iter = [&](const SBlockNode* op, std::vector<IterVar>& iters) -> bool {
+    auto collect_iter = [&](const SBlockObj* op, std::vector<IterVar>& iters) -> bool {
       for (const auto& iter : op->iter_vars) {
-        analyzer_->Bind(iter->var, iter->dom.value());
+        {
+          auto context = analyzer_->GetConstraintContext();
+          context->Append(sym::RangeConstraint(iter->var, iter->dom.value()));
+          analyzer_->SyncConstraintContext(context);
+        }
         if (iter->iter_type == IterVarType::kDataPar ||
             iter->iter_type == IterVarType::kCommReduce) {
           iters.push_back(iter);
@@ -798,13 +811,13 @@ bool AutoTensorizeComparator::CompareTensor(const TensorVar& lhs, const TensorVa
   return equal;
 }
 
-bool AutoTensorizeComparator::Dispatch_(const TensorStoreNode* op, const Stmt& other) {
-  const auto* rhs = other.as<TensorStoreNode>();
+bool AutoTensorizeComparator::Dispatch_(const TensorStoreObj* op, const Stmt& other) {
+  const auto* rhs = other.as<TensorStoreObj>();
   return CompareTensorAccess(op, rhs) && Dispatch(op->value, rhs->value);
 }
 
-bool AutoTensorizeComparator::Dispatch_(const TensorLoadNode* op, const PrimExpr& other) {
-  const auto* rhs = other.as<TensorLoadNode>();
+bool AutoTensorizeComparator::Dispatch_(const TensorLoadObj* op, const PrimExpr& other) {
+  const auto* rhs = other.as<TensorLoadObj>();
   return CompareTensorAccess(op, rhs);
 }
 
@@ -826,7 +839,7 @@ bool AutoTensorizeComparator::CompareTensorAccess(const T* lhs, const T* rhs) {
     auto is_scalar_access = [](const ffi::Array<PrimExpr>& indices, PrimExpr index) {
       // Check if the indexing is of the form C[0]
       if (indices.size() > 1) return false;
-      auto int_imm = index.template as<IntImmNode>();
+      auto int_imm = index.template as<IntImmObj>();
       if (int_imm && int_imm->value == 0) return true;
       return false;
     };

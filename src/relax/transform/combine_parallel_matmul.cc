@@ -175,7 +175,7 @@ ffi::TypedFunction<ffi::Map<Var, Expr>(ffi::Map<DFPattern, Var>, ffi::Map<Var, E
       // consistent order for all static shapes, and to consistently
       // select the same dynamic weight to participate.
       auto is_dynamic_split = [](const SplitInfo& split) -> bool {
-        return !split.split_size->IsInstance<IntImmNode>();
+        return !split.split_size->IsInstance<IntImmObj>();
       };
       std::stable_sort(splits.begin(), splits.end(),
                        [&is_dynamic_split](const auto& a, const auto& b) {
@@ -237,7 +237,7 @@ ffi::TypedFunction<ffi::Map<Var, Expr>(ffi::Map<DFPattern, Var>, ffi::Map<Var, E
       int split_index = 0;
       ffi::Array<IntImm> sections;
       for (size_t i = 0; i + 1 < splits.size(); i++) {
-        auto width = splits[i].split_size.as<IntImmNode>();
+        auto width = splits[i].split_size.as<IntImmObj>();
         TVM_FFI_CHECK(width, InternalError)
             << "All splits except the last one must have a static shape";
         split_index = (split_index + width->value).as<int>().value();
@@ -286,10 +286,10 @@ std::vector<BranchInfo> GetBranchInfo(Function f) {
 
   auto create_group = [&](DFPattern pat) {
     // Maps a LHS matrix to consumer parallel matmuls
-    std::unordered_map<const VarNode*, BranchInfo> groups;
+    std::unordered_map<const VarObj*, BranchInfo> groups;
 
     PostOrderVisit(f, [&](const Expr& e) {
-      if (!e->IsInstance<CallNode>()) return;
+      if (!e->IsInstance<CallObj>()) return;
 
       auto match = ExtractMatchedExpr(pat, e, bindings);
       if (!match) return;
@@ -333,7 +333,7 @@ std::vector<BranchInfo> GetBranchInfo(Function f) {
     return groups;
   };
 
-  std::unordered_map<const VarNode*, BranchInfo> groups_activation;
+  std::unordered_map<const VarObj*, BranchInfo> groups_activation;
   for (size_t i = 0; i < activations.size(); ++i) {
     auto groups = create_group(bias_activation_pat[i]);
     groups_activation.merge(std::move(groups));

@@ -30,19 +30,19 @@ namespace tvm {
 namespace relax {
 
 /*! \brief Attributes for matmul operator */
-struct MatmulAttrs : public AttrsNode {
+struct MatmulAttrs : public AttrsObj {
   ffi::Optional<DLDataType> out_dtype;
 
   static void RegisterReflection();
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.MatmulAttrs", MatmulAttrs, AttrsNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.MatmulAttrs", MatmulAttrs, AttrsObj);
 };  // struct MatmulAttrs
 
 /*! \brief Attributes used in einsum operator */
-struct EinsumAttrs : public AttrsNode {
+struct EinsumAttrs : public AttrsObj {
   ffi::String subscripts;
 
   static void RegisterReflection();
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.EinsumAttrs", EinsumAttrs, AttrsNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.EinsumAttrs", EinsumAttrs, AttrsObj);
 };  // struct EinsumAttrs
 
 }  // namespace relax

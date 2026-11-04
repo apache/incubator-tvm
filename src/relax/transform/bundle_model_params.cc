@@ -42,7 +42,7 @@ class ModelParamBundler : public ExprMutator {
   explicit ModelParamBundler(ffi::Optional<ffi::String> param_tuple_name)
       : param_tuple_name_(param_tuple_name) {}
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     Function func = ffi::GetRef<Function>(op);
     auto opt_num_input = func->attrs.GetAttr(tvm::relax::attr::kNumInput);
     if (!opt_num_input) return func;
@@ -59,12 +59,12 @@ class ModelParamBundler : public ExprMutator {
       params.push_back(func->params[i]);
     }
 
-    std::unordered_set<const VarNode*> signature_vars;
+    std::unordered_set<const VarObj*> signature_vars;
     for (const tvm::Var& var : DefinableTIRVarsInType(TupleType(params.Map(GetType)))) {
       signature_vars.insert(var.get());
     }
 
-    std::unordered_set<const VarNode*> bundled_prim_params;
+    std::unordered_set<const VarObj*> bundled_prim_params;
     ffi::Array<Var> bundled_prim_params_in_order;
     for (size_t i = num_input; i < func->params.size(); i++) {
       if (func->params[i].as<PrimVar>()) {
@@ -107,7 +107,7 @@ class ModelParamBundler : public ExprMutator {
     return Function(params, body, ret_ty, func->is_pure, func->attrs);
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) override {
+  Expr VisitExpr_(const SeqExprObj* op) override {
     if (pending_prim_params_.empty()) {
       return ExprMutator::VisitExpr_(op);
     }
@@ -132,7 +132,7 @@ class ModelParamBundler : public ExprMutator {
     return SeqExpr(blocks, body->body);
   }
 
-  Expr VisitExpr_(const VarNode* op) override {
+  Expr VisitExpr_(const VarObj* op) override {
     auto var = ffi::GetRef<Var>(op);
     if (!rewrite_model_params_) {
       return ExprMutator::VisitExpr_(op);

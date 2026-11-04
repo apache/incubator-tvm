@@ -38,7 +38,7 @@ namespace distributed {
 enum class PlacementSpecKind : int { kSharding = 0, kReplica = 1 };
 
 /*! \brief Describes how data is distributed in one dimension of the device mesh*/
-class PlacementSpecNode : public ffi::Object {
+class PlacementSpecObj : public ffi::Object {
  public:
   /*! \brief If the kind is sharding, this value represents the tensor dimension to shard.
    *         otherwise, axis is -1.
@@ -50,18 +50,18 @@ class PlacementSpecNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PlacementSpecNode>()
-        .def_ro("axis", &PlacementSpecNode::axis)
-        .def_ro("kind", &PlacementSpecNode::kind);
+    refl::ObjectDef<PlacementSpecObj>()
+        .def_ro("axis", &PlacementSpecObj::axis)
+        .def_ro("kind", &PlacementSpecObj::kind);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindConstTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.distributed.PlacementSpec", PlacementSpecNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.distributed.PlacementSpec", PlacementSpecObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to PlacementSpecNode.
- * \sa PlacementSpecNode
+ * \brief Managed reference to PlacementSpecObj.
+ * \sa PlacementSpecObj
  */
 class PlacementSpec : public ffi::ObjectRef {
  public:
@@ -69,28 +69,28 @@ class PlacementSpec : public ffi::ObjectRef {
 
   TVM_DLL static PlacementSpec Replica();
 
-  explicit PlacementSpec(ffi::UnsafeInit tag, ffi::ObjectPtr<PlacementSpecNode> n)
+  explicit PlacementSpec(ffi::UnsafeInit tag, ffi::ObjectPtr<PlacementSpecObj> n)
       : ffi::ObjectRef(tag) {
     data_ = std::move(n);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PlacementSpec, ffi::ObjectRef, PlacementSpecNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PlacementSpec, ffi::ObjectRef, PlacementSpecObj);
 };
 
-class ShardingNode : public PlacementSpecNode {
+class ShardingObj : public PlacementSpecObj {
  public:
   /*! \brief The dimension of tensor we shard*/
   int64_t sharding_dim;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ShardingNode>().def_ro("sharding_dim", &ShardingNode::sharding_dim);
+    refl::ObjectDef<ShardingObj>().def_ro("sharding_dim", &ShardingObj::sharding_dim);
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.Sharding", ShardingNode, PlacementSpecNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.Sharding", ShardingObj, PlacementSpecObj);
 };
 
 /*! \brief Describes how data is distributed in each dimension of the device mesh*/
-class PlacementNode : public ffi::Object {
+class PlacementObj : public ffi::Object {
  public:
   /*! \brief specs for each dim of device mesh.*/
   ffi::Array<PlacementSpec> dim_specs;
@@ -99,36 +99,36 @@ class PlacementNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PlacementNode>().def_ro("dim_specs", &PlacementNode::dim_specs);
+    refl::ObjectDef<PlacementObj>().def_ro("dim_specs", &PlacementObj::dim_specs);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindConstTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.Placement", PlacementNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.distributed.Placement", PlacementObj, ffi::Object);
 };
 
 /*!
  * \brief Managed reference to a Placement.
- * \sa PlacementNode
+ * \sa PlacementObj
  */
 class Placement : public ffi::ObjectRef {
  public:
   TVM_DLL explicit Placement(ffi::Array<PlacementSpec> dim_specs);
   /*! \brief replica dim is printed as "R" and sharding dim is printed as "S[i]".]*/
   static Placement FromText(ffi::String text_repr);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Placement, ffi::ObjectRef, PlacementNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Placement, ffi::ObjectRef, PlacementObj);
 };
 
 /*!
  * \brief Type of DTensor (Distributed Tensor).
  */
-class DTensorTypeNode : public TypeNode {
+class DTensorTypeObj : public TypeObj {
  public:
-  explicit DTensorTypeNode(ffi::UnsafeInit)
+  explicit DTensorTypeObj(ffi::UnsafeInit)
       : tensor_ty(ffi::UnsafeInit{}),
         device_mesh(ffi::UnsafeInit{}),
         placement(ffi::UnsafeInit{}) {}
 
-  DTensorTypeNode(TensorType tensor_ty, DeviceMesh device_mesh, Placement placement)
+  DTensorTypeObj(TensorType tensor_ty, DeviceMesh device_mesh, Placement placement)
       : tensor_ty(std::move(tensor_ty)),
         device_mesh(std::move(device_mesh)),
         placement(std::move(placement)) {}
@@ -148,17 +148,17 @@ class DTensorTypeNode : public TypeNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DTensorTypeNode>()
-        .def_ro("device_mesh", &DTensorTypeNode::device_mesh)
-        .def_ro("placement", &DTensorTypeNode::placement)
-        .def_ro("tensor_ty", &DTensorTypeNode::tensor_ty);
+    refl::ObjectDef<DTensorTypeObj>()
+        .def_ro("device_mesh", &DTensorTypeObj::device_mesh)
+        .def_ro("placement", &DTensorTypeObj::placement)
+        .def_ro("tensor_ty", &DTensorTypeObj::tensor_ty);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DTensorType", DTensorTypeNode, TypeNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DTensorType", DTensorTypeObj, TypeObj);
 };
 
 /*!
- * \brief Managed reference to DTensorTypeNode.
- * \sa DTensorTypeNode
+ * \brief Managed reference to DTensorTypeObj.
+ * \sa DTensorTypeObj
  */
 class DTensorType : public Type {
  public:
@@ -172,7 +172,7 @@ class DTensorType : public Type {
   TVM_DLL DTensorType(TensorType tensor_ty, DeviceMesh device_mesh, Placement placement,
                       Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DTensorType, Type, DTensorTypeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DTensorType, Type, DTensorTypeObj);
 };
 
 }  // namespace distributed

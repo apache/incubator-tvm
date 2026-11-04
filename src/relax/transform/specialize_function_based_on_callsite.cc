@@ -54,7 +54,7 @@ class SpecializeTIRCallArgs : ExprMutator {
   IRModule Run(IRModule mod) {
     mod_ = mod;
     for (const auto& [gv, func] : mod->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         const auto& base_func = mod->Lookup(gv);
         // Only non primitive relax functions
         if (base_func->HasNonzeroAttr(tvm::relax::attr::kPrimitive.name)) {
@@ -70,7 +70,7 @@ class SpecializeTIRCallArgs : ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) override {
+  Expr VisitExpr_(const CallObj* call_node) override {
     auto call = ExprMutator::VisitExpr_(call_node).as_or_throw<Call>();
     static const Op call_tir_op = Op::Get("relax.call_tir");
     if (call->op.same_as(call_tir_op)) {
@@ -88,7 +88,7 @@ class SpecializeTIRCallArgs : ExprMutator {
 
     for (size_t i = 0; i < args.size(); ++i) {
       auto ty = GetType(args[i]);
-      TVM_FFI_ICHECK(ty->IsInstance<TensorTypeNode>())
+      TVM_FFI_ICHECK(ty->IsInstance<TensorTypeObj>())
           << "Expected Tensor struct Info for call :" << call->op;
       auto tensor_ty = ty.as_or_throw<TensorType>();
       TVM_FFI_ICHECK(tensor_ty->shape.has_value()) << "Shape undefined for call:" << call->args[0];
@@ -97,7 +97,7 @@ class SpecializeTIRCallArgs : ExprMutator {
         scope = tensor_ty->vdevice.value()->memory_scope;
       }
       ffi::String name;
-      if (args[i]->IsInstance<tvm::VarNode>()) {
+      if (args[i]->IsInstance<tvm::VarObj>()) {
         name = args[i].as_or_throw<Var>()->name;
       } else {
         name = std::string({static_cast<char>('A' + i)});
@@ -110,7 +110,7 @@ class SpecializeTIRCallArgs : ExprMutator {
     }
     runtime::MemoryScope scope;
     auto out_ty = call->ty_args[0];
-    if (out_ty->IsInstance<TensorTypeNode>()) {
+    if (out_ty->IsInstance<TensorTypeObj>()) {
       auto ty = out_ty.as_or_throw<TensorType>();
       if (ty->vdevice.has_value()) {
         scope = ty->vdevice.value()->memory_scope;
@@ -119,7 +119,7 @@ class SpecializeTIRCallArgs : ExprMutator {
           "ret_val", tirx::TensorType(GetShapeFromTensorType(ty), ty->dtype.value(), scope));
       param_map.Set(pfunc->params[pfunc->params.size() - 1], tensor);
     } else {
-      TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeNode>())
+      TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeObj>())
           << "Expect output type of call_tir to be either TupleType or "
              "TensorType, but got "
           << out_ty;
@@ -128,7 +128,7 @@ class SpecializeTIRCallArgs : ExprMutator {
       ffi::Array<Type> ty_fields;
       int index = 0;
       for (const auto& si : tuple_ty->fields) {
-        TVM_FFI_ICHECK(si->IsInstance<TensorTypeNode>())
+        TVM_FFI_ICHECK(si->IsInstance<TensorTypeObj>())
             << "Fields of TupleType must be TensorType for call_tir "
                "output structinfo, but got "
             << si;
@@ -156,7 +156,9 @@ class SpecializeTIRCallArgs : ExprMutator {
       TVM_FFI_CHECK(var.has_value() && !replacements.count(var.value()), ValueError)
           << "Inconsistent call_tir tensor dimension: " << symbolic << " vs. " << concrete;
       replacements.Set(var.value(), concrete);
-      analyzer->Bind(var.value(), concrete);
+      auto context = analyzer->GetConstraintContext();
+      context->Append(sym::BindingConstraint(var.value(), concrete));
+      analyzer->SyncConstraintContext(context);
     };
     for (const auto& param : pfunc->params) {
       auto descriptor = param_map.Get(param);
@@ -196,7 +198,7 @@ class SpecializeTIRCallArgs : ExprMutator {
                          [](const tvm::Call& call) {
                            if (!call->op.same_as(tirx::tensor_data_ptr_op())) return call;
                            // Pointer projections inherit the newly bound tensor storage scope.
-                           auto copy = ffi::make_object<tvm::CallNode>(*call.get());
+                           auto copy = ffi::make_object<tvm::CallObj>(*call.get());
                            copy->ty = tvm::Call::ReinferType(copy.get());
                            return tvm::Call(std::move(copy));
                          },

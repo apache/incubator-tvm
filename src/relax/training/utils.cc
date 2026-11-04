@@ -43,7 +43,7 @@ class AppendLossMutator : private ExprMutator {
  public:
   static IRModule Transform(IRModule mod, ffi::String func_name, Function loss_function,
                             int num_backbone_outputs, ffi::Optional<ffi::String> new_func_name) {
-    auto* old_func = mod->Lookup(func_name).as<FunctionNode>();
+    auto* old_func = mod->Lookup(func_name).as<FunctionObj>();
     TVM_FFI_ICHECK(old_func) << func_name << "is not a Relax Function";
 
     // functions should be copied to satisfy the well-formed check
@@ -67,7 +67,7 @@ class AppendLossMutator : private ExprMutator {
         loss_function_(loss_function),
         num_backbone_outputs_(num_backbone_outputs) {}
 
-  Expr VisitExpr_(const FunctionNode* func) final {
+  Expr VisitExpr_(const FunctionObj* func) final {
     // Well-formed checks and setting up class members
     loss_body_ = loss_function_->body;
     CheckLossBody();
@@ -83,9 +83,9 @@ class AppendLossMutator : private ExprMutator {
     return Function(new_params, new_body, std::nullopt, func->is_pure, func->attrs);
   }
 
-  Expr VisitExpr_(const SeqExprNode* seq_expr) final {
+  Expr VisitExpr_(const SeqExprObj* seq_expr) final {
     TVM_FFI_ICHECK(seq_expr->blocks.size() == 1 &&
-                   seq_expr->blocks[0]->IsInstance<DataflowBlockNode>())
+                   seq_expr->blocks[0]->IsInstance<DataflowBlockObj>())
         << "Backbone should have only one DataflowBlock";
 
     auto new_blocks = ffi::Array<BindingBlock>({this->VisitBindingBlock(seq_expr->blocks[0])});
@@ -95,7 +95,7 @@ class AppendLossMutator : private ExprMutator {
     return SeqExpr(new_blocks, ret.size() == 1 ? ret[0] : Tuple(ret));
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) final {
     builder_->BeginDataflowBlock();
     // Emit original bindings.
     for (const auto& binding : block->bindings) {
@@ -119,9 +119,9 @@ class AppendLossMutator : private ExprMutator {
   /*! \brief Checks the loss function have only one DataflowBlock, and returns a scalar Var. */
   void CheckLossBody() {
     TVM_FFI_ICHECK(loss_body_->blocks.size() == 1 &&
-                   loss_body_->blocks[0]->IsInstance<DataflowBlockNode>())
+                   loss_body_->blocks[0]->IsInstance<DataflowBlockObj>())
         << "The loss function should have only one DataflowBlock";
-    auto var_node = loss_body_->body.as<VarNode>();
+    auto var_node = loss_body_->body.as<VarObj>();
     TVM_FFI_ICHECK(var_node && IsScalarTensor(ffi::GetRef<Var>(var_node)))
         << "The loss function must return a scalar(0-dim Tensor) Var";
   }
@@ -131,11 +131,11 @@ class AppendLossMutator : private ExprMutator {
    * one or a tuple of Vars.
    */
   void BackboneReturnToArr(const Expr& backbone_return) {
-    if (auto* var = backbone_return.as<VarNode>()) {
+    if (auto* var = backbone_return.as<VarObj>()) {
       backbone_return_arr_.push_back(ffi::GetRef<Var>(var));
-    } else if (auto* tuple = backbone_return.as<TupleNode>()) {
+    } else if (auto* tuple = backbone_return.as<TupleObj>()) {
       for (auto i : tuple->fields) {
-        auto var = i.as<VarNode>();
+        auto var = i.as<VarObj>();
         TVM_FFI_ICHECK(var)
             << "The return value of the backbone should be either a Var or a Tuple of Vars";
         backbone_return_arr_.push_back(ffi::GetRef<Var>(var));
@@ -192,7 +192,7 @@ class AppendLossMutator : private ExprMutator {
         backbone_return_arr_.begin() + num_backbone_outputs_, backbone_return_arr_.end());
     for (int i = 0; i < num_backbone_outputs_; ++i) {
       auto var = backbone_return_arr_[i];
-      if (other_outputs_var.count(var) == 0 && !var->ty.as<PrimTypeNode>()) {
+      if (other_outputs_var.count(var) == 0 && !var->ty.as<PrimTypeObj>()) {
         auto new_var = DataflowVar(var->name, GetType(var), var->loc);
         this->var_remap_.insert_or_assign(var, new_var);
         backbone_return_arr_.Set(i, new_var);

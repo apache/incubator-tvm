@@ -41,24 +41,24 @@ class RemoveLayoutRewriteBlock : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
   static std::tuple<Function, ffi::Map<TensorVar, TensorVar>,
-                    std::unordered_map<const VarNode*, IndexMap>,
-                    std::unordered_map<const VarNode*, ffi::Array<PrimExpr>>>
+                    std::unordered_map<const VarObj*, IndexMap>,
+                    std::unordered_map<const VarObj*, ffi::Array<PrimExpr>>>
   Rewrite(Function f) {
     auto rewriter = ffi::make_object<RemoveLayoutRewriteBlock>();
 
-    FunctionNode* n = f.CopyOnWrite();
+    FunctionObj* n = f.CopyOnWrite();
     n->body = rewriter->Mutate(n->body, InplaceMode::kAllow).ValueOrUnchanged(std::move(n->body));
     return std::make_tuple(f, rewriter->tensor_map_, rewriter->tensor_var_to_index_map_,
                            rewriter->tensor_var_to_rewritten_shape_);
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     SBlock block = StmtExprMutator::Mutate_(op, inplace_mode)
                        .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                        .as_or_throw<SBlock>();
@@ -74,7 +74,7 @@ class RemoveLayoutRewriteBlock : public StmtExprMutator {
         }
       }
       if (alloc_tensors.size() < block->alloc_tensors.size()) {
-        SBlockNode* n = block.CopyOnWrite();
+        SBlockObj* n = block.CopyOnWrite();
         n->alloc_tensors = std::move(alloc_tensors);
         return block;
       } else {
@@ -88,11 +88,11 @@ class RemoveLayoutRewriteBlock : public StmtExprMutator {
 
     // Step 1. Checking the body is a TensorStore
     const auto* store =
-        block->body->size() == 1 ? block->body->seq[0].as<TensorStoreNode>() : nullptr;
+        block->body->size() == 1 ? block->body->seq[0].as<TensorStoreObj>() : nullptr;
     TVM_FFI_ICHECK(store);
 
     // Step 2. Checking the rhs of tensor store is a TensorLoad
-    const auto* load = store->value.as<TensorLoadNode>();
+    const auto* load = store->value.as<TensorLoadObj>();
     TVM_FFI_ICHECK(load);
 
     // Step 3. Update TensorVar
@@ -102,7 +102,7 @@ class RemoveLayoutRewriteBlock : public StmtExprMutator {
 
     // Step 4. Set block body as no_op
     Stmt old_body = block->body;
-    SBlockNode* n = block.CopyOnWrite();
+    SBlockObj* n = block.CopyOnWrite();
     n->body = SeqStmt({});
     n->reads = {};
     n->writes = {};
@@ -128,9 +128,9 @@ class RemoveLayoutRewriteBlock : public StmtExprMutator {
   std::unordered_set<TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rewritten_tensors_;
   /*! \brief Maps a tensor load to an index map associated with the load / store
     in a layout rewrite block. */
-  std::unordered_map<const VarNode*, IndexMap> tensor_var_to_index_map_;
+  std::unordered_map<const VarObj*, IndexMap> tensor_var_to_index_map_;
   /*! \brief Maps a tensor load to the shape of the corresponding rewritten tensor. */
-  std::unordered_map<const VarNode*, ffi::Array<PrimExpr>> tensor_var_to_rewritten_shape_;
+  std::unordered_map<const VarObj*, ffi::Array<PrimExpr>> tensor_var_to_rewritten_shape_;
 };
 
 class WeightLayoutRewriteBlockRemover : public StmtExprMutator {
@@ -138,7 +138,7 @@ class WeightLayoutRewriteBlockRemover : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) override {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return StmtExprMutator::Mutate(value, inplace_mode);
   }
 
@@ -146,7 +146,7 @@ class WeightLayoutRewriteBlockRemover : public StmtExprMutator {
     auto [f_, tensor_map, tensor_var_to_index_map, tensor_var_to_rewritten_shape] =
         RemoveLayoutRewriteBlock::Rewrite(f);
 
-    FunctionNode* n = f_.CopyOnWrite();
+    FunctionObj* n = f_.CopyOnWrite();
 
     ffi::Array<tvm::Var> params;
     for (const tvm::Var& param : f_->params) {

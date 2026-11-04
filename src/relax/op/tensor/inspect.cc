@@ -62,19 +62,19 @@ std::tuple<TensorType, ffi::Optional<int64_t>> GetTensorArgInfoWithIndex(const C
   const auto& arg = call->args[0];
   const auto& axis = call->args[1];
 
-  auto tensor_ty = arg->ty.as<TensorTypeNode>();
+  auto tensor_ty = arg->ty.as<TensorTypeObj>();
   TVM_FFI_CHECK(tensor_ty, TypeError)
       << "Operator " << call->op << " expects arguments (tensor, axis), "
       << "but the first argument " << arg << " in expression " << call << " has type " << arg->ty;
 
-  auto axis_ty = axis->ty.as<PrimTypeNode>();
+  auto axis_ty = axis->ty.as<PrimTypeObj>();
   TVM_FFI_CHECK(axis_ty, TypeError)
       << "Operator " << call->op << " expects arguments (tensor, axis), "
       << "but the second argument " << arg << " in expression " << call << " has type " << axis->ty;
 
   ffi::Optional<int64_t> int_imm_axis = std::nullopt;
   if (auto prim_value = axis.as<PrimExpr>()) {
-    if (const auto* int_imm = prim_value->as<IntImmNode>()) {
+    if (const auto* int_imm = prim_value->as<IntImmObj>()) {
       int_imm_axis = static_cast<int64_t>(int_imm->value);
     }
   }

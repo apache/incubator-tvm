@@ -31,15 +31,15 @@ namespace tvm {
 namespace te {
 using namespace tirx;
 
-TVM_FFI_STATIC_INIT_BLOCK() { ExternOpNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ExternOpObj::RegisterReflection(); }
 
 // Pattern A (RM): auto-default repr from reflection.
 
-int ExternOpNode::num_outputs() const { return static_cast<int>(output_placeholders.size()); }
+int ExternOpObj::num_outputs() const { return static_cast<int>(output_placeholders.size()); }
 
-PrimType ExternOpNode::output_dtype(size_t i) const { return output_placeholders[i].dtype(); }
+PrimType ExternOpObj::output_dtype(size_t i) const { return output_placeholders[i].dtype(); }
 
-ffi::Array<PrimExpr> ExternOpNode::output_shape(size_t i) const {
+ffi::Array<PrimExpr> ExternOpObj::output_shape(size_t i) const {
   return output_placeholders[i].shape();
 }
 
@@ -50,7 +50,7 @@ ExternOp::ExternOp(std::string name, std::string tag, ffi::Map<ffi::String, ffi:
   if (!attrs.defined()) {
     attrs = ffi::Map<ffi::String, ffi::Any>();
   }
-  auto n = ffi::make_object<ExternOpNode>(std::move(body));
+  auto n = ffi::make_object<ExternOpObj>(std::move(body));
   n->name = std::move(name);
   n->tag = std::move(tag);
   n->attrs = std::move(attrs);
@@ -63,8 +63,9 @@ ExternOp::ExternOp(std::string name, std::string tag, ffi::Map<ffi::String, ffi:
     }
     const auto& layout = input_placeholders[i].ty()->layout;
     if (layout.has_value()) {
-      const auto* tile = layout.as<tirx::TileLayoutNode>();
-      TVM_FFI_ICHECK(tile && tile->IsContiguous()) << "External inputs require contiguous strides";
+      const auto* tile = layout.as<tirx::TileLayoutObj>();
+      TVM_FFI_ICHECK(tile && ffi::GetRef<tirx::TileLayout>(tile).IsContiguous())
+          << "External inputs require contiguous strides";
     }
   }
   n->inputs = std::move(inputs);
@@ -85,7 +86,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       });
 }
 
-ffi::Array<Tensor> ExternOpNode::InputTensors() const { return inputs; }
+ffi::Array<Tensor> ExternOpObj::InputTensors() const { return inputs; }
 
 }  // namespace te
 }  // namespace tvm

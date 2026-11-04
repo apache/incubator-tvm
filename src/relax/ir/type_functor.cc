@@ -27,13 +27,13 @@
 namespace tvm {
 namespace relax {
 
-void TypeVisitor::VisitType_(const AnyTypeNode* op) {}
+void TypeVisitor::VisitType_(const AnyTypeObj* op) {}
 
-void TypeVisitor::VisitType_(const PrimTypeNode* op) {}
+void TypeVisitor::VisitType_(const PrimTypeObj* op) {}
 
-void TypeVisitor::VisitType_(const StringTypeNode* op) {}
+void TypeVisitor::VisitType_(const StringTypeObj* op) {}
 
-void TypeVisitor::VisitType_(const ShapeTypeNode* op) {
+void TypeVisitor::VisitType_(const ShapeTypeObj* op) {
   if (op->values.has_value()) {
     for (PrimExpr value : op->values.value()) {
       this->VisitTypeExprField(value);
@@ -41,28 +41,28 @@ void TypeVisitor::VisitType_(const ShapeTypeNode* op) {
   }
 }
 
-void TypeVisitor::VisitType_(const TensorTypeNode* op) {
+void TypeVisitor::VisitType_(const TensorTypeObj* op) {
   if (op->shape.has_value()) {
     this->VisitTypeExprField(op->shape.value());
   }
 }
 
-void TypeVisitor::VisitType_(const distributed::DTensorTypeNode* op) {
+void TypeVisitor::VisitType_(const distributed::DTensorTypeObj* op) {
   this->VisitType(op->tensor_ty);
 }
 
-void TypeVisitor::VisitType_(const TupleTypeNode* op) {
+void TypeVisitor::VisitType_(const TupleTypeObj* op) {
   for (Type field : op->fields) {
     this->VisitType(field);
   }
 }
 
-void TypeVisitor::VisitType_(const tvm::FuncTypeNode* op) {
+void TypeVisitor::VisitType_(const tvm::FuncTypeObj* op) {
   // Native callbacks may appear inside Relax tuples. Their signature symbols
   // and tensor contracts belong to the native function, not the Relax scope.
 }
 
-void TypeVisitor::VisitType_(const FuncTypeNode* op) {
+void TypeVisitor::VisitType_(const FuncTypeObj* op) {
   if (op->params.has_value()) {
     for (Type param : op->params.value()) {
       this->VisitType(param);
@@ -71,13 +71,13 @@ void TypeVisitor::VisitType_(const FuncTypeNode* op) {
   this->VisitType(op->ret);
 }
 
-Type TypeMutator::VisitType_(const AnyTypeNode* op) { return ffi::GetRef<Type>(op); }
+Type TypeMutator::VisitType_(const AnyTypeObj* op) { return ffi::GetRef<Type>(op); }
 
-Type TypeMutator::VisitType_(const PrimTypeNode* op) { return ffi::GetRef<Type>(op); }
+Type TypeMutator::VisitType_(const PrimTypeObj* op) { return ffi::GetRef<Type>(op); }
 
-Type TypeMutator::VisitType_(const StringTypeNode* op) { return ffi::GetRef<Type>(op); }
+Type TypeMutator::VisitType_(const StringTypeObj* op) { return ffi::GetRef<Type>(op); }
 
-Type TypeMutator::VisitType_(const ShapeTypeNode* op) {
+Type TypeMutator::VisitType_(const ShapeTypeObj* op) {
   if (!op->values.has_value()) {
     return ffi::GetRef<Type>(op);
   }
@@ -93,7 +93,7 @@ Type TypeMutator::VisitType_(const ShapeTypeNode* op) {
   }
 }
 
-Type TypeMutator::VisitType_(const TensorTypeNode* op) {
+Type TypeMutator::VisitType_(const TensorTypeObj* op) {
   if (!op->shape.has_value()) {
     return ffi::GetRef<Type>(op);
   }
@@ -108,12 +108,12 @@ Type TypeMutator::VisitType_(const TensorTypeNode* op) {
   }
 }
 
-Type TypeMutator::VisitType_(const distributed::DTensorTypeNode* op) {
+Type TypeMutator::VisitType_(const distributed::DTensorTypeObj* op) {
   TensorType tensor_ty = this->VisitType(op->tensor_ty).as_or_throw<TensorType>();
   return distributed::DTensorType(tensor_ty, op->device_mesh, op->placement);
 }
 
-Type TypeMutator::VisitType_(const TupleTypeNode* op) {
+Type TypeMutator::VisitType_(const TupleTypeObj* op) {
   ffi::Array<Type> fields = op->fields.Map([this](const Type& ty) { return this->VisitType(ty); });
 
   if (fields.same_as(op->fields)) {
@@ -123,12 +123,12 @@ Type TypeMutator::VisitType_(const TupleTypeNode* op) {
   }
 }
 
-Type TypeMutator::VisitType_(const tvm::FuncTypeNode* op) {
+Type TypeMutator::VisitType_(const tvm::FuncTypeObj* op) {
   // Relax type rewrites preserve the native callback's signature.
   return ffi::GetRef<Type>(op);
 }
 
-Type TypeMutator::VisitType_(const FuncTypeNode* op) {
+Type TypeMutator::VisitType_(const FuncTypeObj* op) {
   ffi::Optional<ffi::Array<Type>> params;
 
   if (op->params.has_value()) {

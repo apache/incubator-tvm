@@ -51,7 +51,6 @@
 #include "3rdparty/tvm-tirx/src/runtime/logging.cc"
 #include "3rdparty/tvm-tirx/src/runtime/metadata.cc"
 #include "3rdparty/tvm-tirx/src/runtime/tensor.cc"
-#include "3rdparty/tvm-tirx/src/runtime/workspace_pool.cc"
 // relax setup
 #include "3rdparty/tvm-tirx/3rdparty/tvm-ffi/src/ffi/backtrace.cc"
 #include "3rdparty/tvm-tirx/3rdparty/tvm-ffi/src/ffi/container.cc"

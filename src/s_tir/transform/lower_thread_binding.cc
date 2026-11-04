@@ -36,7 +36,7 @@ class ThreadBindingLowerer : public StmtExprMutator {
   using StmtExprMutator::Mutate_;
 
  private:
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final {
     auto annotations = Mutate(op->annotations, inplace_mode)
                            .as_or_throw<UnchangedOr<ffi::Map<ffi::String, ffi::Any>>>();
     auto result = StmtExprMutator::Mutate_(op, inplace_mode);
@@ -46,7 +46,7 @@ class ThreadBindingLowerer : public StmtExprMutator {
     return block;
   }
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
     if (!tvm::s_tir::GetThreadBinding(op).has_value()) {
       auto annotations = Mutate(op->annotations, inplace_mode)
                              .as_or_throw<UnchangedOr<ffi::Map<ffi::String, ffi::Any>>>();

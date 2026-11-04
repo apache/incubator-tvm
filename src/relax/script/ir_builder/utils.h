@@ -96,7 +96,7 @@ inline tvm::relax::SeqExpr GetSeqExprForBranch(const SeqExprFrame& frame, ffi::S
   // variable name.
 
   tvm::relax::Binding last_binding = last_block->bindings.back();
-  TVM_FFI_ICHECK(!last_binding->var->IsInstance<tvm::relax::DataflowVarNode>())
+  TVM_FFI_ICHECK(!last_binding->var->IsInstance<tvm::relax::DataflowVarObj>())
       << "A non-dataflow var is expected in the last binding of '" << method << "'.";
 
   *var_name = last_binding->var->name;
@@ -111,21 +111,21 @@ inline tvm::relax::SeqExpr GetSeqExprForBranch(const SeqExprFrame& frame, ffi::S
                    tvm::relax::GetType(last_binding->var), last_binding->var->loc);
   tvm::relax::Expr body = new_var;
 
-  const auto* var_binding = last_binding.as<tvm::relax::VarBindingNode>();
+  const auto* var_binding = last_binding.as<tvm::relax::VarBindingObj>();
 
   if (var_binding && tvm::relax::IsLeafOrTuple(var_binding->value)) {
     body = var_binding->value;
   } else if (var_binding) {
     last_block_bindings.push_back(
         tvm::relax::VarBinding(new_var, var_binding->value, var_binding->loc));
-  } else if (const auto* match_cast = last_binding.as<tvm::relax::MatchCastNode>()) {
+  } else if (const auto* match_cast = last_binding.as<tvm::relax::MatchCastObj>()) {
     last_block_bindings.push_back(
         tvm::relax::MatchCast(new_var, match_cast->value, match_cast->ty, match_cast->loc));
   } else {
     TVM_FFI_CHECK(false, TypeError) << "Unsupported binding type: " << last_binding->GetTypeKey();
   }
 
-  new_blocks.push_back(last_block->IsInstance<tvm::relax::DataflowBlockNode>()
+  new_blocks.push_back(last_block->IsInstance<tvm::relax::DataflowBlockObj>()
                            ? tvm::relax::DataflowBlock(last_block_bindings, last_block->loc)
                            : tvm::relax::BindingBlock(last_block_bindings, last_block->loc));
 

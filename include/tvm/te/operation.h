@@ -49,7 +49,7 @@ namespace te {
  * \brief A commutative reducer node to represent a commutative
  *  binary operator with identity element
  */
-class CommReducerNode : public ffi::Object {
+class CommReducerObj : public ffi::Object {
  public:
   /*! \brief The left argument of reducer */
   ffi::Array<PrimVar> lhs;
@@ -73,36 +73,35 @@ class CommReducerNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<CommReducerNode>()
-        .def_ro("lhs", &CommReducerNode::lhs, refl::AttachFieldFlag::SEqHashDefPattern())
-        .def_ro("rhs", &CommReducerNode::rhs, refl::AttachFieldFlag::SEqHashDefPattern())
-        .def_ro("result", &CommReducerNode::result)
-        .def_ro("identity_element", &CommReducerNode::identity_element)
-        .def_ro("loc", &CommReducerNode::loc, refl::AttachFieldFlag::SEqHashIgnore());
+    refl::ObjectDef<CommReducerObj>()
+        .def_ro("lhs", &CommReducerObj::lhs, refl::AttachFieldFlag::SEqHashDefPattern())
+        .def_ro("rhs", &CommReducerObj::rhs, refl::AttachFieldFlag::SEqHashDefPattern())
+        .def_ro("result", &CommReducerObj::result)
+        .def_ro("identity_element", &CommReducerObj::identity_element)
+        .def_ro("loc", &CommReducerObj::loc, refl::AttachFieldFlag::SEqHashIgnore());
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.CommReducer", CommReducerNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.CommReducer", CommReducerObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to CommReducerNode
- * \sa CommReducerNode
+ * \brief Managed reference to CommReducerObj
+ * \sa CommReducerObj
  */
 class CommReducer : public ffi::ObjectRef {
  public:
   TVM_DLL CommReducer(ffi::Array<PrimVar> lhs, ffi::Array<PrimVar> rhs, ffi::Array<PrimExpr> result,
                       ffi::Array<PrimExpr> identity_element, Location loc = UnknownLoc());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CommReducer, ffi::ObjectRef, CommReducerNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CommReducer, ffi::ObjectRef, CommReducerObj);
 };
 
 /*! \brief Reduction operator */
-class ReduceNode : public OpaqueExprNode {
+class ReduceObj : public OpaqueExprObj {
  public:
-  explicit ReduceNode(CommReducer combiner, PrimExpr condition)
+  explicit ReduceObj(CommReducer combiner, PrimExpr condition)
       : combiner(std::move(combiner)), condition(std::move(condition)) {}
-  explicit ReduceNode(ffi::UnsafeInit)
-      : combiner(ffi::UnsafeInit{}), condition(ffi::UnsafeInit{}) {}
+  explicit ReduceObj(ffi::UnsafeInit) : combiner(ffi::UnsafeInit{}), condition(ffi::UnsafeInit{}) {}
 
   /*! \brief The commutative combiner */
   CommReducer combiner;
@@ -122,31 +121,31 @@ class ReduceNode : public OpaqueExprNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ReduceNode>()
-        .def_ro("combiner", &ReduceNode::combiner)
-        .def_ro("source", &ReduceNode::source)
-        .def_ro("init", &ReduceNode::init)
-        .def_ro("axis", &ReduceNode::axis)
-        .def_ro("condition", &ReduceNode::condition)
-        .def_ro("value_index", &ReduceNode::value_index);
+    refl::ObjectDef<ReduceObj>()
+        .def_ro("combiner", &ReduceObj::combiner)
+        .def_ro("source", &ReduceObj::source)
+        .def_ro("init", &ReduceObj::init)
+        .def_ro("axis", &ReduceObj::axis)
+        .def_ro("condition", &ReduceObj::condition)
+        .def_ro("value_index", &ReduceObj::value_index);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.Reduce", ReduceNode, OpaqueExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.Reduce", ReduceObj, OpaqueExprObj);
 };
 
 /*!
- * \brief Managed reference to ReduceNode
- * \sa ReduceNode
+ * \brief Managed reference to ReduceObj
+ * \sa ReduceObj
  */
 class Reduce : public PrimExpr {
  public:
   TVM_DLL Reduce(CommReducer combiner, ffi::Array<PrimExpr> src, ffi::Array<s_tir::IterVar> rdom,
                  ffi::Optional<PrimExpr> condition, int value_index, ffi::Array<PrimExpr> init,
                  Location loc = UnknownLoc());
-  explicit Reduce(ffi::ObjectPtr<ReduceNode> node) : PrimExpr(std::move(node)) {}
+  explicit Reduce(ffi::ObjectPtr<ReduceObj> node) : PrimExpr(std::move(node)) {}
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Reduce, PrimExpr, ReduceNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Reduce, PrimExpr, ReduceObj);
   static constexpr bool _type_container_is_exact = true;
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ReduceNode);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ReduceObj);
 };
 
 /*!
@@ -163,7 +162,7 @@ struct TensorDom {
 /*!
  * \brief Base class of all operation nodes
  */
-class TVM_DLL OperationNode : public ffi::Object {
+class TVM_DLL OperationObj : public ffi::Object {
  public:
   /*! \brief optional name of the operation */
   std::string name;
@@ -172,7 +171,7 @@ class TVM_DLL OperationNode : public ffi::Object {
   /*! \brief additional attributes of the operation*/
   ffi::Map<ffi::String, ffi::Any> attrs;
   // virtual destructor.
-  virtual ~OperationNode() {}
+  virtual ~OperationObj() {}
   /*! \return number of outputs */
   virtual int num_outputs() const = 0;
   /*!
@@ -195,18 +194,18 @@ class TVM_DLL OperationNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<OperationNode>()
-        .def_ro("name", &OperationNode::name)
-        .def_ro("tag", &OperationNode::tag)
-        .def_ro("attrs", &OperationNode::attrs);
+    refl::ObjectDef<OperationObj>()
+        .def_ro("name", &OperationObj::name)
+        .def_ro("tag", &OperationObj::tag)
+        .def_ro("attrs", &OperationObj::attrs);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("te.Operation", OperationNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("te.Operation", OperationObj, ffi::Object);
 };
 
 /*!
  * \brief A placeholder op represents an input placeholder.
  */
-class PlaceholderOpNode : public OperationNode {
+class PlaceholderOpObj : public OperationObj {
  public:
   /*! \brief The shape of the input */
   ffi::Array<PrimExpr> shape;
@@ -220,34 +219,34 @@ class PlaceholderOpNode : public OperationNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PlaceholderOpNode>()
-        .def_ro("shape", &PlaceholderOpNode::shape)
-        .def_ro("dtype", &PlaceholderOpNode::dtype);
+    refl::ObjectDef<PlaceholderOpObj>()
+        .def_ro("shape", &PlaceholderOpObj::shape)
+        .def_ro("dtype", &PlaceholderOpObj::dtype);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("te.PlaceholderOp", PlaceholderOpNode, OperationNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("te.PlaceholderOp", PlaceholderOpObj, OperationObj);
 };
 
 /*!
- * \brief Managed reference to PlaceholderOpNode
- * \sa PlaceholderOpNode
+ * \brief Managed reference to PlaceholderOpObj
+ * \sa PlaceholderOpObj
  */
 class PlaceholderOp : public Operation {
  public:
   TVM_DLL PlaceholderOp(std::string name, ffi::Array<PrimExpr> shape, PrimType dtype);
 
-  explicit PlaceholderOp(ffi::UnsafeInit tag, ffi::ObjectPtr<PlaceholderOpNode> node)
+  explicit PlaceholderOp(ffi::UnsafeInit tag, ffi::ObjectPtr<PlaceholderOpObj> node)
       : Operation(tag) {
     data_ = std::move(node);
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PlaceholderOp, Operation, PlaceholderOpNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PlaceholderOp, Operation, PlaceholderOpObj);
 };
 
 /*!
  * \brief A Compute op that compute a tensor on certain domain.
  * This is the base class for ComputeOp (operating on a scalar at a time)
  */
-class TVM_DLL BaseComputeOpNode : public OperationNode {
+class TVM_DLL BaseComputeOpObj : public OperationObj {
  public:
   /*! \brief IterVar on each axis */
   ffi::Array<IterVar> axis;
@@ -258,22 +257,22 @@ class TVM_DLL BaseComputeOpNode : public OperationNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BaseComputeOpNode>()
-        .def_ro("axis", &BaseComputeOpNode::axis)
-        .def_ro("reduce_axis", &BaseComputeOpNode::reduce_axis);
+    refl::ObjectDef<BaseComputeOpObj>()
+        .def_ro("axis", &BaseComputeOpObj::axis)
+        .def_ro("reduce_axis", &BaseComputeOpObj::reduce_axis);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("te.BaseComputeOp", BaseComputeOpNode, OperationNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("te.BaseComputeOp", BaseComputeOpObj, OperationObj);
 };
 
 /*!
  * \brief A Compute op that compute a tensor on certain domain.
  */
-class TVM_DLL ComputeOpNode : public BaseComputeOpNode {
+class TVM_DLL ComputeOpObj : public BaseComputeOpObj {
  public:
   /*! \brief the compute expression */
   ffi::Array<PrimExpr> body;
   /*! \brief constructor */
-  ComputeOpNode() {}
+  ComputeOpObj() {}
   // override functions
   int num_outputs() const final;
   PrimType output_dtype(size_t i) const final;
@@ -281,28 +280,28 @@ class TVM_DLL ComputeOpNode : public BaseComputeOpNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ComputeOpNode>().def_ro("body", &ComputeOpNode::body);
+    refl::ObjectDef<ComputeOpObj>().def_ro("body", &ComputeOpObj::body);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ComputeOp", ComputeOpNode, BaseComputeOpNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ComputeOp", ComputeOpObj, BaseComputeOpObj);
 };
 
 /*!
- * \brief Managed reference to ComputeOpNode
- * \sa ComputeOpNode
+ * \brief Managed reference to ComputeOpObj
+ * \sa ComputeOpObj
  */
 class ComputeOp : public Operation {
  public:
   TVM_DLL ComputeOp(std::string name, std::string tag, ffi::Map<ffi::String, ffi::Any> attrs,
                     ffi::Array<IterVar> axis, ffi::Array<PrimExpr> body);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ComputeOp, Operation, ComputeOpNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ComputeOpNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ComputeOp, Operation, ComputeOpObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ComputeOpObj);
 };
 
 /*!
  * \brief Symbolic scan.
  */
-class ScanOpNode : public OperationNode {
+class ScanOpObj : public OperationObj {
  public:
   /*! \brief IterVar to scan over */
   IterVar scan_axis{ffi::UnsafeInit{}};
@@ -328,7 +327,7 @@ class ScanOpNode : public OperationNode {
    */
   ffi::Array<IterVar> spatial_axis_;
   /*! \brief constructor */
-  ScanOpNode() {}
+  ScanOpObj() {}
   // override behavior.
   int num_outputs() const final;
   PrimType output_dtype(size_t i) const final;
@@ -337,20 +336,20 @@ class ScanOpNode : public OperationNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ScanOpNode>()
-        .def_ro("scan_axis", &ScanOpNode::scan_axis)
-        .def_ro("init", &ScanOpNode::init)
-        .def_ro("update", &ScanOpNode::update)
-        .def_ro("state_placeholder", &ScanOpNode::state_placeholder)
-        .def_ro("inputs", &ScanOpNode::inputs)
-        .def_ro("spatial_axis_", &ScanOpNode::spatial_axis_);
+    refl::ObjectDef<ScanOpObj>()
+        .def_ro("scan_axis", &ScanOpObj::scan_axis)
+        .def_ro("init", &ScanOpObj::init)
+        .def_ro("update", &ScanOpObj::update)
+        .def_ro("state_placeholder", &ScanOpObj::state_placeholder)
+        .def_ro("inputs", &ScanOpObj::inputs)
+        .def_ro("spatial_axis_", &ScanOpObj::spatial_axis_);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ScanOp", ScanOpNode, OperationNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ScanOp", ScanOpObj, OperationObj);
 };
 
 /*!
- * \brief Managed reference to ScanOpNode
- * \sa ScanOpNode
+ * \brief Managed reference to ScanOpObj
+ * \sa ScanOpObj
  */
 class ScanOp : public Operation {
  public:
@@ -359,16 +358,16 @@ class ScanOp : public Operation {
                  ffi::Array<Tensor> init, ffi::Array<Tensor> update,
                  ffi::Array<Tensor> state_placeholder, ffi::Array<Tensor> input);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ScanOp, Operation, ScanOpNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ScanOp, Operation, ScanOpObj);
 };
 
 /*!
  * \brief External computation that cannot be splitted.
  */
-class ExternOpNode : public OperationNode {
+class ExternOpObj : public OperationObj {
  public:
-  explicit ExternOpNode(SeqStmt body) : body(std::move(body)) {}
-  explicit ExternOpNode(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
+  explicit ExternOpObj(SeqStmt body) : body(std::move(body)) {}
+  explicit ExternOpObj(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
 
   /*! \brief The input tensors */
   ffi::Array<Tensor> inputs;
@@ -387,18 +386,18 @@ class ExternOpNode : public OperationNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExternOpNode>()
-        .def_ro("inputs", &ExternOpNode::inputs)
-        .def_ro("input_placeholders", &ExternOpNode::input_placeholders)
-        .def_ro("output_placeholders", &ExternOpNode::output_placeholders)
-        .def_ro("body", &ExternOpNode::body);
+    refl::ObjectDef<ExternOpObj>()
+        .def_ro("inputs", &ExternOpObj::inputs)
+        .def_ro("input_placeholders", &ExternOpObj::input_placeholders)
+        .def_ro("output_placeholders", &ExternOpObj::output_placeholders)
+        .def_ro("body", &ExternOpObj::body);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ExternOp", ExternOpNode, OperationNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.ExternOp", ExternOpObj, OperationObj);
 };
 
 /*!
- * \brief Managed reference to ExternOpNode
- * \sa ExternOpNode
+ * \brief Managed reference to ExternOpObj
+ * \sa ExternOpObj
  */
 class ExternOp : public Operation {
  public:
@@ -406,7 +405,7 @@ class ExternOp : public Operation {
                    ffi::Array<Tensor> inputs, ffi::Array<TensorVar> input_placeholders,
                    ffi::Array<TensorVar> output_placeholders, SeqStmt body);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExternOp, Operation, ExternOpNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExternOp, Operation, ExternOpObj);
 };
 
 /*!
@@ -519,15 +518,15 @@ inline Tensor compute(ffi::Array<PrimExpr> shape,
 }
 
 // inline function.
-inline const OperationNode* Operation::operator->() const {
-  return static_cast<const OperationNode*>(get());
+inline const OperationObj* Operation::operator->() const {
+  return static_cast<const OperationObj*>(get());
 }
 }  // namespace te
 
 namespace ffi {
 
 template <>
-inline constexpr bool object_ref_contains_v<PrimExpr, te::ReduceNode> = true;
+inline constexpr bool object_ref_contains_v<PrimExpr, te::ReduceObj> = true;
 
 }  // namespace ffi
 }  // namespace tvm

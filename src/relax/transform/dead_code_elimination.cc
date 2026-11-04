@@ -53,7 +53,7 @@ namespace {
 struct RelaxCalleeCollector : relax::ExprVisitor {
   std::vector<GlobalVar>* callees;
   explicit RelaxCalleeCollector(std::vector<GlobalVar>* out) : callees(out) {}
-  void VisitExpr_(const GlobalVarNode* node) final {
+  void VisitExpr_(const GlobalVarObj* node) final {
     callees->push_back(ffi::GetRef<GlobalVar>(node));
   }
 };
@@ -62,7 +62,7 @@ struct TIRxCalleeCollector : tirx::StmtExprVisitor {
   std::vector<GlobalVar>* callees;
   explicit TIRxCalleeCollector(std::vector<GlobalVar>* out) : callees(out) {}
   using tirx::StmtExprVisitor::Visit_;
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* node) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* node) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(tirx::StmtExprVisitor::Visit_(node));
     if (auto opt_gvar = node->op.as<GlobalVar>()) {
       callees->push_back(opt_gvar.value());
@@ -162,7 +162,7 @@ IRModule DeadCodeElimination(const IRModule& arg_mod,
   }
   for (const auto& gv : mod->GetGlobalVars()) {
     const auto& func = mod->Lookup(gv);
-    if (func.as<ExternFuncNode>() || func->GetLinkageType() == LinkageType::kExternal) {
+    if (func.as<ExternFuncObj>() || func->GetLinkageType() == LinkageType::kExternal) {
       entry_functions.insert(gv);
     }
   }

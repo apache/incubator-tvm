@@ -31,15 +31,15 @@ namespace {
 
 ExprDoc RelaxShapeDim(DocTranslatorObj* d, const PrimExpr& dim, const ExprDoc& translated) {
   auto operation = translated.as<OperationDoc>();
-  if (auto mul = dim.as<prim::MulNode>();
-      mul && operation && operation.value()->kind == OperationDocNode::Kind::kMult) {
-    ExprDoc compact = OperationDoc(OperationDocNode::Kind::kMult,
+  if (auto mul = dim.as<prim::MulObj>();
+      mul && operation && operation.value()->kind == OperationDocObj::Kind::kMult) {
+    ExprDoc compact = OperationDoc(OperationDocObj::Kind::kMult,
                                    {RelaxShapeDim(d, mul->a, operation.value()->operands[0]),
                                     RelaxShapeDim(d, mul->b, operation.value()->operands[1])});
     d->RecordOrigin(compact, dim);
     return compact;
   }
-  if (auto integer = dim.as<IntImmNode>();
+  if (auto integer = dim.as<IntImmObj>();
       integer && integer->ty.as_or_throw<PrimType>()->dtype == (DLDataType{kDLInt, 64, 1})) {
     ExprDoc compact = LiteralDoc::Int(ffi::GetRef<IntImm>(integer), std::nullopt);
     d->RecordOrigin(compact, dim);

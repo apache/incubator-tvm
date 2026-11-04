@@ -27,7 +27,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/analysis.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/sym/int_set.h>
 #include <tvm/sym/iter_affine_map.h>
 #include <tvm/tirx/analysis.h>
@@ -52,7 +52,7 @@ std::variant<MemCpyDetails, std::string> IdentifyMemCpyImpl(const For& loop,
   // Walk through the loop nest, stopping at the first loop whose body
   // is not a loop.
   Stmt stmt = loop;
-  while (auto* for_node = stmt.as<ForNode>()) {
+  while (auto* for_node = stmt.as<ForObj>()) {
     loop_ranges.Set(for_node->var, Range(for_node->begin, for_node->end));
     loop_intervals.Set(for_node->var, sym::IntSet::FromMinExtent(
                                           for_node->begin, Range::GetExtentFromBeginEnd(
@@ -220,16 +220,16 @@ std::variant<MemCpyDetails, std::string> IdentifyMemCpyImpl(const For& loop,
 
   auto make_comparison_tuple = [](const sym::IterSplitExpr& expr) {
     auto as_int_or_zero = [](auto& val) -> ffi::BigInt {
-      if (auto* as_int = val.template as<IntImmNode>()) {
+      if (auto* as_int = val.template as<IntImmObj>()) {
         return as_int->value;
       } else {
         return 0;
       }
     };
     return std::tuple{
-        static_cast<bool>(expr->scale.as<IntImmNode>()),        as_int_or_zero(expr->scale),
-        static_cast<bool>(expr->extent.as<IntImmNode>()),       as_int_or_zero(expr->lower_factor),
-        static_cast<bool>(expr->lower_factor.as<IntImmNode>()), as_int_or_zero(expr->lower_factor),
+        static_cast<bool>(expr->scale.as<IntImmObj>()),        as_int_or_zero(expr->scale),
+        static_cast<bool>(expr->extent.as<IntImmObj>()),       as_int_or_zero(expr->lower_factor),
+        static_cast<bool>(expr->lower_factor.as<IntImmObj>()), as_int_or_zero(expr->lower_factor),
     };
   };
   auto sorting_function = [&make_comparison_tuple](const sym::IterSplitExpr& lhs,
@@ -304,17 +304,17 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("s_tir.analysis._identify_memcpy", [](const Stmt& stmt) {
     ffi::Array<ffi::ObjectRef> output;
 
-    struct Visitor : s_tir::StmtExprVisitorWithAnalyzer {
+    struct Visitor : s_tir::StmtExprVisitorWithConstraintContext {
      public:
-      using s_tir::StmtExprVisitorWithAnalyzer::Visit_;
+      using s_tir::StmtExprVisitorWithConstraintContext::Visit_;
 
       explicit Visitor(ffi::Array<ffi::ObjectRef>* output) : output(output) {}
       ffi::Array<ffi::ObjectRef>* output;
 
      private:
-      ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) override {
+      ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) override {
         For loop = ffi::GetRef<For>(op);
-        auto result = IdentifyMemCpyImpl(loop, Visitor::analyzer_.get());
+        auto result = IdentifyMemCpyImpl(loop, GetSyncedAnalyzer());
         if (auto* ptr = std::get_if<MemCpyDetails>(&result)) {
           output->push_back(ffi::Array{ptr->source, ptr->dest});
         } else if (auto* ptr = std::get_if<std::string>(&result)) {
@@ -323,7 +323,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
           TVM_FFI_THROW(InternalError) << "Internal error, unhandled std::variant type";
         }
 
-        return StmtExprVisitorWithAnalyzer::Visit_(op);
+        return StmtExprVisitorWithConstraintContext::Visit_(op);
       }
     };
 

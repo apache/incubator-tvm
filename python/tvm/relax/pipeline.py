@@ -37,7 +37,7 @@ def zero_pipeline(*, enable_warning: bool = False):
     ----------
     enable_warning : bool
         A boolean value indicating if to print warnings
-        * in LegalizeOps pass, for CallNode whose op's legalization function is
+        * in LegalizeOps pass, for CallObj whose op's legalization function is
         not registered,
         * in MetaScheduleApplyDatabase pass, for TIR functions now showing up in
         the database. By default we don't print warning.

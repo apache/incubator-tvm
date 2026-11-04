@@ -70,12 +70,12 @@ namespace tvm {
 namespace relax {
 namespace distributed {
 
-const TensorTypeNode* GetTensorType(Expr tensor) {
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(tensor);
+const TensorTypeObj* GetTensorType(Expr tensor) {
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(tensor);
   if (tensor_ty) {
     return tensor_ty;
   }
-  const auto* dtensor_ty = GetTypeAs<DTensorTypeNode>(tensor);
+  const auto* dtensor_ty = GetTypeAs<DTensorTypeObj>(tensor);
   if (dtensor_ty) {
     return dtensor_ty->tensor_ty.get();
   }
@@ -100,7 +100,7 @@ void UnaryOpHelper(ffi::Array<Expr> tensor_list, distributed::AxisGroupGraph* ax
 void BuildAxisGraphUnary(const Var& output_var, const Call& call,
                          distributed::AxisGroupGraph* axis_group_graph) {
   ffi::Array<Expr> tensor_list;  // vars in param and output
-  if (call->args[0]->IsInstance<VarNode>()) {
+  if (call->args[0]->IsInstance<VarObj>()) {
     tensor_list.push_back(call->args[0]);
   }
   tensor_list.push_back(output_var);
@@ -110,10 +110,10 @@ void BuildAxisGraphUnary(const Var& output_var, const Call& call,
 void BuildAxisGraphBinary(const Var& output_var, const Call& call,
                           distributed::AxisGroupGraph* axis_group_graph) {
   ffi::Array<Expr> tensor_list;  // vars in param and output
-  if (call->args[0]->ty.as<TensorTypeNode>() || call->args[0]->ty.as<DTensorTypeNode>()) {
+  if (call->args[0]->ty.as<TensorTypeObj>() || call->args[0]->ty.as<DTensorTypeObj>()) {
     tensor_list.push_back(call->args[0]);
   }
-  if (call->args[1]->ty.as<TensorTypeNode>() || call->args[1]->ty.as<DTensorTypeNode>()) {
+  if (call->args[1]->ty.as<TensorTypeObj>() || call->args[1]->ty.as<DTensorTypeObj>()) {
     tensor_list.push_back(call->args[1]);
   }
   tensor_list.push_back(output_var);
@@ -125,8 +125,8 @@ void BuildAxisGraphBinary(const Var& output_var, const Call& call,
   const auto* x2_ty = GetTensorType(tensor_list[1]);
   int x1_ndim = x1_ty->ndim;
   int x2_ndim = x2_ty->ndim;
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   TVM_FFI_ICHECK(x1_shape && x2_shape);
   sym::Analyzer analyzer;
   for (int i = 1; i <= std::min(x1_ndim, x2_ndim); ++i) {
@@ -231,8 +231,8 @@ void BuildAxisGraphMatmul(const Var& output_var, const Call& call,
     x2_ndim = 2;
     x2_appended = 1;
   }
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   TVM_FFI_ICHECK(x1_shape && x2_shape);
   ffi::Array<PrimExpr> x1_shape_prefix{x1_shape->values.begin(),
                                        x1_shape->values.end() - 2 + x1_prepended};
@@ -314,8 +314,8 @@ void BuildAxisGraphReshape(const Var& output_var, const Call& call,
                            distributed::AxisGroupGraph* axis_group_graph) {
   Expr input_tensor = call->args[0];
   const auto* tensor_ty = GetTensorType(input_tensor);
-  const auto* new_shape_ty = GetTypeAs<ShapeTypeNode>(call->args[1]);
-  const auto* old_shape_ty = GetTypeAs<ShapeTypeNode>(tensor_ty->shape.value());
+  const auto* new_shape_ty = GetTypeAs<ShapeTypeObj>(call->args[1]);
+  const auto* old_shape_ty = GetTypeAs<ShapeTypeObj>(tensor_ty->shape.value());
   TVM_FFI_ICHECK_NOTNULL(old_shape_ty);
   ffi::Array<PrimExpr> old_shape_values = old_shape_ty->values.value();
   ffi::Array<PrimExpr> new_shape_values = new_shape_ty->values.value();
@@ -345,7 +345,7 @@ void BuildAxisGraphReshape(const Var& output_var, const Call& call,
 
 inline int GetNumOutput(Call call) {
   Type output_ty = call->ty_args[0];
-  if (const auto* tuple_ty = output_ty.as<TupleTypeNode>()) {
+  if (const auto* tuple_ty = output_ty.as<TupleTypeObj>()) {
     return tuple_ty->fields.size();
   } else {
     return 1;
@@ -359,7 +359,7 @@ void BuildAxisGraphCallTIR(const Var& output_var, const Call& call, const tirx::
   ffi::Array<Expr> input_list = call->args[1].as_or_throw<Tuple>()->fields;
   input_list.push_back(output_var);
   for (int i = 0; i < static_cast<int>(input_list.size()); i++) {
-    if (func->params[i]->ty.as<tirx::TensorTypeNode>()) {
+    if (func->params[i]->ty.as<tirx::TensorTypeObj>()) {
       input_var_to_relax_expr.Set(func->params[i], input_list[i]);
     }
   }

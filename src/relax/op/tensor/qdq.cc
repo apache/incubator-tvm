@@ -65,7 +65,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 TensorType WithUnknownDtype(const TensorType& input_ty) {
-  auto output_ty = ffi::make_object<TensorTypeNode>(*input_ty.get());
+  auto output_ty = ffi::make_object<TensorTypeObj>(*input_ty.get());
   output_ty->dtype = ffi::Optional<PrimType>();
   return TensorType(output_ty);
 }
@@ -137,8 +137,8 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
 
   auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
     if (IsScalarTensor(param_ty)) return true;
-    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
-      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
+    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprObj>()) {
+      const auto& values = param_ty->shape.as<ShapeExprObj>()->values;
       if (!values.empty()) {
         return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
           return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
@@ -161,7 +161,7 @@ Type InferTypeQuantize(const Call& call, const BlockBuilder& ctx) {
     if (!is_scalar_or_singleton_vector(zp_ty)) check_param_size(zp_ty, input_ty, "zero_point");
   }
 
-  auto output_ty = ffi::make_object<TensorTypeNode>(*input_ty.get());
+  auto output_ty = ffi::make_object<TensorTypeObj>(*input_ty.get());
   output_ty->dtype = PrimType(attrs->out_dtype);
   return TensorType(output_ty);
 }
@@ -260,8 +260,8 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
 
   auto is_scalar_or_singleton_vector = [&](const TensorType& param_ty) {
     if (IsScalarTensor(param_ty)) return true;
-    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprNode>()) {
-      const auto& values = param_ty->shape.as<ShapeExprNode>()->values;
+    if (param_ty->shape.has_value() && param_ty->shape.value()->IsInstance<ShapeExprObj>()) {
+      const auto& values = param_ty->shape.as<ShapeExprObj>()->values;
       if (!values.empty()) {
         return std::all_of(values.begin(), values.end(), [&](const PrimExpr& dim) {
           return ctx->GetAnalyzer()->CanProveEqual(dim, 1);
@@ -284,7 +284,7 @@ Type InferTypeDequantize(const Call& call, const BlockBuilder& ctx) {
     if (!is_scalar_or_singleton_vector(zp_ty)) check_param_size(zp_ty, input_ty, "zero_point");
   }
 
-  auto output_ty = ffi::make_object<TensorTypeNode>(*input_ty.get());
+  auto output_ty = ffi::make_object<TensorTypeObj>(*input_ty.get());
   output_ty->dtype = PrimType(attrs->out_dtype);
   return TensorType(output_ty);
 }

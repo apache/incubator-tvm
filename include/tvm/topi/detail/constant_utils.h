@@ -45,7 +45,7 @@ using namespace tvm::te;
  *
  * \return true if the given expr is a constant int or uint, false otherwise.
  */
-inline bool IsConstInt(PrimExpr expr) { return expr->IsInstance<tvm::IntImmNode>(); }
+inline bool IsConstInt(PrimExpr expr) { return expr->IsInstance<tvm::IntImmObj>(); }
 
 /*!
  * \brief Test whether the given Array has every element as constant integer.
@@ -58,7 +58,7 @@ inline bool IsConstInt(PrimExpr expr) { return expr->IsInstance<tvm::IntImmNode>
 inline bool IsConstIntArray(ffi::Array<PrimExpr> array) {
   bool IsConstInt = true;
   for (auto const& elem : array) {
-    IsConstInt &= !elem.defined() || elem->IsInstance<tvm::IntImmNode>();
+    IsConstInt &= !elem.defined() || elem->IsInstance<tvm::IntImmObj>();
   }
   return IsConstInt;
 }
@@ -72,8 +72,8 @@ inline bool IsConstIntArray(ffi::Array<PrimExpr> array) {
  * \return The integer value.
  */
 inline int64_t GetConstInt(PrimExpr expr) {
-  if (expr->IsInstance<tvm::IntImmNode>()) {
-    return static_cast<int64_t>(expr.as<tvm::IntImmNode>()->value);
+  if (expr->IsInstance<tvm::IntImmObj>()) {
+    return static_cast<int64_t>(expr.as<tvm::IntImmObj>()->value);
   }
   LOG(ERROR) << "expr must be a constant integer";
   return -1;
@@ -133,7 +133,7 @@ inline bool EqualCheck(PrimExpr lhs, PrimExpr rhs) {
   bool result = expr_equal(lhs, rhs);
   if (!result) {
     PrimExpr t = tvm::sym::Analyzer()->Simplify(lhs - rhs);
-    if (const IntImmNode* i = t.as<IntImmNode>()) {
+    if (const IntImmObj* i = t.as<IntImmObj>()) {
       result = i->value == 0;
     }
   }

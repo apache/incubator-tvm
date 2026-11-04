@@ -49,8 +49,8 @@ Type InferDistTypeBroadcast(const Call& call, const BlockBuilder& ctx, FType f_c
       << "Unknown ndim is not supported for distributed operators.";
   int output_ndim = std::max(x1_ty->ndim, x2_ty->ndim);
 
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   Type output_tensor_ty = Type::Missing();
   // Shapes and ndims
   if (x1_shape && x2_shape) {

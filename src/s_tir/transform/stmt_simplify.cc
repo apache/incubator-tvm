@@ -30,10 +30,11 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
 #include <tvm/ir/prim/op.h>
-#include <tvm/s_tir/stmt_functor_with_analyzer.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/sym/analyzer.h>
 #include <tvm/tirx/analysis.h>
+#include <tvm/tirx/op/annotation.h>
 #include <tvm/tirx/op/memory.h>
 #include <tvm/tirx/transform.h>
 
@@ -44,20 +45,21 @@ using namespace tvm::prim;
 
 namespace {
 
-class StmtSimplifier : public StmtExprMutatorWithAnalyzer {
+class StmtSimplifier : public StmtExprMutatorWithConstraintContext {
  public:
-  using StmtExprMutatorWithAnalyzer::Mutate;
-  using StmtExprMutatorWithAnalyzer::Mutate_;
-  explicit StmtSimplifier(const sym::Analyzer& analyzer) : StmtExprMutatorWithAnalyzer(analyzer) {}
+  using StmtExprMutatorWithConstraintContext::Mutate;
+  using StmtExprMutatorWithConstraintContext::Mutate_;
+  explicit StmtSimplifier(const sym::Analyzer& analyzer)
+      : StmtExprMutatorWithConstraintContext(analyzer->GetConstraintContext()) {}
 
   Function Run(Function func);
 
-  UnchangedOr<Stmt> Mutate_(const EvaluateNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const EvaluateObj* op, InplaceMode inplace_mode) final {
     Stmt stmt = Parent::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-    if (const auto* evaluate = stmt.as<EvaluateNode>()) {
-      if (const auto* call = evaluate->value.as<CallNode>();
+    if (const auto* evaluate = stmt.as<EvaluateObj>()) {
+      if (const auto* call = evaluate->value.as<CallObj>();
           call && call->op.same_as(s_tir::async_wait()) &&
-          analyzer_->CanProve(call->args[1].as_or_throw<PrimExpr>() < 0)) {
+          GetSyncedAnalyzer()->CanProve(call->args[1].as_or_throw<PrimExpr>() < 0)) {
         // Unrolling may make a wait count negative; such a wait is a no-op.
         return Evaluate(0);
       }
@@ -66,18 +68,18 @@ class StmtSimplifier : public StmtExprMutatorWithAnalyzer {
   }
 
  protected:
-  using Parent = StmtExprMutatorWithAnalyzer;
+  using Parent = StmtExprMutatorWithConstraintContext;
 
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView input, InplaceMode inplace_mode) final;
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final;
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) override;
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) override;
 
-  UnchangedOr<Stmt> Mutate_(const IfNode* op, InplaceMode inplace_mode) override;
+  UnchangedOr<Stmt> Mutate_(const IfObj* op, InplaceMode inplace_mode) override;
 
   // eliminate useless stores
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) override;
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) override;
 
  private:
   bool ArrayDeepEqual(const ffi::Array<PrimExpr>& lhs, const ffi::Array<PrimExpr>& rhs);
@@ -86,7 +88,7 @@ class StmtSimplifier : public StmtExprMutatorWithAnalyzer {
    *
    * Substitutes any known Bind values and then simplifies with the analyzer.
    */
-  ffi::Optional<bool> ProveCondition(PrimExpr condition) const;
+  ffi::Optional<bool> ProveCondition(PrimExpr condition);
 
   // Pure Bind values kept for substitution into assert conditions.
   // Grows monotonically under SSA — no scope-based cleanup required.
@@ -94,7 +96,7 @@ class StmtSimplifier : public StmtExprMutatorWithAnalyzer {
 };
 
 Function StmtSimplifier::Run(Function func) {
-  MarkTensorParamShapes(func);
+  AddParamConstraints(func);
   auto* n = func.CopyOnWrite();
   // Shared string literals no longer enter the primitive analyzer.  Inline their
   // SSA bindings so existing literal arguments remain constants during lowering.
@@ -114,7 +116,9 @@ Function StmtSimplifier::Run(Function func) {
                   return ffi::Unchanged();
                 })
                 .as_or_throw<ffi::Optional<SeqStmt>>();
-  n->body = Mutate(n->body, InplaceMode::kAllow).ValueOrUnchanged(n->body);
+  n->body = Mutate(n->body, InplaceMode::kAllow)
+                .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>()
+                .ValueOrUnchanged(n->body);
   return func;
 }
 
@@ -125,36 +129,36 @@ UnchangedOr<ffi::Any> StmtSimplifier::Mutate(ffi::AnyView input, InplaceMode inp
   if (def_region_kind() != kTVMFFIDefRegionKindNone && input.as<Var>()) {
     return Parent::Mutate(input, inplace_mode);
   }
+  if (auto call = input.as<Call>(); call && call.value()->op.same_as(assume_always_op())) {
+    return Parent::Mutate(input, inplace_mode);
+  }
   if (auto expr = input.as<PrimExpr>()) {
-    PrimExpr simplified = analyzer_->Simplify(*expr);
+    PrimExpr simplified = GetSyncedAnalyzer()->Simplify(*expr);
     if (simplified.same_as(*expr)) return ffi::Unchanged();
     return simplified;
   }
   return Parent::Mutate(input, inplace_mode);
 }
 
-UnchangedOr<Stmt> StmtSimplifier::Mutate_(const ForNode* op, InplaceMode inplace_mode) {
-  analyzer_->Bind(op->var, Range(op->begin, op->end));
-  With<sym::ConstraintContext> ctx1(analyzer_, op->var >= op->begin);
-  With<sym::ConstraintContext> ctx2(analyzer_, static_cast<PrimExpr>(op->var) < op->end);
+UnchangedOr<Stmt> StmtSimplifier::Mutate_(const ForObj* op, InplaceMode inplace_mode) {
   return Parent::Mutate_(op, inplace_mode);
 }
 
-UnchangedOr<Stmt> StmtSimplifier::Mutate_(const BindNode* op, InplaceMode inplace_mode) {
-  if (const auto* call = op->value.as<CallNode>()) {
+UnchangedOr<Stmt> StmtSimplifier::Mutate_(const BindObj* op, InplaceMode inplace_mode) {
+  if (const auto* call = op->value.as<CallObj>()) {
     // Preserve tensor type metadata; only declaration data is simplified.
     if (call->op.same_as(tirx::alloc_tensor_op())) return ffi::Unchanged();
     if (call->op.same_as(tirx::decl_tensor_op())) {
       // The Call and its arguments may be shared even when the Bind is writable.
       auto data = this->Mutate(call->args[0], InplaceMode::kDisallow);
       if (data.UnchangedOrSameAs(call->args[0])) return ffi::Unchanged();
-      auto value = ffi::make_object<CallNode>(*call);
+      auto value = ffi::make_object<CallObj>(*call);
       value->args.Set(0, std::move(data).ValueUnchecked());
       if (inplace_mode == InplaceMode::kAllow) {
-        const_cast<BindNode*>(op)->value = Expr(std::move(value));
+        const_cast<BindObj*>(op)->value = Expr(std::move(value));
         return ffi::Unchanged();
       }
-      auto copy = ffi::make_object<BindNode>(*op);
+      auto copy = ffi::make_object<BindObj>(*op);
       copy->value = Expr(std::move(value));
       return Stmt(std::move(copy));
     }
@@ -165,14 +169,11 @@ UnchangedOr<Stmt> StmtSimplifier::Mutate_(const BindNode* op, InplaceMode inplac
   }
   PrimExpr value =
       this->Mutate(prim_value.value(), inplace_mode).ValueOrUnchanged(prim_value.value());
-  // Bind in analyzer for constraint proving and simplification of
-  // subsequent expressions.  Don't remove the Bind statement --
-  // with flat Bind there's no body to inspect for usage patterns,
-  // so we always keep the Bind.
+  // Keep the statement: the sequence collector records its transformed
+  // binding for following siblings after this callback returns.
   if (SideEffect(value) <= CallEffectKind::kPure) {
-    analyzer_->Bind(op->var, value);
     // Record the binding so we can substitute it into assert conditions
-    // (see Mutate_(const AssertStmtNode*, InplaceMode)).  Under SSA each var is
+    // (see Mutate_(const AssertStmtObj*, InplaceMode)).  Under SSA each var is
     // bound exactly once, so the map grows monotonically without key
     // conflicts.  No scope-based cleanup is needed because vars bound
     // in inner scopes are only referenced within those scopes; stale
@@ -184,17 +185,17 @@ UnchangedOr<Stmt> StmtSimplifier::Mutate_(const BindNode* op, InplaceMode inplac
     return ffi::Unchanged();
   } else {
     if (inplace_mode == InplaceMode::kAllow) {
-      auto* n = const_cast<BindNode*>(op);
+      auto* n = const_cast<BindObj*>(op);
       n->value = std::move(value);
       return ffi::Unchanged();
     }
-    auto n = ffi::make_object<BindNode>(*op);
+    auto n = ffi::make_object<BindObj>(*op);
     n->value = std::move(value);
     return Stmt(n);
   }
 }
 
-UnchangedOr<Stmt> StmtSimplifier::Mutate_(const IfNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> StmtSimplifier::Mutate_(const IfObj* op, InplaceMode inplace_mode) {
   if (ffi::Optional<bool> cond = ProveCondition(op->condition)) {
     if (cond.value()) {
       return this->Mutate(op->then_case, inplace_mode).ValueOrUnchanged(op->then_case);
@@ -209,11 +210,11 @@ UnchangedOr<Stmt> StmtSimplifier::Mutate_(const IfNode* op, InplaceMode inplace_
   }
 }
 
-UnchangedOr<Stmt> StmtSimplifier::Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> StmtSimplifier::Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) {
   TensorStore store = Parent::Mutate_(op, inplace_mode)
                           .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                           .as_or_throw<TensorStore>();
-  if (const TensorLoadNode* load = store->value.as<TensorLoadNode>()) {
+  if (const TensorLoadObj* load = store->value.as<TensorLoadObj>()) {
     TensorVar tensor = load->source.as_or_throw<tvm::tirx::TensorVar>();
     if (tensor.same_as(store->dest.as_or_throw<TensorVar>()) &&
         ArrayDeepEqual(load->indices, store->indices)) {
@@ -236,15 +237,15 @@ bool StmtSimplifier::ArrayDeepEqual(const ffi::Array<PrimExpr>& lhs,
   return true;
 }
 
-ffi::Optional<bool> StmtSimplifier::ProveCondition(PrimExpr condition) const {
+ffi::Optional<bool> StmtSimplifier::ProveCondition(PrimExpr condition) {
   auto f_substitute = [this](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
     if (auto repl = non_inlined_bindings_.Get(var)) return ffi::Any(*std::move(repl));
     return ffi::Unchanged();
   };
   condition = ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(condition, f_substitute)
                   .as_or_throw<PrimExpr>();
-  condition = analyzer_->Simplify(condition);
-  if (const auto* as_int = condition.as<IntImmNode>()) {
+  condition = GetSyncedAnalyzer()->Simplify(condition);
+  if (const auto* as_int = condition.as<IntImmObj>()) {
     return as_int->value != 0;
   } else {
     return std::nullopt;

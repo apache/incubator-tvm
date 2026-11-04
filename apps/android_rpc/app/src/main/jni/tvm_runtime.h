@@ -64,7 +64,6 @@
 #include "../3rdparty/tvm-tirx/src/runtime/tensor.cc"
 #include "../3rdparty/tvm-tirx/src/runtime/thread_pool.cc"
 #include "../3rdparty/tvm-tirx/src/runtime/threading_backend.cc"
-#include "../3rdparty/tvm-tirx/src/runtime/workspace_pool.cc"
 // clang-format on
 
 #ifdef TVM_OPENCL_RUNTIME

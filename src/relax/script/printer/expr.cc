@@ -42,7 +42,7 @@ namespace {
 ffi::Optional<ExprDoc> GenericConstDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                 const ffi::Object*) {
   const auto* constant =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const GenericConstNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const GenericConstObj>(input);
   if (auto dtype = constant->value.as<DLDataType>()) {
     return LiteralDoc::DataType(dtype.value(), std::nullopt);
   }
@@ -51,7 +51,7 @@ ffi::Optional<ExprDoc> GenericConstDocTranslate(DocTranslatorObj* d, ffi::AnyVie
   const ffi::Tensor& data = tensor.value();
   DLDataType dtype = data.dtype();
   auto print_const = [&](ExprDoc value) -> ExprDoc {
-    if (constant->ty.as<relax::distributed::DTensorTypeNode>()) {
+    if (constant->ty.as<relax::distributed::DTensorTypeObj>()) {
       return NamespaceDoc("relax")->Attr("dist")->Attr("const")->Call(
           {value, d->Translate(constant->ty).value()});
     }
@@ -104,7 +104,7 @@ ffi::Optional<ExprDoc> GenericConstDocTranslate(DocTranslatorObj* d, ffi::AnyVie
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<GenericConstNode>().attr(
+  ffi::reflection::TypeAttrDef<GenericConstObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&GenericConstDocTranslate>());
 }
@@ -112,20 +112,20 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> ShapeExprDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                              const ffi::Object*) {
   const auto* shape =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeExprNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeExprObj>(input);
   ffi::Array<ExprDoc> dimensions;
   for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
   return NamespaceDoc("relax")->Attr("shape")->Call({ListDoc(dimensions)});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::ShapeExprNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::ShapeExprObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&ShapeExprDocTranslate>());
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::DataflowVarNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::DataflowVarObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&VarDocTranslate>());
 }
@@ -142,23 +142,23 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                                    [](const ffi::ObjectRef& obj, const PrinterConfig& config) {
                                      return tvm::Script(obj, config);
                                    });
-  RegisterScriptRepr<relax::BindingBlockNode>();
-  RegisterScriptRepr<relax::DataflowBlockNode>();
-  RegisterScriptRepr<relax::DataflowVarNode>();
-  RegisterScriptRepr<relax::ExternFuncNode>();
-  RegisterScriptRepr<relax::FuncTypeNode>();
-  RegisterScriptRepr<relax::FunctionNode>();
-  RegisterScriptRepr<relax::IfExprNode>();
-  RegisterScriptRepr<relax::MatchCastNode>();
-  RegisterScriptRepr<relax::PackedFuncTypeNode>();
-  RegisterScriptRepr<relax::SeqExprNode>();
-  RegisterScriptRepr<relax::ShapeExprNode>();
-  RegisterScriptRepr<relax::ShapeTypeNode>();
-  RegisterScriptRepr<relax::TensorTypeNode>();
-  RegisterScriptRepr<relax::VarBindingNode>();
-  RegisterScriptRepr<relax::distributed::DTensorTypeNode>();
-  RegisterScriptRepr<relax::distributed::DeviceMeshNode>();
-  RegisterScriptRepr<relax::distributed::PlacementNode>();
+  RegisterScriptRepr<relax::BindingBlockObj>();
+  RegisterScriptRepr<relax::DataflowBlockObj>();
+  RegisterScriptRepr<relax::DataflowVarObj>();
+  RegisterScriptRepr<relax::ExternFuncObj>();
+  RegisterScriptRepr<relax::FuncTypeObj>();
+  RegisterScriptRepr<relax::FunctionObj>();
+  RegisterScriptRepr<relax::IfExprObj>();
+  RegisterScriptRepr<relax::MatchCastObj>();
+  RegisterScriptRepr<relax::PackedFuncTypeObj>();
+  RegisterScriptRepr<relax::SeqExprObj>();
+  RegisterScriptRepr<relax::ShapeExprObj>();
+  RegisterScriptRepr<relax::ShapeTypeObj>();
+  RegisterScriptRepr<relax::TensorTypeObj>();
+  RegisterScriptRepr<relax::VarBindingObj>();
+  RegisterScriptRepr<relax::distributed::DTensorTypeObj>();
+  RegisterScriptRepr<relax::distributed::DeviceMeshObj>();
+  RegisterScriptRepr<relax::distributed::PlacementObj>();
 }
 
 }  // namespace tvm

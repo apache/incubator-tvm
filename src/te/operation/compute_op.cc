@@ -42,22 +42,22 @@ namespace te {
 using namespace tirx;
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  OperationNode::RegisterReflection();
-  BaseComputeOpNode::RegisterReflection();
-  ComputeOpNode::RegisterReflection();
+  OperationObj::RegisterReflection();
+  BaseComputeOpObj::RegisterReflection();
+  ComputeOpObj::RegisterReflection();
 }
 
 // Pattern A (RM): auto-default repr from reflection.
 
 /// Verify if ComputeOp is valid with respect to Reduce operations.
-static void VerifyComputeOp(const ComputeOpNode* op);
+static void VerifyComputeOp(const ComputeOpObj* op);
 
-static inline void AssertReduceEqual(const te::ReduceNode* a, const te::ReduceNode* b) {
+static inline void AssertReduceEqual(const te::ReduceObj* a, const te::ReduceObj* b) {
   const char* shared_text =
       "When a TE compute node produces multiple outputs, "
       "each of which is a reduction, "
       "each reduction must be structurally identical, "
-      "except for the ReduceNode::value_index.  ";
+      "except for the ReduceObj::value_index.  ";
 
   ffi::StructuralEqual eq;
   // Compare expression values, not the binder semantics of axis metadata.
@@ -82,14 +82,14 @@ static inline void AssertReduceEqual(const te::ReduceNode* a, const te::ReduceNo
       << shared_text << "However, the initial value " << a->init << " does not match " << b->init;
 }
 
-int ComputeOpNode::num_outputs() const { return body.size(); }
+int ComputeOpObj::num_outputs() const { return body.size(); }
 
-PrimType ComputeOpNode::output_dtype(size_t idx) const {
+PrimType ComputeOpObj::output_dtype(size_t idx) const {
   TVM_FFI_ICHECK_LT(idx, num_outputs());
   return body[idx].ty();
 }
 
-ffi::Array<PrimExpr> BaseComputeOpNode::output_shape(size_t idx) const {
+ffi::Array<PrimExpr> BaseComputeOpObj::output_shape(size_t idx) const {
   TVM_FFI_ICHECK_LT(idx, num_outputs());
   // for now, all outputs of a BaseComputeOp have the same shape
   ffi::Array<PrimExpr> shape;
@@ -145,14 +145,14 @@ ComputeOp::ComputeOp(std::string name, std::string tag, ffi::Map<ffi::String, ff
   if (!attrs.defined()) {
     attrs = ffi::Map<ffi::String, ffi::Any>();
   }
-  auto n = ffi::make_object<ComputeOpNode>();
+  auto n = ffi::make_object<ComputeOpObj>();
   n->name = std::move(name);
   n->tag = std::move(tag);
   n->attrs = std::move(attrs);
   n->axis = std::move(axis);
   n->body = std::move(body);
-  if (n->body[0]->IsInstance<te::ReduceNode>()) {
-    const te::ReduceNode* reduce = n->body[0].as<te::ReduceNode>();
+  if (n->body[0]->IsInstance<te::ReduceObj>()) {
+    const te::ReduceObj* reduce = n->body[0].as<te::ReduceObj>();
     n->reduce_axis = reduce->axis;
   }
   VerifyComputeOp(n.get());
@@ -169,7 +169,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 // The schedule related logics
-ffi::Array<Tensor> ComputeOpNode::InputTensors() const {
+ffi::Array<Tensor> ComputeOpObj::InputTensors() const {
   ffi::Array<Tensor> ret;
   std::unordered_set<Tensor> visited;
   auto visit_call = [&ret, &visited](const Call& call, ffi::StructuralVisitorObj* visitor)
@@ -197,7 +197,7 @@ ffi::Array<Tensor> ComputeOpNode::InputTensors() const {
         visit_call);
   };
   for (const PrimExpr& e : body) {
-    if (const auto* reduce = e.as<te::ReduceNode>()) {
+    if (const auto* reduce = e.as<te::ReduceObj>()) {
       for (const IterVar& axis : reduce->axis) {
         visit(axis->dom.value()->begin);
         visit(axis->dom.value()->extent);
@@ -228,7 +228,7 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
  public:
   /// Special member functions
   //@{
-  explicit ComputeVerifier(const ComputeOpNode* compute)
+  explicit ComputeVerifier(const ComputeOpObj* compute)
       : tirx::StmtExprVisitor([] {
           static const VTable table = [] {
             VTable table;
@@ -239,7 +239,7 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
           return &table;
         }()),
         compute_(compute),
-        reduce_(compute->body[0].as<te::ReduceNode>()) {}
+        reduce_(compute->body[0].as<te::ReduceObj>()) {}
   ~ComputeVerifier() = default;
   ComputeVerifier(const ComputeVerifier&) = delete;
   ComputeVerifier(ComputeVerifier&&) = delete;
@@ -251,7 +251,7 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
   void Run() {
     for (const PrimExpr e : compute_->body) {
       // Check for consistency of top level reductions
-      const te::ReduceNode* reduce = e.as<te::ReduceNode>();
+      const te::ReduceObj* reduce = e.as<te::ReduceObj>();
       TVM_FFI_ICHECK((reduce && reduce_) || (!reduce && !reduce_))
           << "All ComputeOp should be consistent "
           << "with being Reduce operation or not.";
@@ -266,7 +266,7 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
   }
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) final {
-    if (!value.as<tvm::ExprNode>()) return tirx::StmtExprVisitor::Visit(value);
+    if (!value.as<tvm::ExprObj>()) return tirx::StmtExprVisitor::Visit(value);
     ++level_;
     auto interrupt = tirx::StmtExprVisitor::Visit(value);
     --level_;
@@ -274,8 +274,8 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
   }
 
   using tirx::StmtExprVisitor::Visit_;
-  ffi::Optional<VisitInterrupt> Visit_(const IterVarNode*) { return std::nullopt; }
-  ffi::Optional<VisitInterrupt> Visit_(const te::ReduceNode* reduce) {
+  ffi::Optional<VisitInterrupt> Visit_(const IterVarObj*) { return std::nullopt; }
+  ffi::Optional<VisitInterrupt> Visit_(const te::ReduceObj* reduce) {
     TVM_FFI_ICHECK(0 == level_) << "Reductions are only allowed at the top level of compute. "
                                 << "Please create another tensor for further composition.";
     for (const PrimExpr& expr : reduce->combiner->result) {
@@ -296,19 +296,19 @@ class ComputeVerifier final : public tirx::StmtExprVisitor {
  protected:
   static void InitVTable(VTable* table) {
     tirx::StmtExprVisitor::InitVTable(table);
-    SetDispatch<ComputeVerifier, te::ReduceNode>(table);
-    SetDispatch<ComputeVerifier, IterVarNode>(table);
+    SetDispatch<ComputeVerifier, te::ReduceObj>(table);
+    SetDispatch<ComputeVerifier, IterVarObj>(table);
   }
 
  private:
-  const ComputeOpNode* compute_{nullptr};  ///< ComputeOpNode to verify
-  const te::ReduceNode* reduce_{nullptr};  ///< Top level Reduce operation
-  int level_{0};                           ///< Level of op being processed
+  const ComputeOpObj* compute_{nullptr};  ///< ComputeOpObj to verify
+  const te::ReduceObj* reduce_{nullptr};  ///< Top level Reduce operation
+  int level_{0};                          ///< Level of op being processed
 };
 }  // namespace
 
 /// Verify if ComputeOp is valid with respect to Reduce operations.
-static void VerifyComputeOp(const ComputeOpNode* op) {
+static void VerifyComputeOp(const ComputeOpObj* op) {
   ffi::make_object<ComputeVerifier>(op)->Run();
 }
 

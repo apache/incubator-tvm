@@ -65,8 +65,8 @@ void VerifyCachedFlags(const ScheduleState& self);
  * \return The result Function where the root block belongs to
  * \note This function returns the pointer instead of ffi::ObjectRef to avoid later copy-on-write
  */
-const FunctionNode* GetRootFunction(const IRModule& mod, const StmtNode* root_block,
-                                    GlobalVar* result_g_var);
+const FunctionObj* GetRootFunction(const IRModule& mod, const StmtObj* root_block,
+                                   GlobalVar* result_g_var);
 
 /*!
  * \brief Get the root node of the sref tree, which is the root block of the Function.
@@ -106,9 +106,9 @@ struct ScopeBlockLoopInfo {
   /*! \brief A list of the leaf blocks, from left to right */
   std::vector<SBlockRealize> realizes;
   /*! \brief The loop vars bound to spatial block iters */
-  std::unordered_set<const VarNode*> spatial_vars;
+  std::unordered_set<const VarObj*> spatial_vars;
   /*! \brief The loop vars bound to non-spatial block iters */
-  std::unordered_set<const VarNode*> non_spatial_vars;
+  std::unordered_set<const VarObj*> non_spatial_vars;
 };
 
 /*!
@@ -288,8 +288,8 @@ ffi::Map<Var, PrimExpr> GetBindings(const SBlockRealize& realize);
  * block iter nor a reduction block iter
  */
 bool GetVarsTouchedByBlockIters(const SBlockRealize& block_realize,
-                                std::unordered_set<const VarNode*>* data_par_vars,
-                                std::unordered_set<const VarNode*>* reduce_vars);
+                                std::unordered_set<const VarObj*>* data_par_vars,
+                                std::unordered_set<const VarObj*>* reduce_vars);
 
 /******** Loop properties ********/
 /*!
@@ -407,7 +407,7 @@ ffi::Array<StmtSRef> GetConsumers(const StmtSRef& block_sref, const SBlockScope&
  * \return A list of all blocks that write to some output tensor
  * block
  */
-ffi::Array<StmtSRef> GetOutputBlocks(const ScheduleState& self, const SBlockNode* scope_block);
+ffi::Array<StmtSRef> GetOutputBlocks(const ScheduleState& self, const SBlockObj* scope_block);
 
 /*!
  * \brief A solution to split a ordered list of subtrees into two parts,
@@ -438,7 +438,7 @@ struct ProducerConsumerSplit {
       const ScheduleState& state, const ffi::Array<Stmt>& subtrees,
       const ffi::Array<StmtSRef>& producer_block_srefs,
       const ffi::Array<StmtSRef>& consumer_block_srefs,
-      std::unordered_map<const SBlockNode*, const SBlockRealizeNode*>* block2realize);
+      std::unordered_map<const SBlockObj*, const SBlockRealizeObj*>* block2realize);
 };
 
 /******** Block-tensor relation ********/

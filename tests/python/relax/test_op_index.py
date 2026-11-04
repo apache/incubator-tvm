@@ -564,7 +564,7 @@ def test_strided_slice_infer_ty_symbolic_begin_end_strides():
         bb,
         relax.op.strided_slice(x, axes=[0], begin=[0], end=[8], strides=[var]),
         relax.TensorType(
-            [tirx.if_then_else(var < 0, -8 // (0 - var) + 1, (var + 7) // var), 9],
+            [tirx.if_then_else(var < 0, -8 // (0 - var) + 1, 7 // var + 1), 9],
             dtype="float32",
         ),
     )

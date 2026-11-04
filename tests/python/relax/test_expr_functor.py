@@ -282,7 +282,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         return op
 
     def visit_var_binding_(self, binding: VarBinding) -> None:
-        """Identical with ExprMutator::VisitBinding_(const VarBindingNode* binding) on the C++ side."""
+        """Identical with ExprMutator::VisitBinding_(const VarBindingObj* binding) on the C++ side."""
         new_value = self.visit_expr(binding.value)
         new_var = self.visit_var_def(binding.var)
 
@@ -299,7 +299,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         self.builder_.emit_normalized(VarBinding(new_var, new_value))
 
     def visit_match_cast_(self, binding: MatchCast) -> None:
-        """Identical with ExprMutator::VisitBinding_(const MatchCastNode* binding) on the C++ side."""
+        """Identical with ExprMutator::VisitBinding_(const MatchCastObj* binding) on the C++ side."""
         new_var = self.visit_var_def(binding.var)
         new_value = self.visit_expr(binding.value)
 
@@ -312,7 +312,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         self.builder_.emit_normalized(MatchCast(new_var, new_value, binding.ty))
 
     def visit_binding_block_(self, block: BindingBlock) -> BindingBlock:
-        """Identical with ExprMutator::VisitBindingBlock_(const BindingBlockNode* block) on the C++ side."""
+        """Identical with ExprMutator::VisitBindingBlock_(const BindingBlockObj* block) on the C++ side."""
         self.builder_._begin_binding_block()
         for binding in block.bindings:
             self.visit_binding(binding)
@@ -320,7 +320,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         return self.builder_._end_block()
 
     def visit_dataflow_block_(self, block: DataflowBlock) -> None:
-        """Identical with ExprMutator::VisitBindingBlock_(const DataflowBlockNode* block) on the C++ side."""
+        """Identical with ExprMutator::VisitBindingBlock_(const DataflowBlockObj* block) on the C++ side."""
         self.builder_._begin_dataflow_block()
         for binding in block.bindings:
             self.visit_binding(binding)
@@ -328,12 +328,12 @@ class ASTPostPrinterMutator(PyExprMutator):
         return self.builder_._end_block()
 
     def visit_var_def_(self, var: Var) -> None:
-        """Identical with ExprMutator::VisitVarDef_(const VarNode* var) on the C++ side."""
+        """Identical with ExprMutator::VisitVarDef_(const VarObj* var) on the C++ side."""
         self.log.add("VarDef")
         return var
 
     def visit_dataflow_var_def_(self, var: DataflowVar) -> None:
-        """Identical with ExprMutator::VisitVarDef_(const DataflowVarNode* var) on the C++ side."""
+        """Identical with ExprMutator::VisitVarDef_(const DataflowVarObj* var) on the C++ side."""
         self.log.add("DataflowVarDef")
         return var
 

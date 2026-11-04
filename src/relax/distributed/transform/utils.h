@@ -38,7 +38,7 @@ inline ffi::Optional<tirx::Function> MatchFunction(const IRModule& mod_, const E
   const GlobalVar& global_var = op.as_or_throw<GlobalVar>();
   // NOTE: as check works for nullptr(returns null)
   ffi::Optional<BaseFunc> base_func = mod_->functions.Get(global_var);
-  if (auto* pfunc = base_func.as<tirx::FunctionNode>()) {
+  if (auto* pfunc = base_func.as<tirx::FunctionObj>()) {
     return ffi::GetRef<tirx::Function>(pfunc);
   }
   return std::nullopt;

@@ -41,7 +41,7 @@ Function FunctionBindSymbolicVars(
 
   // Map from string to the variable(s) with that name.
   std::unordered_map<std::string, ffi::Array<tvm::Var>> string_lookup;
-  std::unordered_set<const tvm::VarNode*> symbolic_var_set;
+  std::unordered_set<const tvm::VarObj*> symbolic_var_set;
   for (const auto& var : old_symbolic_vars) {
     string_lookup[var->name].push_back(var);
     symbolic_var_set.insert(var.get());
@@ -104,7 +104,7 @@ IRModule ModuleBindSymbolicVars(
       // Collect bindings that are used by this function.
       auto func_binding_map = [&]() -> ffi::Map<ffi::Variant<PrimVar, ffi::String>, PrimExpr> {
         std::unordered_set<std::string> var_names;
-        std::unordered_set<const tvm::VarNode*> vars;
+        std::unordered_set<const tvm::VarObj*> vars;
         for (const auto& var : DefinedSymbolicVars(func)) {
           var_names.insert(var->name);
           vars.insert(var.get());

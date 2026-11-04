@@ -33,11 +33,11 @@ namespace s_tir {
 using namespace tvm::tirx;
 using namespace tvm::prim;
 
-UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const ForNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const ForObj* op, InplaceMode inplace_mode) {
   auto result = StmtExprMutator::Mutate_(op, inplace_mode);
   if (!result.IsUnchanged()) {
-    op = ffi::AnyView(result).as<ForNode>();
-    TVM_FFI_ICHECK(op != nullptr) << "Expected type to be ForNode, but get "
+    op = ffi::AnyView(result).as<ForObj>();
+    TVM_FFI_ICHECK(op != nullptr) << "Expected type to be ForObj, but get "
                                   << ffi::AnyView(result).GetTypeKey();
     if (!op->unique()) inplace_mode = InplaceMode::kDisallow;
   }
@@ -45,22 +45,22 @@ UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const ForNode* op, InplaceMode inpl
   Var var = e.as_or_throw<Var>();
   PrimType var_ty = var->ty.as_or_throw<PrimType>();
   if (inplace_mode == InplaceMode::kAllow) {
-    auto* n = const_cast<ForNode*>(op);
+    auto* n = const_cast<ForObj*>(op);
     n->begin = prim::cast(op->begin, var_ty);
     n->end = prim::cast(op->end, var_ty);
     n->step = prim::cast(op->step, var_ty);
     return result;
   }
-  auto n = ffi::make_object<ForNode>(*op);
+  auto n = ffi::make_object<ForObj>(*op);
   n->begin = prim::cast(op->begin, var_ty);
   n->end = prim::cast(op->end, var_ty);
   n->step = prim::cast(op->step, var_ty);
   return For(n);
 }
 
-UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const RegionStmtNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const RegionStmtObj* op, InplaceMode inplace_mode) {
   Stmt result = StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-  const auto* region = result.as<RegionStmtNode>();
+  const auto* region = result.as<RegionStmtObj>();
   if (!region || !region->op.same_as(tirx::launch_thread_op())) return result;
   PrimVar var = region->body_params[0].as_or_throw<PrimVar>();
   PrimExpr extent = region->args[1].as_or_throw<PrimExpr>();
@@ -70,8 +70,7 @@ UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const RegionStmtNode* op, InplaceMo
   return updated;
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LetNode* op,
-                                                 InplaceMode inplace_mode) {
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LetObj* op, InplaceMode inplace_mode) {
   auto value_result = this->Mutate(op->value, inplace_mode);
   bool value_unchanged = value_result.UnchangedOrSameAs(op->value);
   PrimExpr value = std::move(value_result).ValueOrUnchanged(op->value);
@@ -96,7 +95,7 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LetNode* op,
   }
 }
 
-UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const BindNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const BindObj* op, InplaceMode inplace_mode) {
   if (!op->value.as<PrimExpr>()) {
     return StmtExprMutator::Mutate_(op, inplace_mode);
   }
@@ -119,7 +118,7 @@ UnchangedOr<Stmt> DataTypeLegalizer::Mutate_(const BindNode* op, InplaceMode inp
   }
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::SelectNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::SelectObj* op,
                                                  InplaceMode inplace_mode) {
   auto condition_result = this->Mutate(op->condition, inplace_mode);
   bool condition_unchanged = condition_result.UnchangedOrSameAs(op->condition);
@@ -144,7 +143,7 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::SelectNode* op,
   }
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RampNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RampObj* op,
                                                  InplaceMode inplace_mode) {
   auto base_result = Mutate(op->base, inplace_mode);
   bool base_unchanged = base_result.UnchangedOrSameAs(op->base);
@@ -167,7 +166,7 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RampNode* op,
   }
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::BroadcastNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::BroadcastObj* op,
                                                  InplaceMode inplace_mode) {
   auto value = Mutate(op->value, inplace_mode);
   auto lanes = Mutate(op->lanes, inplace_mode);
@@ -179,7 +178,7 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::BroadcastNode* op,
                          std::move(lanes).ValueOrUnchanged(op->lanes));
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::ShuffleNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::ShuffleObj* op,
                                                  InplaceMode inplace_mode) {
   auto vectors = Mutate(op->vectors, inplace_mode).as_or_throw<UnchangedOr<ffi::Array<PrimExpr>>>();
   auto indices = Mutate(op->indices, inplace_mode).as_or_throw<UnchangedOr<ffi::Array<PrimExpr>>>();
@@ -207,29 +206,29 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::ShuffleNode* op,
     }                                                                                        \
   }
 
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::AddNode, operator+);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::SubNode, operator-);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MulNode, operator*);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::DivNode, div);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::ModNode, truncmod);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::FloorDivNode, floordiv);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::FloorModNode, floormod);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MinNode, min);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MaxNode, max);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::EQNode, operator==);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::NENode, operator!=);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LENode, operator<=);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LTNode, operator<);  // NOLINT(*)
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GTNode, operator>);  // NOLINT(*)
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GENode, operator>=);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::AddObj, operator+);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::SubObj, operator-);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MulObj, operator*);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::DivObj, div);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::ModObj, truncmod);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::FloorDivObj, floordiv);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::FloorModObj, floormod);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MinObj, min);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::MaxObj, max);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::EQObj, operator==);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::NEObj, operator!=);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LEObj, operator<=);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LTObj, operator<);  // NOLINT(*)
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GTObj, operator>);  // NOLINT(*)
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GEObj, operator>=);
 
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseAndNode, bitwise_and);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseOrNode, bitwise_or);
-TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseXorNode, bitwise_xor);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseAndObj, bitwise_and);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseOrObj, bitwise_or);
+TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::BitwiseXorObj, bitwise_xor);
 
 #undef TVM_DEFINE_BIOP_EXPR_MUTATE_WITH_TYPE_MATCH
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LShiftNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LShiftObj* op,
                                                  InplaceMode inplace_mode) {
   PrimType before_dtype = op->a.ty();
   // Preserve the original operands while computing the narrowed shift.
@@ -248,7 +247,7 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::LShiftNode* op,
   return left_shift(lhs, rhs, op->loc);
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RShiftNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RShiftObj* op,
                                                  InplaceMode inplace_mode) {
   PrimType before_dtype = op->a.ty();
   // Preserve the original operands while computing the narrowed shift.
@@ -267,22 +266,22 @@ UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::RShiftNode* op,
   return right_shift(lhs, rhs, op->loc);
 }
 
-UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::BitwiseNotNode* op,
+UnchangedOr<PrimExpr> DataTypeLegalizer::Mutate_(const prim::BitwiseNotObj* op,
                                                  InplaceMode inplace_mode) {
   auto a = Mutate(op->a, inplace_mode);
   if (a.UnchangedOrSameAs(op->a)) return ffi::Unchanged();
   return prim::BitwiseNot(std::move(a).ValueOrUnchanged(op->a), op->loc);
 }
 
-UnchangedOr<Expr> DataTypeLegalizer::Mutate_(const CallNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Expr> DataTypeLegalizer::Mutate_(const CallObj* op, InplaceMode inplace_mode) {
   Call before = ffi::GetRef<Call>(op);
   // Keep the original argument dtype available for clz correction below.
   Expr e =
       StmtExprMutator::Mutate_(op, InplaceMode::kDisallow).ValueOrUnchanged(ffi::GetRef<Expr>(op));
-  op = e.as<CallNode>();
-  TVM_FFI_ICHECK(op != nullptr) << "Expected type to be CallNode"
+  op = e.as<CallObj>();
+  TVM_FFI_ICHECK(op != nullptr) << "Expected type to be CallObj"
                                 << ", but get " << e->GetTypeKey();
-  if (!op->ty.as<PrimTypeNode>()) {
+  if (!op->ty.as<PrimTypeObj>()) {
     return e;
   }
   PrimExpr prim_e = e.as_or_throw<PrimExpr>();
@@ -314,7 +313,7 @@ UnchangedOr<Expr> DataTypeLegalizer::Mutate_(const CallNode* op, InplaceMode inp
   return prim_e;
 }
 
-UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const RegionStmtNode* op,
+UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const RegionStmtObj* op,
                                                  InplaceMode inplace_mode) {
   bool was_enabled = is_enabled_;
   if (op->op.same_as(tirx::launch_thread_op())) is_enabled_ = true;
@@ -325,13 +324,13 @@ UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const RegionStmtNode* op,
 
 UnchangedOr<ffi::Any> IndexDataTypeRewriter::Mutate(ffi::AnyView value, InplaceMode inplace_mode) {
   bool is_enabled = is_enabled_;
-  if (value.as<TensorTypeNode>()) is_enabled_ = true;
+  if (value.as<TensorTypeObj>()) is_enabled_ = true;
   auto result = DataTypeLegalizer::Mutate(value, inplace_mode);
   is_enabled_ = is_enabled;
   return result;
 }
 
-UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const TensorStoreNode* op,
+UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const TensorStoreObj* op,
                                                  InplaceMode inplace_mode) {
   TensorStore store = ffi::GetRef<TensorStore>(op);
 
@@ -359,7 +358,7 @@ UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const TensorStoreNode* op,
   return store;
 }
 
-UnchangedOr<PrimExpr> IndexDataTypeRewriter::Mutate_(const TensorLoadNode* op,
+UnchangedOr<PrimExpr> IndexDataTypeRewriter::Mutate_(const TensorLoadObj* op,
                                                      InplaceMode inplace_mode) {
   TensorLoad load = ffi::GetRef<TensorLoad>(op);
 
@@ -386,7 +385,7 @@ ffi::Array<PrimExpr> IndexDataTypeRewriter::VisitIndices(const ffi::Array<PrimEx
   return result;
 }
 
-UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const IfNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const IfObj* op, InplaceMode inplace_mode) {
   bool is_condition = is_condition_;
   is_condition_ = true;
   auto cond_result = Mutate(op->condition, inplace_mode);
@@ -412,7 +411,7 @@ UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const IfNode* op, InplaceMode i
   return ffi::Unchanged();
 }
 
-UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const ForNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const ForObj* op, InplaceMode inplace_mode) {
   bool is_enabled = is_enabled_;
   is_enabled_ = true;
   PrimVar new_loop_var =
@@ -447,7 +446,7 @@ UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const ForNode* op, InplaceMode 
   }
 }
 
-UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const BindNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const BindObj* op, InplaceMode inplace_mode) {
   if (!op->value.as<PrimExpr>()) {
     return StmtExprMutator::Mutate_(op, inplace_mode);
   }
@@ -475,14 +474,14 @@ UnchangedOr<Stmt> IndexDataTypeRewriter::Mutate_(const BindNode* op, InplaceMode
     return result;                                                                               \
   }
 
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::EQNode, operator==);
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::NENode, operator!=);
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LENode, operator<=);
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LTNode, operator<);  // NOLINT(*)
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GTNode, operator>);  // NOLINT(*)
-TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GENode, operator>=);
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::EQObj, operator==);
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::NEObj, operator!=);
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LEObj, operator<=);
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::LTObj, operator<);  // NOLINT(*)
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GTObj, operator>);  // NOLINT(*)
+TVM_DEFINE_CMPOP_EXPR_MUTATE_WITH_TYPE_MATCH(prim::GEObj, operator>=);
 
-UnchangedOr<Expr> IndexDataTypeRewriter::Mutate_(const CallNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Expr> IndexDataTypeRewriter::Mutate_(const CallObj* op, InplaceMode inplace_mode) {
   // handle if_then_else condition
   if (op->op.same_as(prim::if_then_else_op())) {
     bool is_condition = is_condition_;
@@ -503,7 +502,7 @@ UnchangedOr<Expr> IndexDataTypeRewriter::Mutate_(const CallNode* op, InplaceMode
   return Parent::Mutate_(op, inplace_mode);
 }
 
-UnchangedOr<PrimExpr> IndexDataTypeRewriter::Mutate_(const prim::SelectNode* op,
+UnchangedOr<PrimExpr> IndexDataTypeRewriter::Mutate_(const prim::SelectObj* op,
                                                      InplaceMode inplace_mode) {
   bool is_condition = true;
   std::swap(is_condition_, is_condition);
@@ -541,11 +540,11 @@ Function IndexDataTypeNormalizer::Rewrite(Function func) {
   // are rewritten only after every scalar replacement has been seeded.
   class IndexVarCollector : public IndexDataTypeNormalizer {
    public:
-    explicit IndexVarCollector(std::function<void(const VarNode*)> collect)
+    explicit IndexVarCollector(std::function<void(const VarObj*)> collect)
         : IndexDataTypeNormalizer(PrimType::Int(64)), collect_(std::move(collect)) {}
     using IndexDataTypeNormalizer::Mutate;
     using IndexDataTypeNormalizer::Mutate_;
-    UnchangedOr<Expr> Mutate_(const VarNode* op, InplaceMode mode) final {
+    UnchangedOr<Expr> Mutate_(const VarObj* op, InplaceMode mode) final {
       if (def_region_kind() == kTVMFFIDefRegionKindNone && is_enabled_) collect_(op);
       return IndexDataTypeNormalizer::Mutate_(op, mode);
     }
@@ -554,9 +553,9 @@ Function IndexDataTypeNormalizer::Rewrite(Function func) {
     bool CanRewriteDType(PrimType dtype) const final { return false; }
 
    private:
-    std::function<void(const VarNode*)> collect_;
+    std::function<void(const VarObj*)> collect_;
   };
-  auto seed = [this](const VarNode* var) {
+  auto seed = [this](const VarObj* var) {
     auto dtype = var->ty.as<PrimType>();
     if (dtype && CanRewriteDType(dtype.value()) && dtype.value() != target_data_type_ &&
         VarRemapGet(ffi::AnyView(var)) == nullptr) {
@@ -578,13 +577,13 @@ Function IndexDataTypeNormalizer::Rewrite(Function func) {
       return Mutate(param).ValueOrUnchanged(param).as_or_throw<Var>();
     });
   });
-  FunctionNode* new_func = func.CopyOnWrite();
+  FunctionObj* new_func = func.CopyOnWrite();
   new_func->params = std::move(params);
   new_func->body = Mutate(new_func->body).ValueOrUnchanged(new_func->body);
   return func;
 }
 
-UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockRealizeNode* op,
+UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockRealizeObj* op,
                                                    InplaceMode inplace_mode) {
   bool is_condition = this->is_condition_;
   this->is_condition_ = true;
@@ -615,7 +614,7 @@ UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockRealizeNode* op,
   }
 }
 
-UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockNode* op, InplaceMode inplace_mode) {
+UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockObj* op, InplaceMode inplace_mode) {
   auto new_alloc_tensors = this->WithDefRegionKind(kTVMFFIDefRegionKindSimple, [&] {
     return this->Mutate(op->alloc_tensors, inplace_mode)
         .as_or_throw<UnchangedOr<ffi::Array<TensorVar>>>()
@@ -652,7 +651,7 @@ UnchangedOr<Stmt> IndexDataTypeNormalizer::Mutate_(const SBlockNode* op, Inplace
       !new_writes.same_as(op->writes) || !new_iter_vars.same_as(op->iter_vars) ||
       !new_annotations.same_as(op->annotations)) {
     SBlock new_block = ffi::GetRef<SBlock>(op);
-    SBlockNode* n = new_block.CopyOnWrite();
+    SBlockObj* n = new_block.CopyOnWrite();
     n->alloc_tensors = std::move(new_alloc_tensors);
     n->match_tensors = std::move(new_match_tensors);
     n->reads = std::move(new_reads);
@@ -674,7 +673,7 @@ ffi::Map<ffi::String, ffi::Any> IndexDataTypeNormalizer::VisitBlockAnnotations(
     if (obj == nullptr) {
       return obj;
     }
-    if (auto var = obj.as<Var>(); var && var.value()->ty.as<TensorTypeNode>()) {
+    if (auto var = obj.as<Var>(); var && var.value()->ty.as<TensorTypeObj>()) {
       TensorVar tensor = var.value().as_or_throw<TensorVar>();
       if (TensorVar new_tensor = this->Mutate(tensor, InplaceMode::kDisallow)
                                      .as_or_throw<UnchangedOr<TensorVar>>()
@@ -712,7 +711,7 @@ IterVar IndexDataTypeNormalizer::VisitIterVar(const IterVar& iter_var) {
   if (!new_var.same_as(iter_var->var) || !min.same_as(iter_var->dom.value()->begin) ||
       !extent.same_as(iter_var->dom.value()->extent)) {
     IterVar new_iter_var = iter_var;
-    IterVarNode* n = new_iter_var.CopyOnWrite();
+    IterVarObj* n = new_iter_var.CopyOnWrite();
     n->var = std::move(new_var);
     n->ty = n->var.ty();
     n->dom = Range::FromMinExtent(min, extent);
@@ -748,7 +747,7 @@ bool IndexDataTypeNormalizer::CanRewriteDType(PrimType dtype) const {
   return dtype.code() == DLDataTypeCode::kDLInt && dtype.bits() >= 32;
 }
 
-UnchangedOr<PrimExpr> IndexDataTypeNormalizer::Mutate_(const IntImmNode* op,
+UnchangedOr<PrimExpr> IndexDataTypeNormalizer::Mutate_(const IntImmObj* op,
                                                        InplaceMode inplace_mode) {
   if (is_enabled_ && CanRewriteDType(op->ty.as_or_throw<PrimType>())) {
     TVM_FFI_ICHECK_LE(op->value, max_value(target_data_type_).as_or_throw<IntImm>()->value);
@@ -757,7 +756,7 @@ UnchangedOr<PrimExpr> IndexDataTypeNormalizer::Mutate_(const IntImmNode* op,
   return ffi::Unchanged();
 }
 
-UnchangedOr<PrimExpr> IndexDataTypeNormalizer::Mutate_(const prim::CastNode* op,
+UnchangedOr<PrimExpr> IndexDataTypeNormalizer::Mutate_(const prim::CastObj* op,
                                                        InplaceMode inplace_mode) {
   // Unwrap the cast only when the dtype of this cast is integer dtype.
   // When the dtype of this cast is not integer dtype, it means that this cast

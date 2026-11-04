@@ -33,11 +33,11 @@ namespace s_tir {
 /*!
  * \brief Tensor intrinsics for tensorization
  */
-class TensorIntrinNode : public ffi::Object {
+class TensorIntrinObj : public ffi::Object {
  public:
-  explicit TensorIntrinNode(ffi::UnsafeInit tag) : desc(tag), impl(tag) {}
+  explicit TensorIntrinObj(ffi::UnsafeInit tag) : desc(tag), impl(tag) {}
 
-  TensorIntrinNode(tirx::Function desc, tirx::Function impl)
+  TensorIntrinObj(tirx::Function desc, tirx::Function impl)
       : desc(std::move(desc)), impl(std::move(impl)) {}
 
   /*! \brief The function to describe the computation. */
@@ -47,15 +47,15 @@ class TensorIntrinNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TensorIntrinNode>()
-        .def_ro("desc", &TensorIntrinNode::desc)
-        .def_ro("impl", &TensorIntrinNode::impl);
+    refl::ObjectDef<TensorIntrinObj>()
+        .def_ro("desc", &TensorIntrinObj::desc)
+        .def_ro("impl", &TensorIntrinObj::impl);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.TensorIntrin", TensorIntrinNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.TensorIntrin", TensorIntrinObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to TensorIntrinNode.
+ * \brief Managed reference to TensorIntrinObj.
  */
 class TensorIntrin : public ffi::ObjectRef {
  public:
@@ -88,7 +88,7 @@ class TensorIntrin : public ffi::ObjectRef {
    */
   TVM_DLL static ffi::Optional<TensorIntrin> Get(ffi::String name, bool allow_missing = false);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorIntrin, ffi::ObjectRef, TensorIntrinNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorIntrin, ffi::ObjectRef, TensorIntrinObj);
 };
 
 }  // namespace s_tir

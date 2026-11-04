@@ -232,7 +232,7 @@ class StorageScopeMutator : public ReplaceTensorMutator {
 
 void StorageAlign(ScheduleState self, const StmtSRef& block_sref, int tensor_index, int axis,
                   int factor, int offset) {
-  const SBlockNode* block_ptr = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block_ptr = TVM_SREF_TO_SBLOCK(block_sref);
   TensorVar tensor = GetNthAccessTensor(self, ffi::GetRef<SBlock>(block_ptr), tensor_index,
                                         TensorIndexType::kWrite);
   StorageAlignInvalidFactorError::Check(self->mod, factor);
@@ -267,7 +267,7 @@ void StorageAlign(ScheduleState self, const StmtSRef& block_sref, int tensor_ind
 
 void SetScope(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
               const ffi::String& storage_scope) {
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   TensorVar tensor =
       GetNthAccessTensor(self, ffi::GetRef<SBlock>(block), tensor_index, TensorIndexType::kWrite);
 
@@ -282,7 +282,7 @@ void SetScope(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
   // Step 3. Get the allocation site of the target tensor.
   StmtSRef alloc_site_sref =
       NonAllocatedTensorError::CheckAndGetTensorAllocationSite(self->mod, block_sref, tensor);
-  const SBlockNode* alloc_site = TVM_SREF_TO_SBLOCK(alloc_site_sref);
+  const SBlockObj* alloc_site = TVM_SREF_TO_SBLOCK(alloc_site_sref);
 
   // Step 4. Recursively replace the old tensor to a new tensor, where the new tensor has the given
   // storage scope. In the meanwhile, collect the block sref reuse information.
@@ -337,7 +337,7 @@ class DTypeMutator : public ReplaceTensorMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const TensorStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     TensorVar original_tensor = op->dest.as_or_throw<TensorVar>();
     TensorStore node = StmtExprMutator::Mutate_(op, inplace_mode)
                            .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
@@ -349,7 +349,7 @@ class DTypeMutator : public ReplaceTensorMutator {
     return node;
   }
 
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final {
     Expr original_tensor = op->source;
     TensorLoad node = StmtExprMutator::Mutate_(op, inplace_mode)
                           .ValueOrUnchanged(ffi::GetRef<PrimExpr>(op))
@@ -365,7 +365,7 @@ class DTypeMutator : public ReplaceTensorMutator {
 
 void UnsafeSetDType(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
                     const ffi::String& dtype) {
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   TensorVar tensor =
       GetNthAccessTensor(self, ffi::GetRef<SBlock>(block), tensor_index, TensorIndexType::kWrite);
   PrimType target_dtype(ffi::StringToDLDataType(dtype));
@@ -378,7 +378,7 @@ void UnsafeSetDType(ScheduleState self, const StmtSRef& block_sref, int tensor_i
   // Step 2. Get the allocation site of the target tensor.
   StmtSRef alloc_site_sref =
       NonAllocatedTensorError::CheckAndGetTensorAllocationSite(self->mod, block_sref, tensor);
-  const SBlockNode* alloc_site = TVM_SREF_TO_SBLOCK(alloc_site_sref);
+  const SBlockObj* alloc_site = TVM_SREF_TO_SBLOCK(alloc_site_sref);
 
   // Step 3. Recursively replace old tensor to a new tensor, where the new tensor has the given
   // dtype, and insert data type conversions.

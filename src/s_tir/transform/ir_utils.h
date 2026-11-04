@@ -86,7 +86,7 @@ struct FragmentInfo {
  * \param stmt The stmt to visit.
  * \return Map from tensor variables to the fragment info.
  */
-std::unordered_map<const VarNode*, FragmentInfo> GetTensorCoreFragmentInfo(const Stmt& stmt);
+std::unordered_map<const VarObj*, FragmentInfo> GetTensorCoreFragmentInfo(const Stmt& stmt);
 
 /*! \brief The quad used by StorageAlign for (tensor_idx, axis, factor, offset) */
 using StorageAlignTuple = ffi::Tuple<int32_t, int32_t, int32_t, int32_t>;

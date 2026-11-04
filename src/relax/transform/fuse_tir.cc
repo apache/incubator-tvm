@@ -90,26 +90,26 @@ class SymbolicMatcher : ExprFunctor<void(const Expr& n, const PrimExpr& other)> 
     }                                                                    \
   }
 
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::AddNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::SubNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MulNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::DivNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::ModNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::EQNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::NENode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::LTNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::LENode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::GTNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::GENode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::AndNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::OrNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MinNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MaxNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::FloorDivNode);
-  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::FloorModNode);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::AddObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::SubObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MulObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::DivObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::ModObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::EQObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::NEObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::LTObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::LEObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::GTObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::GEObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::AndObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::OrObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MinObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::MaxObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::FloorDivObj);
+  TVM_DECLARE_SYMBOLIC_MATCHER_BINOP(prim::FloorModObj);
 
-  void Dispatch_(const IntImmNode* op, const PrimExpr& other) {
-    const auto* rhs = other.as<IntImmNode>();
+  void Dispatch_(const IntImmObj* op, const PrimExpr& other) {
+    const auto* rhs = other.as<IntImmObj>();
     if (!rhs || (op->value != rhs->value)) {
       TVM_FFI_THROW(InternalError)
           << "Parameter expression " << ffi::GetRef<PrimExpr>(op)
@@ -118,8 +118,8 @@ class SymbolicMatcher : ExprFunctor<void(const Expr& n, const PrimExpr& other)> 
     }
   }
 
-  void Dispatch_(const FloatImmNode* op, const PrimExpr& other) {
-    const auto* rhs = other.as<FloatImmNode>();
+  void Dispatch_(const FloatImmObj* op, const PrimExpr& other) {
+    const auto* rhs = other.as<FloatImmObj>();
     if (!rhs || (op->value != rhs->value)) {
       TVM_FFI_THROW(InternalError) << "Parameter expression " << ffi::GetRef<PrimExpr>(op)
                                    << " expected an float argument with value " << op->value << ", "
@@ -127,8 +127,8 @@ class SymbolicMatcher : ExprFunctor<void(const Expr& n, const PrimExpr& other)> 
     }
   }
 
-  void Dispatch_(const prim::CastNode* op, const PrimExpr& other) {
-    const auto* rhs = other.as<prim::CastNode>();
+  void Dispatch_(const prim::CastObj* op, const PrimExpr& other) {
+    const auto* rhs = other.as<prim::CastObj>();
     if (!rhs) {
       TVM_FFI_THROW(InternalError)
           << "Parameter expression " << ffi::GetRef<PrimExpr>(op) << " expected an cast to "
@@ -138,7 +138,7 @@ class SymbolicMatcher : ExprFunctor<void(const Expr& n, const PrimExpr& other)> 
     Dispatch(op->value, rhs->value);
   }
 
-  void Dispatch_(const VarNode* op, const PrimExpr& rhs) {
+  void Dispatch_(const VarObj* op, const PrimExpr& rhs) {
     auto lhs = ffi::GetRef<Var>(op);
     PrimType lhs_ty = op->ty.as_or_throw<PrimType>();
 
@@ -155,8 +155,8 @@ class SymbolicMatcher : ExprFunctor<void(const Expr& n, const PrimExpr& other)> 
     }
   }
 
-  void Dispatch_(const prim::SelectNode* op, const PrimExpr& other) {
-    const auto* rhs = other.as<prim::SelectNode>();
+  void Dispatch_(const prim::SelectObj* op, const PrimExpr& other) {
+    const auto* rhs = other.as<prim::SelectObj>();
     if (rhs) {
       Dispatch(op->true_value, rhs->true_value);
       Dispatch(op->false_value, rhs->false_value);
@@ -193,7 +193,7 @@ class FuseTIRTensorSubstitutor : public s_tir::StmtExprMutator {
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlock block = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                               .as_or_throw<s_tir::SBlock>();
@@ -213,7 +213,7 @@ class FuseTIRTensorSubstitutor : public s_tir::StmtExprMutator {
     // However, `A[vi, vj], A[vi, vj + 1]` is not allow for now.
     // Note: the order of return region should remain the same as the first occurrence of the region
     ffi::Array<TensorRegion> ret;
-    std::unordered_map<const VarNode*, ffi::Array<Range>> tensor_region_set;
+    std::unordered_map<const VarObj*, ffi::Array<Range>> tensor_region_set;
 
     for (const TensorRegion& region : regions) {
       auto it = tensor_region_set.find(region->source.as_or_throw<tvm::tirx::TensorVar>().get());
@@ -237,12 +237,12 @@ class SBlockNameDeduplicator : public s_tir::StmtExprMutator {
  public:
   using s_tir::StmtExprMutator::Mutate;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) final {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return s_tir::StmtExprMutator::Mutate(value, inplace_mode);
   }
 
  private:
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
     s_tir::SBlock block = s_tir::StmtExprMutator::Mutate_(op, inplace_mode)
                               .ValueOrUnchanged(ffi::GetRef<Stmt>(op))
                               .as_or_throw<s_tir::SBlock>();
@@ -342,12 +342,12 @@ class RelaxToTIRVarMapCollector : public ExprVisitor {
   }
 
  private:
-  void VisitBinding_(const VarBindingNode* binding) final {
+  void VisitBinding_(const VarBindingObj* binding) final {
     current_var_ = binding->var;
     ExprVisitor::VisitBinding_(binding);
   }
 
-  void VisitExpr_(const CallNode* call) {
+  void VisitExpr_(const CallObj* call) {
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op_ = Op::Get("relax.call_tir_inplace");
 
@@ -357,7 +357,7 @@ class RelaxToTIRVarMapCollector : public ExprVisitor {
     CollectVarMapping(call, current_var_, call->op.same_as(call_tir_inplace_op_));
   }
 
-  void CollectVarMapping(const CallNode* call, const Expr& lhs_var, bool in_place) {
+  void CollectVarMapping(const CallObj* call, const Expr& lhs_var, bool in_place) {
     GlobalVar gv = call->args[0].as_or_throw<GlobalVar>();
     tirx::Function function_ = mod_->Lookup(gv).as_or_throw<tirx::Function>();
     const auto& tir_args = function_->params;
@@ -365,10 +365,10 @@ class RelaxToTIRVarMapCollector : public ExprVisitor {
     const auto& relax_args = call->args[1].as_or_throw<Tuple>()->fields;
 
     ffi::Array<Expr> relax_results;
-    if (lhs_var->IsInstance<TupleNode>()) {
+    if (lhs_var->IsInstance<TupleObj>()) {
       relax_results = lhs_var.as_or_throw<Tuple>()->fields;
     } else {
-      TVM_FFI_ICHECK(lhs_var->IsInstance<VarNode>())
+      TVM_FFI_ICHECK(lhs_var->IsInstance<VarObj>())
           << "The lhs_var is expected to be either tuple or var";
       relax_results = {lhs_var.as_or_throw<Var>()};
     }
@@ -434,7 +434,7 @@ class FusedTIRConstructor : public ExprVisitor {
                                                                     const GlobalVar& gv) {
     FusedTIRConstructor visitor(mod, gv->name_hint);
     BaseFunc f = mod->Lookup(gv);
-    TVM_FFI_ICHECK(f->IsInstance<relax::FunctionNode>())
+    TVM_FFI_ICHECK(f->IsInstance<relax::FunctionObj>())
         << "Expected relax functions, but got: " << f->GetTypeKey();
     TVM_FFI_ICHECK(f->HasNonzeroAttr(tvm::relax::attr::kPrimitive.name))
         << "Expected a function with attr `kPrimitive`";
@@ -450,7 +450,7 @@ class FusedTIRConstructor : public ExprVisitor {
   explicit FusedTIRConstructor(const IRModule& mod, const ffi::String& func_name)
       : mod_(mod), func_name_(func_name) {}
 
-  void VisitExpr_(const FunctionNode* func) final {
+  void VisitExpr_(const FunctionObj* func) final {
     auto relax_to_tir_var_map =
         RelaxToTIRVarMapCollector::Collect(mod_, ffi::GetRef<Function>(func));
     std::vector<ffi::Variant<PrimVar, tirx::TensorVar>> function_params;
@@ -541,7 +541,7 @@ class FusedTIRConstructor : public ExprVisitor {
     fused_tir_ = ConstructFunc();
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
+  void VisitBinding_(const VarBindingObj* binding) final {
     // Update expr2tensors by visiting values.
     this->VisitExpr(binding->value);
     auto it = func_info_.expr2tensors.find(binding->value);
@@ -553,11 +553,11 @@ class FusedTIRConstructor : public ExprVisitor {
     }
   }
 
-  void VisitBinding_(const MatchCastNode* match_cast) final {
+  void VisitBinding_(const MatchCastObj* match_cast) final {
     TVM_FFI_THROW(InternalError) << "MatchCast is unsupported in primitive functions";
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     ExprVisitor::VisitExpr_(call);
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op_ = Op::Get("relax.call_tir_inplace");
@@ -576,7 +576,7 @@ class FusedTIRConstructor : public ExprVisitor {
     // Step 3. Check functions are all schedulable funcs. i.e. the body of func is root block
     // TODO(Siyuan): support un-schedulable functions.
     TVM_FFI_ICHECK(function->body.has_value() && function->body.value()->size() == 1 &&
-                   function->body.value()->seq[0].as<s_tir::SBlockRealizeNode>())
+                   function->body.value()->seq[0].as<s_tir::SBlockRealizeObj>())
         << "Only schedulable functions (whose body is the root block) can be fused";
     s_tir::SBlockRealize root_realize =
         function->body.value()->seq[0].as_or_throw<s_tir::SBlockRealize>();
@@ -598,7 +598,7 @@ class FusedTIRConstructor : public ExprVisitor {
     func_info_.global_name += "_" + gv->name_hint;
   }
 
-  void VisitExpr_(const TupleGetItemNode* tuple_get_item) final {
+  void VisitExpr_(const TupleGetItemObj* tuple_get_item) final {
     ExprVisitor::VisitExpr_(tuple_get_item);
     auto it = func_info_.expr2tensors.find(tuple_get_item->tuple);
     if (it != func_info_.expr2tensors.end()) {
@@ -615,7 +615,7 @@ class FusedTIRConstructor : public ExprVisitor {
     }
   }
 
-  void VisitExpr_(const TupleNode* tuple) final {
+  void VisitExpr_(const TupleObj* tuple) final {
     ExprVisitor::VisitExpr_(tuple);
     ffi::Array<tirx::TensorVar> tensors;
     for (const Expr& expr : tuple->fields) {
@@ -629,7 +629,7 @@ class FusedTIRConstructor : public ExprVisitor {
     }
   }
 
-  void VisitExpr_(const GenericConstNode* op) final {
+  void VisitExpr_(const GenericConstObj* op) final {
     if (!op->value.as<ffi::TensorObj>()) return;
     TVM_FFI_THROW(InternalError) << "Tensor constants are not supported in primitive functions.";
   }
@@ -638,29 +638,29 @@ class FusedTIRConstructor : public ExprVisitor {
    * \brief Get the number of outputs for a call_tir node.
    * \return The number of outputs.
    */
-  static ffi::Array<ffi::Array<PrimExpr>> GetCallTIROutputShapes(const CallNode* call) {
+  static ffi::Array<ffi::Array<PrimExpr>> GetCallTIROutputShapes(const CallObj* call) {
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op_ = Op::Get("relax.call_tir_inplace");
     TVM_FFI_ICHECK(call->op.same_as(call_tir_op_) || call->op.same_as(call_tir_inplace_op_));
     TVM_FFI_ICHECK_EQ(call->ty_args.size(), 1);
     auto get_tensor_shape =
-        [](const TensorTypeNode* ty) {
-          const auto* shape_expr = ty->shape.as<ShapeExprNode>();
+        [](const TensorTypeObj* ty) {
+          const auto* shape_expr = ty->shape.as<ShapeExprObj>();
           TVM_FFI_ICHECK(shape_expr)
               << "FuseTIR expects all parameters are Tensors with symbolic shape.";
           return shape_expr->values;
         };
-    if (const auto* tuple_ty = call->ty_args[0].as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = call->ty_args[0].as<TupleTypeObj>()) {
       ffi::Array<ffi::Array<PrimExpr>> shapes;
       for (const Type& field : tuple_ty->fields) {
-        const auto* tensor_ty = field.as<TensorTypeNode>();
+        const auto* tensor_ty = field.as<TensorTypeObj>();
         TVM_FFI_ICHECK(tensor_ty) << "CallTIR ty_args are expected to be TensorType or Tuple of "
                                      "TensorType, but got "
                                   << call->ty_args[0];
         shapes.push_back(get_tensor_shape(tensor_ty));
       }
       return shapes;
-    } else if (const auto* tensor_ty = call->ty_args[0].as<TensorTypeNode>()) {
+    } else if (const auto* tensor_ty = call->ty_args[0].as<TensorTypeObj>()) {
       return {get_tensor_shape(tensor_ty)};
     } else {
       TVM_FFI_ICHECK(tensor_ty) << "CallTIR ty_args are expected to be TensorType or Tuple of "
@@ -674,7 +674,7 @@ class FusedTIRConstructor : public ExprVisitor {
   void MapArgsToTensor(const ffi::Array<Expr> args, const ffi::Array<tirx::TensorVar>& tensors) {
     size_t tensor_idx = 0;
     for (const Expr& arg : args) {
-      if (const auto* v = arg.as<VarNode>()) {
+      if (const auto* v = arg.as<VarObj>()) {
         auto it = func_info_.expr2tensors.find(ffi::GetRef<Var>(v));
         // Substitute the tensor with the already allocated one if it is an intermediate var
         if (it != func_info_.expr2tensors.end()) {
@@ -748,7 +748,7 @@ class FusedTIRConstructor : public ExprVisitor {
    * \param func The old TIR tirx::Function
    * \param output_shapes The shape of output params.
    */
-  void AllocateIntermediateTensor(const CallNode* call, const tirx::Function& func,
+  void AllocateIntermediateTensor(const CallObj* call, const tirx::Function& func,
                                   const ffi::Array<ffi::Array<PrimExpr>>& output_shapes) {
     bool is_inplace = call->op.same_as(Op::Get("relax.call_tir_inplace"));
 
@@ -797,7 +797,7 @@ class FusedTIRConstructor : public ExprVisitor {
         return unique_name;
       };
       // Update tensor with new symbolic shape according to the ty
-      auto new_type_node = ffi::make_object<tirx::TensorTypeNode>(*tensor.ty().get());
+      auto new_type_node = ffi::make_object<tirx::TensorTypeObj>(*tensor.ty().get());
       new_type_node->shape = output_shapes[i];
       tirx::TensorType new_type(std::move(new_type_node));
       tirx::TensorVar new_tensor(unify_name_hints(), std::move(new_type), tensor->loc);
@@ -823,15 +823,15 @@ class FusedTIRConstructor : public ExprVisitor {
                                     const ffi::Optional<tirx::TensorVar>& tir_tensor_param) {
     auto ty = GetType(relax_param);
 
-    TVM_FFI_CHECK(!ty.as<TupleTypeNode>(), InternalError)
+    TVM_FFI_CHECK(!ty.as<TupleTypeObj>(), InternalError)
         << "All tuple parameters should be expanded before this point in FuseTIR.  "
         << "However, parameter " << relax_param << " has type " << ty;
 
     auto name_hint = relax_param->name;
 
-    if (const auto* tensor_type = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor_type = ty.as<TensorTypeObj>()) {
       // Case 1. The relax param is a Tensor, we directly create a tirx var and tensor
-      const auto* shape_expr = tensor_type->shape.as<ShapeExprNode>();
+      const auto* shape_expr = tensor_type->shape.as<ShapeExprObj>();
       TVM_FFI_ICHECK(shape_expr) << "FuseTIR expects all Tensor parameters have a known shape.";
       PrimType dtype = tensor_type->dtype.value();
       tirx::TensorVar tensor =
@@ -841,11 +841,11 @@ class FusedTIRConstructor : public ExprVisitor {
               : tirx::TensorVar(name_hint, tirx::TensorType(shape_expr->values, dtype));
       out->push_back(std::move(tensor));
 
-    } else if (ty.as<PrimTypeNode>()) {
+    } else if (ty.as<PrimTypeObj>()) {
       // Case 2. The relax param is a scalar, so its canonical Var is a TIR parameter.
       out->push_back(relax_param.as_or_throw<PrimVar>());
 
-    } else if (const auto* shape_expr = ty.as<ShapeTypeNode>()) {
+    } else if (const auto* shape_expr = ty.as<ShapeTypeObj>()) {
       // Case 3. The relax param is a tuple of scalars, each represented as a tirx var
       for (const auto& var : shape_expr->values.value()) {
         auto prim_var = var.as<PrimVar>();
@@ -896,9 +896,9 @@ class FusedTIRConstructor : public ExprVisitor {
 
   /*! \brief Get DynTensor numbers from recursive Tuples. */
   static size_t GetTotalTensorSize(const Type& ty) {
-    if (ty.as<TensorTypeNode>()) {
+    if (ty.as<TensorTypeObj>()) {
       return 1;
-    } else if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    } else if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       size_t num = 0;
       for (const Type& ty : tuple_ty->fields) {
         num += GetTotalTensorSize(ty);
@@ -935,7 +935,7 @@ class FusedTIRConstructor : public ExprVisitor {
     /*! \brief Tensor annotations keyed by their placeholder parameters. */
     ffi::Map<tvm::Var, tirx::TensorVar> tensor_map;
     /*! \brief The output tensors among the function parameters. */
-    std::unordered_set<const tvm::VarNode*> output_tensors;
+    std::unordered_set<const tvm::VarObj*> output_tensors;
     /*! \brief The name of the fused function */
     std::string global_name = "fused";
 
@@ -972,11 +972,11 @@ class FusedTIRConstructor : public ExprVisitor {
   std::unordered_set<size_t> inplace_indices_;
 };
 
-std::vector<size_t> GetTupleAccessedIndices(const FunctionNode* func, const Var& tuple_var) {
+std::vector<size_t> GetTupleAccessedIndices(const FunctionObj* func, const Var& tuple_var) {
   // Need to be ordered
   std::vector<size_t> indices;
   PostOrderVisit(func->body, [&indices, tuple_var](Expr e) {
-    if (auto tup_get = e.as<TupleGetItemNode>(); tup_get && tup_get->tuple.same_as(tuple_var)) {
+    if (auto tup_get = e.as<TupleGetItemObj>(); tup_get && tup_get->tuple.same_as(tuple_var)) {
       if (std::find(indices.begin(), indices.end(), tup_get->index) == indices.end()) {
         indices.push_back(tup_get->index);
       }
@@ -1032,7 +1032,7 @@ class TIRFuseMutator : public ExprMutator {
     // into the new IRModule
 
     for (const auto& [gv, func] : mod->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         TVM_FFI_ICHECK(!func->HasNonzeroAttr(tvm::relax::attr::kPrimitive.name))
             << "Module should not contain any primitive relax functions at this point";
         relax::Function update_func = mutator.VisitExpr(func).as_or_throw<Function>();
@@ -1061,19 +1061,19 @@ class TIRFuseMutator : public ExprMutator {
 
   // Get shape from call tirx
   static Expr GetCallTIRShape(Type ty) {
-    if (auto* tuple = ty.as<TupleTypeNode>()) {
+    if (auto* tuple = ty.as<TupleTypeObj>()) {
       ffi::Array<Expr> fields = tuple->fields.Map([&](Type x) { return GetCallTIRShape(x); });
       return Tuple(fields);
     } else {
-      auto* tensor = ty.as<TensorTypeNode>();
+      auto* tensor = ty.as<TensorTypeObj>();
       TVM_FFI_ICHECK(tensor) << "FuseTIR can only take tensor or tuple type";
-      auto* shape_expr = tensor->shape.as<ShapeExprNode>();
+      auto* shape_expr = tensor->shape.as<ShapeExprObj>();
       TVM_FFI_ICHECK(shape_expr) << "FuseTIR requires all intermediate values have shape";
       return ffi::GetRef<ShapeExpr>(shape_expr);
     }
   }
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     static const Op call_tir_op_ = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op_ = Op::Get("relax.call_tir_inplace");
 
@@ -1108,14 +1108,14 @@ class TIRFuseMutator : public ExprMutator {
       auto ty = GetType(arg);
 
       TVM_FFI_CHECK(
-          !relax_func->params[i]->ty->IsInstance<TupleTypeNode>() && !ty.as<TupleTypeNode>(),
+          !relax_func->params[i]->ty->IsInstance<TupleTypeObj>() && !ty.as<TupleTypeObj>(),
           InternalError)
           << "All tuple parameters should be expanded before this point in FuseTIR.  "
           << "However, argument " << arg << " with type " << arg->ty << " is passed as argument "
           << i << " to Primitive Relax function " << old_gvar << ", which expects parameter "
           << relax_func->params[i] << " to have type " << relax_func->params[i]->ty;
 
-      if (const auto* shape = ty.as<ShapeTypeNode>()) {
+      if (const auto* shape = ty.as<ShapeTypeObj>()) {
         TVM_FFI_ICHECK(shape->values.has_value())
             << "FuseTIR requires all shape input has ty value.";
         for (const PrimExpr& prim_value : shape->values.value()) {
@@ -1123,7 +1123,7 @@ class TIRFuseMutator : public ExprMutator {
               << "All shape inputs are expected to be single tirx var.";
           arg_list.push_back(prim_value);
         }
-      } else if (ty.as<PrimTypeNode>()) {
+      } else if (ty.as<PrimTypeObj>()) {
         if (auto literal = arg.as<PrimExpr>()) {
           arg_list.push_back(literal.value());
         } else {

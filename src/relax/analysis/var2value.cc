@@ -30,7 +30,7 @@ namespace relax {
 class Var2ValAnalysis : public relax::ExprVisitor {
  public:
   ffi::Map<Var, Expr> var2value_;
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     var2value_.Set(binding->var, binding->value);
     // Recursively visit the value to handle local functions.
     VisitExpr(binding->value);
@@ -54,7 +54,7 @@ ffi::Map<Var, Expr> AnalyzeVar2Value(const IRModule& m) {
 
   for (const auto& it : m->functions) {
     // visit relax.Function
-    if (auto* n = it.second.as<FunctionNode>()) {
+    if (auto* n = it.second.as<FunctionObj>()) {
       var2val_analysis.VisitExpr(ffi::GetRef<Function>(n));
     }
   }
@@ -73,12 +73,12 @@ class Name2BindingAnalysis : public relax::ExprVisitor {
   // Map is not suitable for doing in-place update.
   // so we use standard container for internal usage.
   std::map<ffi::String, ffi::Array<Binding>> name2bindings_;
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     const auto& vname = binding->var->name;
     name2bindings_[vname].push_back(ffi::GetRef<VarBinding>(binding));
   }
 
-  void VisitBinding_(const MatchCastNode* binding) override {
+  void VisitBinding_(const MatchCastObj* binding) override {
     const auto& vname = binding->var->name;
     name2bindings_[vname].push_back(ffi::GetRef<MatchCast>(binding));
   }

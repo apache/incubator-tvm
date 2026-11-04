@@ -147,7 +147,13 @@ IntGroupBounds IntGroupBounds::operator+(const Range& r) {
 
 ffi::Optional<Range> IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) const {
   Analyzer analyzer;
-  analyzer->Bind(vranges_addl);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : vranges_addl) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
 
   ffi::Map<Var, IntSet> var_intsets;
   for (auto kv : vranges_addl) {
@@ -233,22 +239,22 @@ struct ExprLess {
  */
 class NormalizeComparisons : public tvm::ExprMutator {
  public:
-  UnchangedOr<PrimExpr> Mutate_(const prim::EQNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::EQObj* op, InplaceMode inplace_mode) override {
     return Make<prim::EQ>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::NENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::NEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::NE>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::LTNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::LTObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LT>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::LENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::LEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LE>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::GTNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::GTObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LT>(op->b, op->a);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::GENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::GEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LE>(op->b, op->a);
   }
 
@@ -276,9 +282,9 @@ void AddInequality(std::vector<PrimExpr>* inequality_set, const PrimExpr& new_in
     // or has already been added
     return;
   }
-  if (const prim::LENode* new_le = new_ineq.as<prim::LENode>()) {
+  if (const prim::LEObj* new_le = new_ineq.as<prim::LEObj>()) {
     for (auto iter = inequality_set->begin(); iter != inequality_set->end();) {
-      const prim::LENode* le = iter->as<prim::LENode>();
+      const prim::LEObj* le = iter->as<prim::LEObj>();
       if (le && analyzer->CanProve(new_le->a - le->a <= 0)) {
         return;
       } else if (le && analyzer->CanProve(le->a - new_le->a <= 0)) {
@@ -300,9 +306,9 @@ void ClassifyByPolarity(const PrimVar& var, const std::vector<PrimExpr>& current
   // Take formulas from current_ineq_set and classify them according to polarity wrt var
   // and store to coef_pos and coef_neg respectively.
   for (const PrimExpr& ineq : current_ineq_set) {
-    if (const prim::LENode* le = ineq.as<prim::LENode>()) {
+    if (const prim::LEObj* le = ineq.as<prim::LEObj>()) {
       ffi::Array<PrimExpr> coef = tirx::DetectLinearEquation(le->a, {var});
-      const auto* imm = !coef.empty() ? coef[0].as<IntImmNode>() : nullptr;
+      const auto* imm = !coef.empty() ? coef[0].as<IntImmObj>() : nullptr;
       if (auto value = imm ? imm->value.as<int64_t>() : std::nullopt; value.has_value()) {
         int64_t coef0 = *value;
         if (coef0 == 0) {
@@ -315,9 +321,9 @@ void ClassifyByPolarity(const PrimVar& var, const std::vector<PrimExpr>& current
         }
         continue;
       }
-    } else if (const prim::EQNode* eq = ineq.as<prim::EQNode>()) {
+    } else if (const prim::EQObj* eq = ineq.as<prim::EQObj>()) {
       ffi::Array<PrimExpr> coef = tirx::DetectLinearEquation(eq->a, {var});
-      const auto* imm = !coef.empty() ? coef[0].as<IntImmNode>() : nullptr;
+      const auto* imm = !coef.empty() ? coef[0].as<IntImmObj>() : nullptr;
       if (auto value = imm ? imm->value.as<int64_t>() : std::nullopt; value.has_value()) {
         int64_t coef0 = *value;
         if (coef0 == 0) {
@@ -358,7 +364,13 @@ void MoveEquality(std::vector<PrimExpr>* upper_bounds, std::vector<PrimExpr>* lo
 
 PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_to_solve) {
   sym::Analyzer analyzer;
-  analyzer->Bind(system_to_solve.ranges);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : system_to_solve.ranges) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
 
   // The algorithm consists in doing the following things for each variable v
   // - Take formulas from `current_ineq_set_to_solve` and
@@ -555,7 +567,13 @@ IntConstraints SolveInequalitiesToRange(const IntConstraints& inequalities) {
   // This order is needed to compute new ranges.
   for (auto it = inequalities.variables.rbegin(); it != inequalities.variables.rend(); ++it) {
     sym::Analyzer analyzer;
-    analyzer->Bind(vranges);
+    {
+      sym::ConstraintContext context;
+      for (const auto& [var, range] : vranges) {
+        context->Append(sym::RangeConstraint(var, range));
+      }
+      analyzer->SyncConstraintContext(context);
+    }
 
     const PrimVar& var = *it;
     TVM_FFI_ICHECK(solved_bounds.count(var));
@@ -591,7 +609,13 @@ IntConstraints SolveInequalitiesToRange(const IntConstraints& inequalities) {
 
   // Add the original conditions to the resulting conditions
   sym::Analyzer analyzer;
-  analyzer->Bind(vranges);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : vranges) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
   for (const PrimExpr& old_cond :
        AsConditions(inequalities.variables, solved_bounds, solved_other_relations)) {
     if (!analyzer->CanProve(old_cond)) {
@@ -621,24 +645,24 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
   ffi::Array<PrimExpr> equations;
   ffi::Array<PrimVar> vars;
   std::function<void(const PrimExpr&)> fvisit = [&equations, &vars, &fvisit](const PrimExpr& e) {
-    if (e->IsInstance<prim::GENode>() || e->IsInstance<prim::GTNode>() ||
-        e->IsInstance<prim::LENode>() || e->IsInstance<prim::LTNode>() ||
-        e->IsInstance<prim::EQNode>() || e->IsInstance<prim::NENode>()) {
+    if (e->IsInstance<prim::GEObj>() || e->IsInstance<prim::GTObj>() ||
+        e->IsInstance<prim::LEObj>() || e->IsInstance<prim::LTObj>() ||
+        e->IsInstance<prim::EQObj>() || e->IsInstance<prim::NEObj>()) {
       bool is_simple = true;
       std::vector<PrimVar> cand_vars;
       auto walk_fn = [&cand_vars, &is_simple,
                       &e](const PrimExpr& obj) -> ffi::Expected<ffi::WalkResult> {
         if (obj.same_as(e)) {
           return ffi::WalkResult::Advance();
-        } else if (const VarNode* var = obj.as<VarNode>()) {
+        } else if (const VarObj* var = obj.as<VarObj>()) {
           PrimType var_ty = var->ty.as_or_throw<PrimType>();
           if (var_ty.MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt)) {
             cand_vars.push_back(ffi::GetRef<Var>(var).as_or_throw<PrimVar>());
           }
         } else {
-          is_simple &= obj->IsInstance<prim::AddNode>() || obj->IsInstance<prim::SubNode>() ||
-                       obj->IsInstance<prim::MulNode>() || obj->IsInstance<prim::FloorDivNode>() ||
-                       obj->IsInstance<prim::FloorModNode>() || obj->IsInstance<IntImmNode>();
+          is_simple &= obj->IsInstance<prim::AddObj>() || obj->IsInstance<prim::SubObj>() ||
+                       obj->IsInstance<prim::MulObj>() || obj->IsInstance<prim::FloorDivObj>() ||
+                       obj->IsInstance<prim::FloorModObj>() || obj->IsInstance<IntImmObj>();
         }
         return ffi::WalkResult::Advance();
       };
@@ -652,11 +676,11 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
         }
         equations.push_back(e.as_or_throw<PrimExpr>());
       }
-    } else if (e->IsInstance<prim::AndNode>()) {
+    } else if (e->IsInstance<prim::AndObj>()) {
       prim::And op = e.as_or_throw<prim::And>();
       fvisit(op->a);
       fvisit(op->b);
-    } else if (e->IsInstance<CallNode>()) {
+    } else if (e->IsInstance<CallObj>()) {
       Call op = e.as_or_throw<Call>();
       if (op->op.same_as(prim::likely_op())) {
         fvisit(op->args[0].as_or_throw<PrimExpr>());

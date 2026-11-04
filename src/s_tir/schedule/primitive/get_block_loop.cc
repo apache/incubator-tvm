@@ -32,14 +32,14 @@ ffi::Array<StmtSRef> GetSBlocks(const ScheduleState& self, const ffi::String& na
     using StmtExprVisitor::Visit_;
 
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-      if (value.as<ExprNode>()) return std::nullopt;
+      if (value.as<ExprObj>()) return std::nullopt;
       return StmtExprVisitor::Visit(value);
     }
 
     explicit Finder(const ScheduleState& self, const ffi::String& name)
         : self_(self), name_(name) {}
 
-    ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) override {
+    ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) override {
       if (block->name_hint == name_) {
         auto it = self_->stmt2ref.find(block);
         TVM_FFI_ICHECK(it != self_->stmt2ref.end());
@@ -54,7 +54,7 @@ ffi::Array<StmtSRef> GetSBlocks(const ScheduleState& self, const ffi::String& na
   };
 
   BaseFunc func = self->mod->Lookup(gv);
-  const auto* function = TVM_TYPE_AS(func, FunctionNode);
+  const auto* function = TVM_TYPE_AS(func, FunctionObj);
   auto finder = ffi::make_object<Finder>(self, name);
   finder->Visit(function->body);
   return std::move(finder->results_);
@@ -62,7 +62,7 @@ ffi::Array<StmtSRef> GetSBlocks(const ScheduleState& self, const ffi::String& na
 
 ffi::Array<StmtSRef> GetLoops(const StmtSRef& block_sref) {
   std::vector<StmtSRef> result;
-  for (StmtSRefObj* parent = block_sref->parent; parent && parent->stmt->IsInstance<ForNode>();
+  for (StmtSRefObj* parent = block_sref->parent; parent && parent->stmt->IsInstance<ForObj>();
        parent = parent->parent) {
     result.push_back(ffi::GetRef<StmtSRef>(parent));
   }
@@ -74,12 +74,12 @@ ffi::Array<StmtSRef> GetChildBlocks(const ScheduleState& self, const StmtSRef& p
     using StmtExprVisitor::Visit_;
 
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-      if (value.as<ExprNode>()) return std::nullopt;
+      if (value.as<ExprObj>()) return std::nullopt;
       return StmtExprVisitor::Visit(value);
     }
 
    private:
-    ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) final {
+    ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) final {
       result.push_back(self->stmt2ref.at(block));
       return std::nullopt;
     }
@@ -91,11 +91,11 @@ ffi::Array<StmtSRef> GetChildBlocks(const ScheduleState& self, const StmtSRef& p
     ffi::Array<StmtSRef> result;
   };
   auto collector = ffi::make_object<Collector>(self);
-  if (parent_sref->stmt->IsInstance<ForNode>()) {
-    const auto* loop = static_cast<const ForNode*>(parent_sref->stmt);
+  if (parent_sref->stmt->IsInstance<ForObj>()) {
+    const auto* loop = static_cast<const ForObj*>(parent_sref->stmt);
     collector->Visit(loop->body);
-  } else if (parent_sref->stmt->IsInstance<SBlockNode>()) {
-    const auto* block = static_cast<const SBlockNode*>(parent_sref->stmt);
+  } else if (parent_sref->stmt->IsInstance<SBlockObj>()) {
+    const auto* block = static_cast<const SBlockObj*>(parent_sref->stmt);
     collector->Visit(block->body);
   }
   return std::move(collector->result);

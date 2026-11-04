@@ -43,8 +43,8 @@ class ExternFunctionRewriter : ExprMutator {
   ExternFunctionRewriter(IRModule mod, size_t max_workspace_size)
       : ExprMutator(mod), max_workspace_size_(max_workspace_size) {}
 
-  std::unordered_map<const GlobalVarNode*, Function> Run() {
-    std::unordered_map<const GlobalVarNode*, Function> ret;
+  std::unordered_map<const GlobalVarObj*, Function> Run() {
+    std::unordered_map<const GlobalVarObj*, Function> ret;
     for (const auto& [gvar, f] : builder_->GetContextIRModule()->functions) {
       if (f->GetAttr(tvm::relax::attr::kWorkspaceSize)) {
         ret.insert_or_assign(gvar.get(), VisitExpr(f).as_or_throw<Function>());
@@ -53,7 +53,7 @@ class ExternFunctionRewriter : ExprMutator {
     return ret;
   }
 
-  Expr VisitExpr_(const FunctionNode* func_node) override {
+  Expr VisitExpr_(const FunctionObj* func_node) override {
     if (!func_node->GetAttr(tvm::relax::attr::kCodegen) &&
         !func_node->GetAttr(tvm::relax::attr::kComposite)) {
       return ExprMutator::VisitExpr_(func_node);
@@ -78,11 +78,11 @@ class ExternFunctionRewriter : ExprMutator {
     return ExprMutator::VisitExpr_(func_node);
   }
 
-  Expr VisitExpr_(const CallNode* call_node) override {
+  Expr VisitExpr_(const CallObj* call_node) override {
     auto new_op = VisitExpr(call_node->op);
     if (auto var = new_op.as<Var>()) {
       if (auto callee = builder_->LookupBinding(var.value());
-          callee && callee.value()->IsInstance<FunctionNode>() &&
+          callee && callee.value()->IsInstance<FunctionObj>() &&
           callee.value().as_or_throw<Function>()->GetAttr<ffi::String>(
               tvm::relax::attr::kComposite.name)) {
         // Append the workspace argument to this call. The callee should have been updated to accept
@@ -136,7 +136,7 @@ class WorkspaceProvider : ExprMutator {
 
     for (const auto& [gvar, f] : mod_->functions) {
       workspace_var_main_ = std::nullopt;
-      if (!f->IsInstance<relax::FunctionNode>() || f->GetAttr(tvm::relax::attr::kCodegen) ||
+      if (!f->IsInstance<relax::FunctionObj>() || f->GetAttr(tvm::relax::attr::kCodegen) ||
           f->GetAttr(tvm::relax::attr::kComposite)) {
         continue;
       }
@@ -148,7 +148,7 @@ class WorkspaceProvider : ExprMutator {
     return builder_->GetContextIRModule();
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block_node) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block_node) final {
     builder_->BeginDataflowBlock();
     if (!workspace_var_main_.has_value()) {
       auto shape = ShapeExpr({IntImm::Int32(max_workspace_size_)});
@@ -162,14 +162,14 @@ class WorkspaceProvider : ExprMutator {
     return builder_->EndBlock();
   }
 
-  Expr VisitExpr_(const GlobalVarNode* gvar_node) override {
+  Expr VisitExpr_(const GlobalVarObj* gvar_node) override {
     if (gvar_map_.count(gvar_node)) {
       return gvar_map_.at(gvar_node);
     }
     return ExprMutator::VisitExpr_(gvar_node);
   }
 
-  Expr VisitExpr_(const CallNode* call_node) override {
+  Expr VisitExpr_(const CallObj* call_node) override {
     auto new_op = VisitExpr(call_node->op);
 
     if (auto gv = new_op.as<GlobalVar>()) {
@@ -193,7 +193,7 @@ class WorkspaceProvider : ExprMutator {
   /*! \brief A map from old global variables representing a function with workspace requirement to
    * the new ones that are transformed to take an additional workspace parameter. This is only
    * needed since the type of the global variables changes between transformation. */
-  std::unordered_map<const GlobalVarNode*, GlobalVar> gvar_map_;
+  std::unordered_map<const GlobalVarObj*, GlobalVar> gvar_map_;
   std::unordered_set<GlobalVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> new_gvars_;
 };
 

@@ -35,7 +35,7 @@ struct AsyncStridedMemCopyFinder : public StmtExprVisitor {
   static bool Find(const IRModule& mod) {
     auto finder = ffi::make_object<AsyncStridedMemCopyFinder>();
     for (const auto& kv : mod->functions) {
-      if (const auto* function = kv.second.as<FunctionNode>()) {
+      if (const auto* function = kv.second.as<FunctionObj>()) {
         finder->Visit(function->body);
         if (finder->found_) {
           return true;
@@ -46,7 +46,7 @@ struct AsyncStridedMemCopyFinder : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
     if (!found_) {
       input_iters.Set(loop->var, Range(loop->begin, loop->end));
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(loop));
@@ -54,7 +54,7 @@ struct AsyncStridedMemCopyFinder : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const RegionStmtObj* op) final {
     bool previous = in_async_copy_;
     in_async_copy_ |= op->op.same_as(s_tir::async_copy_scope());
     auto result = StmtExprVisitor::Visit_(op);
@@ -62,9 +62,9 @@ struct AsyncStridedMemCopyFinder : public StmtExprVisitor {
     return result;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     if (!found_ && in_async_copy_) {
-      if (const auto* load = op->value.as<TensorLoadNode>()) {
+      if (const auto* load = op->value.as<TensorLoadObj>()) {
         // Inspect each copy, including copies grouped under one commit or predicate.
         sym::Analyzer analyzer;
         auto store_map = DetectIterMap(op->indices, input_iters, 1, sym::IterMapLevel::Surjective,
@@ -102,7 +102,7 @@ class DisallowAsyncStridedMemCopyObj : public PostprocObj {
     for (const auto& kv : mod->functions) {
       const GlobalVar& g_var = kv.first;
       const BaseFunc& base_func = kv.second;
-      if (const auto* function = base_func.as<tirx::FunctionNode>()) {
+      if (const auto* function = base_func.as<tirx::FunctionObj>()) {
         IRModule lowered{ffi::UnsafeInit()};
         try {
           auto pass_list = ffi::Array<tvm::transform::Pass>();

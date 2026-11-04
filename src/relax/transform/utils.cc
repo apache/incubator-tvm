@@ -25,14 +25,14 @@ namespace tvm {
 namespace relax {
 
 bool IsScalarTensor(const Type& ty) {
-  if (!ty->IsInstance<TensorTypeNode>()) {
+  if (!ty->IsInstance<TensorTypeObj>()) {
     return false;
   }
   TensorType tensor_ty = ty.as_or_throw<TensorType>();
-  if (!tensor_ty->shape.has_value() || !tensor_ty->shape.value()->IsInstance<ShapeExprNode>()) {
+  if (!tensor_ty->shape.has_value() || !tensor_ty->shape.value()->IsInstance<ShapeExprObj>()) {
     return false;
   }
-  return tensor_ty->shape.as<ShapeExprNode>()->values.size() == 0;
+  return tensor_ty->shape.as<ShapeExprObj>()->values.size() == 0;
 }
 
 bool IsScalarTensor(const Expr& expr) { return IsScalarTensor(GetType(expr)); }
@@ -51,7 +51,7 @@ Function ComposeFunctions(Function func_a, Function func_b) {
   bindings.push_back(VarBinding(func_a_output, func_a->body));
 
   auto func_a_outputs = [&]() -> ffi::Array<Expr> {
-    if (auto func_a_output_tuple = func_a->ret_ty.as<TupleTypeNode>()) {
+    if (auto func_a_output_tuple = func_a->ret_ty.as<TupleTypeObj>()) {
       ffi::Array<Expr> outputs;
       for (size_t i = 0; i < func_a_output_tuple->fields.size(); i++) {
         outputs.push_back(TupleGetItem(func_a_output, i));
@@ -62,7 +62,7 @@ Function ComposeFunctions(Function func_a, Function func_b) {
     }
   }();
 
-  if (func_b->params.size() == 1 && func_b->params[0]->ty.as<TupleTypeNode>()) {
+  if (func_b->params.size() == 1 && func_b->params[0]->ty.as<TupleTypeObj>()) {
     // Special case where the output of the first function is a tuple
     // that should be provided as-is to the second function, and
     // should not be unpacked into individual elements.

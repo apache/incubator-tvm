@@ -142,4 +142,5 @@ def create_wasm(output, objects, options=None, cc="emcc", libs=None):
         raise RuntimeError(msg)
 
 
-create_wasm.object_format = "bc"
+# Pass target objects across LLVM versions instead of version-specific bitcode.
+create_wasm.object_format = "o"

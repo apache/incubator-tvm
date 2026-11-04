@@ -46,14 +46,14 @@ namespace relax {
 
 class MatcherUseDefAnalysis : public relax::ExprVisitor {
  public:
-  std::vector<const VarNode*> vars;
-  std::map<const VarNode*, std::vector<const VarNode*>> def2use;
+  std::vector<const VarObj*> vars;
+  std::map<const VarObj*, std::vector<const VarObj*>> def2use;
   // caller -> callee table.
-  std::map<const VarNode*, std::vector<const VarNode*>> caller2callees;
+  std::map<const VarObj*, std::vector<const VarObj*>> caller2callees;
 
-  const VarNode* cur_user_ = nullptr;
+  const VarObj* cur_user_ = nullptr;
 
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     // init
     cur_user_ = binding->var.get();
     this->VisitVarDef(binding->var);
@@ -61,10 +61,10 @@ class MatcherUseDefAnalysis : public relax::ExprVisitor {
     cur_user_ = nullptr;
   }
 
-  void VisitExpr_(const VarNode* op) override {
+  void VisitExpr_(const VarObj* op) override {
     if (nullptr == cur_user_) return;
 
-    auto check_and_push = [](std::vector<const VarNode*>& vec, const VarNode* var) {
+    auto check_and_push = [](std::vector<const VarObj*>& vec, const VarObj* var) {
       if (std::find(vec.begin(), vec.end(), var) == vec.end()) {
         vec.push_back(var);
       }
@@ -78,13 +78,13 @@ class MatcherUseDefAnalysis : public relax::ExprVisitor {
 };
 
 struct PNode {
-  const DFPatternNode* ptr;
+  const DFPatternObj* ptr;
   std::vector<std::pair<PNode*, const std::vector<PairCons>&>> children;
   std::vector<std::pair<PNode*, const std::vector<PairCons>&>> parents;
 };
 
 struct RNode {
-  const VarNode* ptr;
+  const VarObj* ptr;
   std::vector<RNode*> children;
   std::vector<RNode*> parents;
 };
@@ -95,7 +95,7 @@ struct MatchState {
     match_r_p[r] = p;
   }
 
-  void add(const DFConstraintNode* constraint) { validated_constraints_.insert(constraint); }
+  void add(const DFConstraintObj* constraint) { validated_constraints_.insert(constraint); }
 
   void add(MatchState&& other) {
     match_p_r.merge(std::move(other.match_p_r));
@@ -103,31 +103,31 @@ struct MatchState {
     validated_constraints_.merge(other.validated_constraints_);
   }
 
-  const VarNode* matched(const PNode* p) const {
+  const VarObj* matched(const PNode* p) const {
     if (auto it = match_p_r.find(p); it != match_p_r.end()) {
       return it->second->ptr;
     }
     return nullptr;
   }
 
-  const DFPatternNode* matched(const RNode* r) const {
+  const DFPatternObj* matched(const RNode* r) const {
     if (auto it = match_r_p.find(r); it != match_r_p.end()) {
       return it->second->ptr;
     }
     return nullptr;
   }
 
-  const VarNode* matched(const PNode& p) const { return matched(&p); }
-  const DFPatternNode* matched(const RNode& r) const { return matched(&r); }
+  const VarObj* matched(const PNode& p) const { return matched(&p); }
+  const DFPatternObj* matched(const RNode& r) const { return matched(&r); }
 
-  bool is_validated(const DFConstraintNode* constraint) const {
+  bool is_validated(const DFConstraintObj* constraint) const {
     return validated_constraints_.count(constraint);
   }
 
  private:
   std::unordered_map<const PNode*, const RNode*> match_p_r;
   std::unordered_map<const RNode*, const PNode*> match_r_p;
-  std::unordered_set<const DFConstraintNode*> validated_constraints_;
+  std::unordered_set<const DFConstraintObj*> validated_constraints_;
 };
 
 /**
@@ -189,12 +189,12 @@ static std::optional<MatchState> TryMatch(const PNode& p, const RNode& r,
 
 static std::optional<MatchState> TryValidate(
     const MatchState& current_match,
-    const std::unordered_map<const DFPatternNode*, PNode>& pattern2node,
+    const std::unordered_map<const DFPatternObj*, PNode>& pattern2node,
     const std::vector<DFConstraint>& validation_constraints, sym::AnalyzerObj* analyzer) {
   MatchState new_match;
 
-  std::function<ffi::Optional<Var>(const DFPatternNode*)> query_match_state =
-      [&pattern2node, &current_match](const DFPatternNode* pattern) -> ffi::Optional<Var> {
+  std::function<ffi::Optional<Var>(const DFPatternObj*)> query_match_state =
+      [&pattern2node, &current_match](const DFPatternObj* pattern) -> ffi::Optional<Var> {
     auto it = pattern2node.find(pattern);
     TVM_FFI_ICHECK(it != pattern2node.end())
         << "DFConstraint attempted to access DFPattern " << ffi::GetRef<DFPattern>(pattern)
@@ -212,7 +212,7 @@ static std::optional<MatchState> TryValidate(
       auto [necessary_condition, is_sufficient] = constraint->AsCondition(query_match_state);
 
       necessary_condition = analyzer->Simplify(necessary_condition);
-      const auto* known = necessary_condition.as<IntImmNode>();
+      const auto* known = necessary_condition.as<IntImmObj>();
 
       if (known && known->value != 0 && is_sufficient) {
         // The condition passes, and the expression provided is both
@@ -241,8 +241,8 @@ static std::optional<MatchState> TryValidate(
 
 static std::optional<MatchState> MatchTree(
     const MatchState& current_match, size_t current_root_idx,
-    const std::unordered_map<const DFPatternNode*, PNode>& pattern2node,
-    const std::unordered_map<const VarNode*, RNode>& var2node, DFPatternMatcher* matcher,
+    const std::unordered_map<const DFPatternObj*, PNode>& pattern2node,
+    const std::unordered_map<const VarObj*, RNode>& var2node, DFPatternMatcher* matcher,
     const std::vector<DFPattern>& roots, const std::vector<DFConstraint>& validation_constraints,
     const MatcherUseDefAnalysis& ud_analysis, sym::AnalyzerObj* analyzer) {
   auto get_next_root = [&](size_t root_idx) -> const PNode* {
@@ -303,14 +303,14 @@ ffi::Optional<ffi::Map<DFPattern, Var>> MatchGraph(const PatternContext& ctx,
   }
 
   // First construct a graph of PNode and RNode.
-  std::unordered_map<const VarNode*, RNode> var2node;
+  std::unordered_map<const VarObj*, RNode> var2node;
   var2node.reserve(bindings.size());
 
-  for (const VarNode* cur_var : ud_analysis.vars) {
+  for (const VarObj* cur_var : ud_analysis.vars) {
     const auto& uses = ud_analysis.def2use.at(cur_var);
     RNode& cur_node = var2node[cur_var];
     cur_node.ptr = cur_var;
-    for (const VarNode* use : uses) {
+    for (const VarObj* use : uses) {
       auto& use_node = var2node[use];
       use_node.ptr = use;
       cur_node.children.push_back(&use_node);
@@ -318,7 +318,7 @@ ffi::Optional<ffi::Map<DFPattern, Var>> MatchGraph(const PatternContext& ctx,
     }
   }
 
-  std::unordered_map<const DFPatternNode*, PNode> pattern2node;
+  std::unordered_map<const DFPatternObj*, PNode> pattern2node;
   pattern2node.reserve(ctx->edge_constraints.size());
 
   for (const auto& def_pattern : ctx->src_ordered) {

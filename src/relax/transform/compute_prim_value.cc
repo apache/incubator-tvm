@@ -35,7 +35,7 @@ namespace relax {
 
 namespace {
 
-bool HasRelaxCallCapabilities(const CallNode* call) {
+bool HasRelaxCallCapabilities(const CallObj* call) {
   auto op = call->op.as<Op>();
   if (!op) return true;
   static auto infer_type_map = Op::GetAttrMap(tvm::op_attr::kInferType);
@@ -53,7 +53,7 @@ class PrimExprComputeInjector : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     Call call = ffi::GetRef<Call>(op);
     if (auto prim_expr = call.as<PrimExpr>()) {
       if (call->op.as<Op>() && !HasRelaxCallCapabilities(op)) {
@@ -68,47 +68,47 @@ class PrimExprComputeInjector : public ExprMutator {
     return LiftPrimValue(ffi::GetRef<Expr>(op).as_or_throw<PrimExpr>()); \
   }
 
-  RELAX_LIFT_PRIM_EXPR(TensorLoadNode);
-  RELAX_LIFT_PRIM_EXPR(prim::AddNode);
-  RELAX_LIFT_PRIM_EXPR(prim::LShiftNode);
-  RELAX_LIFT_PRIM_EXPR(prim::RShiftNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseAndNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseOrNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseXorNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseNotNode);
-  RELAX_LIFT_PRIM_EXPR(prim::SubNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MulNode);
-  RELAX_LIFT_PRIM_EXPR(prim::DivNode);
-  RELAX_LIFT_PRIM_EXPR(prim::ModNode);
-  RELAX_LIFT_PRIM_EXPR(prim::FloorDivNode);
-  RELAX_LIFT_PRIM_EXPR(prim::FloorModNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MinNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MaxNode);
-  RELAX_LIFT_PRIM_EXPR(prim::EQNode);
-  RELAX_LIFT_PRIM_EXPR(prim::NENode);
-  RELAX_LIFT_PRIM_EXPR(prim::LTNode);
-  RELAX_LIFT_PRIM_EXPR(prim::LENode);
-  RELAX_LIFT_PRIM_EXPR(prim::GTNode);
-  RELAX_LIFT_PRIM_EXPR(prim::GENode);
-  RELAX_LIFT_PRIM_EXPR(prim::AndNode);
-  RELAX_LIFT_PRIM_EXPR(prim::OrNode);
-  RELAX_LIFT_PRIM_EXPR(prim::CastNode);
-  RELAX_LIFT_PRIM_EXPR(prim::NotNode);
-  RELAX_LIFT_PRIM_EXPR(prim::SelectNode);
-  RELAX_LIFT_PRIM_EXPR(prim::RampNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BroadcastNode);
-  RELAX_LIFT_PRIM_EXPR(prim::ShuffleNode);
-  RELAX_LIFT_PRIM_EXPR(tvm::IntImmNode);
-  RELAX_LIFT_PRIM_EXPR(tvm::FloatImmNode);
+  RELAX_LIFT_PRIM_EXPR(TensorLoadObj);
+  RELAX_LIFT_PRIM_EXPR(prim::AddObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LShiftObj);
+  RELAX_LIFT_PRIM_EXPR(prim::RShiftObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseAndObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseOrObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseXorObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseNotObj);
+  RELAX_LIFT_PRIM_EXPR(prim::SubObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MulObj);
+  RELAX_LIFT_PRIM_EXPR(prim::DivObj);
+  RELAX_LIFT_PRIM_EXPR(prim::ModObj);
+  RELAX_LIFT_PRIM_EXPR(prim::FloorDivObj);
+  RELAX_LIFT_PRIM_EXPR(prim::FloorModObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MinObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MaxObj);
+  RELAX_LIFT_PRIM_EXPR(prim::EQObj);
+  RELAX_LIFT_PRIM_EXPR(prim::NEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LTObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::GTObj);
+  RELAX_LIFT_PRIM_EXPR(prim::GEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::AndObj);
+  RELAX_LIFT_PRIM_EXPR(prim::OrObj);
+  RELAX_LIFT_PRIM_EXPR(prim::CastObj);
+  RELAX_LIFT_PRIM_EXPR(prim::NotObj);
+  RELAX_LIFT_PRIM_EXPR(prim::SelectObj);
+  RELAX_LIFT_PRIM_EXPR(prim::RampObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BroadcastObj);
+  RELAX_LIFT_PRIM_EXPR(prim::ShuffleObj);
+  RELAX_LIFT_PRIM_EXPR(tvm::IntImmObj);
+  RELAX_LIFT_PRIM_EXPR(tvm::FloatImmObj);
 
 #undef RELAX_LIFT_PRIM_EXPR
 
-  Expr VisitExpr_(const ShapeExprNode* op) final { return ffi::GetRef<Expr>(op); }
+  Expr VisitExpr_(const ShapeExprObj* op) final { return ffi::GetRef<Expr>(op); }
 
   PrimExpr VisitTypePrimExprField(const PrimExpr& expr) final { return expr; }
 
   Expr LiftPrimValue(const PrimExpr& node) {
-    if (node->IsInstance<IntImmNode>() || node->IsInstance<VarNode>()) {
+    if (node->IsInstance<IntImmObj>() || node->IsInstance<VarObj>()) {
       return node;
     }
 

@@ -33,14 +33,14 @@ namespace {
 
 ffi::Optional<Var> BindingVar(const ffi::Object* destination) {
   if (!destination) return std::nullopt;
-  TVM_FFI_CHECK(destination->IsInstance<VarNode>(), TypeError)
+  TVM_FFI_CHECK(destination->IsInstance<VarObj>(), TypeError)
       << "printer binding destination must be a Var";
-  return ffi::GetRef<Var>(static_cast<const VarNode*>(destination));
+  return ffi::GetRef<Var>(static_cast<const VarObj*>(destination));
 }
 
 }  // namespace
 
-ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprNode* seq,
+ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprObj* seq,
                                  ffi::Optional<IdDoc> destination,
                                  ffi::Optional<ExprDoc> annotation,
                                  const ffi::Object* destination_object) {
@@ -69,12 +69,12 @@ namespace {
 ffi::Optional<ExprDoc> SeqExprDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                            const ffi::Object* destination) {
   const auto* seq =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::SeqExprNode>(input);
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::SeqExprObj>(input);
   for (const relax::BindingBlock& block : seq->blocks) d->Translate(block);
   if (seq->blocks.empty()) {
     if (auto var = seq->body.as<Var>()) {
       d->VarGetOrAllocId(var.value(), false);
-      if (d->GetImplicitDefs().count(var.value()) && !var.value()->ty.as<PrimTypeNode>()) {
+      if (d->GetImplicitDefs().count(var.value()) && !var.value()->ty.as<PrimTypeObj>()) {
         IdDoc id = VarDoc(d, var.value());
         d->Emit(AssignDoc(id, std::nullopt, d->Translate(var.value()->ty).value()),
                 ffi::GetRef<ffi::ObjectRef>(var.value().get()));
@@ -85,7 +85,7 @@ ffi::Optional<ExprDoc> SeqExprDocTranslate(DocTranslatorObj* d, ffi::AnyView inp
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::SeqExprNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::SeqExprObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&SeqExprDocTranslate>());
 }
@@ -93,7 +93,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> BindingBlockDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                 const ffi::Object* destination) {
   const auto* block =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::BindingBlockNode>(
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::BindingBlockObj>(
           input);
   TVM_FFI_CHECK(destination == nullptr, TypeError)
       << "printer statement-only node cannot fulfill a destination";
@@ -102,7 +102,7 @@ ffi::Optional<ExprDoc> BindingBlockDocTranslate(DocTranslatorObj* d, ffi::AnyVie
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::BindingBlockNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::BindingBlockObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&BindingBlockDocTranslate>());
 }
@@ -110,7 +110,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ffi::Optional<ExprDoc> DataflowBlockDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
                                                  const ffi::Object* destination) {
   const auto* block =
-      ffi::details::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::DataflowBlockNode>(
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::DataflowBlockObj>(
           input);
   TVM_FFI_CHECK(destination == nullptr, TypeError)
       << "printer statement-only node cannot fulfill a destination";
@@ -118,7 +118,7 @@ ffi::Optional<ExprDoc> DataflowBlockDocTranslate(DocTranslatorObj* d, ffi::AnyVi
     ffi::Array<ExprDoc> outputs;
     for (const relax::Binding& binding : block->bindings) {
       d->Translate(binding);
-      if (!binding->var.as<relax::DataflowVarNode>()) {
+      if (!binding->var.as<relax::DataflowVarObj>()) {
         outputs.push_back(d->Translate(binding->var).value());
       }
     }
@@ -132,7 +132,7 @@ ffi::Optional<ExprDoc> DataflowBlockDocTranslate(DocTranslatorObj* d, ffi::AnyVi
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  ffi::reflection::TypeAttrDef<relax::DataflowBlockNode>().attr(
+  ffi::reflection::TypeAttrDef<relax::DataflowBlockObj>().attr(
       tvm::script::printer::type_attr::kDocTranslate.name,
       FDocTranslate::FromNative<&DataflowBlockDocTranslate>());
 }

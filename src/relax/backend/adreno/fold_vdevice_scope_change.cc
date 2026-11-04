@@ -54,13 +54,13 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
   auto pattern_out = IsOp("relax.to_vdevice")(pat_call_tir);
 
   auto rewriter = [=](Expr expr, ffi::Map<DFPattern, Expr> matches) -> Expr {
-    const auto* call_tir = matches[pat_call_tir].as<CallNode>();
+    const auto* call_tir = matches[pat_call_tir].as<CallObj>();
     TVM_FFI_CHECK(call_tir, InternalError)
         << "Match of relax.call_tir operator should produce Call, "
         << "but instead produces " << matches[pat_call_tir] << " with type "
         << matches[pat_call_tir]->GetTypeKey();
 
-    const auto* out = matches[pattern_out].as<CallNode>();
+    const auto* out = matches[pattern_out].as<CallObj>();
     TVM_FFI_CHECK(out, InternalError) << "Match of relax.to_vdevice operator should produce Call, "
                                       << "but instead produces " << matches[pattern_out]
                                       << " with type " << matches[pattern_out]->GetTypeKey();
@@ -70,12 +70,12 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
         << "Attributes for relax.to_vdevice operator should be ToVDeviceAttrs, "
         << "but were instead " << out->attrs << " with type " << out->GetTypeKey();
 
-    const auto* tir_out_ty = call_tir->ty_args[0].as<TensorTypeNode>();
+    const auto* tir_out_ty = call_tir->ty_args[0].as<TensorTypeObj>();
     if (!tir_out_ty) return expr;
 
     if (!tir_out_ty->vdevice.has_value()) return expr;
 
-    const VarNode* arg_var = out->args[0].as<VarNode>();
+    const VarObj* arg_var = out->args[0].as<VarObj>();
     if (consumers.find(ffi::GetRef<Expr>(arg_var)) != consumers.end()) {
       if (consumers[ffi::GetRef<Expr>(arg_var)].size() > 1) {
         /* Don't do to_device optimization as we are not the only consumer */
@@ -125,15 +125,15 @@ class CollectConsumerDetails : public ExprVisitor {
     return consumers;
   }
 
-  void VisitBinding_(const VarBindingNode* binding,
-                     const TupleGetItemNode* tuple_get_item_node) final {
+  void VisitBinding_(const VarBindingObj* binding,
+                     const TupleGetItemObj* tuple_get_item_node) final {
     if (arg_to_binding.find(ffi::GetRef<Expr>(binding->var.get())) == arg_to_binding.end()) {
       arg_to_binding.Set(ffi::GetRef<Expr>(binding->var.get()),
                          ffi::GetRef<Expr>(tuple_get_item_node->tuple.get()));
     }
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     Tuple func_args =
         call->op.same_as(call_tir_op) ? call->args[1].as_or_throw<Tuple>() : Tuple(call->args);
@@ -143,7 +143,7 @@ class CollectConsumerDetails : public ExprVisitor {
       if (auto tensor_ty = ty.as<TensorType>()) {
         ffi::Array<Expr> call_list;
 
-        const VarNode* arg_var = arg.as<VarNode>();
+        const VarObj* arg_var = arg.as<VarObj>();
 
         if (consumers.find(ffi::GetRef<Expr>(arg_var)) != consumers.end()) {
           call_list = consumers[ffi::GetRef<Expr>(arg_var)];

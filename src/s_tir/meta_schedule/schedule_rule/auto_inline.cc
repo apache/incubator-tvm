@@ -54,7 +54,7 @@ bool IsInSpatialFunction(const s_tir::Schedule& sch, const tirx::StmtSRef& block
   const StmtSRefObj* sref = block_sref.get();
   for (; sref->parent != nullptr; sref = sref->parent) {
   }
-  TVM_FFI_ICHECK(sref->stmt != nullptr && sref->stmt->IsInstance<SBlockNode>());
+  TVM_FFI_ICHECK(sref->stmt != nullptr && sref->stmt->IsInstance<SBlockObj>());
   return IsSpatialFunction(ffi::GetRef<Function>(GetRootFunction(sch->mod(), sref->stmt, nullptr)));
 }
 
@@ -122,7 +122,7 @@ inline InlineType AutoInlineObj::CheckInline(const s_tir::Schedule& sch,
   StmtSRef block_sref = sch->GetSRef(block_rv);
   bool is_pure_sptial = IsInSpatialFunction(sch, block_sref);
   ScheduleState state = sch->state();
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   SBlockRealize realize = GetSBlockRealize(state, block_sref);
   // Cond 1. The block has only one write tensor
   if (block->writes.size() != 1) {
@@ -168,10 +168,10 @@ inline InlineType AutoInlineObj::CheckInline(const s_tir::Schedule& sch,
   // Skip if:
   // - root block (no parent scope).
   // - root block is wrapped in a For loop, then parent is non-null, but there is still no enclosing
-  // SBlockNode.
+  // SBlockObj.
   const StmtSRefObj* p = block_sref->parent;
   for (; p != nullptr; p = p->parent) {
-    if (p->stmt->IsInstance<SBlockNode>()) break;
+    if (p->stmt->IsInstance<SBlockObj>()) break;
   }
   if (p == nullptr) {
     return InlineType::kNoInline;

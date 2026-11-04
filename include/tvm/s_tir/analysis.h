@@ -87,7 +87,7 @@ TVM_DLL ffi::Map<TensorVar, ffi::Optional<Stmt>> DetectTensorAccessLCA(const Fun
  * \param mod The input TIR module.
  * \return The anchor block if found, nullptr otherwise.
  */
-const s_tir::SBlockNode* FindAnchorBlock(const IRModule& mod);
+const s_tir::SBlockObj* FindAnchorBlock(const IRModule& mod);
 
 }  // namespace tirx
 

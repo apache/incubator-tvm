@@ -43,7 +43,7 @@ using namespace tvm::te;
 inline bool is_empty_shape(const ffi::Array<PrimExpr>& x) {
   bool is_empty = false;
   for (const auto& dim : x) {
-    if (auto int_dim = dim.as<IntImmNode>()) {
+    if (auto int_dim = dim.as<IntImmObj>()) {
       if (int_dim->value == 0) {
         is_empty = true;
         break;

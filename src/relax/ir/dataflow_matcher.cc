@@ -67,7 +67,7 @@ using tvm::sym::AnalyzerObj;
  */
 bool MatchAttrs(const Any& attrs, const ffi::Map<ffi::String, ffi::Any>& attributes) {
   // TODO(tqchen): consider lift to common utils
-  if (auto* dict_attrs = attrs.as<DictAttrsNode>()) {
+  if (auto* dict_attrs = attrs.as<DictAttrsObj>()) {
     for (auto kv : attributes) {
       auto attr_name = kv.first;
       auto attr_value = kv.second;
@@ -117,7 +117,7 @@ Expr DFPatternMatcher::UnwrapBindings(Expr expr, const ffi::Map<Var, Expr>& var2
   auto unwrap = [&](Expr expr) -> ffi::Optional<Expr> {
     // Unwrap variables into the value to which they are bound.
     if (var2val.size()) {
-      if (const VarNode* var = expr.as<VarNode>()) {
+      if (const VarObj* var = expr.as<VarObj>()) {
         if (auto may = var2val.Get(ffi::GetRef<Var>(var))) {
           return may.value();
         }
@@ -126,7 +126,7 @@ Expr DFPatternMatcher::UnwrapBindings(Expr expr, const ffi::Map<Var, Expr>& var2
 
     // Unwrap SeqExpr with no bindings.  These can occur due to Relax
     // IR constraints for the bodies of Function and IfExpr nodes.
-    if (auto seq = expr.as<SeqExprNode>()) {
+    if (auto seq = expr.as<SeqExprObj>()) {
       if (seq->blocks.empty()) {
         return seq->body;
       }
@@ -170,28 +170,28 @@ bool DFPatternMatcher::VisitDFPattern(const DFPattern& pattern, const Expr& expr
   }
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const OrPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const OrPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   return VisitDFPattern(op->left, expr) || VisitDFPattern(op->right, expr);
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const AndPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const AndPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   return VisitDFPattern(op->left, expr) && VisitDFPattern(op->right, expr);
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const NotPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const NotPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   return !VisitDFPattern(op->reject, expr);
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const AttrPatternNode* attr_pattern, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const AttrPatternObj* attr_pattern, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   bool matches = VisitDFPattern(attr_pattern->pattern, expr);
   if (!matches) return matches;
-  VLOG(1) << "considering AttrPatternNode at:\n" << expr;
-  auto attributes = attr_pattern->attrs.as<DictAttrsNode>()->dict;
-  if (const auto* op_node = expr.as<OpNode>()) {
+  VLOG(1) << "considering AttrPatternObj at:\n" << expr;
+  auto attributes = attr_pattern->attrs.as<DictAttrsObj>()->dict;
+  if (const auto* op_node = expr.as<OpObj>()) {
     Op op = ffi::GetRef<Op>(op_node);
     for (auto kv : attributes) {
       auto attr_name = kv.first;
@@ -207,9 +207,9 @@ bool DFPatternMatcher::VisitDFPattern_(const AttrPatternNode* attr_pattern, cons
         matches = false;
       }
     }
-  } else if (auto* op = expr.as<CallNode>()) {
+  } else if (auto* op = expr.as<CallObj>()) {
     matches &= MatchAttrs(op->attrs, attributes);
-  } else if (auto* op = expr.as<FunctionNode>()) {
+  } else if (auto* op = expr.as<FunctionObj>()) {
     matches = true;
     for (auto kv : attributes) {
       if (matches && op->attrs->dict.count(kv.first)) {
@@ -225,18 +225,18 @@ bool DFPatternMatcher::VisitDFPattern_(const AttrPatternNode* attr_pattern, cons
   return matches;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const CallPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   // utilities
-  auto get_op_node = [](const CallPatternNode* op) -> const tvm::OpNode* {
+  auto get_op_node = [](const CallPatternObj* op) -> const tvm::OpObj* {
     if (op) {
-      if (auto* expr_pattern = op->op.as<ExprPatternNode>()) {
-        return expr_pattern->expr.as<OpNode>();
+      if (auto* expr_pattern = op->op.as<ExprPatternObj>()) {
+        return expr_pattern->expr.as<OpObj>();
       }
     }
     return nullptr;
   };
-  auto is_pattern_op = [&get_op_node](const CallPatternNode* op, std::string op_type) {
+  auto is_pattern_op = [&get_op_node](const CallPatternObj* op, std::string op_type) {
     if (const auto* op_node = get_op_node(op)) {
       if (op_node->name == op_type) {
         return true;
@@ -245,8 +245,8 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
     return false;
   };
   auto is_expr_op = [](const Expr& expr, std::string op_type) {
-    if (const auto* call_node = expr.as<CallNode>()) {
-      if (const auto* op_node = call_node->op.as<OpNode>()) {
+    if (const auto* call_node = expr.as<CallObj>()) {
+      if (const auto* op_node = call_node->op.as<OpObj>()) {
         if (op_node->name == op_type) {
           return true;
         }
@@ -257,7 +257,7 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
 
   // logic
   auto watermark = matched_nodes_.size();
-  if (const auto* call_node = expr.as<CallNode>()) {
+  if (const auto* call_node = expr.as<CallObj>()) {
     auto matches_op = VisitDFPattern(op->op, call_node->op);
     if (matches_op) {
       auto watermark2 = matched_nodes_.size();
@@ -286,7 +286,7 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
       if (match_args(op->args, call_node->args.begin(), call_node->args.end())) return true;
 
       // Commutative Matching.
-      if (const OpNode* op_node = call_node->op.as<OpNode>()) {
+      if (const OpObj* op_node = call_node->op.as<OpObj>()) {
         if ((op_node->name == "relax.add") || (op_node->name == "relax.multiply")) {
           if (match_args(op->args, call_node->args.rbegin(), call_node->args.rend())) {
             return true;
@@ -297,7 +297,7 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
       ClearMap(watermark);
       // associate divide/multiply
       if (is_pattern_op(op, "relax.divide")) {
-        if (const auto* arg_node = op->args[0].as<CallPatternNode>()) {
+        if (const auto* arg_node = op->args[0].as<CallPatternObj>()) {
           if (is_pattern_op(arg_node, "relax.multiply") && is_expr_op(expr, "relax.multiply") &&
               (is_expr_op(call_node->args[0], "relax.divide") ||
                is_expr_op(call_node->args[1], "relax.divide"))) {
@@ -319,7 +319,7 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
       if (is_pattern_op(op, "relax.multiply")) {
         // associate multiply/divide
         for (size_t arg_id = 0; arg_id < 2; ++arg_id) {
-          if (auto* arg_node = op->args[arg_id].as<CallPatternNode>()) {
+          if (auto* arg_node = op->args[arg_id].as<CallPatternObj>()) {
             if (is_pattern_op(arg_node, "relax.divide") && is_expr_op(expr, "relax.divide") &&
                 (is_expr_op(call_node->args[0], "relax.multiply") ||
                  is_expr_op(call_node->args[1], "relax.multiply"))) {
@@ -335,15 +335,15 @@ bool DFPatternMatcher::VisitDFPattern_(const CallPatternNode* op, const Expr& ex
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const ExprPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const ExprPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   return ffi::StructuralEqual()(op->expr, expr);
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const FunctionPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const FunctionPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   bool matches = false;
-  if (const auto* func = expr.as<FunctionNode>()) {
+  if (const auto* func = expr.as<FunctionObj>()) {
     matches = true;
     if (op->params.defined()) {
       size_t i = 0;
@@ -363,19 +363,19 @@ bool DFPatternMatcher::VisitDFPattern_(const FunctionPatternNode* op, const Expr
   return matches;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const TupleGetItemPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const TupleGetItemPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
-  if (const auto* tuple_get_item_node = expr.as<TupleGetItemNode>()) {
+  if (const auto* tuple_get_item_node = expr.as<TupleGetItemObj>()) {
     return (op->index == -1 || op->index == tuple_get_item_node->index) &&
            VisitDFPattern(op->tuple, tuple_get_item_node->tuple);
   }
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const TuplePatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const TuplePatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
   bool matches = false;
-  if (const auto* tuple_node = expr.as<TupleNode>()) {
+  if (const auto* tuple_node = expr.as<TupleObj>()) {
     matches = true;
     if (op->fields.size() == tuple_node->fields.size()) {
       size_t i = 0;
@@ -413,10 +413,10 @@ bool DFPatternMatcher::TryUnorderedMatch(size_t idx, const tvm::ffi::Array<DFPat
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const UnorderedTuplePatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const UnorderedTuplePatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
 
-  if (const auto* tuple_node = expr.as<TupleNode>()) {
+  if (const auto* tuple_node = expr.as<TupleObj>()) {
     if (op->fields.size() == tuple_node->fields.size()) {
       constexpr int8_t kUnknown = -1;
       TVM_FFI_ICHECK_LE(op->fields.size(), std::numeric_limits<uint8_t>::max())
@@ -435,7 +435,7 @@ bool DFPatternMatcher::VisitDFPattern_(const UnorderedTuplePatternNode* op, cons
 static bool ShapeConstraintsConsistent(const PrimExpr& condition) {
   std::vector<PrimExpr> constraints{condition};
   for (size_t i = 0; i < constraints.size();) {
-    if (const auto* conjunction = constraints[i].as<prim::AndNode>()) {
+    if (const auto* conjunction = constraints[i].as<prim::AndObj>()) {
       PrimExpr lhs = conjunction->a;
       PrimExpr rhs = conjunction->b;
       constraints[i] = std::move(lhs);
@@ -456,16 +456,18 @@ static bool ShapeConstraintsConsistent(const PrimExpr& condition) {
     for (const PrimExpr& constraint : constraints) {
       PrimExpr simplified = analyzer->Simplify(constraint, simplify_steps);
       if (prim::IsZero(simplified)) return false;
-      if (const auto* equality = simplified.as<prim::EQNode>()) {
+      if (const auto* equality = simplified.as<prim::EQObj>()) {
         PrimExpr lhs = equality->a;
         PrimExpr rhs = equality->b;
-        if (!lhs.as<tvm::VarNode>()) std::swap(lhs, rhs);
-        if (const auto* var = lhs.as<tvm::VarNode>();
+        if (!lhs.as<tvm::VarObj>()) std::swap(lhs, rhs);
+        if (const auto* var = lhs.as<tvm::VarObj>();
             var && SideEffect(rhs) <= CallEffectKind::kPure) {
           auto variables = tvm::UndefinedVars(rhs);
           if (std::none_of(variables.begin(), variables.end(),
                            [var](const tvm::Var& used) { return used.get() == var; })) {
-            analyzer->Bind(ffi::GetRef<tvm::Var>(var), rhs);
+            auto context = analyzer->GetConstraintContext();
+            context->Append(sym::BindingConstraint(ffi::GetRef<tvm::Var>(var), rhs));
+            analyzer->SyncConstraintContext(context);
             changed = true;
           }
         }
@@ -485,13 +487,18 @@ static bool ShapeConstraintsConsistent(const PrimExpr& condition) {
     for (size_t j = 0; j < constraints.size(); ++j) {
       if (i != j) others = others && constraints[j];
     }
-    With<sym::ConstraintContext> scope(analyzer, others);
-    if (prim::IsZero(analyzer->Simplify(constraints[i], simplify_steps))) return false;
+    auto saved_context = analyzer->GetConstraintContext();
+    auto context = saved_context->Snapshot();
+    context->Append(sym::PredicateConstraint(others));
+    analyzer->SyncConstraintContext(context);
+    bool inconsistent = prim::IsZero(analyzer->Simplify(constraints[i], simplify_steps));
+    analyzer->SyncConstraintContext(saved_context);
+    if (inconsistent) return false;
   }
   return true;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const TypePatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const TypePatternObj* op, const Expr& expr0) {
   if (!VisitDFPattern(op->pattern, expr0)) {
     return false;
   }
@@ -500,13 +507,13 @@ bool DFPatternMatcher::VisitDFPattern_(const TypePatternNode* op, const Expr& ex
   auto expr_ty = GetType(expr);
 
   PrimExpr new_constraint = TypeBaseCheckPrecondition(op->ty, expr_ty);
-  if (auto* as_int = new_constraint.as<IntImmNode>()) {
+  if (auto* as_int = new_constraint.as<IntImmObj>()) {
     return static_cast<bool>(as_int->value);
   }
 
   symbolic_expr_condition_ = analyzer_->Simplify(symbolic_expr_condition_ && new_constraint);
 
-  if (auto* as_int = symbolic_expr_condition_.as<IntImmNode>()) {
+  if (auto* as_int = symbolic_expr_condition_.as<IntImmObj>()) {
     return static_cast<bool>(as_int->value);
   } else {
     return ShapeConstraintsConsistent(symbolic_expr_condition_);
@@ -521,10 +528,10 @@ static bool ShapeEqual(AnalyzerObj* analyzer, const ffi::Array<PrimExpr>& lhs,
   return true;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const ShapePatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const ShapePatternObj* op, const Expr& expr) {
   // no need to jump, as var.shape == value.shape
-  if (const auto* tinfo = GetTypeAs<TensorTypeNode>(expr)) {
-    if (const ShapeExprNode* shape_expr = tinfo->shape.as<ShapeExprNode>()) {
+  if (const auto* tinfo = GetTypeAs<TensorTypeObj>(expr)) {
+    if (const ShapeExprObj* shape_expr = tinfo->shape.as<ShapeExprObj>()) {
       return ShapeEqual(analyzer_.get(), op->shape, shape_expr->values) &&
              VisitDFPattern(op->pattern, expr);
     }
@@ -532,8 +539,8 @@ bool DFPatternMatcher::VisitDFPattern_(const ShapePatternNode* op, const Expr& e
   return false;
 }
 
-std::tuple<PrimExpr, bool> SameShapeConstraintNode::AsCondition(
-    std::function<ffi::Optional<Var>(const DFPatternNode*)> match_state) const {
+std::tuple<PrimExpr, bool> SameShapeConstraintObj::AsCondition(
+    std::function<ffi::Optional<Var>(const DFPatternObj*)> match_state) const {
   ffi::Optional<ffi::Array<PrimExpr>> expected_shape;
   bool all_shapes_defined = true;
 
@@ -545,9 +552,9 @@ std::tuple<PrimExpr, bool> SameShapeConstraintNode::AsCondition(
       auto var = opt_var.value();
       auto opt_var_shape = [&]() -> ffi::Optional<ffi::Array<PrimExpr>> {
         auto ty = GetType(var);
-        if (auto tensor = ty.as<TensorTypeNode>()) {
+        if (auto tensor = ty.as<TensorTypeObj>()) {
           return tensor->GetShape();
-        } else if (auto shape_expr = ty.as<ShapeTypeNode>()) {
+        } else if (auto shape_expr = ty.as<ShapeTypeObj>()) {
           return shape_expr->values;
         } else {
           return std::nullopt;
@@ -595,55 +602,55 @@ std::tuple<PrimExpr, bool> SameShapeConstraintNode::AsCondition(
   return {all_dimensions_equal, all_shapes_defined};
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const PrimArrPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const PrimArrPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
-  if (const ShapeExprNode* shape_expr = expr.as<ShapeExprNode>())
+  if (const ShapeExprObj* shape_expr = expr.as<ShapeExprObj>())
     return ShapeEqual(analyzer_.get(), op->fields, shape_expr->values);
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const DataTypePatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const DataTypePatternObj* op, const Expr& expr) {
   // no need to jump, as var.dtype == value.dtype
-  auto expr_ty = expr.as<ExprNode>()->ty;
-  if (const TensorTypeNode* tensor_ty = expr_ty.as<TensorTypeNode>()) {
+  auto expr_ty = expr.as<ExprObj>()->ty;
+  if (const TensorTypeObj* tensor_ty = expr_ty.as<TensorTypeObj>()) {
     return op->dtype == tensor_ty->dtype.value()->dtype && VisitDFPattern(op->pattern, expr);
   }
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const VarPatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const VarPatternObj* op, const Expr& expr) {
   // We don't jump for var pattern, as there's no need to access its value to judge it.
-  if (const auto* var_node = expr.as<VarNode>()) {
+  if (const auto* var_node = expr.as<VarObj>()) {
     // "" means any name.
     return "" == op->name_hint() || op->name_hint() == var_node->name;
   }
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const ExternFuncPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const ExternFuncPatternObj* op, const Expr& expr0) {
   auto expr = UnwrapBindings(expr0, var2val_);
-  if (const auto* extern_fn = expr.as<ExternFuncNode>()) {
+  if (const auto* extern_fn = expr.as<ExternFuncObj>()) {
     return "" == op->global_symbol() || op->global_symbol() == extern_fn->global_symbol;
   }
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const ConstantPatternNode* op, const Expr& expr0) {
+bool DFPatternMatcher::VisitDFPattern_(const ConstantPatternObj* op, const Expr& expr0) {
   // constants can be binded to relax.Var as well.
   auto expr = UnwrapBindings(expr0, var2val_);
-  auto* constant = expr.as<GenericConstNode>();
+  auto* constant = expr.as<GenericConstObj>();
   return constant && constant->value.as<ffi::TensorObj>();
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const DataflowVarPatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const DataflowVarPatternObj* op, const Expr& expr) {
   // DataflowVar is inherented from Var, so dispatch it to VarPattern.
-  return expr->IsInstance<DataflowVarNode>() &&
-         VisitDFPattern_(static_cast<const VarPatternNode*>(op), expr);
+  return expr->IsInstance<DataflowVarObj>() &&
+         VisitDFPattern_(static_cast<const VarPatternObj*>(op), expr);
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const GlobalVarPatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const GlobalVarPatternObj* op, const Expr& expr) {
   // GlobalVarPattern is not inherited from Var, so we need to handle it separately.
-  if (const auto* var_node = expr.as<GlobalVarNode>()) {
+  if (const auto* var_node = expr.as<GlobalVarObj>()) {
     std::string pat = std::string(op->name_hint());
     std::string var_name = std::string(var_node->name_hint);
     return pat.empty() || var_name.find(pat) != std::string::npos;
@@ -651,7 +658,7 @@ bool DFPatternMatcher::VisitDFPattern_(const GlobalVarPatternNode* op, const Exp
   return false;
 }
 
-bool DFPatternMatcher::VisitDFPattern_(const WildcardPatternNode* op, const Expr& expr) {
+bool DFPatternMatcher::VisitDFPattern_(const WildcardPatternObj* op, const Expr& expr) {
   return true;
 }
 

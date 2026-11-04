@@ -111,7 +111,7 @@ class ScheduleStateObj : public ffi::Object {
    */
   std::unordered_map<StmtSRef, SBlockInfo, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> block_info;
   /*! \brief The reverse mapping from block/for-loop to their corresponding srefs */
-  std::unordered_map<const StmtNode*, StmtSRef> stmt2ref;
+  std::unordered_map<const StmtObj*, StmtSRef> stmt2ref;
   /*!
    * \brief Do extra correctness checking after the class creation
    * and each time after calling the Replace method.

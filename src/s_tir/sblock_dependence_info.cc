@@ -35,7 +35,7 @@ class SBlockDependenceInfoCollector : public s_tir::StmtExprVisitor {
   using s_tir::StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return s_tir::StmtExprVisitor::Visit(value);
   }
 
@@ -54,9 +54,9 @@ class SBlockDependenceInfoCollector : public s_tir::StmtExprVisitor {
     self_->sref2scope[scope] = SBlockScope(child_block_srefs);
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeNode* realize) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockRealizeObj* realize) final {
     block_frames_.emplace_back();
-    const s_tir::SBlockNode* block = realize->block.get();
+    const s_tir::SBlockObj* block = realize->block.get();
     // Recursive visit
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(Visit(block->body));  // `block->init` is not visited
     // Create SBlockInfo for the block
@@ -68,8 +68,8 @@ class SBlockDependenceInfoCollector : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtNode* seq_stmt) final {
-    // Set `seq_index` information for SeqStmtNode
+  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtObj* seq_stmt) final {
+    // Set `seq_index` information for SeqStmtObj
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(seq_stmt));
     SetSeqIndexInChildren(self_->stmt2ref, seq_stmt, false);
     return std::nullopt;

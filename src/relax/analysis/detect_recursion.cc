@@ -86,9 +86,9 @@ class DependencyGatherer : public ExprVisitor {
     return deps_;
   }
 
-  void VisitExpr_(const GlobalVarNode* gv) override {
+  void VisitExpr_(const GlobalVarObj* gv) override {
     // disregard Functions
-    if (!m_->Lookup(ffi::GetRef<GlobalVar>(gv)).as<relax::FunctionNode>()) {
+    if (!m_->Lookup(ffi::GetRef<GlobalVar>(gv)).as<relax::FunctionObj>()) {
       return;
     }
     deps_.insert(gv->name_hint);
@@ -106,7 +106,7 @@ using adjacency_index = std::vector<node_set>;
 adjacency_map GatherDependencyGraph(const IRModule& m) {
   adjacency_map ret;
   for (auto gv_func : m->functions) {
-    const relax::FunctionNode* func = gv_func.second.as<relax::FunctionNode>();
+    const relax::FunctionObj* func = gv_func.second.as<relax::FunctionObj>();
     // disregard Functions and the like
     if (!func) {
       continue;

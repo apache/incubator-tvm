@@ -62,8 +62,8 @@ inline BroadcastHelper BroadcastShape(const tvm::ffi::Array<tvm::PrimExpr>& shap
 
   for (i = 1; i <= std::min(s1_size, s2_size); ++i) {
     // TODO(@icemelon9): Need to revisit this part
-    const IntImmNode* static_size1 = shape1[s1_size - i].as<IntImmNode>();
-    const IntImmNode* static_size2 = shape2[s2_size - i].as<IntImmNode>();
+    const IntImmObj* static_size1 = shape1[s1_size - i].as<IntImmObj>();
+    const IntImmObj* static_size2 = shape2[s2_size - i].as<IntImmObj>();
     PrimType common_type = CommonType(shape1[s1_size - i].ty(), shape2[s2_size - i].ty());
 
     bh.all_vars.push_front(tvm::PrimVar("dim", common_type));

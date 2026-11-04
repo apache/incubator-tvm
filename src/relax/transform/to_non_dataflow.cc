@@ -34,7 +34,7 @@ using namespace tvm::prim;
 class ToNonDFMutator : public ExprMutator {
  public:
   Var VisitVarDef(const Var& var) final {
-    if (var.as<DataflowVarNode>()) {
+    if (var.as<DataflowVarObj>()) {
       Var new_var = Var(var->name, GetType(var), var->loc);
       this->var_remap_.insert_or_assign(var, new_var);
       return new_var;
@@ -42,7 +42,7 @@ class ToNonDFMutator : public ExprMutator {
     return var;
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) final {
     builder_->BeginBindingBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
