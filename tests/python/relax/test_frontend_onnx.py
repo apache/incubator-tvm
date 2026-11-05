@@ -9326,6 +9326,124 @@ def test_tile_dynamic_repeats():
         )
 
 
+def test_reverse_sequence_ir():
+    """Verify lowered Relax IR for the ReverseSequence ONNX operator."""
+
+    def make_reverse_sequence_model(x_shape, seq_lens_shape, time_axis=None, batch_axis=None):
+        attrs = {}
+        if time_axis is not None:
+            attrs["time_axis"] = time_axis
+        if batch_axis is not None:
+            attrs["batch_axis"] = batch_axis
+        node = helper.make_node(
+            "ReverseSequence",
+            inputs=["x", "sequence_lens"],
+            outputs=["y"],
+            **attrs,
+        )
+        graph = helper.make_graph(
+            [node],
+            "reverse_sequence_test",
+            inputs=[
+                helper.make_tensor_value_info("x", TensorProto.FLOAT, x_shape),
+                helper.make_tensor_value_info("sequence_lens", TensorProto.INT64, seq_lens_shape),
+            ],
+            outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, x_shape)],
+        )
+        return helper.make_model(graph, producer_name="reverse_sequence_test")
+
+    # Default time_axis=0, batch_axis=1
+    model = make_reverse_sequence_model([4, 3], [3])
+    tvm_model = from_onnx(model, opset=10, keep_params_in_input=True)
+
+    @I.ir_module
+    class ExpectedDefault:
+        @R.function
+        def main(
+            x: R.Tensor((4, 3), dtype="float32"),
+            sequence_lens: R.Tensor((3,), dtype="int64"),
+        ) -> R.Tensor((4, 3), dtype="float32"):
+            R.func_attr({"num_input": 2})
+            with R.dataflow():
+                gv: R.Tensor((4, 3), dtype="float32") = R.reverse_sequence(
+                    x, sequence_lens, seq_axis=0, batch_axis=1
+                )
+                R.output(gv)
+            return gv
+
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedDefault)
+
+    # Custom time_axis=1, batch_axis=0
+    model = make_reverse_sequence_model([2, 5], [2], time_axis=1, batch_axis=0)
+    tvm_model = from_onnx(model, opset=10, keep_params_in_input=True)
+
+    @I.ir_module
+    class ExpectedCustom:
+        @R.function
+        def main(
+            x: R.Tensor((2, 5), dtype="float32"),
+            sequence_lens: R.Tensor((2,), dtype="int64"),
+        ) -> R.Tensor((2, 5), dtype="float32"):
+            R.func_attr({"num_input": 2})
+            with R.dataflow():
+                gv: R.Tensor((2, 5), dtype="float32") = R.reverse_sequence(
+                    x, sequence_lens, seq_axis=1, batch_axis=0
+                )
+                R.output(gv)
+            return gv
+
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedCustom)
+
+
+def test_reverse_sequence():
+    """Verify numerical correctness of ReverseSequence against ONNX Runtime."""
+
+    def verify_reverse_sequence(x, sequence_lens, time_axis=None, batch_axis=None, opset=10):
+        attrs = {}
+        if time_axis is not None:
+            attrs["time_axis"] = time_axis
+        if batch_axis is not None:
+            attrs["batch_axis"] = batch_axis
+        node = helper.make_node(
+            "ReverseSequence",
+            inputs=["x", "sequence_lens"],
+            outputs=["y"],
+            **attrs,
+        )
+        seq_lens_proto = TensorProto.INT64 if sequence_lens.dtype == np.int64 else TensorProto.INT32
+        graph = helper.make_graph(
+            [node],
+            "reverse_sequence_test",
+            inputs=[
+                helper.make_tensor_value_info("x", TensorProto.FLOAT, list(x.shape)),
+                helper.make_tensor_value_info(
+                    "sequence_lens", seq_lens_proto, list(sequence_lens.shape)
+                ),
+            ],
+            outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, list(x.shape))],
+        )
+        model = helper.make_model(graph, producer_name="reverse_sequence_test")
+        inputs = {"x": x, "sequence_lens": sequence_lens}
+        check_correctness(model, inputs=inputs, opset=opset)
+
+    # Example 1: 2D, time_axis=0, batch_axis=1
+    x = np.arange(16, dtype=np.float32).reshape(4, 4)
+    seq_lens = np.array([4, 3, 2, 1], dtype=np.int64)
+    verify_reverse_sequence(x, seq_lens, time_axis=0, batch_axis=1)
+
+    # Example 2: 2D, time_axis=1, batch_axis=0
+    seq_lens = np.array([1, 2, 3, 4], dtype=np.int64)
+    verify_reverse_sequence(x, seq_lens, time_axis=1, batch_axis=0)
+
+    # Default attributes (time_axis=0, batch_axis=1)
+    verify_reverse_sequence(x, np.array([4, 2, 0, 3], dtype=np.int64))
+
+    # 3D tensor
+    x_3d = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
+    seq_lens_3d = np.array([3, 1], dtype=np.int64)
+    verify_reverse_sequence(x_3d, seq_lens_3d, time_axis=1, batch_axis=0)
+
+
 def _generate_roi_cases():
     return [
         pytest.param(False, None, False, id="no_roi"),

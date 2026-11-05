@@ -3450,6 +3450,21 @@ class Tile(OnnxOpConverter):
         return bb.emit_te(topi.dyn_tile, data, output_shape_vars, reps_len)
 
 
+class ReverseSequence(OnnxOpConverter):
+    """Converts an onnx ReverseSequence node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        seq_lengths = inputs[1]
+        batch_axis = int(attr.get("batch_axis", 1))
+        seq_axis = int(attr.get("time_axis", 0))
+
+        return relax.op.reverse_sequence(
+            data, seq_lengths, seq_axis=seq_axis, batch_axis=batch_axis
+        )
+
+
 class Expand(OnnxOpConverter):
     """Converts an onnx Expand node into an equivalent Relax expression."""
 
@@ -6239,6 +6254,7 @@ def _get_convert_map():
         "Pad": Pad,
         "Split": Split,
         "Tile": Tile,
+        "ReverseSequence": ReverseSequence,
         "AveragePool": AveragePool,
         "MaxPool": MaxPool,
         "LpPool": LpPool,
