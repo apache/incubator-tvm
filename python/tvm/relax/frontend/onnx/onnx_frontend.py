@@ -1961,6 +1961,22 @@ class Elu(OnnxOpConverter):
         ) + relax.op.nn.relu(inputs[0])
 
 
+class Celu(OnnxOpConverter):
+    """Converts an onnx Celu node into an equivalent Relax expression.
+
+    celu(x) = max(0, x) + min(0, alpha * (exp(x / alpha) - 1))
+            = relu(x) - alpha * relu(1 - exp(x / alpha))
+    """
+
+    @classmethod
+    def _impl_v12(cls, bb, inputs, attr, params):
+        alpha = float(attr.get("alpha", 1.0))
+        x = inputs[0]
+        return relax.expr.const(-alpha) * relax.op.nn.relu(
+            relax.expr.const(1.0) - relax.op.exp(x / relax.expr.const(alpha))
+        ) + relax.op.nn.relu(x)
+
+
 class Selu(OnnxOpConverter):
     """Converts an onnx Selu node into an equivalent Relax expression."""
 
@@ -6164,6 +6180,7 @@ def _get_convert_map():
         "LeakyRelu": LeakyRelu,
         "ThresholdedRelu": ThresholdedRelu,
         "Elu": Elu,
+        "Celu": Celu,
         "Gelu": Gelu,
         "FastGelu": FastGelu,
         "BiasGelu": BiasGelu,

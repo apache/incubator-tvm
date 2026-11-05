@@ -4480,6 +4480,66 @@ def test_trilu_dynamic_k_ir(upper: bool):
     tvm_tirx.ir.assert_structural_equal(tvm_model, expected)
 
 
+def test_celu_ir():
+    """Check the lowered Relax IR for the Celu operator (opset 12, default alpha)."""
+    model = make_unary_model("Celu", [2, 3])
+    model.opset_import[0].version = 12
+    tvm_model = from_onnx(model, opset=12, keep_params_in_input=True)
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(x: R.Tensor((2, 3), dtype="float32")) -> R.Tensor((2, 3), dtype="float32"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.divide(x, R.const(1.0, "float32"))
+                lv1: R.Tensor((2, 3), dtype="float32") = R.exp(lv)
+                lv2: R.Tensor((2, 3), dtype="float32") = R.subtract(R.const(1.0, "float32"), lv1)
+                lv3: R.Tensor((2, 3), dtype="float32") = R.nn.relu(lv2)
+                lv4: R.Tensor((2, 3), dtype="float32") = R.multiply(R.const(-1.0, "float32"), lv3)
+                lv5: R.Tensor((2, 3), dtype="float32") = R.nn.relu(x)
+                gv: R.Tensor((2, 3), dtype="float32") = R.add(lv4, lv5)
+                R.output(gv)
+            return gv
+
+    tvm_tirx.ir.assert_structural_equal(tvm_model, Expected)
+
+    # Custom alpha=0.5
+    model = make_unary_model("Celu", [2, 3], attrs={"alpha": 0.5})
+    model.opset_import[0].version = 12
+    tvm_model = from_onnx(model, opset=12, keep_params_in_input=True)
+
+    @I.ir_module
+    class ExpectedCustomAlpha:
+        @R.function
+        def main(x: R.Tensor((2, 3), dtype="float32")) -> R.Tensor((2, 3), dtype="float32"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.divide(x, R.const(0.5, "float32"))
+                lv1: R.Tensor((2, 3), dtype="float32") = R.exp(lv)
+                lv2: R.Tensor((2, 3), dtype="float32") = R.subtract(R.const(1.0, "float32"), lv1)
+                lv3: R.Tensor((2, 3), dtype="float32") = R.nn.relu(lv2)
+                lv4: R.Tensor((2, 3), dtype="float32") = R.multiply(R.const(-0.5, "float32"), lv3)
+                lv5: R.Tensor((2, 3), dtype="float32") = R.nn.relu(x)
+                gv: R.Tensor((2, 3), dtype="float32") = R.add(lv4, lv5)
+                R.output(gv)
+            return gv
+
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedCustomAlpha)
+
+
+def test_celu():
+    """Check numerical correctness of the Celu operator against onnxruntime."""
+    # Default alpha=1.0
+    check_correctness(make_unary_model("Celu", [2, 3]), opset=12)
+
+    # Custom alpha=0.5
+    check_correctness(make_unary_model("Celu", [2, 3], attrs={"alpha": 0.5}), opset=12)
+
+    # Custom alpha=2.0
+    check_correctness(make_unary_model("Celu", [2, 3], attrs={"alpha": 2.0}), opset=12)
+
+
 def test_selu():
     model = make_unary_model("Selu", [2, 3])
     tvm_model = from_onnx(model, keep_params_in_input=True)
