@@ -763,9 +763,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         inp_1 = args[0]
         inp_2 = args[1]
 
-        # Handle scalar cases
+        # Handle scalar cases, at the dtype of what it divides
         if isinstance(inp_2, int | float):
-            inp_2 = relax.const(inp_2)
+            inp_2 = relax.const(inp_2, inp_1.ty.dtype)
 
         # Get rounding_mode from node kwargs
         rounding_mode = args[2] if len(node.args) > 2 else node.kwargs.get("rounding_mode", None)
@@ -804,7 +804,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         rhs = args[1]
 
         if isinstance(rhs, int | float):
-            rhs = relax.const(rhs)
+            rhs = relax.const(rhs, lhs.ty.dtype)
 
         return self.block_builder.emit(relax.op.subtract(rhs, lhs))
 

@@ -2413,8 +2413,23 @@ def test_rsub():
                 R.output(gv)
             return gv
 
+    class RSub3(Module):
+        def forward(self, x):
+            return torch.rsub(x, 5)
+
+    @tvm.script.ir_module
+    class expected_rsub3:
+        @R.function
+        def main(x: R.Tensor((10, 10), dtype="float32")) -> R.Tensor((10, 10), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((10, 10), dtype="float32") = R.subtract(R.const(5.0, "float32"), x)
+                gv: R.Tensor((10, 10), dtype="float32") = lv
+                R.output(gv)
+            return gv
+
     verify_model(RSub1(), input_info1, {}, expected_rsub1)
     verify_model(RSub2(), input_info2, {}, expected_rsub2)
+    verify_model(RSub3(), input_info2, {}, expected_rsub3)
 
 
 # IsIn

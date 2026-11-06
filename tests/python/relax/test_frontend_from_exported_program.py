@@ -1678,6 +1678,27 @@ def test_div_mode():
 
     verify_model(DivFloorModel(), example_args, {}, expected_div_floor)
 
+    # Case 4: Integer divisor, whose Python type is not the tensor's dtype
+    class DivScalarModel(torch.nn.Module):
+        def forward(self, a):
+            return torch.div(a, 2, rounding_mode="floor")
+
+    @tvm.script.ir_module
+    class expected_div_scalar:
+        @R.function
+        def main(a: R.Tensor((64, 64), dtype="float32")) -> R.Tuple(
+            R.Tensor((64, 64), dtype="float32")
+        ):
+            with R.dataflow():
+                lv: R.Tensor((64, 64), dtype="float32") = R.floor_divide(a, R.const(2.0, "float32"))
+                gv: R.Tuple(R.Tensor((64, 64), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    verify_model(
+        DivScalarModel(), (torch.randn(64, 64, dtype=torch.float32),), {}, expected_div_scalar
+    )
+
 
 def test_batchnorm2d():
     class BatchNorm2d1(Module):
