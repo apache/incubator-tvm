@@ -248,7 +248,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         return x
 
     @staticmethod
-    def _promote_common_dtype(lhs_dtype: str | None, rhs_dtype: str | None) -> str | None:
+    def _promote_common_dtype(
+        lhs_dtype: str | None, rhs_dtype: str | None, lhs_ndim: int, rhs_ndim: int
+    ) -> str | None:
         """Return the promoted dtype following PyTorch rules, or None if unsupported."""
         import torch  # type: ignore
 
@@ -276,7 +278,13 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         if lhs_torch is None or rhs_torch is None:
             return None
 
-        promoted = torch.promote_types(lhs_torch, rhs_torch)
+        if lhs_ndim < 0 or rhs_ndim < 0:
+            promoted = torch.promote_types(lhs_torch, rhs_torch)
+        else:
+            promoted = torch.result_type(
+                torch.empty(() if lhs_ndim == 0 else (1,), dtype=lhs_torch, device="meta"),
+                torch.empty(() if rhs_ndim == 0 else (1,), dtype=rhs_torch, device="meta"),
+            )
         return torch_to_tvm.get(promoted, None)
 
     @staticmethod
@@ -699,7 +707,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                     if isinstance(lhs_si, relax.TensorType) and isinstance(
                         rhs_si, relax.TensorType
                     ):
-                        target_dtype = self._promote_common_dtype(lhs_si.dtype, rhs_si.dtype)
+                        target_dtype = self._promote_common_dtype(
+                            lhs_si.dtype, rhs_si.dtype, lhs_si.ndim, rhs_si.ndim
+                        )
                         if target_dtype is not None:
                             if lhs_si.dtype != target_dtype:
                                 lhs = self.block_builder.emit(relax.op.astype(lhs, target_dtype))

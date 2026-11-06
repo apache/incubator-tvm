@@ -1437,6 +1437,24 @@ def test_binary_dtype_promotion(op, relax_op):
     verify_model(BinaryPromoteRHS(), example_args, {}, expected_promote_rhs)
 
 
+@pytest.mark.parametrize("reverse", [False, True])
+def test_binary_dtype_promotion_zero_dim(reverse):
+    class Binary(Module):
+        def forward(self, lhs, rhs):
+            return lhs + rhs
+
+    lhs = torch.tensor(1, dtype=torch.float64)
+    rhs = torch.tensor([1], dtype=torch.float32)
+    args = (rhs, lhs) if reverse else (lhs, rhs)
+    expected = Binary()(*args)
+    assert expected.dtype == torch.float32
+
+    mod = from_exported_program(export(Binary(), args))
+    vm = relax.VirtualMachine(relax.build(mod, tvm.target.Target("llvm")), tvm.cpu())
+    result = vm["main"](*[tvm.runtime.tensor(arg.numpy()) for arg in args])[0].numpy()
+    torch.testing.assert_close(torch.from_numpy(result), expected)
+
+
 operator_binary_2 = [
     (operator.eq, R.equal),
     (operator.ne, R.not_equal),
