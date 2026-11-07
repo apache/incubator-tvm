@@ -197,12 +197,14 @@ The executable supports binary serialization for deployment:
 
 .. code-block:: python
 
+   from tvm.relax import VirtualMachine
+
    # Save
    ex.export_library("model.so")
 
    # Load
    loaded = tvm_tirx.runtime.load_module("model.so")
-   vm = relax.VirtualMachine(loaded, tvm_tirx.cuda())
+   vm = VirtualMachine(loaded, tvm_tirx.cuda())
 
 The binary format includes a magic number (``0xD225DE2F4214151E``), a version string
 (currently ``"0.14"``), followed by four sections: globals (the function table), memory scopes,
@@ -320,6 +322,7 @@ Users interact with the VM through ``tvm.relax.VirtualMachine``:
 
    import tvm
    from tvm import relax
+   import tvm_tirx
    import numpy as np
 
    # Compile

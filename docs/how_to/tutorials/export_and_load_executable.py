@@ -243,6 +243,7 @@ if RUN_EXAMPLE:
 #    #!/usr/bin/env python3
 #    import numpy as np
 #    import tvm
+#    import tvm_tirx
 #    from tvm import relax
 #
 #    # Step 1: Load the compiled library

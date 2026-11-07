@@ -307,7 +307,7 @@ walkthroughs:
 
 .. code-block:: python
 
-    from tvm_tirx.tirx.layout import tmem_datapath_layout
+    from tvm_tirx.backend.cuda.layout import tmem_datapath_layout
 
     accum = tmem_datapath_layout("D", 128, cols)
     lower = tmem_datapath_layout("F", 64, cols, sub_slab=0)

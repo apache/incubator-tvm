@@ -149,9 +149,10 @@ The main goal of TVM's runtime is to provide a minimal API for loading and execu
 
     import tvm
     import tvm_ffi
+    import tvm_tirx
     # Example runtime execution program in python, with type annotated
     mod: tvm_ffi.Module = tvm_tirx.runtime.load_module("compiled_artifact.so")
-    arr: tvm_tirx.runtime.tensor = tvm_tirx.runtime.tensor([1, 2, 3], device=tvm_tirx.cuda(0))
+    arr: tvm_tirx.runtime.Tensor = tvm_tirx.runtime.tensor([1, 2, 3], device=tvm_tirx.cuda(0))
     fun: tvm_ffi.Function = mod["addone"]
     fun(arr)
     print(arr.numpy())
@@ -170,12 +171,13 @@ The above example only deals with a simple `addone` function. The code snippet b
 
    import tvm
    import tvm_ffi
+   import tvm_tirx
    from tvm import relax
    # Load the compiled artifact
    mod: tvm_ffi.Module = tvm_tirx.runtime.load_module("resnet18.so")
    # Create a VM instance on cuda(0)
    vm = relax.VirtualMachine(mod, tvm_tirx.cuda(0))
-   data: tvm_tirx.runtime.tensor = get_input_data()
+   data: tvm_tirx.runtime.Tensor = get_input_data()
    # Run the model — vm["main"] returns a PackedFunc
    result = vm["main"](data).numpy()
 
