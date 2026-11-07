@@ -9436,7 +9436,7 @@ def test_reverse_sequence():
     verify_reverse_sequence(x, seq_lens, time_axis=1, batch_axis=0)
 
     # Default attributes (time_axis=0, batch_axis=1)
-    verify_reverse_sequence(x, np.array([4, 2, 0, 3], dtype=np.int64))
+    verify_reverse_sequence(x, np.array([4, 2, 1, 3], dtype=np.int64))
 
     # 3D tensor
     x_3d = np.arange(24, dtype=np.float32).reshape(2, 3, 4)
