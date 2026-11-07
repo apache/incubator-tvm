@@ -5313,6 +5313,113 @@ def test_cumsum_axis_shape_validation():
         from_onnx(model, opset=14, keep_params_in_input=True)
 
 
+@pytest.mark.parametrize("reverse", [True, False])
+@pytest.mark.parametrize("exclusive", [True, False])
+def test_cumprod(reverse, exclusive):
+    cumprod_node = helper.make_node(
+        "CumProd", ["x", "axis"], ["y"], reverse=reverse, exclusive=exclusive
+    )
+    shape = [4, 4]
+    graph = helper.make_graph(
+        [cumprod_node],
+        "cumprod_test",
+        inputs=[
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, shape),
+        ],
+        initializer=[helper.make_tensor("axis", TensorProto.INT64, (), [1])],
+        outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, shape)],
+    )
+
+    model = helper.make_model(
+        graph, producer_name="cumprod_test", opset_imports=[helper.make_opsetid("", 26)]
+    )
+    inputs = {
+        "x": np.array(
+            [
+                [1.0, 1.2, 0.9, 1.1],
+                [0.8, 1.5, 0.7, 1.3],
+                [1.1, 0.9, 1.2, 0.8],
+                [1.4, 0.6, 1.0, 1.1],
+            ],
+            dtype=np.float32,
+        )
+    }
+    check_correctness(model, inputs=inputs, opset=26)
+
+
+def test_cumprod_int32_1d_axis_initializer():
+    input_shape = [2, 3]
+
+    graph = helper.make_graph(
+        [
+            helper.make_node("CumProd", inputs=["X", "axis"], outputs=["Y"]),
+        ],
+        "cumprod_graph",
+        inputs=[
+            helper.make_tensor_value_info("X", onnx.TensorProto.DOUBLE, input_shape),
+        ],
+        initializer=[helper.make_tensor("axis", onnx.TensorProto.INT32, [1], [0])],
+        outputs=[helper.make_tensor_value_info("Y", onnx.TensorProto.DOUBLE, input_shape)],
+    )
+
+    model = helper.make_model(
+        graph, producer_name="cumprod_graph", opset_imports=[helper.make_opsetid("", 26)]
+    )
+    inputs = {"X": np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)}
+    check_correctness(model, inputs=inputs, opset=26)
+
+
+def test_cumprod_dynamic_axis_not_supported():
+    input_shape = [2, 3]
+
+    graph = helper.make_graph(
+        [
+            helper.make_node("CumProd", inputs=["X", "axis"], outputs=["Y"]),
+        ],
+        "cumprod_dynamic_axis_graph",
+        inputs=[
+            helper.make_tensor_value_info("X", onnx.TensorProto.DOUBLE, input_shape),
+            helper.make_tensor_value_info("axis", onnx.TensorProto.INT32, [1], "axis"),
+        ],
+        outputs=[helper.make_tensor_value_info("Y", onnx.TensorProto.DOUBLE, input_shape)],
+    )
+
+    model = helper.make_model(
+        graph,
+        producer_name="cumprod_dynamic_axis_graph",
+        opset_imports=[helper.make_opsetid("", 26)],
+    )
+    with pytest.raises(ValueError, match="non-constant axis input is not supported"):
+        from_onnx(model, opset=26, keep_params_in_input=True)
+
+
+def test_cumprod_axis_shape_validation():
+    input_shape = [2, 3]
+
+    graph = helper.make_graph(
+        [
+            helper.make_node("CumProd", inputs=["X", "axis"], outputs=["Y"]),
+        ],
+        "cumprod_invalid_axis_shape_graph",
+        inputs=[
+            helper.make_tensor_value_info("X", onnx.TensorProto.DOUBLE, input_shape),
+        ],
+        initializer=[helper.make_tensor("axis", onnx.TensorProto.INT64, [2], [0, 1])],
+        outputs=[helper.make_tensor_value_info("Y", onnx.TensorProto.DOUBLE, input_shape)],
+    )
+
+    model = helper.make_model(
+        graph,
+        producer_name="cumprod_invalid_axis_shape_graph",
+        opset_imports=[helper.make_opsetid("", 26)],
+    )
+    with pytest.raises(
+        ValueError,
+        match=r"axis input must be a scalar \(0-D\) or a single-element 1-D tensor",
+    ):
+        from_onnx(model, opset=26, keep_params_in_input=True)
+
+
 def test_squeeze():
     def verify_squeeze(axis, expected):
         if axis:
