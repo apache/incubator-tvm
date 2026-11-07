@@ -2675,6 +2675,16 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             relax.op.topk(x, k=k, axis=dim, largest=largest, ret_type="both", dtype="int64")
         )
 
+    def _t(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        x = args[0]
+        rank = len(self.shape_of(x))
+        if rank > 2:
+            raise ValueError(f"t() expects a tensor with <= 2 dimensions, but got {rank}D")
+        if rank < 2:
+            return x
+        return self.block_builder.emit(relax.op.permute_dims(x, [1, 0]))
+
     def _transpose(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
         full_idx = list(range(len(self.shape_of(args[0]))))

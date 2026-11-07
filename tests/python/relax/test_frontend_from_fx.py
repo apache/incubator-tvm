@@ -4638,6 +4638,26 @@ def test_transpose():
     verify_model(Transpose(), input_info, {}, expected1)
 
 
+def test_t():
+    input_info = [([2, 3], "float32")]
+
+    class T(Module):
+        def forward(self, x):
+            return x.t()
+
+    @tvm_tirx.script.ir_module
+    class expected:
+        @R.function
+        def main(x: R.Tensor((2, 3), dtype="float32")) -> R.Tensor((3, 2), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((3, 2), dtype="float32") = R.permute_dims(x, axes=[1, 0])
+                gv: R.Tensor((3, 2), dtype="float32") = lv
+                R.output(gv)
+            return gv
+
+    verify_model(T(), input_info, {}, expected)
+
+
 def test_repeat():
     class Tile1(Module):
         def forward(self, x: torch.Tensor):

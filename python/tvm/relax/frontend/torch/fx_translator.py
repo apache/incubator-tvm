@@ -1018,6 +1018,7 @@ class TorchFXImporter(BaseFXGraphImporter):
             "squeeze": self._squeeze,
             "stack": self._stack,
             "take": self._take,
+            "t": self._t,
             "tile": self._tile,
             "topk": self._topk,
             "transpose": self._transpose,
