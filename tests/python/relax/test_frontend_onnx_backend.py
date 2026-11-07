@@ -182,6 +182,7 @@ _INCLUDE_OPS = [
     "or",
     "reciprocal",
     "relu",
+    "reversesequence",
     "round",
     "scatternd",
     "sigmoid",
