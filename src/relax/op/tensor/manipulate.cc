@@ -1980,9 +1980,11 @@ InferLayoutOutput InferLayoutRepeat(
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
 
-  // When axis is not specified, the output is 1D (flattened)
+  // When axis is not specified, the output is the flattened input. Flattening is order-sensitive,
+  // so the input must be restored to its initial (logical) layout.
   if (!attrs->axis.has_value()) {
-    return InferLayoutOutput({existing_layout}, {InitialLayoutDecision(1)}, call->attrs);
+    return InferLayoutOutput({InitialLayoutDecision(ndim)}, {InitialLayoutDecision(1)},
+                             call->attrs);
   }
 
   // Transform the axis based on the layout

@@ -5076,7 +5076,10 @@ def test_conv2d_repeat_flatten():
                     out_layout="NHWC",
                     out_dtype="float32",
                 )
-                gv2: R.Tensor((5408,), dtype="float32") = R.repeat(gv, repeats=1)
+                lv2: R.Tensor((2, 4, 26, 26), dtype="float32") = R.permute_dims(
+                    gv, axes=[0, 3, 1, 2]
+                )
+                gv2: R.Tensor((5408,), dtype="float32") = R.repeat(lv2, repeats=1)
                 R.output(gv2)
             return gv2
 
