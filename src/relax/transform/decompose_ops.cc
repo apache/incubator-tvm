@@ -126,13 +126,25 @@ Expr DecomposeLayerNorm(const Call& call) {
   Expr gamma = call->args[1];
   Expr beta = call->args[2];
 
+  DLDataType dtype = ty->dtype.value()->dtype;
+  bool is_float16 = dtype == DLDataType{kDLFloat, 16, 1};
+  DLDataType compute_dtype = is_float16 ? DLDataType{kDLFloat, 32, 1} : dtype;
+  if (is_float16) {
+    data = astype(data, compute_dtype);
+  }
+
   Expr data_mean = mean(data, attrs->axes, true);
   Expr data_var = variance(data, attrs->axes, true);
 
   // output = (x - mean) / sqrt(var + epsilon) * gamma + beta
-  Expr epsilon = MakeConstantScalar(attrs->epsilon, ty->dtype.value()->dtype);
+  Expr epsilon = MakeConstantScalar(attrs->epsilon, compute_dtype);
   Expr sqrt_var = sqrt(add(data_var, epsilon));
   Expr out = divide(subtract(data, data_mean), sqrt_var);
+
+  // Match TOPI LayerNorm: normalize in FP32, then cast back before scale and center.
+  if (is_float16) {
+    out = astype(out, dtype);
+  }
 
   if (attrs->scale) {
     out = multiply(out, gamma);
