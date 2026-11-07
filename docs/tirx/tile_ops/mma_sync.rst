@@ -127,7 +127,7 @@ prepares these words from ordinary row-major half matrices.
 .. code-block:: python
 
     from tvm_tirx.script import tirx as T
-    from tvm.backend.cuda.axis import laneid
+    from tvm_tirx.backend.cuda.axis import laneid
     from tvm_tirx.tirx.layout import S, TileLayout
 
     la = TileLayout(S[(1, 2, 2, 8, 2, 4) : (8, 4, 1, 4 @ laneid, 2, 1 @ laneid)])
@@ -168,6 +168,7 @@ prepares these words from ordinary row-major half matrices.
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     rng = np.random.default_rng(0)
     a = (rng.integers(-4, 5, (16, 32)) / 4).astype("float16")
@@ -175,8 +176,8 @@ prepares these words from ordinary row-major half matrices.
     ap = np.ascontiguousarray(a.reshape(1, 16, 2, 16).transpose(0, 2, 1, 3)).view("uint32")
     bp = np.ascontiguousarray(b.reshape(1, 8, 2, 16).transpose(0, 2, 1, 3)).view("uint32")
     compiled = tvm_tirx.tirx.compile(warp_mma, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros((16, 8), dtype="float32"), tvm.cuda())
-    compiled(tvm.runtime.tensor(ap, tvm.cuda()), tvm.runtime.tensor(bp, tvm.cuda()), out)
+    out = tvm_tirx.runtime.tensor(np.zeros((16, 8), dtype="float32"), tvm_tirx.cuda())
+    compiled(tvm_tirx.runtime.tensor(ap, tvm_tirx.cuda()), tvm_tirx.runtime.tensor(bp, tvm_tirx.cuda()), out)
     np.testing.assert_allclose(
         out.numpy(), a.astype("float32") @ b.astype("float32").T, rtol=2e-4, atol=2e-4
     )

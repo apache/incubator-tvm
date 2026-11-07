@@ -151,11 +151,12 @@ Compile and check the complete kernel:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     compiled = tvm_tirx.tirx.compile(strided_load, target="cuda", pipeline="tirx")
     x = np.arange(420, dtype="float32")
-    a = tvm.runtime.tensor(x.reshape(15, 2, 7, 2), tvm.cuda())
-    out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
+    a = tvm_tirx.runtime.tensor(x.reshape(15, 2, 7, 2), tvm_tirx.cuda())
+    out = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
     compiled(a, out)
     np.testing.assert_array_equal(out.numpy(), x)
 

@@ -173,7 +173,7 @@ for i, task in enumerate(tasks):
 # .. code-block:: python
 #
 #     with target:
-#         mod = tvm.ir.transform.Sequential([
+#         mod = tvm_tirx.ir.transform.Sequential([
 #             relax.transform.MetaScheduleTuneIRMod(
 #                 params={},
 #                 work_dir="./tuning_logs",

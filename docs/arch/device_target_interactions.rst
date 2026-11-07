@@ -170,7 +170,7 @@ then be registered with the following steps.
    should match the name given to ``GlobalDef().def``.
 
 #. Add entries to the ``_DEVICE_TYPE_TO_NAME`` and ``_DEVICE_NAME_TO_TYPE`` dictionaries of
-   :py:class:`tvm.runtime.Device` for the new enum value.
+   :py:class:`tvm_tirx.runtime.Device` for the new enum value.
 
 
 .. _tvm-target-specific-target:
@@ -208,8 +208,8 @@ queried from device properties.
 This argument definition defines a parser that can unpack a string
 description of a target.  This is done in the ``Target::Target(const
 String&)`` constructor in C++, which accepts a JSON-formatted string
-and is typically called using the :py:class:`tvm.target.Target` python
-object.  For example, ``tvm.target.Target('{"kind": "cuda",
+and is typically called using the :py:class:`tvm_tirx.target.Target` python
+object.  For example, ``tvm_tirx.target.Target('{"kind": "cuda",
 "max_num_threads": 1024}')`` will create a ``cuda`` target, while
 overriding the default maximum number of threads.
 

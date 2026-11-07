@@ -188,7 +188,7 @@ operand layouts and explicit K decomposition determine the descriptor fields and
 .. code-block:: python
 
     from tvm_tirx.script import tirx as T
-    from tvm.backend.cuda.layout import mma_shared_layout, tmem_mma_operand_layout
+    from tvm_tirx.backend.cuda.layout import mma_shared_layout, tmem_mma_operand_layout
 
     al = mma_shared_layout("float16", 3, (128, 64))
     bl = mma_shared_layout("float16", 3, (64, 64))
@@ -262,13 +262,14 @@ operand layouts and explicit K decomposition determine the descriptor fields and
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     rng = np.random.default_rng(0)
     a = (rng.integers(-4, 5, (128, 64)) / 4).astype("float16")
     b = (rng.integers(-4, 5, (64, 64)) / 4).astype("float16")
     compiled = tvm_tirx.tirx.compile(tensor_mma, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros((128, 64), dtype="float32"), tvm.cuda())
-    compiled(tvm.runtime.tensor(a, tvm.cuda()), tvm.runtime.tensor(b, tvm.cuda()), out)
+    out = tvm_tirx.runtime.tensor(np.zeros((128, 64), dtype="float32"), tvm_tirx.cuda())
+    compiled(tvm_tirx.runtime.tensor(a, tvm_tirx.cuda()), tvm_tirx.runtime.tensor(b, tvm_tirx.cuda()), out)
     np.testing.assert_allclose(
         out.numpy(), a.astype("float32") @ b.astype("float32").T, rtol=2e-4, atol=2e-4
     )

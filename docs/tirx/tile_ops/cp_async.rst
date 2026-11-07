@@ -161,11 +161,12 @@ Compile and check it with an Ampere-or-later CUDA device:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     compiled = tvm_tirx.tirx.compile(copy_async, target="cuda", pipeline="tirx")
     x = (np.arange(4096) % 97).astype("float16").reshape(128, 32)
-    a = tvm.runtime.tensor(x, tvm.cuda())
-    b = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
+    a = tvm_tirx.runtime.tensor(x, tvm_tirx.cuda())
+    b = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
     compiled(a, b)
     np.testing.assert_array_equal(b.numpy(), x)
 

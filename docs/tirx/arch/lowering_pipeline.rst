@@ -205,10 +205,11 @@ IR snippets across these docs were produced:
 
 .. code-block:: python
 
+    import tvm_tirx
     from tvm_tirx.tirx import transform as TT
 
-    target = tvm.target.Target("cuda")
-    mod = TT.BindTarget(target.with_host("llvm"))(tvm.IRModule({"main": scale}))
+    target = tvm_tirx.target.Target("cuda")
+    mod = TT.BindTarget(target.with_host("llvm"))(tvm_tirx.IRModule({"main": scale}))
     mod = TT.TileDispatch()(mod)         # tile ops dispatched
     mod = TT.LowerTensorLayouts()(mod)   # layouts applied
     print(mod.script())               # inspect the lowered TIRx IR
@@ -217,5 +218,5 @@ Or compile the whole module and read the generated CUDA:
 
 .. code-block:: python
 
-    exe = tvm.compile(tvm.IRModule({"main": scale}), target=target, tir_pipeline="tirx")
+    exe = tvm.compile(tvm_tirx.IRModule({"main": scale}), target=target, tir_pipeline="tirx")
     print(exe.mod.imports[0].inspect_source())

@@ -20,12 +20,12 @@ Backend Internals
 
 TIRx keeps the core IR and compiler machinery under ``tvm_tirx.tirx``.  A target
 backend owns its script namespaces, intrinsic builders, dispatch variants,
-pipeline additions, and code-generation support under ``tvm.backend``.
+pipeline additions, and code-generation support under ``tvm_tirx.backend``.
 
 Loading and registration
 ------------------------
 
-``tvm.backend.load`` imports a backend and calls its registration hook.  A
+``tvm_tirx.backend.load`` imports a backend and calls its registration hook.  A
 backend can register the following target-owned behavior:
 
 #. TVMScript namespaces such as ``Tx.cuda``, ``Tx.ptx``, and ``Tx.nki``;
@@ -40,7 +40,7 @@ are implementation surfaces, not additional kernel-authoring APIs.
 CUDA ownership
 --------------
 
-``tvm.backend.cuda`` is divided by compiler responsibility:
+``tvm_tirx.backend.cuda`` is divided by compiler responsibility:
 
 .. list-table::
    :header-rows: 1
@@ -72,7 +72,7 @@ public forms.
 Trainium ownership
 ------------------
 
-``tvm.backend.trn`` follows the same boundary.  ``script`` and ``op`` construct
+``tvm_tirx.backend.trn`` follows the same boundary.  ``script`` and ``op`` construct
 the ``Tx.nki`` surface, ``tensor_instructions`` registers ``Tx.trn.tile`` instruction contracts,
 ``layout`` and ``transform`` lower Trainium-specific memory mappings, and
 ``pipeline`` assembles the Trainium pass sequence.  ``target_tags`` registers

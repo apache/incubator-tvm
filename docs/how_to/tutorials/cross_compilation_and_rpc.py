@@ -553,8 +553,8 @@ def run_pytorch_model_via_rpc():
         #   - RV64: {"kind": "llvm", "mtriple": "riscv64-unknown-linux-gnu"}
         #
         # GPU targets:
-        #   - CUDA: tvm.target.Target("cuda", host={"kind": "llvm", "mtriple": "x86_64-linux-gnu"})
-        #   - OpenCL: tvm.target.Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
+        #   - CUDA: tvm_tirx.target.Target("cuda", host={"kind": "llvm", "mtriple": "x86_64-linux-gnu"})
+        #   - OpenCL: tvm_tirx.target.Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
         #
         # For this example, we use ARM 64-bit
         target = tvm_tirx.target.Target({"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
@@ -727,12 +727,12 @@ def run_pytorch_model_via_rpc():
     #    .. code-block:: python
     #
     #       # Example: ARM with NEON
-    #       target = tvm.target.Target(
+    #       target = tvm_tirx.target.Target(
     #           {"kind": "llvm", "mtriple": "aarch64-linux-gnu", "mattr": "+neon"}
     #       )
     #
     #       # Example: x86 with AVX-512
-    #       target = tvm.target.Target(
+    #       target = tvm_tirx.target.Target(
     #           {"kind": "llvm", "mtriple": "x86_64-linux-gnu", "mcpu": "skylake-avx512"}
     #       )
     #

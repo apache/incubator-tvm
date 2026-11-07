@@ -146,7 +146,7 @@ completion and validation.
 
 Ordinary IR constructors can be used directly in parsed source. Shared exports
 such as ``I.Call`` and ``T.Range`` use the same constructor contracts as
-``tvm.ir.Call`` and ``tvm.ir.Range``, including keyword arguments, source locations
+``tvm_tirx.ir.Call`` and ``tvm_tirx.ir.Range``, including keyword arguments, source locations
 and validation. ``Call(op, args, ..., ty=ty)`` preserves an explicit result type, including
 ``Type.missing()``. Omitting ``ty`` or passing ``ty=None`` uses available inference and retains
 ``Type.missing()`` when no deduction is available; inference errors propagate.
@@ -194,7 +194,7 @@ For example, a small function can be authored, printed and parsed again:
 
    text = increment.script()
    reparsed = tvm_tirx.script.from_source(text, extra_vars={"T": T})
-   tvm.ir.assert_structural_equal(increment, reparsed)
+   tvm_tirx.ir.assert_structural_equal(increment, reparsed)
 
 Printed source uses canonical forms rather than preserving the original spelling.
 Round trips require printable IR and any external objects needed by the source;

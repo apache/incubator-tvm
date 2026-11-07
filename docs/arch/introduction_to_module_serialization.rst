@@ -146,7 +146,7 @@ support arbitrary modules to import ideally.
 Deserialization
 ****************
 
-The entrance API is ``tvm.runtime.load_module``. This function
+The entrance API is ``tvm_tirx.runtime.load_module``. This function
 actually calls ``_LoadFromFile``. If we dig it a little deeper, this is
 ``Module::LoadFromFile``. In our example, the file is ``deploy.so``,
 according to the function logic, we will call ``module.loadfile_so`` in

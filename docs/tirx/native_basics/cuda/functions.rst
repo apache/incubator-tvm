@@ -65,7 +65,7 @@ pass on the Python side when you call the compiled ``Executable``:
 
 Tensors may be CUDA ``torch`` tensors (zero-copy through TVM FFI tensor
 interop) or
-``tvm.runtime.tensor(...)``. Arguments are positional and match the parameter
+``tvm_tirx.runtime.tensor(...)``. Arguments are positional and match the parameter
 order. For example, a kernel with a scalar parameter::
 
     @Tx.function
@@ -103,7 +103,7 @@ passed tensor** at run time, so a *single compiled kernel* handles any size:
 
 
     exe = tvm.compile(
-        tvm.IRModule({"main": scale_dyn}), target=tvm.target.Target("cuda"), tir_pipeline="tirx"
+        tvm_tirx.IRModule({"main": scale_dyn}), target=tvm_tirx.target.Target("cuda"), tir_pipeline="tirx"
     )
     exe(torch.rand(100, device="cuda"), torch.empty(100, device="cuda"))  # n = 100
     exe(torch.rand(200, device="cuda"), torch.empty(200, device="cuda"))  # n = 200, same kernel

@@ -48,6 +48,7 @@ are a plain ``enum.Enum`` whose integer values start at 0 and index a names list
     from enum import Enum
     import numpy as np
     import tvm
+    import tvm_tirx
     from tvm_tirx.script import tirx as Tx
     from tvm_tirx.testing.bench import CudaProfiler, export_to_perfetto_trace
 
@@ -109,13 +110,13 @@ back. Each record is one ``uint64``: the high 32 bits are the timestamp, the low
 
 .. code-block:: python
 
-    dev = tvm.cuda(0)
-    exe = tvm.compile(tvm.IRModule({"main": profiled_kernel}),
-                      target=tvm.target.Target("cuda"), tir_pipeline="tirx")
+    dev = tvm_tirx.cuda(0)
+    exe = tvm.compile(tvm_tirx.IRModule({"main": profiled_kernel}),
+                      target=tvm_tirx.target.Target("cuda"), tir_pipeline="tirx")
 
-    inp = tvm.runtime.tensor(np.ones(N, "float32"), device=dev)
-    out = tvm.runtime.tensor(np.zeros(N, "float32"), device=dev)
-    prof = tvm.runtime.tensor(np.zeros(PROF_SIZE, "uint64"), device=dev)
+    inp = tvm_tirx.runtime.tensor(np.ones(N, "float32"), device=dev)
+    out = tvm_tirx.runtime.tensor(np.zeros(N, "float32"), device=dev)
+    prof = tvm_tirx.runtime.tensor(np.zeros(PROF_SIZE, "uint64"), device=dev)
 
     exe(out, inp, prof)
     dev.sync()

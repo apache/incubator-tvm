@@ -112,7 +112,7 @@ A tensor's ``data`` — its pointer — is a ``Var`` of pointer type, and it is
 
   .. code-block:: python
 
-      from tvm.ir.type import PtrType, PrimType
+      from tvm_tirx.ir.type import PtrType, PrimType
 
       mapped = Tx.alloc_local([1], "uint64")
       Tx.ptx.mapa.u64(mapped[0], mbar.ptr_to([0]), Tx.uint32(0))

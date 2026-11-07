@@ -228,7 +228,7 @@ creating a sequence. For example:
 
 .. code:: python
 
-    pipeline = tvm.ir.transform.Sequential([
+    pipeline = tvm_tirx.ir.transform.Sequential([
         relax.transform.Normalize(),
         relax.transform.FoldConstant(),
     ])
@@ -329,7 +329,7 @@ of the ``PassContext`` instance.
 
 ``InstrumentExitPassContext`` is called when leaving the scope of ``PassContext``,
 or exceptions occur during the execution of passes.
-This method is also called when instruments is being overridden by ``override_instruments`` in :py:class:`tvm.ir.transform.PassContext`.
+This method is also called when instruments is being overridden by ``override_instruments`` in :py:class:`tvm_tirx.ir.transform.PassContext`.
 See :ref:`pass_instrument_overriden`.
 
 ``InstrumentBeforePass`` is called before execution.
@@ -520,7 +520,7 @@ Pass Instrument
 
 One can implement a ``PassInstrument`` by using the ``pass_instrument``
 decorator (`python/tvm/ir/transform/core.py`_) or by subclassing
-``tvm.ir.transform.PassInstrument``. Implement any of the following callbacks:
+``tvm_tirx.ir.transform.PassInstrument``. Implement any of the following callbacks:
 
 - ``enter_pass_ctx``
 
@@ -544,10 +544,10 @@ decorator (`python/tvm/ir/transform/core.py`_) or by subclassing
   * This method is run right after a pass has been executed.
 
 ``PassInstrument`` instances can be registered through ``instruments`` argument in
-:py:class:`tvm.ir.transform.PassContext`.
+:py:class:`tvm_tirx.ir.transform.PassContext`.
 
-Core interfaces are exported from ``tvm.ir.transform``. Concrete tools, including
-``PassTimingInstrument`` and ``DumpIR``, live in ``tvm.ir.transform.instrument``;
+Core interfaces are exported from ``tvm_tirx.ir.transform``. Concrete tools, including
+``PassTimingInstrument`` and ``DumpIR``, live in ``tvm_tirx.ir.transform.instrument``;
 see `python/tvm/ir/transform/instrument.py`_ for examples.
 
 .. _pass_instrument_overriden:
@@ -561,7 +561,7 @@ one can still register ``PassInstrument`` into the global ``PassContext`` by:
 
 .. code:: python
 
-    cur_pass_ctx = tvm.ir.transform.PassContext.current()
+    cur_pass_ctx = tvm_tirx.ir.transform.PassContext.current()
     # override PassInstrument instances
     cur_pass_ctx.override_instruments([pass_inst])
     mod = pass_seq(mod)

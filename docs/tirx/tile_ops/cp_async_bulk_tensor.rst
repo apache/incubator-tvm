@@ -190,11 +190,12 @@ initialization associated with this call. It is not repeated on the device for e
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     x = np.arange(256, dtype="uint32").reshape(16, 16)
     compiled = tvm_tirx.tirx.compile(tma_load, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
-    compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
+    out = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
+    compiled(tvm_tirx.runtime.tensor(x, tvm_tirx.cuda()), out)
     np.testing.assert_array_equal(out.numpy(), x)
 
 Stores, reductions, and completion

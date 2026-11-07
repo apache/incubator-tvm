@@ -66,7 +66,7 @@ Target Dispatch
 
 Generic target configuration and registration live in ``src/target/``. Shared
 code generation lives in ``src/codegen/``, with installed APIs in
-``include/tvm/codegen/`` and Python helpers in ``tvm.codegen``. Platform-specific
+``include/tvm/codegen/`` and Python helpers in ``tvm_tirx.codegen``. Platform-specific
 generators remain under ``src/backend/<platform>/codegen/``.
 
 The core dispatch logic lives in ``codegen::Build()`` (``src/codegen/codegen.cc``), which is

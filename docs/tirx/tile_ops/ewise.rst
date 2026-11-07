@@ -98,7 +98,7 @@ scalar repeats.
 .. code-block:: python
 
     from tvm_tirx.script import tirx as T
-    from tvm.backend.cuda.axis import laneid, warpid
+    from tvm_tirx.backend.cuda.axis import laneid, warpid
     from tvm_tirx.tirx.layout import S, TileLayout
 
     reg_layout = TileLayout(S[(2, 32, 4) : (1 @ warpid, 1 @ laneid, 1)])
@@ -166,6 +166,7 @@ Compile and verify both examples:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     x = np.linspace(-2, 2, 256, dtype="float32")
     for kernel, shape, ref in [
@@ -173,8 +174,8 @@ Compile and verify both examples:
         (shared_affine, (64, 4), np.roll((x * 2 + 1).reshape(64, 4), -1, axis=0)),
     ]:
         compiled = tvm_tirx.tirx.compile(kernel, target="cuda", pipeline="tirx")
-        out = tvm.runtime.tensor(np.zeros(shape, dtype="float32"), tvm.cuda())
-        compiled(tvm.runtime.tensor(x.reshape(shape), tvm.cuda()), out)
+        out = tvm_tirx.runtime.tensor(np.zeros(shape, dtype="float32"), tvm_tirx.cuda())
+        compiled(tvm_tirx.runtime.tensor(x.reshape(shape), tvm_tirx.cuda()), out)
         np.testing.assert_allclose(out.numpy(), ref, rtol=2e-5, atol=2e-5)
 
 Implementation: ``python/tvm/backend/cuda/tile/patterns/ewise.py``.

@@ -135,7 +135,7 @@ Example: one 128x128b copy and readback
 .. code-block:: python
 
     from tvm_tirx.script import tirx as T
-    from tvm.backend.cuda.axis import TLane, TCol
+    from tvm_tirx.backend.cuda.axis import TLane, TCol
     from tvm_tirx.tirx.layout import S, TileLayout
 
     tmem_layout = TileLayout(S[(128, 4) : (1 @ TLane, 1 @ TCol)])
@@ -191,11 +191,12 @@ code and independently expose each TMEM word.
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     x = np.arange(512, dtype="uint32").reshape(128, 4)
     compiled = tvm_tirx.tirx.compile(copy_to_tmem, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
-    compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
+    out = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
+    compiled(tvm_tirx.runtime.tensor(x, tvm_tirx.cuda()), out)
     np.testing.assert_array_equal(out.numpy(), x)
 
 Native FP4/FP6 decompression
