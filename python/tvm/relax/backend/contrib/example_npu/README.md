@@ -71,13 +71,14 @@ The snippet above shows how to discover registered patterns. A minimal runnable 
 ```python
 import tvm
 from tvm import relax
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
 from tvm.relax.backend.pattern_registry import get_patterns_with_prefix
 from tvm.relax.transform import FuseOpsByPattern, MergeCompositeFunctions, RunCodegen
 import tvm.relax.backend.contrib.example_npu  # registers patterns
 
 
-@tvm.script.ir_module
+@I.ir_module
 class MatmulReLU:
     @R.function
     def main(

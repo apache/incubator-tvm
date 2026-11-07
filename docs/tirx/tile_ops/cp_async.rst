@@ -127,7 +127,7 @@ assigns four eight-element chunks to each of 128 threads:
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function
@@ -162,7 +162,7 @@ Compile and check it with an Ampere-or-later CUDA device:
     import numpy as np
     import tvm
 
-    compiled = tvm.tirx.compile(copy_async, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(copy_async, target="cuda", pipeline="tirx")
     x = (np.arange(4096) % 97).astype("float16").reshape(128, 32)
     a = tvm.runtime.tensor(x, tvm.cuda())
     b = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())

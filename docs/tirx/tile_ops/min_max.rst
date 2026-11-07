@@ -93,7 +93,7 @@ Example: three-input maximum
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function

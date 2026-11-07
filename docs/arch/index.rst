@@ -291,8 +291,8 @@ Thanks to the node module, we can directly access any field of the TVM's IRNode 
 
 .. code-block:: python
 
-    x = tvm.tirx.Var("x", "int32")
-    y = tvm.tirx.Add(x, x)
+    x = tvm_tirx.tirx.Var("x", "int32")
+    y = tvm_tirx.tirx.Add(x, x)
     # a and b are fields of a tirx.Add node
     # we can directly use the field name to access the IR structures
     assert y.a == x

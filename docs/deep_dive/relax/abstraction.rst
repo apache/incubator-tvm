@@ -35,7 +35,7 @@ relationships between different parts of the model.
 
 .. code:: python
 
-    from tvm.script import relax as R
+    from tvm.relax import script as R
 
     @R.function
     def main(

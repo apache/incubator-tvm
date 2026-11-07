@@ -70,7 +70,7 @@ Python API
 
 .. toctree::
     :maxdepth: 1
-    :caption: tvm.script
+    :caption: tvm_tirx.script
 
     script/script
     script/parser

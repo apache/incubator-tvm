@@ -140,9 +140,9 @@ readback for one warp.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
     from tvm.backend.cuda.axis import laneid
-    from tvm.tirx.layout import S, TileLayout
+    from tvm_tirx.tirx.layout import S, TileLayout
 
     LDMATRIX = "ldmatrix.sync.aligned.m8n8.x2.shared.b16"
 
@@ -195,7 +195,7 @@ Run the complete factory example on an Ampere-or-later device:
     import numpy as np
     import tvm
 
-    compiled = tvm.tirx.compile(matrix_kernel(), target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(matrix_kernel(), target="cuda", pipeline="tirx")
     x = np.arange(128, dtype="uint32").reshape(16, 4, 2)
     out = tvm.runtime.tensor(np.zeros((32, 12), dtype="uint32"), tvm.cuda())
     compiled(tvm.runtime.tensor(x, tvm.cuda()), out)

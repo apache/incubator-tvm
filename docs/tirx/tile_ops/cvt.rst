@@ -92,7 +92,7 @@ Example: eight float32 values to four packed half pairs
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function
@@ -114,7 +114,7 @@ output elements. The expansion emits four packed cvt instructions, one per row.
     import tvm
 
     x = np.linspace(-2, 2, 8, dtype="float32").reshape(4, 2)
-    compiled = tvm.tirx.compile(narrow_pairs, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(narrow_pairs, target="cuda", pipeline="tirx")
     out = tvm.runtime.tensor(np.zeros((4, 1), dtype="uint32"), tvm.cuda())
     compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
     np.testing.assert_array_equal(out.numpy().view("float16"), x.astype("float16"))

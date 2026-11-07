@@ -27,7 +27,7 @@ TVM wheel from PyPI:
 
    pip install apache-tvm
 
-This installs the Python package, including modules such as ``tvm.tirx``, and
+This installs the Python package, including modules such as ``tvm_tirx.tirx``, and
 is suitable for trying tutorials that do not require a custom build.
 
 CUDA environments

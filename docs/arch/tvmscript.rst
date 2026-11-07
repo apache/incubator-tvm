@@ -34,8 +34,8 @@ printer converts IR back into readable, parseable source.
 Source and frontend
 -------------------
 
-``tvm.script.parser`` accepts Python functions, classes and source strings through
-public decorators, ``tvm.script.parse`` and ``tvm.script.from_source``. The frontend
+``tvm_tirx.script.parser`` accepts Python functions, classes and source strings through
+public decorators, ``tvm_tirx.script.parse`` and ``tvm_tirx.script.from_source``. The frontend
 acquires source and locations, captures the definition's globals and closure bindings,
 and composes the generated callable with that environment. String callers provide
 external bindings through ``extra_vars``.
@@ -97,11 +97,11 @@ without automatic whole-module validation. Validate completed modules explicitly
 with the language's ``analysis.check_well_formed(module)`` API. These checks raise on
 invalid IR by default; TIRx also supports ``assert_mode=False`` for a boolean result.
 
-``tvm.script.parser.protocol_registry`` records syntax policies under registered
+``tvm_tirx.script.parser.protocol_registry`` records syntax policies under registered
 canonical namespace paths rooted at ``tirx``, ``relax``, ``ir`` and ``s_tir``.
 Source code selects its own aliases through imports or explicit environments; the parser
 does not provide implicit ``T``, ``R``, ``I`` or ``Ts`` bindings. For example,
-``from tvm.script import tirx as X`` makes ``X.function`` resolve to
+``from tvm_tirx.script import tirx as X`` makes ``X.function`` resolve to
 ``tirx.function`` without changing the callable. Printed scripts show suggested imports
 as comments: include those imports in executable source or pass equivalent
 ``extra_vars`` when parsing a printed script. The public registration helpers
@@ -184,7 +184,8 @@ For example, a small function can be authored, printed and parsed again:
 .. code-block:: python
 
    import tvm
-   from tvm.script import tirx as T
+   import tvm_tirx
+   from tvm_tirx.script import tirx as T
 
    @T.function
    def increment(A: T.Tensor((4,), "float32")):
@@ -192,7 +193,7 @@ For example, a small function can be authored, printed and parsed again:
            A[i] = A[i] + 1.0
 
    text = increment.script()
-   reparsed = tvm.script.from_source(text, extra_vars={"T": T})
+   reparsed = tvm_tirx.script.from_source(text, extra_vars={"T": T})
    tvm.ir.assert_structural_equal(increment, reparsed)
 
 Printed source uses canonical forms rather than preserving the original spelling.
@@ -204,7 +205,7 @@ Namespace extension
 
 A language variant supplies construction hooks and a public script namespace, then
 registers its aliases with ``register_namespace``. ``register_namespace_initializer``
-supports lazy setup. ``tvm.script.register_dialect`` exposes a package through the
+supports lazy setup. ``tvm_tirx.script.register_dialect`` exposes a package through the
 public script namespace. Syntax policies are registered beside the operations that
 need them. IR printing uses ``FDocTranslate`` hooks from
 ``tvm/script/printer/doc_translator.h``, registered through the existing type or

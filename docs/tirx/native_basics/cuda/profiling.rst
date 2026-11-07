@@ -48,7 +48,7 @@ are a plain ``enum.Enum`` whose integer values start at 0 and index a names list
     from enum import Enum
     import numpy as np
     import tvm
-    from tvm.script import tirx as Tx
+    from tvm_tirx.script import tirx as Tx
     from tvm_tirx.testing.bench import CudaProfiler, export_to_perfetto_trace
 
     NUM_BLOCKS, BLOCK, NUM_GROUPS = 4, 128, 1

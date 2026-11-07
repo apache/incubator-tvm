@@ -18,7 +18,7 @@
 Backend Internals
 =================
 
-TIRx keeps the core IR and compiler machinery under ``tvm.tirx``.  A target
+TIRx keeps the core IR and compiler machinery under ``tvm_tirx.tirx``.  A target
 backend owns its script namespaces, intrinsic builders, dispatch variants,
 pipeline additions, and code-generation support under ``tvm.backend``.
 

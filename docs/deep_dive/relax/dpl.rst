@@ -295,7 +295,7 @@ The callback receives *variables* rather than expressions:
 
 .. code:: python
 
-    from tvm.script import relax as R
+    from tvm.relax import script as R
     from tvm.relax.dpl import wildcard, is_op, rewrite_bindings, PatternContext
 
     with PatternContext() as ctx:
@@ -340,7 +340,7 @@ object that can be applied directly.
 
 .. code:: python
 
-    from tvm.script import relax as R
+    from tvm.relax import script as R
 
     @R.rewriter
     class RewriteAddToPackedCall:

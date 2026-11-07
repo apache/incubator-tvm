@@ -152,7 +152,7 @@ Example: two explicit 8x16 boxes
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function
@@ -192,7 +192,7 @@ initialization associated with this call. It is not repeated on the device for e
     import tvm
 
     x = np.arange(256, dtype="uint32").reshape(16, 16)
-    compiled = tvm.tirx.compile(tma_load, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(tma_load, target="cuda", pipeline="tirx")
     out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
     compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
     np.testing.assert_array_equal(out.numpy(), x)

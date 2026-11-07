@@ -124,10 +124,10 @@ this layout with explicit st/ld instructions.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
     from tvm.backend.cuda.axis import tid_in_wg
     from tvm.backend.cuda.layout import tmem_datapath_layout
-    from tvm.tirx.layout import TileLayout, S
+    from tvm_tirx.tirx.layout import TileLayout, S
 
     layout_b = tmem_datapath_layout("B", 64, 128)
     register_layout = TileLayout(S[(64, 2, 64) : (1 @ tid_in_wg, 64 @ tid_in_wg, 1)])
@@ -184,7 +184,7 @@ contiguous registers.
     import tvm
 
     x = np.arange(8192, dtype="float32").reshape(128, 64)
-    compiled = tvm.tirx.compile(tmem_roundtrip, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(tmem_roundtrip, target="cuda", pipeline="tirx")
     out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
     compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
     np.testing.assert_array_equal(out.numpy(), x)

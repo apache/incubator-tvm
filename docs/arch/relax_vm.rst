@@ -69,9 +69,10 @@ The main entry point is ``tvm.compile()`` (which delegates to ``relax.build()`` 
 .. code-block:: python
 
    import tvm
-   from tvm import relax
+   from tvm.relax import script as R
+   from tvm_tirx.script import ir as I
 
-   @tvm.script.ir_module
+   @I.ir_module
    class MyModule:
        @R.function
        def main(x: R.Tensor((3, 4), "float32")):

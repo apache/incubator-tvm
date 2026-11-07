@@ -18,7 +18,7 @@
 Tensor Instruction Authoring API
 ================================
 
-Use ``T.cuda.tile`` or ``T.trn.tile`` after ``from tvm.script import tirx as T``.
+Use ``T.cuda.tile`` or ``T.trn.tile`` after ``from tvm_tirx.script import tirx as T``.
 The signatures below list runtime operands first and static keyword qualifiers
 after ``*``. Tensor variables are expanded to full regions. Trainium unary sources
 may default to the destination; its named workspace arguments are optional.

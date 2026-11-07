@@ -29,8 +29,8 @@ the compute statements themselves.
 
 .. code:: python
 
-    from tvm.script import tirx as T
-    from tvm.script import s_tir as Ts
+    from tvm_tirx.script import tirx as T
+    from tvm.s_tir import script as Ts
 
     @Ts.function
     def main(

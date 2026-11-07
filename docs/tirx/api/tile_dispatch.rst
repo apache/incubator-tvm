@@ -20,7 +20,7 @@ Tensor Instruction Registration
 
 Backend authors define an ``Instruction`` with its canonical operator name,
 ordered ``Operand`` list, reflected static attribute schema, and one lowerer.
-The shared implementation is ``tvm.tirx.tile.instruction``; CUDA and
+The shared implementation is ``tvm_tirx.tirx.tile.instruction``; CUDA and
 Trainium's ``tile/instructions.py`` files contain the concrete contracts.
 
 Registration installs the fixed argument count, void return type, opaque
@@ -53,7 +53,7 @@ caller-owned algorithms. See :doc:`../arch/tile_dispatch` for callbacks and
 the statement replacement boundary.
 
 
-The common Python API is under ``tvm.tirx.tile`` (also ``T.tile``):
+The common Python API is under ``tvm_tirx.tirx.tile`` (also ``T.tile``):
 ``Instruction``, ``Operand``, ``TensorCall``, and ``DispatchContext``. Backend
 implementations live under ``tvm.backend.cuda.tile`` and
 ``tvm.backend.trn.tile``. Their user-facing instruction paths remain

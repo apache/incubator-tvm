@@ -41,7 +41,7 @@ The authoring model
 -------------------
 
 - ``@Tx.function`` (or ``@Tx.jit`` for compile-time-specialized) kernels, written
-  with ``from tvm.script import tirx as Tx``;
+  with ``from tvm_tirx.script import tirx as Tx``;
 - ``Tx.device_entry(launch=Tx.cuda.LaunchConfig(grid=(1,), block=(32,)))`` plus *scope-id* intrinsics for thread binding;
 - ``Tx.Tensor`` parameter annotations and ``Tx.alloc_*`` scratch tensors;
 - ordinary loops, branches, and scalar math;
@@ -54,7 +54,7 @@ kernels reference compile-time parameters inside type annotations (see
 
     from __future__ import annotations
     import tvm
-    from tvm.script import tirx as Tx
+    from tvm_tirx.script import tirx as Tx
 
 Start here
 ----------

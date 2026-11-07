@@ -25,7 +25,7 @@ with one block of 256 threads.
 
     import numpy as np
     import tvm
-    from tvm.script import tirx as Tx
+    from tvm_tirx.script import tirx as Tx
 
 
     @Tx.function

@@ -187,7 +187,7 @@ operand layouts and explicit K decomposition determine the descriptor fields and
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
     from tvm.backend.cuda.layout import mma_shared_layout, tmem_mma_operand_layout
 
     al = mma_shared_layout("float16", 3, (128, 64))
@@ -266,7 +266,7 @@ operand layouts and explicit K decomposition determine the descriptor fields and
     rng = np.random.default_rng(0)
     a = (rng.integers(-4, 5, (128, 64)) / 4).astype("float16")
     b = (rng.integers(-4, 5, (64, 64)) / 4).astype("float16")
-    compiled = tvm.tirx.compile(tensor_mma, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(tensor_mma, target="cuda", pipeline="tirx")
     out = tvm.runtime.tensor(np.zeros((128, 64), dtype="float32"), tvm.cuda())
     compiled(tvm.runtime.tensor(a, tvm.cuda()), tvm.runtime.tensor(b, tvm.cuda()), out)
     np.testing.assert_allclose(

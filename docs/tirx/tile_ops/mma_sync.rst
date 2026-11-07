@@ -126,9 +126,9 @@ prepares these words from ordinary row-major half matrices.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
     from tvm.backend.cuda.axis import laneid
-    from tvm.tirx.layout import S, TileLayout
+    from tvm_tirx.tirx.layout import S, TileLayout
 
     la = TileLayout(S[(1, 2, 2, 8, 2, 4) : (8, 4, 1, 4 @ laneid, 2, 1 @ laneid)])
     lb = TileLayout(S[(1, 2, 8, 2, 4) : (4, 2, 4 @ laneid, 1, 1 @ laneid)])
@@ -174,7 +174,7 @@ prepares these words from ordinary row-major half matrices.
     b = (rng.integers(-4, 5, (8, 32)) / 4).astype("float16")
     ap = np.ascontiguousarray(a.reshape(1, 16, 2, 16).transpose(0, 2, 1, 3)).view("uint32")
     bp = np.ascontiguousarray(b.reshape(1, 8, 2, 16).transpose(0, 2, 1, 3)).view("uint32")
-    compiled = tvm.tirx.compile(warp_mma, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(warp_mma, target="cuda", pipeline="tirx")
     out = tvm.runtime.tensor(np.zeros((16, 8), dtype="float32"), tvm.cuda())
     compiled(tvm.runtime.tensor(ap, tvm.cuda()), tvm.runtime.tensor(bp, tvm.cuda()), out)
     np.testing.assert_allclose(

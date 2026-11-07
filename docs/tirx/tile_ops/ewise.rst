@@ -97,9 +97,9 @@ scalar repeats.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
     from tvm.backend.cuda.axis import laneid, warpid
-    from tvm.tirx.layout import S, TileLayout
+    from tvm_tirx.tirx.layout import S, TileLayout
 
     reg_layout = TileLayout(S[(2, 32, 4) : (1 @ warpid, 1 @ laneid, 1)])
 
@@ -172,7 +172,7 @@ Compile and verify both examples:
         (activation, (2, 32, 4), (x / (1 + np.exp(-x)) * 2 + 1).reshape(2, 32, 4)),
         (shared_affine, (64, 4), np.roll((x * 2 + 1).reshape(64, 4), -1, axis=0)),
     ]:
-        compiled = tvm.tirx.compile(kernel, target="cuda", pipeline="tirx")
+        compiled = tvm_tirx.tirx.compile(kernel, target="cuda", pipeline="tirx")
         out = tvm.runtime.tensor(np.zeros(shape, dtype="float32"), tvm.cuda())
         compiled(tvm.runtime.tensor(x.reshape(shape), tvm.cuda()), out)
         np.testing.assert_allclose(out.numpy(), ref, rtol=2e-5, atol=2e-5)

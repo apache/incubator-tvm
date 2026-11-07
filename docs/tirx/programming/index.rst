@@ -24,7 +24,7 @@ use tensor layouts and tile ops to express reusable tile-level work.
 
 The examples use a single alias for the TIRx TVMScript dialect::
 
-   from tvm.script import tirx as Tx
+   from tvm_tirx.script import tirx as Tx
 
 Core language constructs are written as ``Tx.*``.  Backend-specific helpers
 and direct CUDA instructions are available through ``Tx.cuda.*`` and
