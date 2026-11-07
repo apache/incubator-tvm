@@ -876,5 +876,24 @@ def test_ignore_loop_partition_hint():
     tvm_tirx.ir.assert_structural_equal(after["main"], expected)
 
 
+def test_unit_extent_int64_loop():
+    """Unrolling a partitioned extent-one loop keeps the loop variable's dtype"""
+
+    @Ts.function
+    def before(A: T.Tensor((2,), "float32"), B: T.Tensor((2,), "float32")):
+        for i in T.serial(T.int64(2)):
+            if T.likely(i < T.int64(1)):
+                B[i] = A[i]
+            else:
+                B[i] = A[i]
+
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
+        mod = IRModule.from_expr(before.with_attr("global_symbol", "main"))
+        mod = tvm.s_tir.transform.LoopPartition()(mod)
+    assert "T.int64(0)" in mod["main"].script()
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

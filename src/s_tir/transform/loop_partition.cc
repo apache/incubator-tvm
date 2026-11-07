@@ -930,13 +930,13 @@ inline Stmt LoopPartitioner::MakeFor(const ffi::Object* node, PrimExpr extent, S
   const ForObj* for_node = static_cast<const ForObj*>(node);
   TVM_FFI_ICHECK(for_node);
 
-  if (analyzer_->CanProve(extent == IntImm::Int32(1)) && !no_unroll_loop_with_extent_one_ &&
+  if (analyzer_->CanProve(extent == IntImm(extent.ty(), 1)) && !no_unroll_loop_with_extent_one_ &&
       for_node->annotations.size() ==
           for_node->annotations.count(tvm::s_tir::attr::kLoopPartitionHint.name)) {
     // If the loop extent is 1, do not create the loop anymore
     auto f_substitute =
         [loop_var = for_node->var](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
-      if (var.same_as(loop_var)) return ffi::Any(IntImm::Int32(0));
+      if (var.same_as(loop_var)) return ffi::Any(IntImm(var->ty.as_or_throw<PrimType>(), 0));
       return ffi::Unchanged();
     };
     return ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(body, f_substitute).as_or_throw<Stmt>();
