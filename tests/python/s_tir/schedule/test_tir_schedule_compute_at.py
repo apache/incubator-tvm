@@ -18,6 +18,7 @@
 # ruff: noqa: E501, F401
 from __future__ import annotations
 
+import numpy as np
 import pytest
 
 import tvm
@@ -1852,6 +1853,117 @@ def test_compute_at_sliced_concatenate():
     after = sch.mod["main"]
     assert_structural_equal_ignore_global_symbol(expect, after)
     verify_trace_roundtrip(sch=sch, mod=before)
+
+
+def _llvm_allclose(func, inputs, expected):
+    if not tvm_tirx.runtime.enabled("llvm"):
+        return
+    compiled = tvm.compile(func, target="llvm")
+    outputs = []
+    args = []
+    for array in inputs:
+        args.append(tvm_tirx.runtime.tensor(array))
+    for array in expected:
+        buf = tvm_tirx.runtime.tensor(np.zeros_like(array))
+        outputs.append(buf)
+        args.append(buf)
+    compiled(*args)
+    for got, ref in zip(outputs, expected):
+        tvm_tirx.testing.assert_allclose(got.numpy(), ref)
+
+
+def test_compute_at_rfactor_keeps_tail_predicate():
+    """`split` of a non-divisible reduction stores the tail on the block.
+
+    `rfactor` keeps that guard, and `compute_at` must keep it too. Rebuilding
+    the rfactor block from its write region alone drops the guard and reads
+    past the input. `debug_mask` stays off: `rfactor` still records affine and
+    region-cover flags that a fresh analysis rejects for this predicate.
+    """
+
+    @Ts.function
+    def before(X: T.Tensor((4, 77), "float32"), Y: T.Tensor((4,), "float32")):
+        for r, k in T.grid(4, 77):
+            with Ts.sblock("Y"):
+                v_r, v_k = Ts.axis.remap("SR", [r, k])
+                with Ts.init():
+                    Y[v_r] = T.float32(0)
+                Y[v_r] = Y[v_r] + X[v_r, v_k]
+
+    @Ts.function
+    def expected(X: T.Tensor((4, 77), "float32"), Y: T.Tensor((4,), "float32")):
+        Y_rf = Ts.sblock_alloc_tensor((64, 4), "float32")
+        for r, k_1 in T.grid(4, 64):
+            for ax0 in range(2):
+                with Ts.sblock("Y_rf"):
+                    vk_1 = Ts.axis.spatial(64, k_1)
+                    v_r = Ts.axis.spatial(4, r)
+                    vk_0 = Ts.axis.reduce(2, ax0)
+                    Ts.where(ax0 * 64 + k_1 < 77)
+                    with Ts.init():
+                        Y_rf[vk_1, v_r] = T.float32(0)
+                    Y_rf[vk_1, v_r] = Y_rf[vk_1, v_r] + X[v_r, vk_0 * 64 + vk_1]
+            with Ts.sblock("Y"):
+                vk_1 = Ts.axis.reduce(64, k_1)
+                v_r = Ts.axis.spatial(4, r)
+                with Ts.init():
+                    Y[v_r] = T.float32(0)
+                Y[v_r] = Y[v_r] + Y_rf[vk_1, v_r]
+
+    sch = tvm.s_tir.Schedule(before, debug_mask="none")
+    block = sch.get_sblock("Y")
+    _, k = sch.get_loops(block)
+    sch.split(k, factors=[None, 64])
+    rf = sch.rfactor(sch.get_loops(block)[-1], factor_axis=0)
+    sch.compute_at(rf, sch.get_loops(block)[-1])
+    assert_structural_equal_ignore_global_symbol(expected, sch.mod["main"])
+    verify_trace_roundtrip(sch=sch, mod=before, debug_mask="none")
+
+    x = (np.arange(4 * 77, dtype="float32") % 7).reshape(4, 77)
+    _llvm_allclose(sch.mod["main"], [x], [x.sum(axis=1)])
+
+
+def test_reverse_compute_at_keeps_tail_predicate():
+    """`reverse_compute_at` rebuilds loops in the same helper as `compute_at`.
+
+    A consumer whose split does not divide its domain must keep the tail guard
+    when that guard is not implied by the regenerated loop extent.
+    """
+
+    @Ts.function
+    def before(A: T.Tensor((128,), "float32"), C: T.Tensor((128,), "float32")):
+        B = Ts.sblock_alloc_tensor((128,), "float32")
+        for i in range(128):
+            with Ts.sblock("B"):
+                vi = Ts.axis.spatial(128, i)
+                B[vi] = A[vi]
+        for j0, j1 in T.grid(2, 64):
+            with Ts.sblock("C"):
+                vj = Ts.axis.spatial(128, j0 * 64 + j1)
+                Ts.where(j0 * 64 + j1 < 77)
+                C[vj] = B[vj] * T.float32(2)
+
+    @Ts.function
+    def expected(A: T.Tensor((128,), "float32"), C: T.Tensor((128,), "float32")):
+        B = Ts.sblock_alloc_tensor((128,), "float32")
+        for i in range(128):
+            with Ts.sblock("B"):
+                vi = Ts.axis.spatial(128, i)
+                B[vi] = A[vi]
+            with Ts.sblock("C"):
+                vj = Ts.axis.spatial(128, i)
+                Ts.where(i < 77)
+                C[vj] = B[vj] * T.float32(2)
+
+    sch = tvm.s_tir.Schedule(before, debug_mask="none")
+    sch.reverse_compute_at(sch.get_sblock("C"), sch.get_loops("B")[0])
+    assert_structural_equal_ignore_global_symbol(expected, sch.mod["main"])
+    verify_trace_roundtrip(sch=sch, mod=before, debug_mask="none")
+
+    x = np.arange(128, dtype="float32")
+    ref = np.zeros(128, dtype="float32")
+    ref[:77] = x[:77] * np.float32(2)
+    _llvm_allclose(sch.mod["main"], [x], [ref])
 
 
 if __name__ == "__main__":

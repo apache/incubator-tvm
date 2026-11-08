@@ -18,6 +18,7 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/extra/structural_mutate.h>
+#include <tvm/ir/analysis.h>
 #include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/stmt.h>
 
@@ -245,6 +246,114 @@ struct BlockVarDomainInfo {
 };
 
 /*!
+ * \brief Rewrite a block predicate from the loop nest being removed into the regenerated nest.
+ *
+ * `split` of a non-divisible loop stores the tail guard on the block realize (`k0 * factor + k1 <
+ * extent`). `rfactor` keeps that guard, but the guard is not part of the tensor region
+ * `compute_at` uses to rebuild loops, so the rebuilt realize would otherwise read out of bounds.
+ * The result is the original predicate with removed loop vars replaced by the new iter values, or
+ * nullopt when a removed loop var cannot be eliminated.
+ */
+ffi::Optional<PrimExpr> CarryBlockPredicate(const SBlockRealize& old_realize,
+                                            const ffi::Array<PrimExpr>& new_iter_values,
+                                            const ffi::Map<Var, Range>& old_loop_domains,
+                                            const ffi::Map<Var, Range>& kept_loop_domains,
+                                            sym::AnalyzerObj* analyzer) {
+  PrimExpr predicate = old_realize->predicate;
+  if (IsOne(predicate)) {
+    return IntImm::Bool(true);
+  }
+  const SBlock& block = old_realize->block;
+  int n = static_cast<int>(block->iter_vars.size());
+  TVM_FFI_ICHECK_EQ(n, static_cast<int>(old_realize->iter_values.size()));
+  TVM_FFI_ICHECK_EQ(n, static_cast<int>(new_iter_values.size()));
+
+  auto dropped_loop = [&](const Var& var) -> bool {
+    return old_loop_domains.find(var) != old_loop_domains.end() &&
+           kept_loop_domains.find(var) == kept_loop_domains.end();
+  };
+  auto apply_subst = [&](PrimExpr expr, const ffi::Map<Var, PrimExpr>& subst) -> PrimExpr {
+    auto f_substitute = [&subst](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
+      if (auto repl = subst.Get(var)) return ffi::Any(*std::move(repl));
+      return ffi::Unchanged();
+    };
+    PrimExpr rewritten =
+        ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(std::move(expr), f_substitute)
+            .as_or_throw<PrimExpr>();
+    return analyzer->Simplify(std::move(rewritten));
+  };
+  auto free_of_dropped_loops = [&](const PrimExpr& expr) -> bool {
+    for (const Var& var : UndefinedVars(expr)) {
+      if (dropped_loop(var)) {
+        return false;
+      }
+    }
+    return true;
+  };
+
+  // Trivial bindings are loop vars. This is the form `rfactor` gives the factored block.
+  {
+    ffi::Map<Var, PrimExpr> trivial;
+    bool trivial_ok = true;
+    for (int i = 0; i < n; ++i) {
+      const auto* loop_var = old_realize->iter_values[i].as<VarNode>();
+      if (loop_var == nullptr) {
+        trivial_ok = false;
+        break;
+      }
+      Var key = ffi::GetRef<Var>(loop_var);
+      const PrimExpr& replacement = new_iter_values[i];
+      if (ffi::Optional<PrimExpr> previous = trivial.Get(key)) {
+        if (!analyzer->CanProveEqual(previous.value(), replacement)) {
+          trivial_ok = false;
+          break;
+        }
+      } else {
+        trivial.Set(key, replacement);
+      }
+    }
+    if (trivial_ok) {
+      PrimExpr rewritten = apply_subst(predicate, trivial);
+      if (free_of_dropped_loops(rewritten)) {
+        return rewritten;
+      }
+    }
+  }
+
+  // Non-trivial affine bindings: express the removed loops in the block iters, then in the new
+  // iter values. Ignore the predicate here so a tail guard does not make the binding look
+  // non-bijective.
+  ffi::Map<PrimVar, Range> input_iters;
+  for (const auto& kv : old_loop_domains) {
+    input_iters.Set(kv.first.as_or_throw<PrimVar>(), kv.second);
+  }
+  sym::Analyzer analyzer_ref = ffi::GetRef<sym::Analyzer>(analyzer);
+  sym::IterMapResult detected = sym::DetectIterMap(
+      old_realize->iter_values, input_iters, IntImm::Bool(true), sym::IterMapLevel::Bijective,
+      analyzer_ref, /*simplify_trivial_iterators=*/false);
+  if (detected->indices.size() != static_cast<size_t>(n)) {
+    return std::nullopt;
+  }
+  ffi::Array<PrimExpr> block_vars;
+  block_vars.reserve(n);
+  for (const IterVar& iter_var : block->iter_vars) {
+    block_vars.push_back(iter_var->var);
+  }
+  ffi::Map<Var, PrimExpr> loop_to_block_var =
+      sym::InverseAffineIterMap(detected->indices, block_vars);
+  PrimExpr in_block_vars = apply_subst(predicate, loop_to_block_var);
+  ffi::Map<Var, PrimExpr> block_var_to_new;
+  for (int i = 0; i < n; ++i) {
+    block_var_to_new.Set(block->iter_vars[i]->var, new_iter_values[i]);
+  }
+  PrimExpr rewritten = apply_subst(std::move(in_block_vars), block_var_to_new);
+  if (!free_of_dropped_loops(rewritten)) {
+    return std::nullopt;
+  }
+  return rewritten;
+}
+
+/*!
  * \brief A helper to reconstruct the block scope where the given block is moved under the given
  * loop, and the given block's induced loop nest is regenerated to satisfy the required region.
  */
@@ -267,9 +376,14 @@ class ScopeReconstructor : public StmtExprMutator {
    * \param iter_doms The domain of each block var
    * \param analyzer The arithmetic analyzer
    * \param preserve_unit_loops Whether to generate unit loops where the loop extent is 1
+   * \param old_realize The realize being moved, whose predicate is carried onto the new nest
+   * \param old_loop_domains Loop domains surrounding `old_realize` before the move
+   * \param kept_loop_domains Loop domains that remain outside the regenerated nest
    */
   void MakeNewLoop(int insert_position, std::vector<BlockVarDomainInfo> iter_doms,
-                   sym::AnalyzerObj* analyzer, bool preserve_unit_loops) {
+                   sym::AnalyzerObj* analyzer, bool preserve_unit_loops,
+                   const SBlockRealize& old_realize, const ffi::Map<Var, Range>& old_loop_domains,
+                   const ffi::Map<Var, Range>& kept_loop_domains) {
     int n_iters = iter_doms.size();
     ffi::Array<Var> loop_vars;
     ffi::Array<PrimExpr> loop_extents;
@@ -311,6 +425,14 @@ class ScopeReconstructor : public StmtExprMutator {
             predicate = predicate && upper_bound;
           }
         }
+      }
+    }
+    // Keep a tail guard (or any other realize predicate) that the region-derived loops do not
+    // imply. `reverse_compute_at` shares this path.
+    if (ffi::Optional<PrimExpr> carried = CarryBlockPredicate(
+            old_realize, iter_values, old_loop_domains, kept_loop_domains, analyzer)) {
+      if (!analyzer->CanProve(carried.value())) {
+        predicate = predicate && carried.value();
       }
     }
     this->new_block_realize_ =
@@ -790,9 +912,15 @@ void ComputeAtOrReverseComputeAtImpl(ScheduleState self, const StmtSRef& block_s
                               /*required_regions=*/std::move(required_regions),
                               /*analyzer=*/analyzer);
   // Step 6. Create the new scope according to the iteration domain
+  SBlockRealize old_realize = GetSBlockRealize(self, block_sref);
+  ffi::Map<Var, Range> old_loop_domains =
+      LoopDomainOfSRefTreePath(ffi::GetRef<StmtSRef>(block_sref->parent));
+  ffi::Map<Var, Range> kept_loop_domains = LoopDomainOfSRefTreePath(loop_sref);
   reconstructor->MakeNewLoop(/*insert_position=*/insert_position,
                              /*iter_doms=*/std::move(iter_doms),
-                             /*analyzer=*/analyzer, /*preserve_unit_loops=*/preserve_unit_loops);
+                             /*analyzer=*/analyzer, /*preserve_unit_loops=*/preserve_unit_loops,
+                             /*old_realize=*/old_realize, /*old_loop_domains=*/old_loop_domains,
+                             /*kept_loop_domains=*/kept_loop_domains);
   SBlock new_scope_root =
       reconstructor->Mutate(scope_root).ValueOrUnchanged(scope_root).as_or_throw<SBlock>();
 
