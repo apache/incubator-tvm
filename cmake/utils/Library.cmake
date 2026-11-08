@@ -33,7 +33,7 @@ function(tvm_configure_target target)
   if(MSVC)
     target_compile_definitions(${target} PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS
       _SCL_SECURE_NO_WARNINGS _ENABLE_EXTENDED_ALIGNED_STORAGE NOMINMAX)
-    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj;/permissive-;/EHsc>)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj;/permissive-;/EHsc;/MP>)
     if(TVM_USE_MSVC_MT)
       set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     endif()
