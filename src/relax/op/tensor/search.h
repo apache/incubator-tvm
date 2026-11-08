@@ -42,6 +42,17 @@ namespace relax {
 Expr bucketize(Expr input_tensor, Expr boundaries, bool out_int32, bool right);
 
 /*!
+ * \brief Find indices where elements should be inserted to maintain order.
+ * \param sorted_sequence N-D or 1-D tensor, containing monotonically increasing sequence on the
+ * innermost dimension.
+ * \param values N-D tensor containing the search values.
+ * \param out_int32 Indicate the output data type. int32 if True, int64 otherwise.
+ * \param right Determines the behavior for values in boundaries.
+ * \return The computed result with the same shape as values.
+ */
+Expr searchsorted(Expr sorted_sequence, Expr values, bool out_int32, bool right);
+
+/*!
  * \brief Selecting elements from either the input tensors depending on the value of the
  * condition.
  */

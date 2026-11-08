@@ -178,6 +178,7 @@ from .search import (
     argmin,
     where,
     bucketize,
+    searchsorted,
 )
 from .set import nonzero, unique
 from .sorting import (

@@ -7699,6 +7699,57 @@ def test_bucketize_numerically(right, out_int32):
     verify_model_numerically(Bucketize(), (input_tensor, boundaries))
 
 
+def test_searchsorted():
+    class SearchSorted(Module):
+        def forward(self, sorted_sequence, values):
+            return torch.searchsorted(sorted_sequence, values)
+
+    @tvm_tirx.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            sorted_sequence: R.Tensor((5,), dtype="float32"),
+            values: R.Tensor((2, 3), dtype="float32"),
+        ) -> R.Tuple(R.Tensor((2, 3), dtype="int64")):
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="int64") = R.searchsorted(
+                    sorted_sequence, values, out_int32=False, right=False
+                )
+                gv: R.Tuple(R.Tensor((2, 3), dtype="int64")) = (lv,)
+                R.output(gv)
+            return gv
+
+    s = torch.tensor([1.0, 2.0, 3.0, 4.0, 5.0], dtype=torch.float32)
+    v = torch.tensor([[0.5, 2.0, 5.5], [1.0, 3.5, 4.0]], dtype=torch.float32)
+    verify_model(SearchSorted(), (s, v), {}, Expected)
+
+
+@pytest.mark.parametrize("out_int32", [False, True])
+@pytest.mark.parametrize("right, side", [(False, "left"), (True, "right")])
+def test_searchsorted_numerically(right, out_int32, side):
+    class SearchSorted(Module):
+        def forward(self, s, v):
+            return torch.searchsorted(s, v, right=right, out_int32=out_int32, side=side)
+
+    # Case 1: Tests scalar value
+    s3 = torch.tensor([1.0, 2.0, 2.0, 4.0], dtype=torch.float32)
+    v3 = torch.tensor([2.0], dtype=torch.float32)
+    verify_model_numerically(SearchSorted(), (s3, v3))
+
+    # Case 2: Tests different ranks of sorted_sequence and values
+    s1 = torch.tensor([-0.5, 1.0, 3.0, 3.0, 5.0], dtype=torch.float32)
+    v1 = torch.tensor([[0.0, 3.0, 6.0], [1.0, 4.0, 9.0]], dtype=torch.float32)
+    verify_model_numerically(SearchSorted(), (s1, v1))
+
+    # Case 3: Tests matching outer batch dimension with dynamic shapes
+    batch = torch.export.Dim("batch", min=2)
+    dynamic_shapes = {"s": {0: batch}, "v": {0: batch}}
+
+    s2 = torch.tensor([[1.0, 7.5, 8.0], [-2.0, 4.0, 6.0]], dtype=torch.float32)
+    v2 = torch.tensor([[0.5, -3.0, 6.0], [2.0, -4.0, 7.0]], dtype=torch.float32)
+    verify_model_numerically(SearchSorted(), (s2, v2), dynamic_shapes=dynamic_shapes)
+
+
 def test_argsort():
     class Argsort(Module):
         def forward(self, x):

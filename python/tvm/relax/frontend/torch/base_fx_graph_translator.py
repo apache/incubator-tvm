@@ -2095,6 +2095,43 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             relax.op.bucketize(input_tensor, boundaries, out_int32, right)
         )
 
+    def _searchsorted(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        sorted_sequence = args[0]
+
+        if len(args) > 1:
+            values = args[1]
+        else:
+            values = node.kwargs.get("values", node.kwargs.get("self"))
+
+        if isinstance(values, int | float):
+            values = relax.const(values, dtype=sorted_sequence.ty.dtype)
+
+        sorter = node.kwargs.get("sorter", None)
+        if len(args) > 5:
+            sorter = args[5]
+        if sorter is not None:
+            raise NotImplementedError(
+                "torch.searchsorted with `sorter` is not currently supported in TVM Relax."
+            )
+
+        right = node.kwargs.get("right", False)
+        side = node.kwargs.get("side", None)
+
+        if side is not None:
+            if side not in ("left", "right"):
+                raise ValueError(f"side must be either 'left' or 'right', but got: {side}")
+            if side == "left" and right is True:
+                raise ValueError("side cannot be set to 'left' while right is True.")
+
+            right = side == "right"
+
+        out_int32 = node.kwargs.get("out_int32", False)
+
+        return self.block_builder.emit(
+            relax.op.searchsorted(sorted_sequence, values, out_int32=out_int32, right=right)
+        )
+
     ########## Manipulation ##########
 
     def _argsort(self, node: fx.Node) -> relax.Var:

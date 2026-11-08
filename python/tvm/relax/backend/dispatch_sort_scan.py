@@ -90,6 +90,17 @@ class SortScanDispatcher(BackendDispatcher):
                     te_func = topi.gpu.searchsorted
             out_dtype = "int32" if call.attrs.out_int32 else "int64"
             return self.builder_.call_te(te_func, boundaries, input_tensor, right, out_dtype)
+        if call.op.name == "relax.searchsorted":
+            sorted_sequence = call.args[0]
+            values = call.args[1]
+            right = call.attrs.right
+            tgt = self._get_target(call.ty)
+            te_func = topi.searchsorted
+            with tgt:
+                if self.is_gpu_target(tgt):
+                    te_func = topi.gpu.searchsorted
+            out_dtype = "int32" if call.attrs.out_int32 else "int64"
+            return self.builder_.call_te(te_func, sorted_sequence, values, right, out_dtype)
         if call.op.name == "relax.sort":
             tgt = self._get_target(call.ty)
             te_func = topi.sort

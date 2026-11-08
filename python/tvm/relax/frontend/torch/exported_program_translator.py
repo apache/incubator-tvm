@@ -1979,6 +1979,8 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "argmin.default": self._argmax_argmin(relax.op.argmin),
             "where.self": self._where,
             "bucketize.Tensor": self._bucketize,
+            "searchsorted.Tensor": self._searchsorted,
+            "searchsorted.Scalar": self._searchsorted,
             # tensor manipulation
             "argsort.default": self._argsort,
             "alias.default": self._alias,

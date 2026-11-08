@@ -987,6 +987,7 @@ class TorchFXImporter(BaseFXGraphImporter):
             "argmin": self._argmax_argmin(relax.op.argmin),
             "where": self._where,
             "bucketize": self._bucketize,
+            "searchsorted": self._searchsorted,
             # tensor manipulation
             "argsort": self._argsort,
             "broadcast_to": self._broadcast_to,

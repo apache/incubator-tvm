@@ -50,3 +50,12 @@ def _bucketize(bb, call):
     right = call.attrs.right
     out_dtype = "int32" if call.attrs.out_int32 else "int64"
     return bb.call_te(topi.searchsorted, boundaries, input_tensor, right, out_dtype)
+
+
+@register_legalize("relax.searchsorted")
+def _searchsorted(bb, call):
+    sorted_sequence = call.args[0]
+    values = call.args[1]
+    right = call.attrs.right
+    out_dtype = "int32" if call.attrs.out_int32 else "int64"
+    return bb.call_te(topi.searchsorted, sorted_sequence, values, right, out_dtype)

@@ -6040,6 +6040,29 @@ def test_bucketize():
     verify_model(Bucketize(), [([5, 3], "float32"), ([10], "float32")], {}, Expected)
 
 
+def test_searchsorted():
+    class SearchSorted(Module):
+        def forward(self, sorted_sequence, values):
+            return torch.searchsorted(sorted_sequence, values)
+
+    @tvm_tirx.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            sorted_sequence: R.Tensor((5,), dtype="float32"),
+            values: R.Tensor((2, 7), dtype="float32"),
+        ) -> R.Tensor((2, 7), dtype="int64"):
+            with R.dataflow():
+                lv: R.Tensor((2, 7), dtype="int64") = R.searchsorted(
+                    sorted_sequence, values, out_int32=False, right=False
+                )
+                gv: R.Tensor((2, 7), dtype="int64") = lv
+                R.output(gv)
+            return gv
+
+    verify_model(SearchSorted(), [([5], "float32"), ([2, 7], "float32")], {}, Expected)
+
+
 def test_argsort():
     class Argsort(Module):
         def forward(self, x):
