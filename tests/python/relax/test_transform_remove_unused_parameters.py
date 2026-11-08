@@ -237,5 +237,31 @@ def test_remove_extra_shape_variables():
     tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
+def test_preserve_closure_callee():
+    @I.ir_module
+    class Before:
+        @R.function(private=True)
+        def lifted(
+            value: R.Tensor((2,), "float32"),
+            env: R.Tensor((2,), "float32"),
+            unused: R.Tensor((2,), "float32"),
+        ):
+            return R.add(value, env)
+
+        @R.function
+        def main(
+            x: R.Tensor((2,), "float32"),
+            y: R.Tensor((2,), "float32"),
+            z: R.Tensor((2,), "float32"),
+        ):
+            closure = R.make_closure(Before.lifted, (x, z))
+            return R.invoke_pure_closure(closure, (y,), ty_args=R.Tensor((2,), "float32"))
+
+    assert tvm.relax.analysis.check_well_formed(Before, check_ty=True)
+    after = tvm.relax.transform.RemoveUnusedParameters()(Before)
+    assert tvm.relax.analysis.check_well_formed(after, check_ty=True)
+    tvm_tirx.ir.assert_structural_equal(after, Before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

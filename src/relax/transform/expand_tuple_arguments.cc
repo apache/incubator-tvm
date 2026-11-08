@@ -25,6 +25,8 @@
 #include <algorithm>
 #include <tuple>
 
+#include "global_var_reference.h"
+
 namespace tvm {
 namespace relax {
 
@@ -123,12 +125,14 @@ namespace transform {
 
 Pass ExpandTupleArguments() {
   auto pass_func = [=](IRModule mod, PassContext pc) -> IRModule {
+    auto value_references = GlobalVarValueCollector::Collect(mod);
     PMap<GlobalVar, GlobalVar> gvar_replacements;
 
     {
       PMap<GlobalVar, Function> new_callees;
 
       for (const auto& [gvar, base_func] : mod->functions) {
+        if (value_references.count(gvar)) continue;
         if (auto func = base_func.as<Function>()) {
           if (auto opt = ExpandParams(func.value())) {
             auto new_func = opt.value();

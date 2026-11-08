@@ -81,5 +81,23 @@ def test_nested():
     tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
+def test_preserve_closure_callee():
+    @I.ir_module
+    class Before:
+        @R.function(private=True)
+        def pair_add(pair: R.Tuple(R.Tensor((2,), "float32"), R.Tensor((2,), "float32"))):
+            return R.add(pair[0], pair[1])
+
+        @R.function
+        def main(x: R.Tensor((2,), "float32"), y: R.Tensor((2,), "float32")):
+            closure = R.make_closure(Before.pair_add, ())
+            return R.invoke_pure_closure(closure, ((x, y),), ty_args=R.Tensor((2,), "float32"))
+
+    assert tvm.relax.analysis.check_well_formed(Before, check_ty=True)
+    after = tvm.relax.transform.ExpandTupleArguments()(Before)
+    assert tvm.relax.analysis.check_well_formed(after, check_ty=True)
+    tvm_tirx.ir.assert_structural_equal(after, Before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

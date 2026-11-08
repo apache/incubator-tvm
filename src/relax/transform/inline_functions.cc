@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "../../support/ordered_set.h"
+#include "global_var_reference.h"
 #include "utils.h"
 
 namespace tvm {
@@ -176,12 +177,13 @@ namespace transform {
 
 Pass InlinePrivateFunctions() {
   auto pass_func = [=](IRModule mod, PassContext pc) {
+    auto value_references = GlobalVarValueCollector::Collect(mod);
     ffi::Map<ffi::Variant<ffi::String, GlobalVar>, Function> replacements;
     for (const auto& [gvar, base_func] : mod->functions) {
       if (auto opt = base_func.as<relax::Function>()) {
         auto func = opt.value();
         bool is_private = !func->GetAttr(tvm::attr::kGlobalSymbol).has_value();
-        if (is_private) {
+        if (is_private && !value_references.count(gvar)) {
           replacements.Set(gvar, func);
         }
       }

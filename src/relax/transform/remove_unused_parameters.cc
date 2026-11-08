@@ -28,6 +28,7 @@
 #include <optional>
 #include <tuple>
 
+#include "global_var_reference.h"
 #include "utils.h"
 
 namespace tvm {
@@ -191,12 +192,14 @@ namespace transform {
 
 Pass RemoveUnusedParameters() {
   auto pass_func = [=](IRModule mod, PassContext pc) -> IRModule {
+    auto value_references = GlobalVarValueCollector::Collect(mod);
     PMap<GlobalVar, std::function<Call(Call)>> callsite_updaters;
 
     {
       IRModule new_callees;
 
       for (const auto& [gvar, base_func] : mod->functions) {
+        if (value_references.count(gvar)) continue;
         if (auto func = base_func.as<Function>()) {
           if (auto callee_res = AnalyzeCallee(func.value())) {
             auto new_func = callee_res->func;
