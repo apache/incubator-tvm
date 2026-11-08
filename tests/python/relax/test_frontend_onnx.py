@@ -1349,6 +1349,27 @@ def test_unary(op_name: str):
     verify_unary(op_name, [8, 8, 8], input_dtype=input_dtype, output_dtype=output_dtype)
 
 
+@pytest.mark.parametrize("detect_negative", [0, 1])
+@pytest.mark.parametrize("detect_positive", [0, 1])
+def test_isinf_detect_sign(detect_negative, detect_positive):
+    node = helper.make_node(
+        "IsInf",
+        ["x"],
+        ["y"],
+        detect_negative=detect_negative,
+        detect_positive=detect_positive,
+    )
+    graph = helper.make_graph(
+        [node],
+        "isinf_test",
+        inputs=[helper.make_tensor_value_info("x", TensorProto.FLOAT, [2, 3])],
+        outputs=[helper.make_tensor_value_info("y", TensorProto.BOOL, [2, 3])],
+    )
+    model = helper.make_model(graph, producer_name="isinf_test")
+    x = np.array([[-np.inf, -1.5, 0.0], [2.0, np.inf, np.nan]], dtype="float32")
+    check_correctness(model, inputs={"x": x}, check_dtypes=True)
+
+
 def test_reciprocal_ir():
     model = make_unary_model("Reciprocal", [2, 3])
     tvm_model = from_onnx(model, keep_params_in_input=True)

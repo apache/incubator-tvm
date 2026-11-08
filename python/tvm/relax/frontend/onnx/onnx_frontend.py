@@ -2683,7 +2683,16 @@ class IsInf(OnnxOpConverter):
 
     @classmethod
     def _impl_v10(cls, bb, inputs, attr, params):
-        return relax.op.isinf(inputs[0])
+        x = inputs[0]
+        detect_negative = attr.get("detect_negative", 1)
+        detect_positive = attr.get("detect_positive", 1)
+        if detect_negative and detect_positive:
+            return relax.op.isinf(x)
+        if not detect_negative and not detect_positive:
+            return relax.op.zeros_like(x, dtype="bool")
+        zero = relax.const(0, x.ty.dtype)
+        sign_check = relax.op.greater(x, zero) if detect_positive else relax.op.less(x, zero)
+        return relax.op.logical_and(relax.op.isinf(x), sign_check)
 
 
 class IsNaN(OnnxOpConverter):
