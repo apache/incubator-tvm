@@ -232,6 +232,7 @@ class OperatorConverter:
             "DETECTION_POSTPROCESS": self.convert_detection_postprocess,
             "DILATE": self.convert_dilate,
             "DIV": functools.partial(self._convert_elemwise, relax_op=_op.divide),
+            "DYNAMIC_UPDATE_SLICE": self.convert_dynamic_update_slice,
             "ELU": self.convert_elu,
             "EMBEDDING_LOOKUP": self.convert_embedding_lookup,
             "EMBEDDING_LOOKUP_SPARSE": self.convert_embedding_lookup_sparse,
@@ -3469,6 +3470,79 @@ class OperatorConverter:
             axis_indices.append(idx)
 
         return self.bb.normalize(relax.op.concat(axis_indices, axis=-1))
+
+    def convert_dynamic_update_slice(self, op):
+        """Convert TFLite DYNAMIC_UPDATE_SLICE to Relax.
+
+        Lowers to ``relax.op.scatter_nd``. The native TFLite operator takes
+        a single 1-D ``start`` tensor holding the update offset for every
+        dimension (unlike ``STABLEHLO_DYNAMIC_UPDATE_SLICE`` which takes ``rank``
+        scalar inputs).
+        """
+        from tflite.TensorType import TensorType
+
+        input_tensors = self.get_input_tensors(op)
+        assert len(input_tensors) == 3, "DYNAMIC_UPDATE_SLICE requires 3 input tensors"
+        assert len(self.get_output_tensors(op)) == 1
+
+        op_name = "DYNAMIC_UPDATE_SLICE"
+        operand_tensor, update_tensor, start_tensor = input_tensors
+        operand_shape = self._get_static_tensor_shape(operand_tensor, op_name)
+        update_shape = self._get_static_tensor_shape(update_tensor, op_name)
+        rank = len(operand_shape)
+
+        if len(update_shape) != rank:
+            raise tvm_tirx.error.OpNotImplemented(
+                f"{op_name} requires operand and update to have the same rank"
+            )
+        for dim, size in zip(operand_shape, update_shape):
+            if size > dim:
+                raise tvm_tirx.error.OpNotImplemented(
+                    f"{op_name} update shape must be smaller than "
+                    "or equal to operand shape for all dimensions"
+                )
+
+        operand = self.get_tensor_expr(operand_tensor)
+        update = self.get_tensor_expr(update_tensor)
+        start_dtype = start_tensor.tensor.Type()
+        assert start_dtype in (TensorType.INT32, TensorType.INT64), (
+            f"{op_name} start tensor must be int32 or int64, got {start_dtype}"
+        )
+
+        if not self.has_expr(start_tensor.tensor_idx):
+            start_values = self.get_tensor_value(start_tensor)
+            start_vals = [int(v) for v in start_values.flatten().tolist()]
+            if len(start_vals) != rank:
+                raise tvm_tirx.error.OpNotImplemented(
+                    f"{op_name} start tensor must have length equal to operand rank"
+                )
+            for start, size, dim in zip(start_vals, update_shape, operand_shape):
+                if start < 0 or start + size > dim:
+                    raise tvm_tirx.error.OpNotImplemented(
+                        f"{op_name} with out-of-bounds update indices is not supported"
+                    )
+            update_indices = np.indices(update_shape, dtype=np.int64)
+            for axis, start in enumerate(start_vals):
+                update_indices[axis] += start
+            update_indices = np.moveaxis(update_indices, 0, -1)
+            indices = self.bb.normalize(relax.const(update_indices, dtype="int64"))
+        else:
+            start_expr = self.get_tensor_expr(start_tensor)
+            start_expr = self.bb.normalize(relax.op.astype(start_expr, "int64"))
+            axis_indices = []
+            for axis in range(rank):
+                start_axis = self.bb.normalize(relax.op.take(start_expr, relax.const(axis, "int64")))
+                base = relax.op.arange(0, update_shape[axis], 1, "int64")
+                idx = self.bb.normalize(relax.op.add(base, start_axis))
+                broadcast_shape = [1] * rank
+                broadcast_shape[axis] = update_shape[axis]
+                idx = self.bb.normalize(relax.op.reshape(idx, broadcast_shape))
+                idx = self.bb.normalize(relax.op.broadcast_to(idx, update_shape))
+                idx = self.bb.normalize(relax.op.expand_dims(idx, axis=-1))
+                axis_indices.append(idx)
+            indices = self.bb.normalize(relax.op.concat(axis_indices, axis=-1))
+
+        return self.bb.normalize(relax.op.scatter_nd(operand, indices, update, "update"))
 
     def _convert_stablehlo_dot_general(self, op):
         """Convert the canonical 2D STABLEHLO_DOT_GENERAL subset to Relax matmul."""

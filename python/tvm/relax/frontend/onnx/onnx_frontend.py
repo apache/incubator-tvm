@@ -5208,6 +5208,18 @@ class ReduceL2(OnnxOpConverter):
             return relax.op.sqrt(relax.op.sum(relax.op.multiply(data, data), axes, keepdims))
 
 
+class ReverseSequence(OnnxOpConverter):
+    """Converts an onnx ReverseSequence node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        time_lens = inputs[1]
+        time_axis = int(attr.get("time_axis", 0))
+        batch_axis = int(attr.get("batch_axis", 1))
+        return relax.op.reverse_sequence(data, time_lens, seq_axis=time_axis, batch_axis=batch_axis)
+
+
 def _argreduce_select_last_index(bb, data, axis, keepdims, op):
     """Helper for ArgMax/ArgMin with select_last_index=1.
 
@@ -5565,6 +5577,18 @@ class HardSwish(OnnxOpConverter):
                 relax.expr.const(6, dtype),
             ),
         )
+
+
+class Swish(OnnxOpConverter):
+    """Converts an onnx Swish node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v13(cls, bb, inputs, attr, params):
+        x = inputs[0]
+        beta = float(attr.get("beta", 1.0))
+        if beta == 1.0:
+            return relax.op.nn.silu(x)
+        return relax.op.multiply(x, relax.op.sigmoid(relax.const(beta, x.ty.dtype) * x))
 
 
 class Sign(OnnxOpConverter):
@@ -6201,6 +6225,7 @@ def _get_convert_map():
         "BiasGelu": BiasGelu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
+        "Swish": Swish,
         "Sign": Sign,
         "Softplus": Softplus,
         "Softsign": Softsign,
@@ -6261,6 +6286,7 @@ def _get_convert_map():
         "ReduceSumSquare": ReduceSumSquare,
         "ReduceL1": ReduceL1,
         "ReduceL2": ReduceL2,
+        "ReverseSequence": ReverseSequence,
         "ArgMax": ArgMax,
         "ArgMin": ArgMin,
         "TopK": TopK,
