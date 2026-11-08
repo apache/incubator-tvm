@@ -851,7 +851,7 @@ class SharedMemoryRewriter : public StmtExprMutator {
       }
       // scope_pair_offset >= 0 means it is either
       // - leaf stmt(offset = 0)
-      // - beginning of scope(offset < 0)
+      // - beginning of scope(offset > 0)
       // In both cases, we need to handle the gen event correctly
       if (it != scope.event_map.end() && seq[i].scope_pair_offset >= 0) {
         for (const VarObj* var : it->second.gen) {
