@@ -16,6 +16,8 @@
 # under the License.
 # ruff: noqa: E501, F841
 
+import pytest
+
 import tvm
 import tvm_tirx
 import tvm_tirx.testing
@@ -922,7 +924,8 @@ def test_conv2d_expand_dims():
     verify(Input, Expected)
 
 
-def test_conv2d_expand_dims_squeeze():
+@pytest.mark.parametrize("axis", [[1, 3], [-5, -3], [1, -3]])
+def test_conv2d_expand_dims_squeeze(axis):
     @I.ir_module
     class Input:
         @R.function
@@ -932,7 +935,7 @@ def test_conv2d_expand_dims_squeeze():
             with R.dataflow():
                 gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(x, w, out_dtype="float32")
                 gv2: R.Tensor((2, 1, 4, 1, 26, 26), "float32") = R.expand_dims(gv, axis=(-3, 1))
-                gv3: R.Tensor((2, 4, 26, 26), "float32") = R.squeeze(gv2, axis=[1, 3])
+                gv3: R.Tensor((2, 4, 26, 26), "float32") = R.squeeze(gv2, axis=axis)
                 R.output(gv3)
             return gv3
 
@@ -968,6 +971,50 @@ def test_conv2d_expand_dims_squeeze():
             return gv3
 
     verify(Input, Expected)
+
+
+@pytest.mark.parametrize(
+    "shape, axis, expected_axis",
+    [
+        ((1, 10), [-2], [0]),
+        ((10, 1), [-1], [1]),
+        ((1, 10, 1), None, [0, 2]),
+        ((1, 10, 1), [], []),
+    ],
+)
+def test_squeeze_axes_without_layout_change(shape, axis, expected_axis):
+    def make_module(axes):
+        builder = tvm.relax.BlockBuilder()
+        x = tvm.relax.Var("x", tvm.relax.TensorType(shape, "float32"))
+        with builder.function("main", [x]):
+            with builder.dataflow():
+                output = builder.emit_output(tvm.relax.op.squeeze(x, axis=axes))
+            builder.emit_func_output(output)
+        return builder.get()
+
+    actual = ConvertLayout({})(make_module(axis))
+    tvm_tirx.ir.assert_structural_equal(actual, make_module(expected_axis))
+
+
+@pytest.mark.parametrize("axis", [[1], [-3]])
+def test_conv2d_squeeze_channel(axis):
+    def make_module(axes):
+        builder = tvm.relax.BlockBuilder()
+        x = tvm.relax.Var("x", tvm.relax.TensorType((2, 3, 28, 28), "float32"))
+        w = tvm.relax.Var("w", tvm.relax.TensorType((1, 3, 3, 3), "float32"))
+        with builder.function("main", [x, w]):
+            with builder.dataflow():
+                conv = builder.emit(tvm.relax.op.nn.conv2d(x, w, out_dtype="float32"))
+                output = builder.emit_output(tvm.relax.op.squeeze(conv, axis=axes))
+            builder.emit_func_output(output)
+        return builder.get()
+
+    convert = ConvertLayout({"relax.nn.conv2d": ["NHWC", "OHWI"]})
+    actual = convert(make_module(axis))
+    tvm_tirx.ir.assert_structural_equal(actual, convert(make_module([1])))
+    squeeze = actual["main"].body.blocks[0].bindings[-1].value
+    assert squeeze.op == tvm_tirx.ir.Op.get("relax.squeeze")
+    assert list(squeeze.attrs.axis) == [3]
 
 
 def test_conv2d_strided_slice():
@@ -3336,7 +3383,8 @@ def test_conv2d_expand_dims_sub_indexed():
     verify(Input, Expected_NHWC4c, {"relax.nn.conv2d": ["NHWC4c", "OHWI4o"]})
 
 
-def test_conv2d_squeeze_sub_indexed():
+@pytest.mark.parametrize("axis", [[0], [-4]])
+def test_conv2d_squeeze_sub_indexed(axis):
     @I.ir_module
     class Input:
         @R.function
@@ -3345,7 +3393,7 @@ def test_conv2d_squeeze_sub_indexed():
         ) -> R.Tensor(None, "float32", ndim=3):
             with R.dataflow():
                 gv: R.Tensor((1, 4, 26, 26), "float32") = R.nn.conv2d(x, w, out_dtype="float32")
-                gv2: R.Tensor((4, 26, 26), "float32") = R.squeeze(gv, axis=[0])
+                gv2: R.Tensor((4, 26, 26), "float32") = R.squeeze(gv, axis=axis)
                 R.output(gv2)
             return gv2
 

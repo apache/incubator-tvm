@@ -1494,9 +1494,9 @@ InferLayoutOutput InferLayoutSqueeze(
   const auto* shape = tensor_ty->shape.as<ShapeExprObj>();
   TVM_FFI_ICHECK(shape != nullptr) << "Only support static shape for now";
 
-  ffi::Array<int64_t> axis;
+  std::vector<int> axis;
   if (attrs->axis.has_value()) {
-    axis = attrs->axis.value();
+    axis = NormalizeAxes(call, ndim, attrs->axis.value());
   } else {
     axis.reserve(ndim);
     for (int i = 0; i < ndim; ++i) {
