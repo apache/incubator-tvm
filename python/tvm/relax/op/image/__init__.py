@@ -19,7 +19,9 @@
 
 from .image import (
     Resize2DAttrs,
+    Dilation2DAttrs,
     affine_grid,
+    dilation2d,
     grid_sample,
     resize2d,
     resize3d,

@@ -80,6 +80,18 @@ struct AffineGridAttrs : public AttrsObj {
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.AffineGridAttrs", AffineGridAttrs, AttrsObj);
 };  // struct AffineGridAttrs
 
+/*! \brief Attributes used in image dilation2d operator */
+struct Dilation2DAttrs : public AttrsNode {
+  ffi::Array<int64_t> strides;
+  ffi::Array<int64_t> padding;
+  ffi::Array<int64_t> dilations;
+  ffi::String data_layout;
+  ffi::Optional<DLDataType> out_dtype;
+
+  static void RegisterReflection();
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.Dilation2DAttrs", Dilation2DAttrs, AttrsNode);
+};  // struct Dilation2DAttrs
+
 }  // namespace relax
 }  // namespace tvm
 

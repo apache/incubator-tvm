@@ -317,3 +317,99 @@ def affine_grid(
             ty=ty,
         ),
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Dilation2DAttrs")
+class Dilation2DAttrs(Attrs):
+    """Attributes for image.dilation2d"""
+
+
+def dilation2d(
+    input: Expr,
+    filter: Expr,
+    strides: int | tuple[int, int] = (1, 1),
+    padding: int | tuple[int, int, int, int] | str = 0,
+    dilations: int | tuple[int, int] = (1, 1),
+    data_layout: str = "NCHW",
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
+    r"""Morphological Dilation 2D operator.
+
+    This operator computes the morphological dilation of the input image
+    with the given filter (structuring element). For each position, the
+    output is the maximum of `input + filter` over the filter window.
+
+    .. math::
+
+        output[n, c, h, w] = \max_{f_h, f_w}
+            \left( input[n, c, h' + d_h \cdot f_h, w' + d_w \cdot f_w]
+                 + filter[c, f_h, f_w] \right)
+
+    where :math:`h', w'` are the top-left positions of the filter window
+    and :math:`d_h, d_w` are the dilation factors.
+
+    Parameters
+    ----------
+    input : relax.Expr
+        4-D input tensor. With NCHW layout: [batch, in_channel, in_height, in_width].
+        With NHWC layout: [batch, in_height, in_width, in_channel].
+
+    filter : relax.Expr
+        3-D filter tensor with shape [in_channel, filter_height, filter_width].
+
+    strides : Union[int, Tuple[int, int]]
+        Stride size for the filter window, or [stride_h, stride_w].
+
+    padding : Union[int, Tuple[int, ...]]
+        Padding size. Can be an int for symmetric padding,
+        [pad_top, pad_left, pad_bottom, pad_right], or 2-tuple
+        [pad_h, pad_w] which is expanded to 4-tuple.
+
+    dilations : Union[int, Tuple[int, int]]
+        Dilation size for the filter, or [dilation_h, dilation_w].
+
+    data_layout : str
+        Layout of the input data. Supported: "NCHW", "NHWC".
+
+    out_dtype : Optional[str | tvm_ffi.dtype]
+        Specifies the output data type. If None, uses the input dtype.
+
+    Returns
+    -------
+    result : relax.Expr
+        The dilated output tensor.
+    """
+    if isinstance(strides, int):
+        strides = (strides, strides)
+    if isinstance(dilations, int):
+        dilations = (dilations, dilations)
+
+    if isinstance(padding, int):
+        padding = (padding, padding, padding, padding)
+    elif isinstance(padding, tuple | list):
+        if len(padding) == 2:
+            padding = (padding[0], padding[1], padding[0], padding[1])
+        elif len(padding) == 4:
+            padding = tuple(padding)
+        else:
+            raise ValueError(f"padding must be int, 2-tuple, or 4-tuple, got {len(padding)}-tuple")
+    else:
+        raise TypeError(f"padding must be int, tuple, or list, got {type(padding)}")
+
+    return _Call(
+        "relax.image.dilation2d",
+        [input, filter],
+        attrs=_make_attrs(
+            "relax.attrs.Dilation2DAttrs",
+            strides=strides,
+            padding=padding,
+            dilations=dilations,
+            data_layout=data_layout,
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty=ty,
+        loc=loc,
+    )  # type: ignore

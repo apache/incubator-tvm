@@ -87,3 +87,26 @@ def _image_resize3d(bb: BlockBuilder, call: Call) -> Expr:
         bicubic_exclude=call.attrs.cubic_exclude,
         extrapolation_value=call.attrs.extrapolation_value,
     )
+
+
+@register_legalize("relax.image.dilation2d")
+def _image_dilation2d(bb: BlockBuilder, call: Call) -> Expr:
+    """Legalize relax.image.dilation2d to TOPI."""
+    layout = call.attrs.data_layout
+    if layout == "NCHW":
+        topi_func = topi.image.dilation2d_nchw
+    elif layout == "NHWC":
+        topi_func = topi.image.dilation2d_nhwc
+    else:
+        raise ValueError(f"dilation2d only supports NCHW or NHWC layout, got {layout}")
+
+    return bb.call_te(
+        topi_func,
+        call.args[0],
+        call.args[1],
+        stride=call.attrs.strides,
+        padding=call.attrs.padding,
+        dilations=call.attrs.dilations,
+        out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
+        function_name_hint="dilation2d",
+    )

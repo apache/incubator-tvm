@@ -339,6 +339,41 @@ struct PixelShuffleAttrs : public AttrsObj {
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.PixelShuffleAttrs", PixelShuffleAttrs, AttrsObj);
 };
 
+/*! \brief Attributes used for the correlation operator */
+struct CorrelationAttrs : public AttrsNode {
+  int kernel_size;
+  int max_displacement;
+  int stride1;
+  int stride2;
+  int padding;
+  bool is_multiply;
+  ffi::String data_layout;
+
+  static void RegisterReflection();
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.CorrelationAttrs", CorrelationAttrs, AttrsNode);
+};  // struct CorrelationAttrs
+
+/*! \brief Attributes used for the local response normalization (LRN) operator */
+struct LRNAattrs : public AttrsNode {
+  int size;
+  int axis;
+  double alpha;
+  double beta;
+  double bias;
+
+  static void RegisterReflection();
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.LRNAattrs", LRNAattrs, AttrsNode);
+};  // struct LRNAattrs
+
+/*! \brief Attributes used for the dilate (upsample with holes) operator */
+struct DilateAttrs : public AttrsNode {
+  ffi::Array<int64_t> strides;
+  double dilation_value;
+
+  static void RegisterReflection();
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.attrs.DilateAttrs", DilateAttrs, AttrsNode);
+};  // struct DilateAttrs
+
 }  // namespace relax
 }  // namespace tvm
 

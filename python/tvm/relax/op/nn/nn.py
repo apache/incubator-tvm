@@ -3007,3 +3007,215 @@ def batch_flatten(data: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
         The flattened result with shape `(batch_size, flattened_features)`.
     """
     return _Call("relax.nn.batch_flatten", [data], loc=loc, ty=ty)  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.CorrelationAttrs")
+class CorrelationAttrs(Attrs):
+    """Attributes for nn.correlation"""
+
+
+def correlation(
+    data1: Expr,
+    data2: Expr,
+    kernel_size: int = 1,
+    max_displacement: int = 1,
+    stride1: int = 1,
+    stride2: int = 1,
+    padding: int = 0,
+    is_multiply: bool = True,
+    data_layout: str = "NCHW",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
+    r"""Correlation operator.
+
+    This operator computes correlation between two feature maps.
+    It is commonly used in optical flow networks.
+
+    .. math::
+
+        out[b, q, i, j] = \frac{1}{kernel\_size^2 \times C}
+            \sum_{c=0}^{C-1} \sum_{ry=0}^{kernel\_size-1} \sum_{rx=0}^{kernel\_size-1}
+            f(data1[b, c, y1+ry, x1+rx], data2[b, c, y2+ry, x2+rx])
+
+    where :math:`f(x, y) = x \times y` if `is_multiply` is True,
+    otherwise :math:`f(x, y) = |x - y|`.
+
+    Parameters
+    ----------
+    data1 : relax.Expr
+        4-D input tensor with shape [batch, channel, height, width].
+
+    data2 : relax.Expr
+        4-D input tensor with the same shape as data1.
+
+    kernel_size : int
+        Kernel size for correlation, must be a positive odd number.
+
+    max_displacement : int
+        Max displacement of correlation.
+
+    stride1 : int
+        Stride for sampling data1 positions.
+
+    stride2 : int
+        Stride for sampling data2 within the neighborhood around data1.
+
+    padding : int
+        Padding size for both height and width dimensions.
+
+    is_multiply : bool
+        If True, compute element-wise product; otherwise compute absolute difference.
+
+    data_layout : str
+        Layout of the input data. Currently only "NCHW" is supported.
+
+    Returns
+    -------
+    result : relax.Expr
+        The correlation result with shape [batch, out_channel, out_height, out_width].
+    """
+    if data_layout != "NCHW":
+        raise NotImplementedError(
+            f"correlation currently only supports NCHW layout, got {data_layout}"
+        )
+    return _Call(
+        "relax.nn.correlation",
+        [data1, data2],
+        attrs=_make_attrs(
+            "relax.attrs.CorrelationAttrs",
+            kernel_size=kernel_size,
+            max_displacement=max_displacement,
+            stride1=stride1,
+            stride2=stride2,
+            padding=padding,
+            is_multiply=is_multiply,
+            data_layout=data_layout,
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.LRNAattrs")
+class LRNAattrs(Attrs):
+    """Attributes for nn.lrn (local response normalization)"""
+
+
+def lrn(
+    data: Expr,
+    size: int = 5,
+    axis: int = 1,
+    alpha: float = 0.0001,
+    beta: float = 0.75,
+    bias: float = 2.0,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
+    r"""Local Response Normalization.
+
+    This operator performs across-channel local response normalization
+    on the input data. It follows the formula from AlexNet:
+
+    .. math::
+
+        output^i_{x,y} = \frac{data^i_{x,y}}
+            {\left(bias + \frac{\alpha}{size}
+            \sum_{j=\max(0, i-\lfloor size/2 \rfloor)}
+                 ^{\min(N-1, i+\lfloor size/2 \rfloor)}
+            (data^j_{x,y})^2\right)^{\beta}}
+
+    Parameters
+    ----------
+    data : relax.Expr
+        4-D input tensor with shape [batch, channel, height, width].
+
+    size : int
+        Normalization window size.
+
+    axis : int
+        The axis along which normalization is applied. Default is 1 (channel axis).
+
+    alpha : float
+        The scaling factor.
+
+    beta : float
+        The exponent.
+
+    bias : float
+        Offset to avoid dividing by zero.
+
+    Returns
+    -------
+    result : relax.Expr
+        The normalized output tensor with the same shape as input.
+    """
+    return _Call(
+        "relax.nn.lrn",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.LRNAattrs",
+            size=size,
+            axis=axis,
+            alpha=alpha,
+            beta=beta,
+            bias=bias,
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.DilateAttrs")
+class DilateAttrs(Attrs):
+    """Attributes for nn.dilate"""
+
+
+def dilate(
+    data: Expr,
+    strides: list[int],
+    dilation_value: float = 0.0,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
+    """Dilate (upsample with holes) the input tensor.
+
+    This operation inserts `strides[i] - 1` zeros between each element
+    along dimension `i`. The output shape is:
+
+        output_shape[i] = (input_shape[i] - 1) * strides[i] + 1
+
+    Parameters
+    ----------
+    data : relax.Expr
+        Input tensor of any shape.
+
+    strides : list[int]
+        Dilation stride for each dimension. `1` means no dilation.
+        Must have the same length as data's number of dimensions.
+
+    dilation_value : float
+        The value used to fill the inserted positions. Default is 0.0.
+
+    Returns
+    -------
+    result : relax.Expr
+        The dilated output tensor.
+    """
+    if not isinstance(strides, list | tuple):
+        raise TypeError(f"strides must be a list or tuple of ints, got {type(strides)}")
+    strides = [int(s) for s in strides]
+    return _Call(
+        "relax.nn.dilate",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.DilateAttrs",
+            strides=strides,
+            dilation_value=dilation_value,
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

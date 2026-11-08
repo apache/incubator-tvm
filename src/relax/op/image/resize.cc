@@ -142,6 +142,19 @@ void AffineGridAttrs::RegisterReflection() {
       refl::DefaultValue(true));
 }
 
+void Dilation2DAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<Dilation2DAttrs>()
+      .def_ro("strides", &Dilation2DAttrs::strides, "Stride size for the filter window.")
+      .def_ro("padding", &Dilation2DAttrs::padding,
+              "Padding size as [pad_top, pad_left, pad_bottom, pad_right].")
+      .def_ro("dilations", &Dilation2DAttrs::dilations, "Dilation size for the filter.")
+      .def_ro("data_layout", &Dilation2DAttrs::data_layout,
+              "Layout of the input data ('NCHW' or 'NHWC').",
+              refl::DefaultValue(ffi::String("NCHW")))
+      .def_ro("out_dtype", &Dilation2DAttrs::out_dtype, "Specifies the output data type.");
+}
+
 TVM_FFI_STATIC_INIT_BLOCK() {
   Resize2DAttrs::RegisterReflection();
   Resize3DAttrs::RegisterReflection();
@@ -574,6 +587,16 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  sig::arg("size", "The target output shape (H, W)."),
                  sig::call_attrs<AffineGridAttrs>())
       .set_native_fn_attr<&InferTypeAffineGrid>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
+}
+
+TVM_FFI_STATIC_INIT_BLOCK() {
+  Dilation2DAttrs::RegisterReflection();
+
+  OpDef("relax.image.dilation2d")
+      .signature(sig::arg("input", "The input tensor."), sig::arg("filter", "The filter tensor."),
+                 sig::call_attrs<Dilation2DAttrs>())
       .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
       .set_attr(tvm::relax::op_attr::kPurity, true);
 }

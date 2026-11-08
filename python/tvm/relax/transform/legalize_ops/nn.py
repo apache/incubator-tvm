@@ -790,3 +790,53 @@ def _nn_batch_flatten(bb: BlockBuilder, call: Call) -> Expr:
     if call.ty.shape is None:
         return call
     return bb.call_te(topi.reshape, call.args[0], call.ty.shape.values)
+
+
+@register_legalize("relax.nn.correlation")
+def _nn_correlation(bb: BlockBuilder, call: Call) -> Expr:
+    """Legalize relax.nn.correlation to TOPI."""
+    if call.attrs.data_layout != "NCHW":
+        logging.info(
+            "TOPI correlation only supports NCHW layout, "
+            "and thus cannot be legalized by TOPI for other layouts"
+        )
+        return call
+    return bb.call_te(
+        topi.nn.correlation_nchw,
+        call.args[0],
+        call.args[1],
+        kernel_size=call.attrs.kernel_size,
+        max_displacement=call.attrs.max_displacement,
+        stride1=call.attrs.stride1,
+        stride2=call.attrs.stride2,
+        padding=call.attrs.padding,
+        is_multiply=call.attrs.is_multiply,
+        function_name_hint="correlation",
+    )
+
+
+@register_legalize("relax.nn.lrn")
+def _nn_lrn(bb: BlockBuilder, call: Call) -> Expr:
+    """Legalize relax.nn.lrn (local response normalization) to TOPI."""
+    return bb.call_te(
+        topi.nn.lrn,
+        call.args[0],
+        size=call.attrs.size,
+        axis=call.attrs.axis,
+        alpha=call.attrs.alpha,
+        beta=call.attrs.beta,
+        bias=call.attrs.bias,
+        function_name_hint="lrn",
+    )
+
+
+@register_legalize("relax.nn.dilate")
+def _nn_dilate(bb: BlockBuilder, call: Call) -> Expr:
+    """Legalize relax.nn.dilate to TOPI."""
+    return bb.call_te(
+        topi.nn.dilate,
+        call.args[0],
+        strides=call.attrs.strides,
+        dilation_value=call.attrs.dilation_value,
+        function_name_hint="dilate",
+    )
