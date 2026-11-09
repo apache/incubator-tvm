@@ -38,6 +38,22 @@ ffi::Optional<Var> BindingVar(const ffi::Object* destination) {
   return ffi::GetRef<Var>(static_cast<const VarObj*>(destination));
 }
 
+ffi::Optional<ExprDoc> TranslateSeqExprContents(DocTranslatorObj* d, const relax::SeqExprObj* seq,
+                                                const ffi::Object* destination) {
+  for (const relax::BindingBlock& block : seq->blocks) d->Translate(block);
+  if (seq->blocks.empty()) {
+    if (auto var = seq->body.as<Var>()) {
+      d->VarGetOrAllocId(var.value(), false);
+      if (d->GetImplicitDefs().count(var.value()) && !var.value()->ty.as<PrimTypeObj>()) {
+        IdDoc id = VarDoc(d, var.value());
+        d->Emit(AssignDoc(id, std::nullopt, d->Translate(var.value()->ty).value()),
+                ffi::GetRef<ffi::ObjectRef>(var.value().get()));
+      }
+    }
+  }
+  return d->Translate(seq->body, BindingVar(destination));
+}
+
 }  // namespace
 
 ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprObj* seq,
@@ -45,8 +61,7 @@ ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprObj* s
                                  ffi::Optional<ExprDoc> annotation,
                                  const ffi::Object* destination_object) {
   auto docs = d->WithDocScope([&]() {
-    ffi::Optional<ExprDoc> value =
-        d->Translate(ffi::GetRef<relax::SeqExpr>(seq), BindingVar(destination_object));
+    ffi::Optional<ExprDoc> value = TranslateSeqExprContents(d, seq, destination_object);
     if (destination.has_value()) {
       if (value.has_value()) {
         d->Emit(AssignDoc(destination.value(), value.value(), annotation),
@@ -70,18 +85,7 @@ ffi::Optional<ExprDoc> SeqExprDocTranslate(DocTranslatorObj* d, ffi::AnyView inp
                                            const ffi::Object* destination) {
   const auto* seq =
       ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::SeqExprObj>(input);
-  for (const relax::BindingBlock& block : seq->blocks) d->Translate(block);
-  if (seq->blocks.empty()) {
-    if (auto var = seq->body.as<Var>()) {
-      d->VarGetOrAllocId(var.value(), false);
-      if (d->GetImplicitDefs().count(var.value()) && !var.value()->ty.as<PrimTypeObj>()) {
-        IdDoc id = VarDoc(d, var.value());
-        d->Emit(AssignDoc(id, std::nullopt, d->Translate(var.value()->ty).value()),
-                ffi::GetRef<ffi::ObjectRef>(var.value().get()));
-      }
-    }
-  }
-  return d->Translate(seq->body, BindingVar(destination));
+  return TranslateSeqExprContents(d, seq, destination);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
