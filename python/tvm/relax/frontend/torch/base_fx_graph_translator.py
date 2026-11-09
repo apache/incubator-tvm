@@ -2691,7 +2691,8 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
     def _copy_(self, node: fx.Node) -> relax.Var:
         dest = self.env[node.args[0]]
-        src = self.env[node.args[1]]
+        # The source may be a Python scalar, which is not an entry of self.env.
+        src = self._convert_scalar_fill_value(self.retrieve_args(node)[1], str(dest.ty.dtype))
 
         # Match PyTorch semantics: cast to destination dtype and broadcast to destination shape.
         if src.ty.dtype != dest.ty.dtype:

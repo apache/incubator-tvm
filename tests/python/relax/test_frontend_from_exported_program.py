@@ -6581,6 +6581,18 @@ def test_copy():
     verify_model(CopyBroadcast(), example_args, {}, expected_copy)
 
 
+@pytest.mark.parametrize("value", [1, -1.5, True])
+@pytest.mark.parametrize("dtype", [torch.float32, torch.int64])
+def test_copy_scalar_source(dtype, value):
+    class CopyScalar(Module):
+        def forward(self, x):
+            y = x.clone()
+            y.copy_(value)
+            return y
+
+    verify_model_numerically(CopyScalar(), (torch.zeros(2, 3, dtype=dtype),))
+
+
 def test_to_copy():
     class ToHalf(Module):
         def forward(self, x):
