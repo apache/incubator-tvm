@@ -14582,5 +14582,98 @@ def test_quantizelinear_output_dtype_mismatch(opset):
         from_onnx(model, opset=opset, keep_params_in_input=True)
 
 
+def test_qlinearmatmul():
+    """Verify numerical correctness of QLinearMatMul against ONNX Runtime."""
+
+    def verify_qlinearmatmul(
+        a_shape,
+        b_shape,
+        a_dtype="uint8",
+        b_dtype="uint8",
+        y_dtype="uint8",
+        opset=10,
+    ):
+        np_dtype_map = {
+            "uint8": (np.uint8, TensorProto.UINT8),
+            "int8": (np.int8, TensorProto.INT8),
+        }
+        a_np_dtype, a_proto = np_dtype_map[a_dtype]
+        b_np_dtype, b_proto = np_dtype_map[b_dtype]
+        y_np_dtype, y_proto = np_dtype_map[y_dtype]
+
+        if a_dtype == "uint8":
+            a = np.random.randint(0, 255, size=a_shape, dtype=a_np_dtype)
+            a_zp = np.array(128, dtype=a_np_dtype)
+        else:
+            a = np.random.randint(-128, 127, size=a_shape, dtype=a_np_dtype)
+            a_zp = np.array(0, dtype=a_np_dtype)
+
+        if b_dtype == "uint8":
+            b = np.random.randint(0, 255, size=b_shape, dtype=b_np_dtype)
+            b_zp = np.array(120, dtype=b_np_dtype)
+        else:
+            b = np.random.randint(-128, 127, size=b_shape, dtype=b_np_dtype)
+            b_zp = np.array(0, dtype=b_np_dtype)
+
+        if y_dtype == "uint8":
+            y_zp = np.array(10, dtype=y_np_dtype)
+        else:
+            y_zp = np.array(-5, dtype=y_np_dtype)
+
+        a_scale = np.array(0.5, dtype=np.float32)
+        b_scale = np.array(0.25, dtype=np.float32)
+        y_scale = np.array(0.1, dtype=np.float32)
+
+        node = helper.make_node(
+            "QLinearMatMul",
+            inputs=["a", "a_scale", "a_zp", "b", "b_scale", "b_zp", "y_scale", "y_zp"],
+            outputs=["y"],
+        )
+
+        # Output shape
+        y_shape = list(np.matmul(np.zeros(a_shape), np.zeros(b_shape)).shape)
+
+        graph = helper.make_graph(
+            [node],
+            "qlinearmatmul_test",
+            inputs=[
+                helper.make_tensor_value_info("a", a_proto, a_shape),
+                helper.make_tensor_value_info("a_scale", TensorProto.FLOAT, []),
+                helper.make_tensor_value_info("a_zp", a_proto, []),
+                helper.make_tensor_value_info("b", b_proto, b_shape),
+                helper.make_tensor_value_info("b_scale", TensorProto.FLOAT, []),
+                helper.make_tensor_value_info("b_zp", b_proto, []),
+                helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
+                helper.make_tensor_value_info("y_zp", y_proto, []),
+            ],
+            outputs=[helper.make_tensor_value_info("y", y_proto, y_shape)],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+        inputs = {
+            "a": a,
+            "a_scale": a_scale,
+            "a_zp": a_zp,
+            "b": b,
+            "b_scale": b_scale,
+            "b_zp": b_zp,
+            "y_scale": y_scale,
+            "y_zp": y_zp,
+        }
+        check_correctness(model, inputs=inputs, opset=opset)
+
+    # 2D uint8
+    verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
+    # 2D int8
+    verify_qlinearmatmul([3, 4], [4, 2], a_dtype="int8", b_dtype="int8", y_dtype="int8", opset=10)
+    # 3D batched int8
+    verify_qlinearmatmul([2, 3, 4], [2, 4, 5], a_dtype="int8", b_dtype="int8", y_dtype="int8", opset=10)
+    # 3D batched uint8
+    verify_qlinearmatmul([2, 3, 4], [2, 4, 5], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
+    # Opset 21 uint8
+    verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=21)
+    # Opset 21 int8
+    verify_qlinearmatmul([2, 3], [3, 4], a_dtype="int8", b_dtype="int8", y_dtype="int8", opset=21)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

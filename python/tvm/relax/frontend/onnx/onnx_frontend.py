@@ -6137,6 +6137,104 @@ class MatMulInteger(OnnxOpConverter):
         return relax.op.matmul(a, b, out_dtype="int32")  # Output is int32 per ONNX spec
 
 
+class QLinearMatMul(OnnxOpConverter):
+    """Converts an onnx QLinearMatMul node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        a = inputs[0]
+        a_scale = inputs[1]
+        a_zero_point = inputs[2] if len(inputs) > 2 and inputs[2] is not None else None
+        b = inputs[3]
+        b_scale = inputs[4]
+        b_zero_point = inputs[5] if len(inputs) > 5 and inputs[5] is not None else None
+        y_scale = inputs[6]
+        y_zero_point = inputs[7] if len(inputs) > 7 and inputs[7] is not None else None
+
+        if y_zero_point is None:
+            y_zero_point = relax.const(0, "uint8")
+        out_dtype = y_zero_point.ty.dtype.dtype
+
+        # Widen to int32 before arithmetic to prevent overflow
+        a = relax.op.astype(a, "int32")
+        b = relax.op.astype(b, "int32")
+
+        if a_zero_point is not None:
+            a_zp = relax.op.astype(a_zero_point, "int32")
+            a_zp = bb.normalize(a_zp)
+            if len(a_zp.ty.shape) == 1:
+                a_zp = relax.op.expand_dims(a_zp, axis=-1)
+            a = relax.op.subtract(a, a_zp)
+
+        if b_zero_point is not None:
+            b_zp = relax.op.astype(b_zero_point, "int32")
+            b_zp = bb.normalize(b_zp)
+            if len(b_zp.ty.shape) == 1:
+                b_zp = relax.op.expand_dims(b_zp, axis=0)
+            b = relax.op.subtract(b, b_zp)
+
+        # 32-bit integer accumulation
+        matmul_int32 = relax.op.matmul(a, b, out_dtype="int32")
+
+        a_scale_norm = bb.normalize(a_scale)
+        if len(a_scale_norm.ty.shape) == 1:
+            a_scale = relax.op.expand_dims(a_scale, axis=-1)
+
+        b_scale_norm = bb.normalize(b_scale)
+        if len(b_scale_norm.ty.shape) == 1:
+            b_scale = relax.op.expand_dims(b_scale, axis=0)
+
+        y_scale_norm = bb.normalize(y_scale)
+        if len(y_scale_norm.ty.shape) == 1:
+            a_norm = bb.normalize(a)
+            if hasattr(a_norm.ty, "shape") and len(a_norm.ty.shape) >= 2:
+                row_dim = a_norm.ty.shape[-2]
+                if (
+                    isinstance(row_dim, (int, tvm_tirx.ir.IntImm))
+                    and int(row_dim) == int(y_scale_norm.ty.shape[0])
+                ):
+                    y_scale = relax.op.expand_dims(y_scale, axis=-1)
+
+        y_zp_norm = bb.normalize(y_zero_point)
+        if len(y_zp_norm.ty.shape) == 1:
+            a_norm = bb.normalize(a)
+            if hasattr(a_norm.ty, "shape") and len(a_norm.ty.shape) >= 2:
+                row_dim = a_norm.ty.shape[-2]
+                if (
+                    isinstance(row_dim, (int, tvm_tirx.ir.IntImm))
+                    and int(row_dim) == int(y_zp_norm.ty.shape[0])
+                ):
+                    y_zero_point = relax.op.expand_dims(y_zero_point, axis=-1)
+
+        matmul_float = relax.op.astype(matmul_int32, "float32")
+        a_scale_f = relax.op.astype(a_scale, "float32")
+        b_scale_f = relax.op.astype(b_scale, "float32")
+        y_scale_f = relax.op.astype(y_scale, "float32")
+
+        scale_mult = relax.op.divide(relax.op.multiply(a_scale_f, b_scale_f), y_scale_f)
+        scaled = relax.op.multiply(matmul_float, scale_mult)
+        rounded = relax.op.round(scaled)
+        y_val = relax.op.add(rounded, relax.op.astype(y_zero_point, "float32"))
+
+        if out_dtype == "uint8":
+            min_val, max_val = 0, 255
+        elif out_dtype == "int8":
+            min_val, max_val = -128, 127
+        elif out_dtype == "uint16":
+            min_val, max_val = 0, 65535
+        elif out_dtype == "int16":
+            min_val, max_val = -32768, 32767
+        else:
+            min_val, max_val = 0, 255
+
+        clipped = relax.op.clip(y_val, min_val, max_val)
+        return relax.op.astype(clipped, out_dtype)
+
+    @classmethod
+    def _impl_v21(cls, bb, inputs, attr, params):
+        return cls._impl_v10(bb, inputs, attr, params)
+
+
 def _get_convert_map():
     return {
         # defs/experimental
@@ -6216,6 +6314,7 @@ def _get_convert_map():
         "MatMul": MatMul,
         "MatMulInteger": MatMulInteger,
         "MatMulInteger16": MatMulInteger16,
+        "QLinearMatMul": QLinearMatMul,
         "Reshape": Reshape,
         "Sigmoid": Sigmoid,
         "Softmax": Softmax,
