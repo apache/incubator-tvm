@@ -133,6 +133,73 @@ def test_fallback_reduction():
     assert_structural_equal(mod, Expected)
 
 
+def test_fallback_unit_reduction_epilogue():
+    """The epilogue of a K = 1 matmul must stay a separate block, not be inlined into the init."""
+
+    @I.ir_module
+    class Before:
+        @Ts.function
+        def main(
+            A: T.Tensor((4, 1), "float32"),
+            B: T.Tensor((1, 4), "float32"),
+            D: T.Tensor((4, 4), "float32"),
+        ):
+            C = Ts.sblock_alloc_tensor((4, 4), "float32")
+            for i, j, k in T.grid(4, 4, 1):
+                with Ts.sblock("matmul"):
+                    vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
+                    Ts.reads(A[vi, vk], B[vk, vj])
+                    Ts.writes(C[vi, vj])
+                    with Ts.init():
+                        C[vi, vj] = T.float32(0)
+                    C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]
+            for i, j in T.grid(4, 4):
+                with Ts.sblock("exp"):
+                    vi, vj = Ts.axis.remap("SS", [i, j])
+                    D[vi, vj] = T.exp(C[vi, vj])
+
+    @I.ir_module
+    class Expected:
+        @Ts.function
+        def main(
+            A: T.Tensor((4, 1), "float32"),
+            B: T.Tensor((1, 4), "float32"),
+            D: T.Tensor((4, 4), "float32"),
+        ):
+            T.func_attr({"tirx.is_scheduled": True})
+            C = Ts.sblock_alloc_tensor((4, 4), "float32")
+            for ax0_ax1_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for ax0_ax1_fused_1 in T.parallel(
+                    1024, annotations={"thread_binding": "threadIdx.x"}
+                ):
+                    with Ts.sblock("matmul"):
+                        v0 = Ts.axis.spatial(4, (ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1) // 4)
+                        v1 = Ts.axis.spatial(4, (ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1) % 4)
+                        Ts.where(ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1 < 16)
+                        Ts.reads(A[v0, 0], B[0, v1])
+                        Ts.writes(C[v0, v1])
+                        with Ts.init():
+                            C[v0, v1] = T.float32(0)
+                        C[v0, v1] = C[v0, v1] + A[v0, 0] * B[0, v1]
+            for ax0_ax1_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for ax0_ax1_fused_1 in T.parallel(
+                    1024, annotations={"thread_binding": "threadIdx.x"}
+                ):
+                    with Ts.sblock("exp"):
+                        v0 = Ts.axis.spatial(4, (ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1) // 4)
+                        v1 = Ts.axis.spatial(4, (ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1) % 4)
+                        Ts.where(ax0_ax1_fused_0 * 1024 + ax0_ax1_fused_1 < 16)
+                        Ts.reads(C[v0, v1])
+                        Ts.writes(D[v0, v1])
+                        D[v0, v1] = T.exp(C[v0, v1])
+
+    with Target("nvidia/geforce-rtx-3090-ti"):
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Fallback(),
+        )(Before)
+    assert_structural_equal(mod, Expected)
+
+
 def test_fallback_irregular_spatial():
     nhead = T.dynamic("nhead", "int32")
     nlayer = T.dynamic("nlayer", "int32")

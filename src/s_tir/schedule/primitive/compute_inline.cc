@@ -738,6 +738,12 @@ class ReverseComputeInliner : public BaseInliner {
       // Failure: no TensorLoad from the `inlined_tensor_`
       return false;
     }
+    if (producer_block_->init.has_value() &&
+        (loads.size() != 1 || inlined_store_->value.get() != loads[0])) {
+      // Failure: the consumer is inlined into both the init and the update of the producer, so
+      // it must only copy the value of `inlined_tensor_` to a new location
+      return false;
+    }
 
     // Collect block iter domains and update the substition map
     ffi::Map<PrimVar, Range> consumer_iter_doms;

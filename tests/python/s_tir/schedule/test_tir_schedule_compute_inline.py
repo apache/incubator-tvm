@@ -725,6 +725,48 @@ def elementwise_producer_is_reduction(
 
 
 @Ts.function
+def elementwise_producer_has_init_without_reduce_iter(
+    A: T.Tensor((128, 1), "float32"),
+    B: T.Tensor((1, 128), "float32"),
+    D: T.Tensor((128, 128), "float32"),
+) -> None:
+    # A matmul with K = 1 after its unit reduction block var is removed. The block has no
+    # reduction block vars, but it still has an init statement.
+    C = Ts.sblock_alloc_tensor((128, 128))
+    for i, j in T.grid(128, 128):
+        with Ts.sblock("C"):
+            vi, vj = Ts.axis.remap("SS", [i, j])
+            Ts.reads(A[vi, 0], B[0, vj])
+            Ts.writes(C[vi, vj])
+            with Ts.init():
+                C[vi, vj] = T.float32(0)
+            C[vi, vj] = C[vi, vj] + A[vi, 0] * B[0, vj]
+    for i, j in T.grid(128, 128):
+        with Ts.sblock("D"):
+            vi, vj = Ts.axis.remap("SS", [i, j])
+            D[vi, vj] = T.exp(C[vi, vj])
+
+
+@Ts.function
+def producer_has_init_consumer_scatter(
+    A: T.Tensor((8,), "int32"), D: T.Tensor((8,), "int32")
+) -> None:
+    C = Ts.sblock_alloc_tensor((8,), "int32")
+    for i in T.grid(8):
+        with Ts.sblock("C"):
+            vi = Ts.axis.remap("S", [i])
+            Ts.reads(A[vi])
+            Ts.writes(C[vi])
+            with Ts.init():
+                C[vi] = 0
+            C[vi] = C[vi] + A[vi]
+    for i in T.grid(8):
+        with Ts.sblock("D"):
+            vi = Ts.axis.remap("S", [i])
+            D[C[vi]] = C[vi]
+
+
+@Ts.function
 def elementwise_predicate_producer(
     A: T.Tensor((128, 128), "float32"), C: T.Tensor((127, 128), "float32")
 ) -> None:
@@ -1322,6 +1364,22 @@ def test_reverse_compute_inline_producer_is_reduction():
     sch = tvm.s_tir.Schedule(elementwise_producer_is_reduction, debug_mask="all")
     with pytest.raises(tvm.s_tir.ScheduleError):
         sch.reverse_compute_inline(sch.get_sblock("C"))
+
+
+def test_reverse_compute_inline_producer_has_init_without_reduce_iter():
+    """Test reverse compute inline failure when the producer has an init statement but no
+    reduction block vars. The consumer must not be inlined into both init and update."""
+    sch = tvm.s_tir.Schedule(elementwise_producer_has_init_without_reduce_iter, debug_mask="all")
+    with pytest.raises(tvm.s_tir.ScheduleError):
+        sch.reverse_compute_inline(sch.get_sblock("D"))
+
+
+def test_reverse_compute_inline_producer_has_init_consumer_scatter():
+    """Test reverse compute inline failure when the producer has an init statement and the
+    consumer reads the inlined tensor in its store indices."""
+    sch = tvm.s_tir.Schedule(producer_has_init_consumer_scatter, debug_mask="all")
+    with pytest.raises(tvm.s_tir.ScheduleError):
+        sch.reverse_compute_inline(sch.get_sblock("D"))
 
 
 def test_compute_inline_softmax():
