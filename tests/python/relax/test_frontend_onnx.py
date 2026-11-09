@@ -14582,5 +14582,90 @@ def test_quantizelinear_output_dtype_mismatch(opset):
         from_onnx(model, opset=opset, keep_params_in_input=True)
 
 
+def test_qlinearconv():
+    """Verify numerical correctness of QLinearConv against ONNX Runtime."""
+
+    def verify_qlinearconv(
+        x_shape,
+        w_shape,
+        strides=[1, 1],
+        pads=[0, 0, 0, 0],
+        dilations=[1, 1],
+        group=1,
+        with_bias=True,
+        opset=10,
+    ):
+        x = np.random.randint(0, 255, size=x_shape, dtype=np.uint8)
+        x_scale = np.array(0.5, dtype=np.float32)
+        x_zp = np.array(128, dtype=np.uint8)
+
+        w = np.random.randint(0, 255, size=w_shape, dtype=np.uint8)
+        w_scale = np.array(0.25, dtype=np.float32)
+        w_zp = np.array(120, dtype=np.uint8)
+
+        y_scale = np.array(0.1, dtype=np.float32)
+        y_zp = np.array(10, dtype=np.uint8)
+
+        inputs_list = ["x", "x_scale", "x_zp", "w", "w_scale", "w_zp", "y_scale", "y_zp"]
+        graph_inputs = [
+            helper.make_tensor_value_info("x", TensorProto.UINT8, x_shape),
+            helper.make_tensor_value_info("x_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("x_zp", TensorProto.UINT8, []),
+            helper.make_tensor_value_info("w", TensorProto.UINT8, w_shape),
+            helper.make_tensor_value_info("w_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("w_zp", TensorProto.UINT8, []),
+            helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("y_zp", TensorProto.UINT8, []),
+        ]
+
+        feed_inputs = {
+            "x": x,
+            "x_scale": x_scale,
+            "x_zp": x_zp,
+            "w": w,
+            "w_scale": w_scale,
+            "w_zp": w_zp,
+            "y_scale": y_scale,
+            "y_zp": y_zp,
+        }
+
+        if with_bias:
+            B = np.random.randint(-10, 10, size=[w_shape[0]], dtype=np.int32)
+            inputs_list.append("B")
+            graph_inputs.append(helper.make_tensor_value_info("B", TensorProto.INT32, [w_shape[0]]))
+            feed_inputs["B"] = B
+
+        node = helper.make_node(
+            "QLinearConv",
+            inputs=inputs_list,
+            outputs=["y"],
+            kernel_shape=w_shape[2:],
+            strides=strides,
+            pads=pads,
+            dilations=dilations,
+            group=group,
+        )
+
+        out_h = (x_shape[2] + pads[0] + pads[2] - dilations[0] * (w_shape[2] - 1) - 1) // strides[0] + 1
+        out_w = (x_shape[3] + pads[1] + pads[3] - dilations[1] * (w_shape[3] - 1) - 1) // strides[1] + 1
+        y_shape = [x_shape[0], w_shape[0], out_h, out_w]
+
+        graph = helper.make_graph(
+            [node],
+            "qlinearconv_test",
+            inputs=graph_inputs,
+            outputs=[helper.make_tensor_value_info("y", TensorProto.UINT8, y_shape)],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+        check_correctness(model, inputs=feed_inputs, opset=opset)
+
+    # 2D Conv with bias
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], with_bias=True)
+    # 2D Conv without bias
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], with_bias=False)
+    # Multi-channel
+    verify_qlinearconv([2, 3, 5, 5], [4, 3, 3, 3], pads=[1, 1, 1, 1], with_bias=True)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

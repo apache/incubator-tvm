@@ -2243,6 +2243,167 @@ class Conv(OnnxOpConverter):
         return conv_out
 
 
+class QLinearConv(OnnxOpConverter):
+    """Converts an onnx QLinearConv node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        x_scale = inputs[1]
+        x_zero_point = inputs[2]
+        weight = inputs[3]
+        w_scale = inputs[4]
+        w_zero_point = inputs[5]
+        y_scale = inputs[6]
+        y_zero_point = inputs[7]
+        bias = inputs[8] if len(inputs) > 8 and inputs[8] is not None else None
+
+        if hasattr(data.ty, "ndim"):
+            ndim = data.ty.ndim
+        else:
+            ndim = len(data.ty.shape)
+
+        if "kernel_shape" not in attr:
+            attr["kernel_shape"] = weight.ty.shape.values[2:]
+
+        if ndim == 3:
+            op = relax.op.nn.conv1d
+            data_layout = "NCW"
+            kernel_layout = "OIW"
+        elif ndim == 4:
+            op = relax.op.nn.conv2d
+            data_layout = "NCHW"
+            kernel_layout = "OIHW"
+        elif ndim == 5:
+            op = relax.op.nn.conv3d
+            data_layout = "NCDHW"
+            kernel_layout = "OIDHW"
+        else:
+            raise NotImplementedError("Ndim > 5 not supported for QLinearConv.")
+
+        # Dequantize x
+        if x_zero_point is None:
+            x_zero_point = relax.const(0, data.ty.dtype.dtype)
+        x_zp_norm = bb.normalize(x_zero_point)
+        if len(x_zp_norm.ty.shape) == 1:
+            x_zp = bb.normalize(relax.op.reshape(x_zero_point, [1, -1] + [1] * (ndim - 2)))
+        else:
+            x_zp = x_zero_point
+
+        x_scale_norm = bb.normalize(x_scale)
+        if len(x_scale_norm.ty.shape) == 1:
+            x_scale_reshaped = bb.normalize(relax.op.reshape(x_scale, [1, -1] + [1] * (ndim - 2)))
+        else:
+            x_scale_reshaped = x_scale
+
+        x_float = relax.op.subtract(
+            relax.op.astype(data, "float32"), relax.op.astype(x_zp, "float32")
+        )
+        x_float = relax.op.multiply(x_float, relax.op.astype(x_scale_reshaped, "float32"))
+
+        # Dequantize weight
+        if w_zero_point is None:
+            w_zero_point = relax.const(0, weight.ty.dtype.dtype)
+        w_zp_norm = bb.normalize(w_zero_point)
+        if len(w_zp_norm.ty.shape) == 1:
+            w_zp = bb.normalize(relax.op.reshape(w_zero_point, [-1, 1] + [1] * (ndim - 2)))
+        else:
+            w_zp = w_zero_point
+
+        w_scale_norm = bb.normalize(w_scale)
+        if len(w_scale_norm.ty.shape) == 1:
+            w_scale_reshaped = bb.normalize(relax.op.reshape(w_scale, [-1, 1] + [1] * (ndim - 2)))
+        else:
+            w_scale_reshaped = w_scale
+
+        w_float = relax.op.subtract(
+            relax.op.astype(weight, "float32"), relax.op.astype(w_zp, "float32")
+        )
+        w_float = relax.op.multiply(w_float, relax.op.astype(w_scale_reshaped, "float32"))
+
+        if "auto_pad" in attr:
+            attr["auto_pad"] = attr["auto_pad"].decode("utf-8")
+            if attr["auto_pad"] in ("SAME_UPPER", "SAME_LOWER"):
+                x_float = autopad(
+                    bb,
+                    x_float,
+                    attr.get("strides", [1] * (ndim - 2)),
+                    attr["kernel_shape"],
+                    attr.get("dilations", [1] * (ndim - 2)),
+                    mode=attr["auto_pad"],
+                    deconv=False,
+                )
+            elif attr["auto_pad"] == "VALID":
+                attr["pads"] = [0 for _ in range(ndim - 2)]
+            elif attr["auto_pad"] == "NOTSET":
+                pass
+            else:
+                msg = (
+                    f'Value {attr["auto_pad"]} in attribute "auto_pad" of operator QLinearConv is invalid.'
+                )
+                raise AttributeError(msg)
+            attr.pop("auto_pad")
+
+        conv_out = bb.normalize(
+            op(
+                data=x_float,
+                weight=w_float,
+                strides=attr.get("strides", 1),
+                padding=attr.get("pads", 0),
+                dilation=attr.get("dilations", 1),
+                groups=attr.get("group", 1),
+                data_layout=data_layout,
+                kernel_layout=kernel_layout,
+            )
+        )
+
+        if bias is not None:
+            b_float = bb.normalize(relax.op.astype(bias, "float32"))
+            b_scale = bb.normalize(
+                relax.op.multiply(
+                    relax.op.astype(w_scale, "float32"),
+                    relax.op.astype(x_scale, "float32"),
+                )
+            )
+            b_real = bb.normalize(relax.op.multiply(b_float, b_scale))
+            b_bias = bb.normalize(relax.op.reshape(b_real, [1, -1] + [1] * (ndim - 2)))
+            conv_out = bb.normalize(relax.op.add(conv_out, b_bias))
+
+        if y_zero_point is None:
+            y_zero_point = relax.const(0, "uint8")
+        out_dtype = y_zero_point.ty.dtype.dtype
+
+        y_scale_norm = bb.normalize(y_scale)
+        if len(y_scale_norm.ty.shape) == 1:
+            y_scale_reshaped = bb.normalize(relax.op.reshape(y_scale, [1, -1] + [1] * (ndim - 2)))
+        else:
+            y_scale_reshaped = y_scale
+
+        y_zp_norm = bb.normalize(y_zero_point)
+        if len(y_zp_norm.ty.shape) == 1:
+            y_zp_reshaped = bb.normalize(relax.op.reshape(y_zero_point, [1, -1] + [1] * (ndim - 2)))
+        else:
+            y_zp_reshaped = y_zero_point
+
+        y_scaled = relax.op.divide(conv_out, relax.op.astype(y_scale_reshaped, "float32"))
+        y_round = relax.op.round(y_scaled)
+        y_val = relax.op.add(y_round, relax.op.astype(y_zp_reshaped, "float32"))
+
+        if out_dtype == "uint8":
+            min_val, max_val = 0, 255
+        elif out_dtype == "int8":
+            min_val, max_val = -128, 127
+        elif out_dtype == "uint16":
+            min_val, max_val = 0, 65535
+        elif out_dtype == "int16":
+            min_val, max_val = -32768, 32767
+        else:
+            min_val, max_val = 0, 255
+
+        clipped = relax.op.clip(y_val, min_val, max_val)
+        return relax.op.astype(clipped, out_dtype)
+
+
 class ConvTranspose(OnnxOpConverter):
     """Converts an onnx ConvTranspose node into an equivalent Relax expression."""
 
@@ -6281,6 +6442,7 @@ def _get_convert_map():
         "MaxUnpool": MaxUnpool,
         "Conv": Conv,
         "ConvTranspose": ConvTranspose,
+        "QLinearConv": QLinearConv,
         "Flatten": Flatten,
         "Identity": Identity,
         "Dropout": Dropout,
