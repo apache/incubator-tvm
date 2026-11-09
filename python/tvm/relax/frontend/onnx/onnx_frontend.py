@@ -2277,13 +2277,40 @@ class ConvTranspose(OnnxOpConverter):
         else:
             kernel_shape = [int(s) for s in inputs[1].ty.shape.values[2:]]
 
+        output_shape = attr.get("output_shape")
+        auto_pad = attr.get("auto_pad")
+        if isinstance(auto_pad, bytes):
+            auto_pad = auto_pad.decode("utf-8")
+        if output_shape is not None:
+            try:
+                input_shape = [int(s) for s in inputs[0].ty.shape.values[2:]]
+            except TypeError as err:
+                raise ValueError(
+                    "ConvTranspose with output_shape requires static input spatial dimensions."
+                ) from err
+            total_padding = [
+                strides[i] * (input_shape[i] - 1)
+                + output_padding[i]
+                + (kernel_shape[i] - 1) * dilations[i]
+                + 1
+                - output_shape[i]
+                for i in range(spatial_dims)
+            ]
+            if auto_pad == "SAME_UPPER":
+                pads_begin = [value // 2 for value in total_padding]
+            elif auto_pad == "SAME_LOWER" or "pads" not in attr:
+                pads_begin = [value - value // 2 for value in total_padding]
+            else:
+                pads_begin = list(attr.get("pads", [0] * (2 * spatial_dims)))[:spatial_dims]
+            pads_end = [total_padding[i] - pads_begin[i] for i in range(spatial_dims)]
+            if any(value < 0 for value in pads_begin + pads_end):
+                raise ValueError("ConvTranspose output_shape requires negative padding.")
+            attr["pads"] = pads_begin + pads_end
+
         # Resolve `auto_pad` per ONNX ConvTranspose spec. Unlike Conv, the spec
         # derives `pads` from `output_shape`/`strides` when auto_pad is SAME_*,
         # so we cannot reuse `autopad()` (which pads the input data instead).
         if "auto_pad" in attr:
-            auto_pad = attr["auto_pad"]
-            if isinstance(auto_pad, bytes):
-                auto_pad = auto_pad.decode("utf-8")
             if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
                 # Per ONNX ConvTranspose spec, when output_shape is unspecified
                 # the target output size is `input_size * stride`. Substituting
@@ -2292,22 +2319,27 @@ class ConvTranspose(OnnxOpConverter):
                 # kernel/dilation/stride/output_padding attributes. Avoiding the
                 # input shape keeps the converter usable when spatial dims are
                 # symbolic (`tir.Var`).
-                pads_begin: list[int] = []
-                pads_end: list[int] = []
-                for i in range(spatial_dims):
-                    total_pad = (
-                        (kernel_shape[i] - 1) * dilations[i] + 1 + output_padding[i] - strides[i]
-                    )
-                    total_pad = max(total_pad, 0)
-                    if auto_pad == "SAME_UPPER":
-                        pad_begin = total_pad // 2
-                    else:
-                        pad_begin = total_pad - total_pad // 2
-                    pads_begin.append(pad_begin)
-                    pads_end.append(total_pad - pad_begin)
-                attr["pads"] = pads_begin + pads_end
+                if output_shape is None:
+                    pads_begin: list[int] = []
+                    pads_end: list[int] = []
+                    for i in range(spatial_dims):
+                        total_pad = (
+                            (kernel_shape[i] - 1) * dilations[i]
+                            + 1
+                            + output_padding[i]
+                            - strides[i]
+                        )
+                        total_pad = max(total_pad, 0)
+                        if auto_pad == "SAME_UPPER":
+                            pad_begin = total_pad // 2
+                        else:
+                            pad_begin = total_pad - total_pad // 2
+                        pads_begin.append(pad_begin)
+                        pads_end.append(total_pad - pad_begin)
+                    attr["pads"] = pads_begin + pads_end
             elif auto_pad == "VALID":
-                attr["pads"] = [0] * (2 * spatial_dims)
+                if output_shape is None:
+                    attr["pads"] = [0] * (2 * spatial_dims)
             elif auto_pad == "NOTSET":
                 pass
             else:
@@ -2476,16 +2508,25 @@ class Constant(OnnxOpConverter):
 
     @classmethod
     def _impl_v13(cls, bb, inputs, attr, params):
-        if "value" not in attr:
-            raise ValueError("no value in Constant")
-        value = attr.pop("value")
-        # Constants may rarely have string types. These are likely exported
-        # from other frameworks and not actually used in TVM. We'll just use
-        # a zero valued constant for compatibility.
-        if isinstance(value, bytes):
-            np_value = _np.asarray([0]).astype("int64")
+        if "value" in attr:
+            value = attr.pop("value")
+            # Constants may rarely have string types. These are likely exported
+            # from other frameworks and not actually used in TVM. We'll just use
+            # a zero valued constant for compatibility.
+            if isinstance(value, bytes):
+                np_value = _np.asarray([0]).astype("int64")
+            else:
+                np_value = get_numpy(value)
+        elif "value_float" in attr:
+            np_value = _np.asarray(attr.pop("value_float"), dtype="float32")
+        elif "value_floats" in attr:
+            np_value = _np.asarray(attr.pop("value_floats"), dtype="float32")
+        elif "value_int" in attr:
+            np_value = _np.asarray(attr.pop("value_int"), dtype="int64")
+        elif "value_ints" in attr:
+            np_value = _np.asarray(attr.pop("value_ints"), dtype="int64")
         else:
-            np_value = get_numpy(value)
+            raise ValueError("no value in Constant")
         dtype = np_value.dtype.name
         value = relax.const(np_value, dtype)
         return value
@@ -5885,9 +5926,9 @@ class NonMaxSuppression(OnnxOpConverter):
                 _, param_value = params[1][var_name]
                 iou_threshold = float(param_value.numpy().item())
             else:
-                iou_threshold = 0.5  # Default value
+                iou_threshold = 0.0  # Default value
         else:
-            iou_threshold = 0.5  # Default value
+            iou_threshold = 0.0  # Default value
 
         if score_threshold is not None and isinstance(score_threshold, tvm_tirx.ir.GenericConst):
             score_threshold = float(score_threshold.value.numpy().item())

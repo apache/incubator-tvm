@@ -5288,6 +5288,28 @@ def test_conv_transpose_numerical(nd, groups, auto_pad, stride, dilation, pad, b
     check_correctness(model, opset=14, atol=1e-4)
 
 
+def test_conv_transpose_output_shape():
+    node = helper.make_node("ConvTranspose", ["x", "w"], ["y"], strides=[2, 2], output_shape=[4, 4])
+    graph = helper.make_graph(
+        [node],
+        "conv_transpose_output_shape",
+        inputs=[
+            helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 1, 2, 2]),
+            helper.make_tensor_value_info("w", TensorProto.FLOAT, [1, 1, 3, 3]),
+        ],
+        outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, [1, 1, 4, 4])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)])
+    check_correctness(
+        model,
+        inputs={
+            "x": np.arange(1, 5, dtype="float32").reshape(1, 1, 2, 2),
+            "w": np.ones((1, 1, 3, 3), dtype="float32"),
+        },
+        opset=11,
+    )
+
+
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("exclusive", [True, False])
 def test_cumsum(reverse, exclusive):
@@ -7486,6 +7508,28 @@ def test_expand_incompatible_broadcasting():
             pytest.fail(f"Valid expand case should not fail, but got error: {e}")
 
     _test_expand_valid_case()
+
+
+@pytest.mark.parametrize(
+    "attribute,value,dtype,tensor_type",
+    [
+        ("value_float", 2.0, "float32", TensorProto.FLOAT),
+        ("value_floats", [2.0, 3.0], "float32", TensorProto.FLOAT),
+        ("value_int", 2, "int64", TensorProto.INT64),
+        ("value_ints", [2, 3], "int64", TensorProto.INT64),
+    ],
+)
+def test_constant_value_attributes(attribute, value, dtype, tensor_type):
+    expected = np.asarray(value, dtype=dtype)
+    node = helper.make_node("Constant", [], ["output"], **{attribute: value})
+    graph = helper.make_graph(
+        [node],
+        "constant_value_attribute",
+        inputs=[],
+        outputs=[helper.make_tensor_value_info("output", tensor_type, list(expected.shape))],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 13)])
+    check_correctness(model, opset=13, check_dtypes=True)
 
 
 # TODO(jwfromm) Current approach to dynamic expand is technically not well formed. Reenable once fixed.
@@ -12346,7 +12390,7 @@ class ExpectedNMSFourBoxesDefaultParams:
                 boxes,
                 scores,
                 R.const(0, "int64"),
-                R.const(0.5, "float32"),
+                R.const(0.0, "float32"),
                 R.const(0.0, "float32"),
                 "onnx",
             )
@@ -12370,7 +12414,7 @@ class ExpectedNMSFourBoxesWithMaxParam:
                 boxes,
                 scores,
                 R.const(0, "int64"),
-                R.const(0.5, "float32"),
+                R.const(0.0, "float32"),
                 R.const(0.0, "float32"),
                 "onnx",
             )
@@ -12497,6 +12541,30 @@ def test_nms_max_output_boxes_per_class_zero():
 
     verify(False, ExpectedNMSFourBoxesDefaultParams)
     verify(True, ExpectedNMSFourBoxesWithMaxParam)
+
+
+def test_nms_default_iou_threshold():
+    node = helper.make_node("NonMaxSuppression", ["boxes", "scores", "max_output"], ["selected"])
+    graph = helper.make_graph(
+        [node],
+        "nms_default_iou_threshold",
+        inputs=[
+            helper.make_tensor_value_info("boxes", TensorProto.FLOAT, [1, 2, 4]),
+            helper.make_tensor_value_info("scores", TensorProto.FLOAT, [1, 1, 2]),
+        ],
+        outputs=[helper.make_tensor_value_info("selected", TensorProto.INT64, [None, 3])],
+        initializer=[helper.make_tensor("max_output", TensorProto.INT64, [1], [10])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)])
+    check_correctness(
+        model,
+        inputs={
+            "boxes": np.array([[[0, 0, 2, 2], [1, 1, 3, 3]]], dtype="float32"),
+            "scores": np.array([[[0.9, 0.8]]], dtype="float32"),
+        },
+        opset=11,
+        check_dtypes=True,
+    )
 
 
 # align_corners=None omits the attribute, exercising the ONNX default of 0.

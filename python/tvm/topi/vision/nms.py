@@ -980,7 +980,7 @@ def _nms_loop(
             tvm_tirx.tirx.all(top_k > 0, top_k < valid_count[i]), top_k, valid_count[i]
         )
 
-        with T.if_(tvm_tirx.tirx.all(iou_threshold > te.const(0), valid_count[i] > te.const(0))):
+        with T.if_(tvm_tirx.tirx.all(iou_threshold >= te.const(0), valid_count[i] > te.const(0))):
             with T.then_():
                 num_valid_boxes_local_buf = T.bind_(
                     T.alloc_tensor(ty_args=[T.Tensor((1,), "int32", scope="local")])
