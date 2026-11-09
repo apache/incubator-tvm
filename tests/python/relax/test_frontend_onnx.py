@@ -5313,6 +5313,47 @@ def test_cumsum_axis_shape_validation():
         from_onnx(model, opset=14, keep_params_in_input=True)
 
 
+def _np_cumprod(x, axis=0, reverse=False, exclusive=False):
+    if reverse:
+        x = np.flip(x, axis=axis)
+    if exclusive:
+        slices = [slice(None)] * x.ndim
+        pad_shape = list(x.shape)
+        pad_shape[axis] = 1
+        ones = np.ones(pad_shape, dtype=x.dtype)
+        slices[axis] = slice(0, -1)
+        x_shifted = np.concatenate([ones, x[tuple(slices)]], axis=axis)
+        res = np.cumprod(x_shifted, axis=axis)
+    else:
+        res = np.cumprod(x, axis=axis)
+    if reverse:
+        res = np.flip(res, axis=axis)
+    return res
+
+
+def _verify_cumprod(model, inputs, expected, opset=26, rtol=1e-5, atol=1e-5):
+    # ONNX Runtime 1.23.2 in TVM CI does not support opset 26 models,
+    # so we compile the imported Relax model and verify against NumPy reference.
+    tvm_model = from_onnx(model, opset=opset, keep_params_in_input=True)
+    tvm_model = relax.transform.DecomposeOpsForInference()(tvm_model)
+    tvm_model = relax.transform.LegalizeOps()(tvm_model)
+    tvm_model, params = relax.frontend.detach_params(tvm_model)
+
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex = tvm.compile(tvm_model, target="llvm")
+        vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
+
+    input_list = [inputs[key.name] for key in tvm_model["main"].params if key.name in inputs]
+    if params:
+        input_list += params["main"]
+
+    vm.set_input("main", *input_list)
+    vm.invoke_stateful("main")
+    tvm_output = vm.get_outputs("main").numpy()
+
+    np.testing.assert_allclose(tvm_output, expected, rtol=rtol, atol=atol)
+
+
 @pytest.mark.parametrize("reverse", [True, False])
 @pytest.mark.parametrize("exclusive", [True, False])
 def test_cumprod(reverse, exclusive):
@@ -5333,18 +5374,17 @@ def test_cumprod(reverse, exclusive):
     model = helper.make_model(
         graph, producer_name="cumprod_test", opset_imports=[helper.make_opsetid("", 26)]
     )
-    inputs = {
-        "x": np.array(
-            [
-                [1.0, 1.2, 0.9, 1.1],
-                [0.8, 1.5, 0.7, 1.3],
-                [1.1, 0.9, 1.2, 0.8],
-                [1.4, 0.6, 1.0, 1.1],
-            ],
-            dtype=np.float32,
-        )
-    }
-    check_correctness(model, inputs=inputs, opset=26)
+    x = np.array(
+        [
+            [1.0, 1.2, 0.9, 1.1],
+            [0.8, 1.5, 0.7, 1.3],
+            [1.1, 0.9, 1.2, 0.8],
+            [1.4, 0.6, 1.0, 1.1],
+        ],
+        dtype=np.float32,
+    )
+    expected = _np_cumprod(x, axis=1, reverse=reverse, exclusive=exclusive)
+    _verify_cumprod(model, inputs={"x": x}, expected=expected)
 
 
 def test_cumprod_int32_1d_axis_initializer():
@@ -5365,8 +5405,9 @@ def test_cumprod_int32_1d_axis_initializer():
     model = helper.make_model(
         graph, producer_name="cumprod_graph", opset_imports=[helper.make_opsetid("", 26)]
     )
-    inputs = {"X": np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)}
-    check_correctness(model, inputs=inputs, opset=26)
+    x = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0]], dtype=np.float64)
+    expected = _np_cumprod(x, axis=0)
+    _verify_cumprod(model, inputs={"X": x}, expected=expected)
 
 
 def test_cumprod_dynamic_axis_not_supported():
