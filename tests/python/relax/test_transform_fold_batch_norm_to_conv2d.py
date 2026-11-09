@@ -142,5 +142,45 @@ def test_fold_batchnorm_info_conv2d_transform():
     VerifyFolding().visit(mod)
 
 
+@pytest.mark.parametrize(
+    "axis,scale,center,dtype,should_fold",
+    [
+        (1, False, True, "float32", False),
+        (1, True, False, "float32", False),
+        (1, False, False, "float32", False),
+        (2, True, True, "float32", False),
+        (-2, True, True, "float32", False),
+        (1, True, True, "float16", False),
+        (1, True, True, "float32", True),
+        (-3, True, True, "float32", True),
+    ],
+)
+def test_fold_batchnorm_contracts(axis, scale, center, dtype, should_fold):
+    bb = relax.BlockBuilder()
+    x = relax.Var("x", relax.TensorType((1, 1, 2, 2), dtype))
+    weight = relax.const(np.array([1.5, -2.0], dtype=dtype).reshape(2, 1, 1, 1))
+    constants = [
+        relax.const(np.array(values, dtype="float32"))
+        for values in ([2.0, 3.0], [5.0, 7.0], [1.0, -1.0], [4.0, 9.0])
+    ]
+    with bb.function("main", [x]):
+        with bb.dataflow():
+            conv = bb.emit(relax.op.nn.conv2d(x, weight, out_dtype="float32"))
+            bn = bb.emit(
+                relax.op.nn.batch_norm(
+                    conv, *constants, axis=axis, scale=scale, center=center, training=False
+                )
+            )
+            out = bb.emit_output(relax.TupleGetItem(bn, 0))
+        bb.emit_func_output(out)
+    before = bb.finalize()
+    after = relax.transform.FoldBatchnormToConv2D()(before)
+    assert relax.analysis.check_well_formed(after, check_ty=True)
+    if should_fold:
+        VerifyFolding().visit(after)
+    else:
+        tvm.ir.assert_structural_equal(after, before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

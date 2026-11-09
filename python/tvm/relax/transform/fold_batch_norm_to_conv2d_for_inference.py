@@ -81,6 +81,14 @@ class FoldBatchnormToConv2D:
             conv_attrs = conv_op.attrs
             bn_attrs = bn_op.attrs
 
+            if not bn_attrs["scale"] or not bn_attrs["center"]:
+                return expr
+            out_layout = conv_attrs["out_layout"] or conv_attrs["data_layout"]
+            if out_layout != "NCHW" or bn_attrs["axis"] % 4 != 1:
+                return expr
+            if conv_weight.ty.dtype != conv_op.ty.dtype:
+                return expr
+
             bn_variance = relax.op.add(
                 bn_variance,
                 relax.prim_value(tvm_tirx.ir.FloatImm("float32", bn_attrs["epsilon"])),
