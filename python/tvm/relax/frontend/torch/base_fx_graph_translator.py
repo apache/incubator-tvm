@@ -2432,6 +2432,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                     if int_val >= max_index_val:
                         return input_shape[axis]
                     if int_val < 0:
+                        # PyTorch clamps a negative bound that reaches past the start to 0.
+                        if isinstance(input_shape[axis], int | tvm_tirx.ir.IntImm):
+                            return max(int(input_shape[axis]) + int_val, 0)
                         return input_shape[axis] + int_val
                     if isinstance(input_shape[axis], int | tvm_tirx.ir.IntImm) and int_val > int(
                         input_shape[axis]
