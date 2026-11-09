@@ -4914,6 +4914,39 @@ def test_no_bind_return_tuple():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
+def test_amax_amin():
+    class Amax(Module):
+        def forward(self, input):
+            return torch.amax(input, dim=-1)
+
+    class Amin(Module):
+        def forward(self, input):
+            return torch.amin(input, dim=(0, 1), keepdim=True)
+
+    @tvm.script.ir_module
+    class Expected1:
+        @R.function
+        def main(inp_0: R.Tensor((256, 256), dtype="float32")) -> R.Tensor((256,), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((256,), dtype="float32") = R.max(inp_0, axis=[-1], keepdims=False)
+                gv: R.Tensor((256,), dtype="float32") = lv
+                R.output(gv)
+            return gv
+
+    @tvm.script.ir_module
+    class Expected2:
+        @R.function
+        def main(inp_0: R.Tensor((256, 256), dtype="float32")) -> R.Tensor((1, 1), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((1, 1), dtype="float32") = R.min(inp_0, axis=[0, 1], keepdims=True)
+                gv: R.Tensor((1, 1), dtype="float32") = lv
+                R.output(gv)
+            return gv
+
+    verify_model(Amax(), [([256, 256], "float32")], {}, Expected1)
+    verify_model(Amin(), [([256, 256], "float32")], {}, Expected2)
+
+
 def test_argmax():
     class Argmax1(Module):
         def forward(self, input):

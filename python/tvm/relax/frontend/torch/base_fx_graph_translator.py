@@ -1888,6 +1888,21 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
     ########## Statistical ##########
 
+    def _amax_amin(self, op: Callable) -> Callable:
+        from torch import fx
+
+        def convert(node: fx.Node) -> relax.Var:
+            args = self.retrieve_args(node)
+            x = args[0]
+            dim = args[1] if len(node.args) > 1 else node.kwargs.get("dim", None)
+            # An empty dim reduces over every axis, as in torch.amax and torch.amin.
+            if isinstance(dim, list | tuple) and len(dim) == 0:
+                dim = None
+            keepdim = args[2] if len(node.args) > 2 else node.kwargs.get("keepdim", False)
+            return self.block_builder.emit(op(x, dim, keepdims=keepdim))
+
+        return convert
+
     def _mean(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
         x = args[0]

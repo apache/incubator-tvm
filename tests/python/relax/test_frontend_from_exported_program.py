@@ -4904,6 +4904,70 @@ def test_sum():
     verify_model(SumWithoutDim(), example_args, {}, expected3)
 
 
+def test_amax_amin():
+    class Amax(Module):
+        def forward(self, x):
+            return torch.amax(x, 2)
+
+    class AminKeepDim(Module):
+        def forward(self, x):
+            return torch.amin(x, (2, 1), keepdim=True)
+
+    class AmaxWithoutDim(Module):
+        def forward(self, x):
+            return torch.amax(x)
+
+    @tvm.script.ir_module
+    class expected1:
+        @R.function
+        def main(inp_0: R.Tensor((1, 2, 3, 4), dtype="float32")) -> R.Tuple(
+            R.Tensor((1, 2, 4), dtype="float32")
+        ):
+            with R.dataflow():
+                lv: R.Tensor((1, 2, 4), dtype="float32") = R.max(inp_0, axis=[2], keepdims=False)
+                gv: R.Tuple(R.Tensor((1, 2, 4), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    @tvm.script.ir_module
+    class expected2:
+        @R.function
+        def main(inp_0: R.Tensor((1, 2, 3, 4), dtype="float32")) -> R.Tuple(
+            R.Tensor((1, 1, 1, 4), dtype="float32")
+        ):
+            with R.dataflow():
+                lv: R.Tensor((1, 1, 1, 4), dtype="float32") = R.min(
+                    inp_0, axis=[2, 1], keepdims=True
+                )
+                gv: R.Tuple(R.Tensor((1, 1, 1, 4), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    @tvm.script.ir_module
+    class expected3:
+        @R.function
+        def main(inp_0: R.Tensor((1, 2, 3, 4), dtype="float32")) -> R.Tuple(
+            R.Tensor((), dtype="float32")
+        ):
+            with R.dataflow():
+                lv: R.Tensor((), dtype="float32") = R.max(inp_0, axis=None, keepdims=False)
+                gv: R.Tuple(R.Tensor((), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    example_args = (torch.randn(1, 2, 3, 4, dtype=torch.float32),)
+    verify_model(Amax(), example_args, {}, expected1)
+    verify_model(AminKeepDim(), example_args, {}, expected2)
+    verify_model(AmaxWithoutDim(), example_args, {}, expected3)
+
+    # torch.logsumexp decomposes through amax.
+    class LogSumExp(Module):
+        def forward(self, x):
+            return torch.logsumexp(x, 1)
+
+    verify_model_numerically(LogSumExp(), example_args, rtol=1e-6, atol=1e-6)
+
+
 def test_argmax_argmin():
     example_args = (torch.randn(256, 256, dtype=torch.float32),)
 

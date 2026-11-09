@@ -1962,6 +1962,8 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "upsample_nearest2d.vec": self._upsample_nearest2d,
             "upsample_bicubic2d.vec": self._upsample_bicubic2d,
             # statistical
+            "amax.default": self._amax_amin(relax.op.max),
+            "amin.default": self._amax_amin(relax.op.min),
             "any.dim": self._any,
             "any.dims": self._any,
             "mean.dim": self._mean,

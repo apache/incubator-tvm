@@ -976,6 +976,8 @@ class TorchFXImporter(BaseFXGraphImporter):
             # linear interpolation
             "lerp": self._lerp,
             # statistical
+            "amax": self._amax_amin(relax.op.max),
+            "amin": self._amax_amin(relax.op.min),
             "mean": self._mean,
             "norm": self._norm,
             "prod": self._prod,
