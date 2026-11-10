@@ -95,7 +95,12 @@ def auto_inline_consumers(
 def auto_inline_consumer_chain(
     sch: s_tir.Schedule,
     block: s_tir.schedule.SBlockRV,
-):
+) -> bool:
+    """Inline the consumer chain, returning False if this schedule cannot fuse it.
+
+    Callers must discard the partially transformed schedule on failure so that
+    another schedule rule can handle the original function.
+    """
     auto_inline_consumers(sch, block)
     remaining_consumers = sch.get_consumers(block)
 
@@ -106,13 +111,15 @@ def auto_inline_consumer_chain(
             for p in sch.get_producers(c):
                 if sch.get(p) != sch.get(block):
                     auto_inline_producers(sch, p)
-                    sch.compute_inline(p)
+                    try:
+                        sch.compute_inline(p)
+                    except s_tir.ScheduleError:
+                        return False
 
-        # Try inlining into the cache-write stage again, this time it should succeed.
+        # Retry now that the other producers have been inlined.
         auto_inline_consumers(sch, block)
 
-    msg = "There are some consumers of the cache-write stage that are not properly inlined."
-    assert len(sch.get_consumers(block)) == 0, msg
+    return len(sch.get_consumers(block)) == 0
 
 
 class IterKind(Enum):
@@ -458,7 +465,8 @@ class MetalMatmul(GPUScheduleRule):
         *_, i, j, k = sch.get_loops(main_block)
         sch.tensorize(i, intrin_group["compute"])
 
-        auto_inline_consumer_chain(sch, C_s2g)
+        if not auto_inline_consumer_chain(sch, C_s2g):
+            return None
         fused = sch.fuse(*sch.get_loops(C_s2g)[-2:])
         _, _tz, _ty, _tx, vec = sch.split(fused, [None, tz_len, ty_len, warp_size, vector_size])
         sch.bind(_tz, "threadIdx.z")
@@ -658,7 +666,8 @@ class Matmul(GPUScheduleRule):
         else:
             auto_inline_producers(sch, main_block)
 
-        auto_inline_consumer_chain(sch, l2g)
+        if not auto_inline_consumer_chain(sch, l2g):
+            return None
 
         sch.decompose_reduction(main_block, ko)
         return sch
