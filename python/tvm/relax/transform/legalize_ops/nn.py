@@ -680,10 +680,17 @@ def _te_attention(
     causal_mask: str | None,
 ) -> te.Tensor:
     batch_size, seq_len, num_head, head_dim = q.shape
-    _, seq_len_kv, _, head_dim_v = v.shape
+    _, seq_len_kv, num_kv_head, head_dim_v = v.shape
     q = topi.transpose(q, [0, 2, 1, 3])
     k = topi.transpose(k, [0, 2, 1, 3])
     v = topi.transpose(v, [0, 2, 1, 3])
+
+    # GQA / MQA: expand fewer KV heads to match Q heads via repeat_interleave
+    if num_head != num_kv_head:
+        group_size = num_head // num_kv_head
+        k = topi.repeat(k, group_size, axis=1)
+        v = topi.repeat(v, group_size, axis=1)
+
     bs = batch_size * num_head
     q = topi.reshape(q, [bs, seq_len, head_dim])
     k = topi.reshape(k, [bs, seq_len_kv, head_dim])
