@@ -5663,6 +5663,36 @@ class OptionalGetElement(OnnxOpConverter):
     _impl_v18 = _impl_v15
 
 
+def _get_sequence_length(seq):
+    if isinstance(seq, (list, tuple)):
+        return len(seq)
+    if isinstance(seq, relax.Tuple):
+        return len(seq.fields)
+    if hasattr(seq, "ty") and hasattr(seq.ty, "fields"):
+        return len(seq.ty.fields)
+    if hasattr(seq, "struct_info") and hasattr(seq.struct_info, "fields"):
+        return len(seq.struct_info.fields)
+    raise TypeError(f"Cannot determine length of sequence expression of type {type(seq)}")
+
+
+def _get_sequence_elements(bb, seq):
+    if isinstance(seq, (list, tuple)):
+        return list(seq)
+    if isinstance(seq, relax.Tuple):
+        return list(seq.fields)
+    if hasattr(seq, "ty") and hasattr(seq.ty, "fields"):
+        n = len(seq.ty.fields)
+        if isinstance(seq, relax.Call):
+            seq = bb.emit(seq)
+        return [bb.emit(relax.TupleGetItem(seq, i)) for i in range(n)]
+    if hasattr(seq, "struct_info") and hasattr(seq.struct_info, "fields"):
+        n = len(seq.struct_info.fields)
+        if isinstance(seq, relax.Call):
+            seq = bb.emit(seq)
+        return [bb.emit(relax.TupleGetItem(seq, i)) for i in range(n)]
+    raise TypeError(f"Cannot extract sequence elements from expression of type {type(seq)}")
+
+
 class SequenceConstruct(OnnxOpConverter):
     """Operator converter for sequence construction op."""
 
@@ -5699,7 +5729,8 @@ class SequenceErase(OnnxOpConverter):
         else:
             position = -1
 
-        seq_len = len(input_sequence)
+        seq_list = _get_sequence_elements(bb, input_sequence)
+        seq_len = len(seq_list)
         if not -seq_len <= position < seq_len:
             raise ValueError(
                 f"Position is out of bounds, expected [-{seq_len}, {seq_len}), got {position}"
@@ -5707,7 +5738,6 @@ class SequenceErase(OnnxOpConverter):
 
         if position < 0:
             position = seq_len + position
-        seq_list = list(input_sequence)
         items = [t for i, t in enumerate(seq_list) if i != position]
         return relax.Tuple(items)
 
@@ -5731,7 +5761,8 @@ class SequenceInsert(OnnxOpConverter):
         else:
             position = -1
 
-        seq_len = len(input_sequence)
+        tensor_list = _get_sequence_elements(bb, input_sequence)
+        seq_len = len(tensor_list)
         if position < 0:
             position = seq_len + position + 1
         # Upper bound is inclusive: position == seq_len appends at the end.
@@ -5739,7 +5770,6 @@ class SequenceInsert(OnnxOpConverter):
             raise ValueError(
                 f"SequenceInsert position out of bounds for length {seq_len}, got {position}"
             )
-        tensor_list = list(input_sequence)
         tensor_list.insert(position, tensor_to_insert)
         return relax.Tuple(tensor_list)
 
@@ -5750,7 +5780,7 @@ class SequenceLength(OnnxOpConverter):
     @classmethod
     def _impl_v11(cls, bb, inputs, attr, params):
         # Get length of input sequence
-        return relax.const(len(inputs[0]), dtype="int64")
+        return relax.const(_get_sequence_length(inputs[0]), dtype="int64")
 
 
 class ConcatFromSequence(OnnxOpConverter):
@@ -5764,7 +5794,7 @@ class ConcatFromSequence(OnnxOpConverter):
         if new_axis not in (0, 1):
             raise ValueError(f"ConcatFromSequence only supports new_axis in (0, 1), got {new_axis}")
 
-        tensors = list(inputs[0])
+        tensors = _get_sequence_elements(bb, inputs[0])
         if new_axis == 1:
             tensors = [relax.op.expand_dims(t, axis=axis) for t in tensors]
 
@@ -5832,7 +5862,15 @@ class SequenceAt(OnnxOpConverter):
             "Only constant position supported for SequenceAt"
         )
         position = int(position.value.numpy())
-        return input_sequence[position]
+        items = _get_sequence_elements(bb, input_sequence)
+        seq_len = len(items)
+        if not -seq_len <= position < seq_len:
+            raise ValueError(
+                f"Position is out of bounds, expected [-{seq_len}, {seq_len}), got {position}"
+            )
+        if position < 0:
+            position = seq_len + position
+        return items[position]
 
 
 class NonMaxSuppression(OnnxOpConverter):
