@@ -21,6 +21,7 @@ Note that
 2. The pass only works for XW^T but not X^TW
 3. The pass would rewrite the relax ops into TIR functions. If you'd like to dispatch the
    ops into library (e.g. cuBLAS) calls, please run dispatch pass before this pass.
+4. Rank-1 permute_dims and matmul calls that reuse one operand are left unchanged.
 """
 
 import tvm_tirx
@@ -63,16 +64,33 @@ def _pattern():
     # pylint: enable=invalid-name
     annotations = {"o": o, "w": w, "x": x, "wT": wT}
 
-    def _check(context: relax.transform.PatternCheckContext) -> bool:
-        transpose_call = context.annotated_expr["wT"]
-        ndim = transpose_call.args[0].ty.ndim
-        if ndim == -1:
-            return False
-        if ndim == 2 and transpose_call.attrs.axes is None:
-            return True
+    def _is_last_two_axes_swap(transpose_call: relax.Call, ndim: int) -> bool:
+        # Default permute_dims reverses every axis, which swaps the last two only for matrices.
+        if transpose_call.attrs.axes is None:
+            return ndim == 2
         axes = list(range(ndim))
         axes[-1], axes[-2] = axes[-2], axes[-1]
         return list(transpose_call.attrs.axes) == axes
+
+    def _check(context: relax.transform.PatternCheckContext) -> bool:
+        transpose_call = context.annotated_expr["wT"]
+        ndim = transpose_call.args[0].ty.ndim
+        # A vector has no second-to-last axis. Rank-1 permute_dims is an identity, not
+        # the NT transpose this fusion consumes. Unknown rank cannot be checked either.
+        if ndim < 2 or not _is_last_two_axes_swap(transpose_call, ndim):
+            return False
+
+        # FuseOpsByPattern deduplicates identical inputs. matmul(t, t) then becomes a
+        # one-argument composite, and lowering it as NT matmul would drop the left-hand
+        # transpose. matmul(w, permute_dims(w)) would alias both kernel arguments.
+        # Leave both graphs unchanged.
+        matmul_call = context.annotated_expr["o"]
+        lhs = matmul_call.args[0]
+        rhs = matmul_call.args[1]
+        weight = transpose_call.args[0]
+        if lhs.same_as(rhs) or lhs.same_as(weight):
+            return False
+        return True
 
     return o, annotations, _check
 
@@ -164,6 +182,12 @@ class _TransposeMatmulFuser(PyExprMutator):  # pylint: disable=abstract-method
                 "Composite" in function.attrs
                 and function.attrs["Composite"] == "transpose_matmul_fuse"
             ):
+                # Accepted patterns have the weight, then the matmul lhs. A shared
+                # operand is rejected by `_check`; if one is still presented, keep
+                # the composite's original ops instead of reading a missing argument
+                # or emitting an NT kernel with the wrong layout.
+                if len(call.args) < 2:
+                    return super().visit_call_(call)
                 out_dtype = function.ret_ty.dtype
                 return self.builder_.call_te(
                     te_transposed_matmul,

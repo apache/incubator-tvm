@@ -134,5 +134,75 @@ def test_transform_fuse_transpose_matmul_const():
     tvm_tirx.ir.assert_structural_equal(after, Expected)
 
 
+def _execute(module):
+    inputs = []
+    for parameter in module["main"].params:
+        shape = tuple(int(dim) for dim in parameter.ty.shape)
+        values = np.arange(1, int(np.prod(shape)) + 1, dtype="float32").reshape(shape) / 10
+        inputs.append(tvm_tirx.runtime.tensor(values))
+    executable = relax.build(module, target="llvm")
+    virtual_machine = relax.VirtualMachine(executable, tvm_tirx.cpu())
+    return virtual_machine["main"](*inputs).numpy()
+
+
+def _assert_fusion_skipped(before):
+    """The pass must not crash, and must preserve both structure and numerics."""
+    after = relax.transform.FuseTransposeMatmul()(before)
+    tvm_tirx.ir.assert_structural_equal(after, before)
+    np.testing.assert_array_equal(_execute(before), _execute(after))
+
+
+def test_fuse_transpose_matmul_rank1_weight():
+    """permute_dims of a vector is an identity and has no second-to-last axis."""
+
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((2,), "float32"),
+            weight: R.Tensor((2,), "float32"),
+        ) -> R.Tensor((), "float32"):
+            with R.dataflow():
+                transposed = R.permute_dims(weight)
+                product = R.matmul(x, transposed)
+                R.output(product)
+            return product
+
+    _assert_fusion_skipped(Before)
+
+
+def test_fuse_transpose_matmul_reused_transposed_operand():
+    """matmul(t, t) reuses one transposed value and is not an NT fusion."""
+
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(x: R.Tensor((2, 2), "float32")) -> R.Tensor((2, 2), "float32"):
+            with R.dataflow():
+                t = R.permute_dims(x, axes=[1, 0])
+                out = R.matmul(t, t)
+                R.output(out)
+            return out
+
+    module = relax.transform.ConvertToDataflow(min_size=1)(Before)
+    _assert_fusion_skipped(module)
+
+
+def test_fuse_transpose_matmul_reused_weight_operand():
+    """matmul(w, permute_dims(w)) shares the pre-transpose tensor across operands."""
+
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(w: R.Tensor((2, 2), "float32")) -> R.Tensor((2, 2), "float32"):
+            with R.dataflow():
+                w_t = R.permute_dims(w, axes=[1, 0])
+                out = R.matmul(w, w_t)
+                R.output(out)
+            return out
+
+    _assert_fusion_skipped(Before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
