@@ -111,8 +111,7 @@ def test_matmul():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -203,8 +202,7 @@ def test_matmul_int32():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": func})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -305,8 +303,7 @@ def test_fused_matmul():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -343,8 +340,7 @@ def test_skip_gemv():
     expected = before
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -475,8 +471,7 @@ def test_output_fp32():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -607,8 +602,7 @@ def test_inline_consumer_chain():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -700,8 +694,7 @@ def test_matmul_android():
                                     matmul[v0, v1, v2] = matmul_pad_local[v0, v1, v2]
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-android"}):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target('opencl', host={'kind': 'llvm', 'mtriple': 'aarch64-linux-android'}))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -846,8 +839,10 @@ def test_fused_dequant_matmul_android():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-android"}):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(
+        dl.gpu.Matmul(),
+        target=Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-android"}),
+    )(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 

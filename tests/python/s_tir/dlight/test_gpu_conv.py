@@ -104,8 +104,7 @@ def test_conv3d():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-gtx-1080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-gtx-1080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 

@@ -169,12 +169,14 @@ device = tvm_tirx.cuda(0)
 target = tvm_tirx.target.Target.from_device(device)
 if os.getenv("CI", "") != "true":
     trials = 2000
-    with target, tempfile.TemporaryDirectory() as tmp_dir:
+    with tempfile.TemporaryDirectory() as tmp_dir:
         mod = tvm_tirx.ir.transform.Sequential(
             [
-                relax.get_pipeline("zero"),
-                relax.transform.MetaScheduleTuneTIR(work_dir=tmp_dir, max_trials_global=trials),
-                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir),
+                relax.get_pipeline("zero", target=target),
+                relax.transform.MetaScheduleTuneTIR(
+                    work_dir=tmp_dir, max_trials_global=trials, target=target
+                ),
+                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir, target=target),
             ]
         )(mod)
 
@@ -191,19 +193,19 @@ if os.getenv("CI", "") != "true":
 from tvm.s_tir import dlight as dl
 
 # Apply DLight rules
-with target:
-    mod = tvm_tirx.ir.transform.Sequential(
-        [
-            relax.get_pipeline("zero"),
-            dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            ),
-        ]
-    )(mod)
+mod = tvm_tirx.ir.transform.Sequential(
+    [
+        relax.get_pipeline("zero", target=target),
+        dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        ),
+    ]
+)(mod)
 
 mod.show()
 

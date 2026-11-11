@@ -752,7 +752,7 @@ def fast_erf(x):
     return cpp.fast_erf(x, x.dtype, tag.ELEMWISE)
 
 
-def ceil_log2(x):
+def ceil_log2(x, *, target=None):
     """Compute integer ceil log2 with a special code path for vulkan
     SPIR-V does not support log2 on fp64. Instead, we compute integer ceil_log2 via clz
     intrinsic when the target is vulkan.
@@ -772,8 +772,6 @@ def ceil_log2(x):
 
     if x.ty.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT):
         return tvm_tirx.tirx.ceil(tvm_tirx.tirx.log2(x))
-
-    target = tvm_tirx.target.Target.current()
 
     if target is not None:
         target_name = target.kind.name

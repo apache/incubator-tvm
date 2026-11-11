@@ -121,7 +121,7 @@ class Fallback(AdrenoScheduleRule):
         return remaining_blocks
 
     @staticmethod
-    def schedule_default(sch: s_tir.Schedule, blk: s_tir.schedule.SBlockRV):
+    def schedule_default(sch: s_tir.Schedule, blk: s_tir.schedule.SBlockRV, *, target=None):
         block_info = analysis.get_sblock_info(sch, blk)
 
         s_loops, r_loops, o_loops = [], [], []
@@ -146,7 +146,7 @@ class Fallback(AdrenoScheduleRule):
         sch.reorder(*s_loops, *o_outer, *r_loops, *o_inner)
 
         assert s_loops
-        tgt = Target.current(allow_none=True)
+        tgt = target
 
         b = sch.fuse(*s_loops)
         tx_extent = get_max_threads_per_block(tgt) if tgt is not None else 256
@@ -166,7 +166,7 @@ class Fallback(AdrenoScheduleRule):
             sch.vectorize(v_loop)
 
     @staticmethod
-    def schedule_fallback(sch):
+    def schedule_fallback(sch, *, target=None):
         root_block = analysis.get_root_block(sch)
         blocks = sch.get_child_blocks(root_block)
 
@@ -179,11 +179,11 @@ class Fallback(AdrenoScheduleRule):
         remaining_blocks = [blk for blk in blocks if blk not in schedule_blocks]
 
         for blk in schedule_blocks:
-            Fallback.schedule_default(sch, blk)
+            Fallback.schedule_default(sch, blk, target=target)
         remaining_blocks = Fallback.schedule_inline_blocks(sch, remaining_blocks)
         # TODO: Analyze unscheduled blocks to schedule instead of relying on remaining
         for blk in remaining_blocks:
-            Fallback.schedule_default(sch, blk)
+            Fallback.schedule_default(sch, blk, target=target)
 
     def apply(  # pylint: disable=too-many-locals
         self,
@@ -209,5 +209,5 @@ class Fallback(AdrenoScheduleRule):
         ):
             return None
 
-        Fallback.schedule_fallback(sch)
+        Fallback.schedule_fallback(sch, target=target)
         return sch

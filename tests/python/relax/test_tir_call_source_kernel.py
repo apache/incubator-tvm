@@ -104,8 +104,7 @@ def test_tir_call_source_kernel():
     tvm_tirx.ir.assert_structural_equal(Module["add"], Parsed["add"])
     assert len(Module.get_attr("external_mods")) == 1
 
-    with tvm_tirx.target.Target("cuda"):
-        lib = tvm.compile(Module)
+    lib = tvm.compile(Module, target=tvm_tirx.target.Target("cuda"))
 
     def run_and_check():
         device = tvm_tirx.cuda(0)

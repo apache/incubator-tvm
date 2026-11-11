@@ -883,7 +883,7 @@ class ModuleInplaceTransformer : public ExprMutator {
     auto mod = builder_->GetContextIRModule();
     auto old_function = mod->Lookup(legal_op).as_or_throw<tirx::Function>();
 
-    tvm::Stmt new_body = old_function->body.value();
+    tvm::Stmt new_body = old_function->body;
 
     size_t num_outs = inplace_indices.size();
     size_t num_params = old_function->params.size();

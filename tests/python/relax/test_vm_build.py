@@ -1282,12 +1282,11 @@ def test_relax_module_with_multiple_targets():
     seq = tvm_tirx.ir.transform.Sequential(
         [
             tvm.relax.transform.LegalizeOps(),
-            tvm.s_tir.dlight.ApplyDefaultSchedule(tvm.s_tir.dlight.gpu.Fallback()),
+            tvm.s_tir.dlight.ApplyDefaultSchedule(tvm.s_tir.dlight.gpu.Fallback(), target="cuda"),
         ],
         name="LegalizeAndSchedule",
     )
-    with tvm_tirx.target.Target("cuda"):
-        built = tvm.relax.build(seq(Module))
+    built = tvm.relax.build(seq(Module), target="cuda")
 
     np_A = np.random.random([32, 32]).astype("float32")
     np_B = np.random.random([32, 32]).astype("float32")

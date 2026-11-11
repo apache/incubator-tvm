@@ -851,11 +851,11 @@ void Tensorize(ScheduleState self, const StmtSRef& sref, const TensorIntrin& int
                     ->Rewrite(intrin_impl);
   // Step 2: Structural pattern matching
   TensorizeComparator comparator(self->mod, /*assert_mode=*/true);
-  TVM_FFI_CHECK(intrin_desc->body.has_value(), ValueError)
+  TVM_FFI_CHECK(!intrin_desc->GetAttr(tvm::attr::kDeclaration).value_or(false), ValueError)
       << "A tensor intrinsic description must have a body";
-  TVM_FFI_CHECK_EQ(intrin_desc->body.value()->size(), 1, ValueError)
+  TVM_FFI_CHECK_EQ(intrin_desc->body->size(), 1, ValueError)
       << "A tensor intrinsic description must contain a single root block";
-  comparator.Dispatch(block_realize, intrin_desc->body.value()->seq[0]);
+  comparator.Dispatch(block_realize, intrin_desc->body->seq[0]);
   // Step 3: Prepare necessary mapping
   // 1) TensorVar mapping from intrin impl tensors to intrin desc tensors.
   // 2) TensorVar mapping from intrin impl tensors to tensors in the current AST.
@@ -876,9 +876,9 @@ void Tensorize(ScheduleState self, const StmtSRef& sref, const TensorIntrin& int
   }
   std::unordered_map<TensorVar, ffi::Array<Range>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
       impl2region;
-  TVM_FFI_ICHECK(intrin_impl->body.has_value());
-  TVM_FFI_ICHECK_EQ(intrin_impl->body.value()->size(), 1);
-  SBlock impl_block = intrin_impl->body.value()->seq[0].as_or_throw<SBlockRealize>()->block;
+  TVM_FFI_ICHECK(!intrin_impl->GetAttr(tvm::attr::kDeclaration).value_or(false));
+  TVM_FFI_ICHECK_EQ(intrin_impl->body->size(), 1);
+  SBlock impl_block = intrin_impl->body->seq[0].as_or_throw<SBlockRealize>()->block;
   for (const TensorRegion& read : impl_block->reads) {
     impl2region.emplace(read->source.as_or_throw<tvm::tirx::TensorVar>(), read->region);
   }
@@ -959,7 +959,7 @@ struct BlockizeTraits : public UnpackedInstTraits<BlockizeTraits> {
     TVM_FFI_UNREACHABLE();
   }
 
-  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::ObjectRef target,
+  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::Any target,
                                       bool preserve_unit_iters) {
     PythonAPICall py("blockize");
     py.Input("target", target);

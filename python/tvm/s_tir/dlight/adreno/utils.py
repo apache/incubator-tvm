@@ -19,12 +19,11 @@
 # pylint: disable=import-outside-toplevel, unused-argument, invalid-name, missing-function-docstring
 
 from tvm import s_tir
-from tvm_tirx.target import Target
 
 from ..analysis import SBlockInfo
 
 
-def get_texture_storage(block_info: SBlockInfo):
+def get_texture_storage(block_info: SBlockInfo, *, target=None):
     """
     Returns the texture layout acceptable for the shape
 
@@ -40,8 +39,8 @@ def get_texture_storage(block_info: SBlockInfo):
     # TODO: Check Write Tensors.
     shape = block_info.write_tensors[0].tensor_region.source.shape
 
-    spatial_limit = Target.current().attrs["texture_spatial_limit"]
-    depth_limit = Target.current().attrs["texture_depth_limit"]
+    spatial_limit = target.attrs["texture_spatial_limit"]
+    depth_limit = target.attrs["texture_depth_limit"]
 
     if len(shape) > 4:
         if shape[0] < spatial_limit and shape[1] * shape[2] * shape[3] < spatial_limit:
@@ -74,17 +73,17 @@ def schedule_inline_blocks(
     return Fallback.schedule_inline_blocks(sch, blocks)
 
 
-def schedule_default(sch, blocks: list[s_tir.schedule.SBlockRV] | None = None):
+def schedule_default(sch, blocks: list[s_tir.schedule.SBlockRV] | None = None, *, target=None):
     from .fallback import Fallback
 
     ret = []
     for blk in blocks:
-        ret.append(Fallback.schedule_default(sch, blk))
+        ret.append(Fallback.schedule_default(sch, blk, target=target))
 
     return ret
 
 
-def schedule_fallback(sch, blk):
+def schedule_fallback(sch, blk, *, target=None):
     from .fallback import Fallback
 
-    return Fallback.schedule_fallback(sch)
+    return Fallback.schedule_fallback(sch, target=target)

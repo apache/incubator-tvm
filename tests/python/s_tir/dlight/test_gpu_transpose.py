@@ -28,10 +28,9 @@ from tvm_tirx.target import Target
 
 def _check(mod_before: IRModule, mod_after: IRModule):
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-            dl.gpu.Transpose(),
-        )(mod_before)
+    mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+        dl.gpu.Transpose(), target=target
+    )(mod_before)
     assert_structural_equal(mod, mod_after)
 
 

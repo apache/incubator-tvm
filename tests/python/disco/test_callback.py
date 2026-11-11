@@ -102,10 +102,9 @@ def test_callback():
         name="pipeline",
     )
 
-    with tvm_tirx.target.Target("cuda"):
-        mod = Module
-        mod = pipeline(mod)
-        built = tvm.compile(mod, "cuda")
+    mod = Module
+    mod = pipeline(mod)
+    built = tvm.compile(mod, "cuda")
 
     num_shards = 2
 

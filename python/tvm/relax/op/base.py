@@ -25,9 +25,9 @@ import tvm
 import tvm_tirx
 import tvm_tirx.runtime
 from tvm_tirx.ir import Attrs, Call, Op
+from tvm_tirx.ir._expose_api import _make_op_api
 from tvm_tirx.ir.attrs import make_node as _make_attrs
 from tvm_tirx.ir.location import UNKNOWN_LOC, Location
-from tvm_tirx.ir.op import _make_op_api
 from tvm_tirx.runtime import DataTypeCode
 
 from ..expr import Expr, ExternFunc, GlobalVar, Var

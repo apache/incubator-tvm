@@ -245,11 +245,12 @@ TVM_DLL Pass FoldConstant();
  * \param skip_ops The list operator names which need to be skipped from legalization
  * \param enable_warning A boolean value indicating if to print warnings for TIR functions not
  * showing up in the database.
+ * \param target Default compilation target; virtual-device annotations take precedence.
  * \return The Pass.
  */
 TVM_DLL Pass LegalizeOps(ffi::Optional<ffi::Map<ffi::String, ffi::Function>> cmap,
                          ffi::Optional<ffi::Array<ffi::String>> skip_ops,
-                         bool enable_warning = false);
+                         bool enable_warning = false, ffi::Optional<Target> target = std::nullopt);
 
 /*!
  * \brief Propagate virtual device information.

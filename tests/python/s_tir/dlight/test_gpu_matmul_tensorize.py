@@ -117,8 +117,7 @@ def test_matmul_tensorize_too_small():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("nvidia/geforce-rtx-2080-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("nvidia/geforce-rtx-2080-ti"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -293,8 +292,7 @@ def test_matmul_metal():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("metal"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -479,8 +477,7 @@ def test_matmul_metal_int4_quant():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Matmul(), target=Target("metal"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 

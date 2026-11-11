@@ -18,7 +18,6 @@
 # ruff: noqa: E741
 """scatter_nd related operators"""
 
-import tvm_tirx
 from tvm import te  # hide redefinition of min and max
 from tvm_tirx import tirx
 from tvm_tirx.script.ir_builder import IRBuilder
@@ -29,7 +28,7 @@ from ..scatter import _verify_scatter_nd_inputs
 from ..utils import ceil_div
 
 
-def scatter_nd(data, indices, updates, mode):
+def scatter_nd(data, indices, updates, mode, *, target=None):
     """GPU implementation of scatter_nd with explicit thread bindings."""
     _verify_scatter_nd_inputs(data, indices, updates)
 
@@ -55,7 +54,7 @@ def scatter_nd(data, indices, updates, mode):
         for i in data_ptr.shape:
             fused_shape *= i
 
-        max_threads = int(tvm_tirx.target.Target.current(allow_none=False).attrs["max_num_threads"])
+        max_threads = int(target.attrs["max_num_threads"])
 
         with IRBuilder() as ib:
             # Init

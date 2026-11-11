@@ -141,8 +141,7 @@ if not IS_IN_CI:
 # We skip this step in the CI environment.
 
 if not IS_IN_CI:
-    with target:
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=target)(mod)
     ex = tvm.compile(mod, target=target)
     dev = tvm_tirx.cuda(0)
     vm = relax.VirtualMachine(ex, dev)

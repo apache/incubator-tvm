@@ -488,14 +488,14 @@ def auto_inline_into(sch: Schedule, start_block: SBlockRV) -> SBlockRV:
         sch = autoinline_rule.apply(sch, cur_block)[0]
 
 
-def get_max_tile_size() -> int:
+def get_max_tile_size(target=None) -> int:
     """Returns the max tile size.
 
     This is assuming only threads in a warp can have coalesced accesses. 32 is the default if
     no target information can be gotten.
     """
     max_tile_size = 32
-    cur_target = tvm_tirx.target.Target.current()
+    cur_target = target
     if cur_target is not None and "thread_warp_size" in cur_target.attrs:
         max_tile_size = int(cur_target.attrs["thread_warp_size"])
     return max_tile_size
@@ -569,7 +569,9 @@ def cuda_layout_transform_schedule_rule(
 
     # Try tile size 2,3...threads_per_warp as tile size of 1 has no coaslescing.
     if testing_tile_sizes is None:
-        tile_sizes = list(range(2, get_max_tile_size() + 1))
+        tile_sizes = list(
+            range(2, get_max_tile_size(sch.mod[sch.func_working_on].attrs.get("target")) + 1)
+        )
     else:
         tile_sizes = testing_tile_sizes
 

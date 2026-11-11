@@ -88,11 +88,11 @@ namespace transform {
 
 Pass LowerThreadBinding() {
   auto pass_func = [](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto lower = ffi::make_object<ThreadBindingLowerer>();
     auto fptr = f.CopyOnWrite();
-    fptr->body = lower->Mutate(fptr->body.value(), InplaceMode::kAllow)
-                     .ValueOrUnchanged(std::move(fptr->body).value());
+    fptr->body =
+        lower->Mutate(fptr->body, InplaceMode::kAllow).ValueOrUnchanged(std::move(fptr->body));
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.LowerThreadBinding");

@@ -89,34 +89,31 @@ def verify(mod, expected):
         "relax.nn.adaptive_avg_pool2d",
         # "relax.nn.layer_norm",
     ]
-    with tgt:
-        mod = tvm_tirx.tirx.transform.BindTarget(tvm_tirx.target.Target.current(allow_none=False))(
-            mod
-        )
-        mod = tvm.relax.transform.DecomposeOpsForInference()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        desired_layouts = {"relax.nn.conv2d": ["NCHW4c", "OIHW4o", "NCHW4c"]}
-        mod = tvm.relax.transform.ConvertLayout(desired_layouts)(mod)
-        mod = tvm.relax.transform.Normalize()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        mod = tvm.relax.transform.LegalizeOps(skip_ops=skip_ops)(mod)
-        mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
-        mod = tvm.relax.backend.adreno.transform.AnnotateCustomMemoryScope(tgt)(mod)
-        # There is a possibility of some skipped ops above might not use 5D layouts.
-        mod = tvm.relax.transform.LegalizeOps()(mod)
-        mod = tvm.relax.transform.LegalizeOps(
-            {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo},
-        )(mod)
-        # Lets get pattern info for newly legalized ops
-        mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        mod = tvm.relax.transform.FuseOps()(mod)
-        mod = tvm.relax.transform.FuseTIR()(mod)
-        mod = tvm.relax.transform.DeadCodeElimination()(mod)
-        mod = tvm.relax.backend.adreno.transform.FoldVDeviceScopeChange()(mod)
-        mod = tvm.relax.transform.DeadCodeElimination()(mod)
-        mod = tvm.relax.transform.SpecializeFunctionBasedOnCallSite()(mod)
-        mod = tvm.relax.transform.Normalize()(mod)
+    mod = tvm_tirx.tirx.transform.BindTarget(tgt)(mod)
+    mod = tvm.relax.transform.DecomposeOpsForInference()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    desired_layouts = {"relax.nn.conv2d": ["NCHW4c", "OIHW4o", "NCHW4c"]}
+    mod = tvm.relax.transform.ConvertLayout(desired_layouts)(mod)
+    mod = tvm.relax.transform.Normalize()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    mod = tvm.relax.transform.LegalizeOps(skip_ops=skip_ops, target=tgt)(mod)
+    mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
+    mod = tvm.relax.backend.adreno.transform.AnnotateCustomMemoryScope(tgt)(mod)
+    # There is a possibility of some skipped ops above might not use 5D layouts.
+    mod = tvm.relax.transform.LegalizeOps(target=tgt)(mod)
+    mod = tvm.relax.transform.LegalizeOps(
+        {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo}, target=tgt
+    )(mod)
+    # Lets get pattern info for newly legalized ops
+    mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    mod = tvm.relax.transform.FuseOps()(mod)
+    mod = tvm.relax.transform.FuseTIR()(mod)
+    mod = tvm.relax.transform.DeadCodeElimination()(mod)
+    mod = tvm.relax.backend.adreno.transform.FoldVDeviceScopeChange()(mod)
+    mod = tvm.relax.transform.DeadCodeElimination()(mod)
+    mod = tvm.relax.transform.SpecializeFunctionBasedOnCallSite()(mod)
+    mod = tvm.relax.transform.Normalize()(mod)
 
     ValidateScope(expected).visit(mod)
 

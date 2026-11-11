@@ -93,8 +93,8 @@ SBlockDependenceInfo::SBlockDependenceInfo(IRModule mod) {
     const BaseFunc& base_func = kv.second;
     if (auto opt = base_func.as<Function>()) {
       auto func = opt.value();
-      if (func->body.has_value()) {
-        SBlockDependenceInfoCollector::Collect(self, func->body.value());
+      if (!func->GetAttr(tvm::attr::kDeclaration).value_or(false)) {
+        SBlockDependenceInfoCollector::Collect(self, func->body);
       }
     }
   }

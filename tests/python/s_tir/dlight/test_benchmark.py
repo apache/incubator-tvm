@@ -224,10 +224,7 @@ def test_benchmark_function_local():
 
 @pytest.mark.skip("requires CUDA")
 def test_benchmark_function_full_local():
-    with tvm_tirx.target.Target("nvidia/geforce-rtx-3070"):
-        benchmark_function(
-            cuda_workload,
-        )
+    benchmark_function(cuda_workload, target=tvm_tirx.target.Target("nvidia/geforce-rtx-3070"))
 
 
 @pytest.mark.skip("requires CUDA")
@@ -254,8 +251,9 @@ def test_benchmark_function_full_rpc():
 
 
 def test_benchmark_relax_func():
-    with tvm_tirx.target.Target({"kind": "llvm", "num-cores": 4}):
-        benchmark_relax_func(Module, "test")
+    benchmark_relax_func(
+        Module, "test", target=tvm_tirx.target.Target({"kind": "llvm", "num-cores": 4})
+    )
 
 
 def test_extract_function_full1():
@@ -289,13 +287,13 @@ def test_extract_function_matmul1():
 
 
 def test_extract_from_relax():
-    with tvm_tirx.target.Target({"kind": "llvm", "num-cores": 4}):
-        with tempfile.TemporaryDirectory() as filepath:
-            extract_from_relax(
-                Module,
-                "TEST",
-                file_path=filepath,
-            )
+    with tempfile.TemporaryDirectory() as filepath:
+        extract_from_relax(
+            Module,
+            "TEST",
+            file_path=filepath,
+            target=tvm_tirx.target.Target({"kind": "llvm", "num-cores": 4}),
+        )
 
 
 def test_extract_func_info_from_function():

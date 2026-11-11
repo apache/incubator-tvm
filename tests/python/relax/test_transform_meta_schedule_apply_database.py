@@ -79,8 +79,8 @@ def test_apply_to_func_with_different_block_name():
         )
     )
 
-    with db, target:
-        mod = relax.transform.MetaScheduleApplyDatabase()(BlockRenamedModule)
+    with db:
+        mod = relax.transform.MetaScheduleApplyDatabase(target=target)(BlockRenamedModule)
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 

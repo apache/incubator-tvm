@@ -30,7 +30,7 @@ from . import backend, transform
 from .backend.utils import BackendDispatcher
 
 
-def zero_pipeline(*, enable_warning: bool = False):
+def zero_pipeline(*, enable_warning: bool = False, target=None):
     """Wrapper function that returns the zero pipeline.
 
     Parameters
@@ -64,7 +64,7 @@ def zero_pipeline(*, enable_warning: bool = False):
         """
         seq = tvm_tirx.ir.transform.Sequential(
             [
-                transform.LegalizeOps(enable_warning=enable_warning),
+                transform.LegalizeOps(enable_warning=enable_warning, target=target),
                 transform.AnnotateTIROpPattern(),
                 transform.FoldConstant(),
                 transform.FuseOps(),
@@ -73,13 +73,15 @@ def zero_pipeline(*, enable_warning: bool = False):
         )
         mod = seq(mod)
         if ms.Database.current():
-            mod = transform.MetaScheduleApplyDatabase(enable_warning=enable_warning)(mod)
+            mod = transform.MetaScheduleApplyDatabase(enable_warning=enable_warning, target=target)(
+                mod
+            )
         return mod
 
     return f_zero_pipeline
 
 
-def default_build_pipeline():
+def default_build_pipeline(*, target=None):
     """The default compilation pipeline used in tvm.compile"""
 
     @tvm_tirx.ir.transform.module_pass(opt_level=0)
@@ -88,9 +90,9 @@ def default_build_pipeline():
     ) -> tvm_tirx.ir.IRModule:
         seq = tvm_tirx.ir.transform.Sequential(
             [
-                backend.DispatchSampling(),
-                backend.DispatchSortScan(),
-                transform.LegalizeOps(),
+                backend.DispatchSampling(target=target),
+                backend.DispatchSortScan(target=target),
+                transform.LegalizeOps(target=target),
                 transform.RewriteDataflowReshape(),
                 transform.ToNonDataflow(),
                 transform.RemovePurityChecking(),
@@ -187,28 +189,28 @@ def static_shape_tuning_pipeline(
             pre_tuning_layout_rewrite = []
             post_tuning_layout_rewrite = []
 
-        with tvm_tirx.target.Target(target):
-            mod = tvm_tirx.ir.transform.Sequential(
-                [
-                    transform.DecomposeOpsForInference(),
-                    transform.CanonicalizeBindings(),
-                    zero_pipeline(),
-                    *pre_tuning_layout_rewrite,
-                    # Skip tuning if total_trials is 0
-                    (
-                        transform.MetaScheduleTuneIRMod(
-                            params={},
-                            work_dir=work_dir,
-                            max_trials_global=total_trials,
-                            max_trials_per_task=max_trials_per_task,
-                        )
-                        if total_trials > 0
-                        else tvm_tirx.ir.transform.Sequential([])
-                    ),
-                    transform.MetaScheduleApplyDatabase(work_dir),
-                    *post_tuning_layout_rewrite,
-                ]
-            )(mod)
+        mod = tvm_tirx.ir.transform.Sequential(
+            [
+                transform.DecomposeOpsForInference(),
+                transform.CanonicalizeBindings(),
+                zero_pipeline(target=target),
+                *pre_tuning_layout_rewrite,
+                # Skip tuning if total_trials is 0
+                (
+                    transform.MetaScheduleTuneIRMod(
+                        params={},
+                        work_dir=work_dir,
+                        max_trials_global=total_trials,
+                        max_trials_per_task=max_trials_per_task,
+                        target=target,
+                    )
+                    if total_trials > 0
+                    else tvm_tirx.ir.transform.Sequential([])
+                ),
+                transform.MetaScheduleApplyDatabase(work_dir, target=target),
+                *post_tuning_layout_rewrite,
+            ]
+        )(mod)
 
         return mod
 

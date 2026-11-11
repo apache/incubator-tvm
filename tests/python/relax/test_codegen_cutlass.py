@@ -1749,8 +1749,7 @@ def test_rms_norm():
     # This is because RunCodegen does not support Function well yet.
     # i.e., it does remove the global symbol of Function, which would be no longer used,
     # and thus, the following DCE cannot remove this. Revisit when resolved.
-    with tvm_tirx.target.Target("cuda"):
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
 
     mod = relax.transform.RunCodegen(
         {"cutlass": {"rms_eps": 1e-6}},
@@ -1814,8 +1813,7 @@ def test_conv2d_cuda_graph():
     mod = relax.transform.RunCodegen({"cutlass": {"sm": 80, "find_first_valid": True}})(mod)
     mod = relax.pipeline.get_pipeline()(mod)  # pylint: disable=no-value-for-parameter
 
-    with tvm_tirx.target.Target("cuda"):
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
 
     out = build_and_run(mod, inputs, "cuda", cuda_graph=True)
     ref = build_and_run(Conv2d, inputs, "llvm", legalize=True)
@@ -2214,9 +2212,8 @@ def _test_batched_var_len_attention(
     codegen_pass = relax.transform.RunCodegen({"cutlass": {"sm": 80}})
     mod = codegen_pass(mod)
 
-    with tvm_tirx.target.Target("cuda"):
-        mod = relax.transform.LegalizeOps()(mod)
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = relax.transform.LegalizeOps(target=tvm_tirx.target.Target("cuda"))(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
 
     out = build_and_run(
         mod,

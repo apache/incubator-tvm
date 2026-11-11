@@ -39,7 +39,6 @@ dnf -y install cuda-driver-devel-13-1
 # generator (no Ninja), so no build tools are installed here. Put the bundled
 # CPython and CUDA toolchain on PATH for the CMake configure and nvcc.
 export PATH="/opt/python/cp310-cp310/bin:/usr/local/cuda/bin:${PATH}"
-python -m pip install "apache-tvm-ffi>=0.1.15rc0"
 nvcc --version
 
 rm -rf "${build_dir}"

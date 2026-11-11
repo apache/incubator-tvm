@@ -391,9 +391,7 @@ bool FindAnnotatedRootBlock(const Schedule& sch, ParsedAnnotation* parsed, SBloc
     const BaseFunc& base_func = kv.second;
     if (const auto* function = base_func.as<FunctionObj>()) {
       const SBlockRealizeObj* block_realize =
-          function->body.has_value() && function->body.value()->size() == 1
-              ? function->body.value()->seq[0].as<SBlockRealizeObj>()
-              : nullptr;
+          function->body->size() == 1 ? function->body->seq[0].as<SBlockRealizeObj>() : nullptr;
       if (block_realize != nullptr) {
         SBlock block = block_realize->block;
         if (ParseAnnotation(block, parsed)) {

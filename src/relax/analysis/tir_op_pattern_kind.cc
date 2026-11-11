@@ -371,7 +371,7 @@ OpPatternKind AnalyzeOpPatternKind(const tirx::Function& func) {
 }
 
 bool HasReshapePattern(const tirx::Function& func) {
-  if (!func->body.has_value()) return false;
+  if (func->GetAttr(tvm::attr::kDeclaration).value_or(false)) return false;
   class ReshapeDetector : public s_tir::StmtExprVisitor {
    public:
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
@@ -583,9 +583,8 @@ bool HasReshapePattern(const tirx::Function& func) {
 
   // To detect the reshape pattern, we require each For to have
   // either another For or a BlockRealize as body.
-  TVM_FFI_ICHECK(func->body.value()->size() == 1 &&
-                 func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>());
-  return ReshapeDetector::Detect(src_tensor, dst_tensor, func->body.value());
+  TVM_FFI_ICHECK(func->body->size() == 1 && func->body->seq[0].as<s_tir::SBlockRealizeObj>());
+  return ReshapeDetector::Detect(src_tensor, dst_tensor, func->body);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

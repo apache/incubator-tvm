@@ -369,10 +369,10 @@ std::vector<ffi::String> VerifyGPUCode_(const Function& func,
     }
   }
 
-  if (!func->body.has_value()) return {};
-  return verifier->Verify(func->body.value(), max_local_memory_per_block,
-                          max_shared_memory_per_block, max_threads_per_block, max_thread_x,
-                          max_thread_y, max_thread_z, max_vthread, max_vector_bytes, max_kernels);
+  if (func->GetAttr(tvm::attr::kDeclaration).value_or(false)) return {};
+  return verifier->Verify(func->body, max_local_memory_per_block, max_shared_memory_per_block,
+                          max_threads_per_block, max_thread_x, max_thread_y, max_thread_z,
+                          max_vthread, max_vector_bytes, max_kernels);
 }
 
 bool VerifyGPUCode(const Function& func, ffi::Map<ffi::String, PrimExpr> constraints) {

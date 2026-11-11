@@ -1103,8 +1103,8 @@ class PipelineInjector : public StmtExprMutator {
         injector->tensor_data_to_tensor_.Set(tensor.value(), tensor.value());
       }
     }
-    injector->fragment_info_ = GetTensorCoreFragmentInfo(func->body.value());
-    return injector->Mutate(func->body.value()).ValueOrUnchanged(func->body.value());
+    injector->fragment_info_ = GetTensorCoreFragmentInfo(func->body);
+    return injector->Mutate(func->body).ValueOrUnchanged(func->body);
   }
 
   explicit PipelineInjector(ffi::Optional<ffi::String> global_symbol)
@@ -1340,10 +1340,10 @@ namespace transform {
  */
 Pass InjectSoftwarePipeline() {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* fptr = f.CopyOnWrite();
     fptr->body = software_pipeline::PipelineInjector::Inject(f);
-    fptr->body = s_tir::ConvertSSA(std::move(fptr->body).value());
+    fptr->body = s_tir::ConvertSSA(std::move(fptr->body));
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.InjectSoftwarePipeline");

@@ -744,15 +744,15 @@ namespace transform {
 
 Pass InjectVirtualThread() {
   auto pass_func = [](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
 
     sym::Analyzer analyzer;
 
     n->body = ffi::make_object<VirtualThreadInjector>(analyzer->GetConstraintContext())
-                  ->Mutate(n->body.value(), InplaceMode::kAllow)
-                  .ValueOrUnchanged(std::move(n->body).value());
-    n->body = s_tir::ConvertSSA(std::move(n->body).value());
+                  ->Mutate(n->body, InplaceMode::kAllow)
+                  .ValueOrUnchanged(std::move(n->body));
+    n->body = s_tir::ConvertSSA(std::move(n->body));
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.InjectVirtualThread");

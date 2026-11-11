@@ -877,7 +877,7 @@ Stmt TensorCompactorCompact(
     tensor_info.emplace(tensor, std::move(alloc_info));
   }
   auto compactor = ffi::make_object<TensorCompactor>(std::move(tensor_info));
-  Stmt stmt = compactor->Mutate(f->body.value()).ValueOrUnchanged(f->body.value());
+  Stmt stmt = compactor->Mutate(f->body).ValueOrUnchanged(f->body);
   return stmt;
 }
 
@@ -885,10 +885,10 @@ namespace transform {
 
 Pass CompactTensorAllocation(bool is_strict) {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     FunctionObj* fptr = f.CopyOnWrite();
     auto region = TensorAccessRegionCollector::Collect(f, /*collect_inbound=*/is_strict);
-    auto storage_align = CollectStorageAlignAnnotation(f->body.value());
+    auto storage_align = CollectStorageAlignAnnotation(f->body);
     fptr->body = TensorCompactorCompact(f, region, storage_align);
     return f;
   };

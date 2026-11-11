@@ -95,6 +95,6 @@ class Conv2d(AdrenoScheduleRule):
         conv_blk = reduction_blocks[0]
         Conv2d.schedule_conv2d(sch, conv_blk)
         remaining_blocks = schedule_inline_blocks(sch, remaining_blocks)
-        schedule_default(sch, remaining_blocks)
+        schedule_default(sch, remaining_blocks, target=target)
 
         return sch

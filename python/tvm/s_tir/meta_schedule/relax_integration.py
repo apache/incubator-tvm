@@ -470,14 +470,14 @@ def compile_relax(
     ) -> tvm_tirx.ir.IRModule:
         fuse_seq = [
             *dispatch_passes,
-            relax.transform.LegalizeOps(enable_warning=enable_warning),
+            relax.transform.LegalizeOps(enable_warning=enable_warning, target=target),
             relax.transform.AnnotateTIROpPattern(),
             relax.transform.FoldConstant(),
             relax.transform.FuseOps(),
             relax.transform.FuseTIR(),
         ]
         mod = tvm_tirx.ir.transform.Sequential(fuse_seq)(mod)
-        mod = MetaScheduleApplyDatabase(enable_warning=enable_warning)(mod)
+        mod = MetaScheduleApplyDatabase(enable_warning=enable_warning, target=target)(mod)
         # DLight handles functions not covered by the database.
         # GPU rules apply only for GPU targets.
         if is_gpu_target:
@@ -487,10 +487,11 @@ def compile_relax(
                 dl.gpu.Reduction(),
                 dl.gpu.GeneralReduction(),
                 dl.gpu.Fallback(),
+                target=target,
             )(mod)
         mod = tvm_tirx.ir.transform.Sequential(lower_passes + finalize_passes)(mod)
         return mod
 
-    with target, database, PassContext(opt_level=3):
+    with database, PassContext(opt_level=3):
         relax_ex = relax_build(mod, target=target, relax_pipeline=_ms_pipeline)
     return relax_ex
