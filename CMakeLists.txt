@@ -149,6 +149,15 @@ if(TVM_USE_INSTALLED_TIRX)
         "TVM_OPENCL_DLL=__attribute__((visibility(\"default\")))")
     endif()
   endif()
+  # The standalone TIRx helper cannot import the package-relative SCM version
+  # module. Read the version generated into the same installed wheel instead.
+  if(TVM_TIRX_VERSION STREQUAL "0.0.0.dev0" AND EXISTS "${_tirx_libdir}/../_version.py")
+    execute_process(COMMAND "${Python_EXECUTABLE}" -c
+      "import runpy, sys; print(runpy.run_path(sys.argv[1])['__version__'])"
+      "${_tirx_libdir}/../_version.py"
+      OUTPUT_VARIABLE TVM_TIRX_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
+      COMMAND_ERROR_IS_FATAL ANY)
+  endif()
   if(NOT TVM_TIRX_VERSION MATCHES "^0\\.1\\.0(-rc2|rc2)$")
     message(FATAL_ERROR "TVM requires apache-tvm-tirx 0.1.0rc2")
   endif()
