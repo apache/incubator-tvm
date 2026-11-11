@@ -1383,6 +1383,33 @@ def test_identity_ir():
     tvm_tirx.ir.assert_structural_equal(tvm_model, Expected)
 
 
+def test_identity_shape_expr_ir():
+    shape_node = helper.make_node("Shape", ["data"], ["data_shape"])
+    identity_node = helper.make_node("Identity", ["data_shape"], ["output"], name="identity")
+    graph = helper.make_graph(
+        [shape_node, identity_node],
+        "identity_shape_expr_test",
+        inputs=[helper.make_tensor_value_info("data", TensorProto.FLOAT, ["B", 3])],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.INT64, [2])],
+    )
+    model = helper.make_model(graph, producer_name="identity_shape_expr_test")
+    tvm_model = from_onnx(model, keep_params_in_input=True)
+
+    B = T.dynamic("B")
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(data: R.Tensor((B, 3), dtype="float32")) -> R.Shape(ndim=2):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                gv: R.Shape([B, 3]) = R.shape([B, 3])
+                R.output(gv)
+            return gv
+
+    tvm.ir.assert_structural_equal(tvm_model, Expected)
+
+
 def test_elu_ir():
     model = make_unary_model("Elu", [2, 3])
     tvm_model = from_onnx(model, keep_params_in_input=True)

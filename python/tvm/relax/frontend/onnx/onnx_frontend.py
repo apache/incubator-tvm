@@ -6571,6 +6571,7 @@ class ONNXGraphImporter:
                 "Cast",
                 "CastLike",
                 "Squeeze",
+                "Identity",
             ]
             return_tuple_ops = [
                 "Optional",
