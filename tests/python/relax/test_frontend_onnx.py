@@ -5906,6 +5906,88 @@ def test_mean_variance_norm():
     verify_mean_variance_norm((1, 2, 3), ExpectedChannelAxes)
 
 
+def test_lp_norm():
+    def make_lp_norm_model(shape, dtype=TensorProto.FLOAT, **attrs):
+        lp_norm_node = helper.make_node("LpNormalization", ["input"], ["Y"], **attrs)
+
+        graph = helper.make_graph(
+            [lp_norm_node],
+            "lp_norm_test",
+            inputs=[
+                helper.make_tensor_value_info("input", dtype, shape),
+            ],
+            outputs=[
+                helper.make_tensor_value_info("Y", dtype, shape),
+            ],
+        )
+
+        return helper.make_model(graph, producer_name="lp_norm_test")
+
+    # Default attributes (p=2, axis=-1) lower to an L2 norm over the last axis
+    @I.ir_module
+    class ExpectedL2:
+        @R.function
+        def main(input: R.Tensor((2, 3), dtype="float32")) -> R.Tensor((2, 3), dtype="float32"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.multiply(input, input)
+                lv1: R.Tensor((2, 1), dtype="float32") = R.sum(lv, axis=[1], keepdims=True)
+                lv2: R.Tensor((2, 1), dtype="float32") = R.sqrt(lv1)
+                lv3: R.Tensor((2, 1), dtype="bool") = R.equal(lv2, R.const(0.0, "float32"))
+                lv4: R.Tensor((2, 1), dtype="float32") = R.where(lv3, R.const(1.0, "float32"), lv2)
+                gv: R.Tensor((2, 3), dtype="float32") = R.divide(input, lv4)
+                R.output(gv)
+            return gv
+
+    tvm_model = from_onnx(make_lp_norm_model([2, 3]), keep_params_in_input=True)
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedL2)
+
+    # p=1 along axis 0 lowers to an L1 norm
+    @I.ir_module
+    class ExpectedL1:
+        @R.function
+        def main(input: R.Tensor((2, 3), dtype="float32")) -> R.Tensor((2, 3), dtype="float32"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.abs(input)
+                lv1: R.Tensor((1, 3), dtype="float32") = R.sum(lv, axis=[0], keepdims=True)
+                lv2: R.Tensor((1, 3), dtype="bool") = R.equal(lv1, R.const(0.0, "float32"))
+                lv3: R.Tensor((1, 3), dtype="float32") = R.where(lv2, R.const(1.0, "float32"), lv1)
+                gv: R.Tensor((2, 3), dtype="float32") = R.divide(input, lv3)
+                R.output(gv)
+            return gv
+
+    tvm_model = from_onnx(make_lp_norm_model([2, 3], p=1, axis=0), keep_params_in_input=True)
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedL1)
+
+    # Numerical check against onnxruntime for both norms over positive and negative axes
+    for p in [1, 2]:
+        for axis in [0, 1, -1, -3]:
+            check_correctness(make_lp_norm_model([2, 3, 4], p=p, axis=axis))
+
+    # A slice whose norm is zero must produce zeros rather than NaN, matching onnxruntime
+    input_array = np.random.randn(3, 4).astype(np.float32)
+    input_array[1, :] = 0.0
+    for p in [1, 2]:
+        check_correctness(make_lp_norm_model([3, 4], p=p, axis=1), inputs={"input": input_array})
+
+    # float16 input, including a zero slice
+    input_array = np.random.randn(3, 4).astype(np.float16)
+    input_array[1, :] = 0.0
+    check_correctness(
+        make_lp_norm_model([3, 4], dtype=TensorProto.FLOAT16),
+        inputs={"input": input_array},
+        rtol=1e-2,
+        atol=1e-2,
+    )
+
+    # Only p=1 and p=2 are defined by the ONNX spec, and the axis must be within the input rank
+    with pytest.raises(ValueError, match="p=1 or p=2"):
+        from_onnx(make_lp_norm_model([2, 3], p=3))
+    with pytest.raises(ValueError, match="out of range"):
+        from_onnx(make_lp_norm_model([2, 3], axis=2))
+
+
 def test_layer_norm():
     layer_norm_node = helper.make_node(
         "LayerNormalization", ["input", "scale", "bias"], ["Y"], epsilon=1e-12

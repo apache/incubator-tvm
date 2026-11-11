@@ -4664,6 +4664,43 @@ class LayerNormalization(OnnxOpConverter):
         return relax.Tuple([output, placeholder, placeholder])
 
 
+class LpNormalization(OnnxOpConverter):
+    """Converts an onnx LpNormalization node into an equivalent Relax expression.
+
+    y = x / norm, where norm is the L1 (p=1) or L2 (p=2) norm of x along `axis`.
+    """
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        axis = attr.get("axis", -1)
+        p = attr.get("p", 2)
+        dtype = data.ty.dtype
+
+        # The ONNX spec only defines p=1 and p=2, and onnxruntime rejects other values.
+        if p not in (1, 2):
+            raise ValueError(f"LpNormalization only supports p=1 or p=2, but got p={p}.")
+
+        ndim = _get_known_tensor_rank(data)
+        if ndim is not None:
+            axis = _normalize_constant_axes([axis], ndim, "LpNormalization")[0]
+
+        if p == 1:
+            norm = relax.op.sum(relax.op.abs(data), axis=axis, keepdims=True)
+        else:
+            norm = relax.op.sqrt(
+                relax.op.sum(relax.op.multiply(data, data), axis=axis, keepdims=True)
+            )
+        norm = bb.emit(norm)
+
+        # Match onnxruntime, which produces zeros (rather than NaN) for slices whose norm is 0.
+        # Replacing a zero norm with 1 keeps the output exact instead of clamping with an epsilon.
+        norm = relax.op.where(
+            relax.op.equal(norm, relax.const(0, dtype)), relax.const(1, dtype), norm
+        )
+        return relax.op.divide(data, norm)
+
+
 class RMSNormalization(OnnxOpConverter):
     """Converts an onnx RMSNormalization node into an equivalent Relax expression."""
 
@@ -6250,6 +6287,7 @@ def _get_convert_map():
         "InstanceNormalization": InstanceNormalization,
         "MeanVarianceNormalization": MeanVarianceNormalization,
         "LRN": LocalResponseNormalization,
+        "LpNormalization": LpNormalization,
         # defs/reduction
         "ReduceMax": ReduceMax,
         "ReduceMin": ReduceMin,
