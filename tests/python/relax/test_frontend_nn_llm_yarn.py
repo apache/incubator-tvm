@@ -160,21 +160,26 @@ def test_yarn_known_frequencies(target, beta_fast, indices, frequencies):
         rope_scaling=config,
     )
     module = _build_rope(kernel, target)
-    indices = np.array(indices)
-    qkv = np.zeros((1, 3, 128), dtype="float32")
-    qkv[..., indices] = 1
+    # Keep the tested angles below pi for CUDA's default fast math.
+    # Low frequencies still use position 4096 to expose interpolation errors.
+    positions = np.array([1, 4096, 4096], dtype="int32")
+    qkv = np.zeros((len(positions), 3, 128), dtype="float32")
+    expected = np.zeros((len(positions), 128), dtype="float32")
     # The equal-beta case has a zero-width ramp between coordinates 36 and 37.
-    angles = 4096 * np.array(frequencies)
-    expected = np.zeros(128, dtype="float32")
-    expected[indices] = np.cos(angles)
-    expected[indices + 64] = np.sin(angles)
+    for row, (position, index, frequency) in enumerate(zip(positions, indices, frequencies)):
+        angle = position * frequency
+        qkv[row, :, index] = 1
+        expected[row, index] = math.cos(angle)
+        expected[row, index + 64] = math.sin(angle)
 
     def run_and_check():
         dev = tvm_tirx.device_from_target(target)
-        q, k, v = [tvm_tirx.runtime.empty((1, 1, 128), "float32", dev) for _ in range(3)]
+        q, k, v = [
+            tvm_tirx.runtime.empty((len(positions), 1, 128), "float32", dev) for _ in range(3)
+        ]
         module["main"](
             tvm_tirx.runtime.tensor(qkv, dev),
-            tvm_tirx.runtime.tensor(np.array([4096], dtype="int32"), dev),
+            tvm_tirx.runtime.tensor(positions, dev),
             q,
             k,
             v,
@@ -182,7 +187,7 @@ def test_yarn_known_frequencies(target, beta_fast, indices, frequencies):
         )
         dev.sync()
         for output in [q, k]:
-            np.testing.assert_allclose(output.numpy()[0, 0], expected, rtol=1e-5, atol=1e-6)
+            np.testing.assert_allclose(output.numpy()[:, 0], expected, rtol=1e-5, atol=1e-6)
 
     if target == "llvm":
         run_and_check()
