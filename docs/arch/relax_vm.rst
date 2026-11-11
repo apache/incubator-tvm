@@ -69,15 +69,17 @@ The main entry point is ``tvm.compile()`` (which delegates to ``relax.build()`` 
 .. code-block:: python
 
    import tvm
-   from tvm import relax
+   import tvm_tirx
+   from tvm.relax import script as R
+   from tvm_tirx.script import ir as I
 
-   @tvm.script.ir_module
+   @I.ir_module
    class MyModule:
        @R.function
        def main(x: R.Tensor((3, 4), "float32")):
            return R.add(x, x)
 
-   target = tvm.target.Target("llvm")
+   target = tvm_tirx.target.Target("llvm")
    ex = tvm.compile(MyModule, target)
 
 Internally, ``relax.build()`` performs these steps:
@@ -195,12 +197,14 @@ The executable supports binary serialization for deployment:
 
 .. code-block:: python
 
+   from tvm.relax import VirtualMachine
+
    # Save
    ex.export_library("model.so")
 
    # Load
-   loaded = tvm.runtime.load_module("model.so")
-   vm = relax.VirtualMachine(loaded, tvm.cuda())
+   loaded = tvm_tirx.runtime.load_module("model.so")
+   vm = VirtualMachine(loaded, tvm_tirx.cuda())
 
 The binary format includes a magic number (``0xD225DE2F4214151E``), a version string
 (currently ``"0.14"``), followed by four sections: globals (the function table), memory scopes,
@@ -220,7 +224,7 @@ At runtime, a ``VirtualMachine`` is created and initialized:
 
    from tvm.relax import VirtualMachine
 
-   vm = VirtualMachine(exec_module, tvm.cuda())
+   vm = VirtualMachine(exec_module, tvm_tirx.cuda())
 
 Under the hood:
 
@@ -318,16 +322,17 @@ Users interact with the VM through ``tvm.relax.VirtualMachine``:
 
    import tvm
    from tvm import relax
+   import tvm_tirx
    import numpy as np
 
    # Compile
    ex = tvm.compile(MyModule, target="llvm")
 
    # Create VM
-   vm = relax.VirtualMachine(ex, tvm.cpu())
+   vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
 
    # Direct invocation
-   inp = tvm.runtime.tensor(np.random.rand(3, 4).astype("float32"))
+   inp = tvm_tirx.runtime.tensor(np.random.rand(3, 4).astype("float32"))
    result = vm["main"](inp)
 
    # Stateful interface (useful for RPC)

@@ -243,23 +243,24 @@ if RUN_EXAMPLE:
 #    #!/usr/bin/env python3
 #    import numpy as np
 #    import tvm
+#    import tvm_tirx
 #    from tvm import relax
 #
 #    # Step 1: Load the compiled library
-#    lib = tvm.runtime.load_module("relax_export_artifacts/mlp_cpu.so")
+#    lib = tvm_tirx.runtime.load_module("relax_export_artifacts/mlp_cpu.so")
 #
 #    # Step 2: Create Virtual Machine
-#    device = tvm.cpu(0)
+#    device = tvm_tirx.cpu(0)
 #    vm = relax.VirtualMachine(lib, device)
 #
 #    # Step 3: Load parameters from the .npz file
 #    params_npz = np.load("relax_export_artifacts/model_params.npz")
-#    params = [tvm.runtime.tensor(params_npz[f"p_{i}"], device)
+#    params = [tvm_tirx.runtime.tensor(params_npz[f"p_{i}"], device)
 #              for i in range(len(params_npz))]
 #
 #    # Step 4: Prepare input data
 #    data = np.random.randn(1, 1, 28, 28).astype("float32")
-#    input_tensor = tvm.runtime.tensor(data, device)
+#    input_tensor = tvm_tirx.runtime.tensor(data, device)
 #
 #    # Step 5: Run inference (pass input followed by all parameters)
 #    output = vm["main"](input_tensor, *params)
@@ -281,21 +282,21 @@ if RUN_EXAMPLE:
 #
 #    .. code-block:: python
 #
-#       TARGET = tvm.target.Target("cuda")  # Change from "llvm" to "cuda"
+#       TARGET = tvm_tirx.target.Target("cuda")  # Change from "llvm" to "cuda"
 #
 # 2. **Use GPU device in the script**:
 #
 #    .. code-block:: python
 #
-#       device = tvm.cuda(0)  # Use CUDA device instead of CPU
+#       device = tvm_tirx.cuda(0)  # Use CUDA device instead of CPU
 #       vm = relax.VirtualMachine(lib, device)
 #
 #       # Load parameters to GPU
-#       params = [tvm.runtime.tensor(params_npz[f"p_{i}"], device)  # Note: device parameter
+#       params = [tvm_tirx.runtime.tensor(params_npz[f"p_{i}"], device)  # Note: device parameter
 #                 for i in range(len(params_npz))]
 #
 #       # Prepare input on GPU
-#       input_tensor = tvm.runtime.tensor(data, device)  # Note: device parameter
+#       input_tensor = tvm_tirx.runtime.tensor(data, device)  # Note: device parameter
 #
 #    The rest of the script remains the same. All tensors (parameters and inputs)
 #    must be allocated on the same device (GPU) as the compiled model.
@@ -341,7 +342,7 @@ if RUN_EXAMPLE:
 #    from tvm import relax
 #
 #    # Step 1: Cross-compile for ARM target (on local machine)
-#    TARGET = tvm.target.Target({"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
+#    TARGET = tvm_tirx.target.Target({"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
 #    executable = tvm.compile(built_mod, target=TARGET)
 #    executable.export_library("mlp_arm.so")
 #

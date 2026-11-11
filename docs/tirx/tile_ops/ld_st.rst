@@ -117,8 +117,8 @@ writes separated local slots.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
-    from tvm.tirx.layout import S, TileLayout
+    from tvm_tirx.script import tirx as T
+    from tvm_tirx.tirx.layout import S, TileLayout
 
     global_layout = TileLayout(S[(15, 2, 7, 2) : (4, 1, 60, 2)])
     register_layout = TileLayout(S[(15, 2, 7, 2) : (8, 2, 120, 4)])
@@ -151,11 +151,12 @@ Compile and check the complete kernel:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
-    compiled = tvm.tirx.compile(strided_load, target="cuda", pipeline="tirx")
+    compiled = tvm_tirx.tirx.compile(strided_load, target="cuda", pipeline="tirx")
     x = np.arange(420, dtype="float32")
-    a = tvm.runtime.tensor(x.reshape(15, 2, 7, 2), tvm.cuda())
-    out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
+    a = tvm_tirx.runtime.tensor(x.reshape(15, 2, 7, 2), tvm_tirx.cuda())
+    out = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
     compiled(a, out)
     np.testing.assert_array_equal(out.numpy(), x)
 

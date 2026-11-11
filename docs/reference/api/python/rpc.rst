@@ -29,9 +29,9 @@ RPC devices and tensors belong to a session. They are distinct from local
     result = y.numpy()
 
 Use ``device.empty`` and ``device.tensor`` for remote allocations. Normal
-``tvm.runtime.empty`` and ``tvm.runtime.tensor`` allocate locally. Remote
+``tvm_tirx.runtime.empty`` and ``tvm_tirx.runtime.tensor`` allocate locally. Remote
 functions reject tensors, devices, modules, and objects from other sessions.
-``RemoteTensor.copyto(tvm.cpu())`` explicitly materializes a local tensor;
+``RemoteTensor.copyto(tvm_tirx.cpu())`` explicitly materializes a local tensor;
 remote tensors cannot export a local DLPack pointer. Views retain their remote
 backing storage, and returned tensors retain the remote tensor object.
 

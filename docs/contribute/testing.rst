@@ -88,7 +88,7 @@ for a GPU target):
     )
     def test_function():
         target = "cuda"
-        dev = tvm.cuda()
+        dev = tvm_tirx.cuda()
         # Test code goes here
 
 To exclude a target, leave it out of the parametrize list.  To mark a
@@ -161,14 +161,14 @@ the callback so no device-backed object outlives the lock.
     @pytest.mark.gpu
     @pytest.mark.skipif(not tvm_tirx.testing.env.has_cuda(), reason="need cuda")
     def test_cuda_add_one():
-        target = tvm.target.Target("cuda -arch=sm_90")
+        target = tvm_tirx.target.Target("cuda -arch=sm_90")
         executable = tvm.compile(make_add_one_module(), target)
         host_input = np.arange(16, dtype="float32")
 
         def run_and_check():
-            dev = tvm.cuda(0)
-            device_input = tvm.runtime.tensor(host_input, dev)
-            device_output = tvm.runtime.empty(host_input.shape, "float32", dev)
+            dev = tvm_tirx.cuda(0)
+            device_input = tvm_tirx.runtime.tensor(host_input, dev)
+            device_output = tvm_tirx.runtime.empty(host_input.shape, "float32", dev)
             executable(device_input, device_output)
             dev.sync()
             tvm_tirx.testing.assert_allclose(device_output.numpy(), host_input + 1)

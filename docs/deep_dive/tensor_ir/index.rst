@@ -30,7 +30,7 @@ The TensorIR codebase consists of two modules (split from the former ``tir``):
   and tensor intrinsics.
 
 In TVMScript, both modules are accessed via
-``from tvm.script import tirx as T``.
+``from tvm_tirx.script import tirx as T``.
 
 .. toctree::
     :maxdepth: 2

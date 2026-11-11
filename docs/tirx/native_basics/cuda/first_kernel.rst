@@ -25,7 +25,8 @@ with one block of 256 threads.
 
     import numpy as np
     import tvm
-    from tvm.script import tirx as Tx
+    import tvm_tirx
+    from tvm_tirx.script import tirx as Tx
 
 
     @Tx.function
@@ -40,25 +41,25 @@ with one block of 256 threads.
 
     # compile for CUDA through the TIRx pipeline -> an Executable
     exe = tvm.compile(
-        tvm.IRModule({"main": scale}), target=tvm.target.Target("cuda"), tir_pipeline="tirx"
+        tvm_tirx.IRModule({"main": scale}), target=tvm_tirx.target.Target("cuda"), tir_pipeline="tirx"
     )
 
-    dev = tvm.cuda(0)
-    a = tvm.runtime.tensor(np.random.rand(256).astype("float32"), device=dev)
-    b = tvm.runtime.tensor(np.zeros(256, "float32"), device=dev)
+    dev = tvm_tirx.cuda(0)
+    a = tvm_tirx.runtime.tensor(np.random.rand(256).astype("float32"), device=dev)
+    b = tvm_tirx.runtime.tensor(np.zeros(256, "float32"), device=dev)
     exe(a, b)  # run
     print(exe.mod.imports[0].inspect_source())  # the generated CUDA C
 
 What the surrounding calls do:
 
-- ``tvm.IRModule({"main": scale})`` wraps the ``Function`` into an *IRModule* — a
+- ``tvm_tirx.IRModule({"main": scale})`` wraps the ``Function`` into an *IRModule* — a
   named collection of functions; ``"main"`` is the entry point the compiler builds
   and the symbol you call.
 - ``tvm.compile(mod, target=..., tir_pipeline="tirx")`` returns an **Executable**:
   the compiled host launcher plus device code, bundled together. You call it like
   a function (``exe(a, b)``); arguments are positional and match the kernel's
   parameter order.
-- ``tvm.cuda(0)`` is a handle to CUDA device 0; ``tvm.runtime.tensor(arr,
+- ``tvm_tirx.cuda(0)`` is a handle to CUDA device 0; ``tvm_tirx.runtime.tensor(arr,
   device=dev)`` places data on that device as a TVM tensor (an ``NDArray``).
 - ``exe.mod`` is the underlying runtime ``Module``; ``exe.mod.imports[0]`` is the
   imported device (CUDA) module, and its ``.inspect_source()`` returns the

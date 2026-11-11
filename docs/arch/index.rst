@@ -149,9 +149,10 @@ The main goal of TVM's runtime is to provide a minimal API for loading and execu
 
     import tvm
     import tvm_ffi
+    import tvm_tirx
     # Example runtime execution program in python, with type annotated
-    mod: tvm_ffi.Module = tvm.runtime.load_module("compiled_artifact.so")
-    arr: tvm.runtime.Tensor = tvm.runtime.tensor([1, 2, 3], device=tvm.cuda(0))
+    mod: tvm_ffi.Module = tvm_tirx.runtime.load_module("compiled_artifact.so")
+    arr: tvm_tirx.runtime.Tensor = tvm_tirx.runtime.tensor([1, 2, 3], device=tvm_tirx.cuda(0))
     fun: tvm_ffi.Function = mod["addone"]
     fun(arr)
     print(arr.numpy())
@@ -170,12 +171,13 @@ The above example only deals with a simple `addone` function. The code snippet b
 
    import tvm
    import tvm_ffi
+   import tvm_tirx
    from tvm import relax
    # Load the compiled artifact
-   mod: tvm_ffi.Module = tvm.runtime.load_module("resnet18.so")
+   mod: tvm_ffi.Module = tvm_tirx.runtime.load_module("resnet18.so")
    # Create a VM instance on cuda(0)
-   vm = relax.VirtualMachine(mod, tvm.cuda(0))
-   data: tvm.runtime.Tensor = get_input_data()
+   vm = relax.VirtualMachine(mod, tvm_tirx.cuda(0))
+   data: tvm_tirx.runtime.Tensor = get_input_data()
    # Run the model — vm["main"] returns a PackedFunc
    result = vm["main"](data).numpy()
 
@@ -196,7 +198,7 @@ Most parts of the compilation are transformations among the key data structures.
 
 Finally, the compilation flow example is only a typical use-case of the TVM stack.
 We expose these key data structures and transformations to python and C++ APIs. As a result, you can use TVM just like the way you use numpy,
-except that the data structure of interest changes from the numpy.ndarray to tvm.IRModule. Here are some example use-cases:
+except that the data structure of interest changes from the numpy.ndarray to tvm_tirx.IRModule. Here are some example use-cases:
 
 - Directly construct IRModule using the python API.
 - Compose a custom set of transformations(e.g. customize quantization).
@@ -291,8 +293,8 @@ Thanks to the node module, we can directly access any field of the TVM's IRNode 
 
 .. code-block:: python
 
-    x = tvm.tirx.Var("x", "int32")
-    y = tvm.tirx.Add(x, x)
+    x = tvm_tirx.tirx.Var("x", "int32")
+    y = tvm_tirx.tirx.Add(x, x)
     # a and b are fields of a tirx.Add node
     # we can directly use the field name to access the IR structures
     assert y.a == x
@@ -322,7 +324,7 @@ The following code snippet gives an example of PassContext configuration.
 .. code-block:: python
 
     # configure the behavior of the tirx.UnrollLoop pass
-    with tvm.ir.transform.PassContext(config={"tirx.UnrollLoop": { "auto_max_step": 10 }}):
+    with tvm_tirx.ir.transform.PassContext(config={"tirx.UnrollLoop": { "auto_max_step": 10 }}):
         # code affected by the pass context
 
 
@@ -364,7 +366,7 @@ Targets can be constructed from a registered tag, a configuration dictionary, or
 
 .. code-block:: python
 
-    from tvm.target import Target
+    from tvm_tirx.target import Target
 
     # From a registered tag
     target = Target("nvidia/nvidia-a100")

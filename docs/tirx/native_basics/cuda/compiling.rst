@@ -21,13 +21,14 @@ Compiling and inspecting
 CUDA compilation accepts a lightweight ``backend_config`` mapping. The same
 nested structure is accepted by the Target's ``backend_config`` attribute and
 ``T.device_entry``. Pass the configured Target to ``tvm.compile`` or
-``txl.Kernel.compile``. ``tvm.backend.cuda.BackendConfig`` is an optional
+``txl.Kernel.compile``. ``tvm_tirx.backend.cuda.BackendConfig`` is an optional
 ``TypedDict`` helper, also available as ``T.cuda.BackendConfig`` and
 ``txl.cuda.BackendConfig``:
 
 .. code-block:: python
 
-    from tvm.backend.cuda import BackendConfig
+    import tvm_tirx
+    from tvm_tirx.backend.cuda import BackendConfig
 
     @T.function
     def pipeline(A: T.Tensor((32,), "float32"), B: T.Tensor((32,), "float32")):
@@ -47,7 +48,7 @@ nested structure is accepted by the Target's ``backend_config`` attribute and
             y = T.cuda.thread_idx("x")
             A[y] = B[y] + T.float32(1)
 
-    target = tvm.target.Target({
+    target = tvm_tirx.target.Target({
         "kind": "cuda", "arch": "sm_100a",
         "backend_config": {"cuda": BackendConfig(compiler="nvrtc")},
     })
@@ -73,7 +74,7 @@ Target tags use the existing target registry and carry defaults in Target attrs:
 
 .. code-block:: python
 
-    tvm.target.tag.register_tag("local/blackwell", {
+    tvm_tirx.target.tag.register_tag("local/blackwell", {
         "kind": "cuda", "arch": "sm_100a",
         "backend_config": {"cuda": {
             "compiler": "nvcc", "nvcc": ["--use_fast_math", "--generate-line-info"],
@@ -119,7 +120,7 @@ Old binary artifacts remain loadable; old source artifacts without configuration
 use the default compiler settings when compiled.
 
 For ``target=Target({"kind": "cuda", "arch": "sm_100a"}, host="cuda_host")``,
-``tvm.backend.cuda.export_cuda_host(exe.mod)`` returns ordinary C++ host source
+``tvm_tirx.backend.cuda.export_cuda_host(exe.mod)`` returns ordinary C++ host source
 with embedded independently compiled device binaries. Compile it with a C++
 compiler and CUDA headers, and link with tvm-ffi, cudart and the CUDA driver.
 The exported library requires no TVM installation or device compiler at runtime.
@@ -204,7 +205,7 @@ Rung 2 in full — a 256-element block sum via a shared-memory tree reduction
 
 
     exe = tvm.compile(
-        tvm.IRModule({"main": block_sum}), target=tvm.target.Target("cuda"), tir_pipeline="tirx"
+        tvm_tirx.IRModule({"main": block_sum}), target=tvm_tirx.target.Target("cuda"), tir_pipeline="tirx"
     )
     a = torch.arange(256, device="cuda", dtype=torch.float32)
     out = torch.zeros(1, device="cuda")

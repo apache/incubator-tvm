@@ -59,10 +59,11 @@ language called TVMScript, which is a domain-specific dialect embedded in python
 
 .. code:: python
 
-    from tvm.script import tirx as T
-    from tvm.script import s_tir as Ts
+    from tvm_tirx.script import ir as I
+    from tvm_tirx.script import tirx as T
+    from tvm.s_tir import script as Ts
 
-    @tvm.script.ir_module
+    @I.ir_module
     class MyModule:
         @Ts.function
         def mm_relu(A: T.Tensor((128, 128), "float32"),
@@ -237,7 +238,7 @@ So we can also write the programs as follows.
 
 .. code:: python
 
-    @tvm.script.ir_module
+    @I.ir_module
     class MyModuleWithAxisRemapSugar:
         @Ts.function
         def mm_relu(A: T.Tensor((128, 128), "float32"),

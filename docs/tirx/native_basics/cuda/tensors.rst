@@ -229,7 +229,7 @@ with views decl'd at offsets inside it.
 Pool sugar
 ~~~~~~~~~~
 
-``tvm.backend.cuda.lang.SMEMPool`` automates that arena bookkeeping — it
+``tvm_tirx.backend.cuda.lang.SMEMPool`` automates that arena bookkeeping — it
 bump-allocates the offsets so you don't ``decl`` views by hand. Beyond
 ``alloc`` / ``commit``, it offers
 per-tensor ``align=``, an ``alloc_tcgen05_mma_AB`` helper that builds an MMA-compatible
@@ -237,7 +237,7 @@ swizzle layout for you, and ``move_base_to`` to rewind the cursor and reuse spac
 
 .. code-block:: python
 
-    from tvm.backend.cuda.lang import SMEMPool
+    from tvm_tirx.backend.cuda.lang import SMEMPool
 
     pool = SMEMPool()                             # bump allocator over shared.dyn
     As = pool.alloc((BM, BK), "float16", align=128)   # carve a tile
@@ -308,7 +308,7 @@ this — a one-element local tensor you read and write **by name**:
 The two are not just similar — they parse to **structurally identical TIRx**. The
 sugar is resolved entirely in the parser: ``phase: Tx.int32`` *is* that one-element
 ``local`` tensor, and ``phase`` / ``phase += 1`` *are* ``phase[0]`` /
-``phase[0] += 1``. ``tvm.ir.assert_structural_equal`` on the two kernels passes, and
+``phase[0] += 1``. ``tvm_tirx.ir.assert_structural_equal`` on the two kernels passes, and
 the printer even renders the explicit ``alloc_local`` + ``[0]`` form **back** as the
 scalar form — so once parsing is done there is no difference at all. Both therefore
 lower to the same ``alignas(64) int phase_ptr[1];``; the scalar just lets you drop

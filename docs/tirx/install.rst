@@ -20,7 +20,8 @@ Installation
 
 There are two pieces:
 
-- the **TIRx compiler** (``tvm.tirx``), which ships inside Apache TVM — this is
+- the **TIRx compiler** (``tvm_tirx.tirx``), which ships as the ``apache-tvm-tirx``
+  dependency of Apache TVM — this is
   the authoring, IR, lowering, and backend infrastructure. Compiling or running
   for a particular target also requires a TVM build with that target enabled;
 - the optional **kernel library** (``tirx-kernels``), a collection of ready-made
@@ -37,7 +38,7 @@ Requirements
 Install the TIRx compiler
 -------------------------
 
-Install the Apache TVM wheel (the TIRx compiler is the ``tvm.tirx`` module):
+Install the Apache TVM wheel (the TIRx compiler is the ``tvm_tirx.tirx`` module):
 
 .. code-block:: bash
 
@@ -53,7 +54,7 @@ Verify:
 
 .. code-block:: bash
 
-   python -c "import tvm, tvm.tirx; print(tvm.__version__)"
+   python -c "import tvm, tvm_tirx.tirx; print(tvm.__version__)"
 
 Install the kernel library (optional)
 -------------------------------------

@@ -86,7 +86,7 @@ Authoring layers and IR
 
 TIRx programs use one TVMScript dialect alias::
 
-   from tvm.script import tirx as Tx
+   from tvm_tirx.script import tirx as Tx
 
 The namespace exposes three authoring layers.  They share the same TIRx
 program, but enter the compiler at different levels:
@@ -109,7 +109,7 @@ program, but enter the compiler at different levels:
      - ``Tx.cuda.*`` and ``Tx.ptx.*``
      - Creates backend calls directly; these calls bypass tile dispatch.
 
-``tvm.script.tirx`` is the construction syntax for the ``tvm.tirx`` object
+``tvm_tirx.script.tirx`` is the construction syntax for the ``tvm_tirx.tirx`` object
 model, not a separate IR.  Tile dispatch and layout/scope lowering replace
 high-level TIRx nodes with lower-level TIRx statements and calls.  They do not
 convert the program to the separate ``tvm.tir`` object model.

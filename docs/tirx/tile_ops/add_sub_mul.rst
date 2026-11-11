@@ -118,7 +118,7 @@ This kernel accepts packed input words and leaves the result packed:
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function
@@ -137,14 +137,15 @@ This kernel accepts packed input words and leaves the result packed:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     x = np.arange(16, dtype="float16").reshape(8, 2)
     y = np.full((8, 2), 2, dtype="float16")
-    compiled = tvm.tirx.compile(packed_add, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros((8, 1), dtype="uint32"), tvm.cuda())
+    compiled = tvm_tirx.tirx.compile(packed_add, target="cuda", pipeline="tirx")
+    out = tvm_tirx.runtime.tensor(np.zeros((8, 1), dtype="uint32"), tvm_tirx.cuda())
     compiled(
-        tvm.runtime.tensor(x.view("uint32"), tvm.cuda()),
-        tvm.runtime.tensor(y.view("uint32"), tvm.cuda()),
+        tvm_tirx.runtime.tensor(x.view("uint32"), tvm_tirx.cuda()),
+        tvm_tirx.runtime.tensor(y.view("uint32"), tvm_tirx.cuda()),
         out,
     )
     np.testing.assert_array_equal(out.numpy().view("float16"), x + y)

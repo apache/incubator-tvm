@@ -55,7 +55,7 @@ execution. Of course, we can rewrite the above code using Relax as follows:
 
 .. code:: python
 
-    from tvm.script import relax as R
+    from tvm.relax import script as R
 
     @R.function
     def relax_mlp(
@@ -124,10 +124,10 @@ for the end-to-end model execution. The code block below shows a TVMScript imple
 
 .. code:: python
 
-    from tvm.script import ir as I
-    from tvm.script import tirx as T
-    from tvm.script import s_tir as Ts
-    from tvm.script import relax as R
+    from tvm_tirx.script import ir as I
+    from tvm_tirx.script import tirx as T
+    from tvm.s_tir import script as Ts
+    from tvm.relax import script as R
 
     @I.ir_module
     class Module:

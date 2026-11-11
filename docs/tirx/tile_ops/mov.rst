@@ -91,8 +91,8 @@ Example: filling and copying separated register slots
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
-    from tvm.tirx.layout import S, TileLayout
+    from tvm_tirx.script import tirx as T
+    from tvm_tirx.tirx.layout import S, TileLayout
 
     gapped = TileLayout(S[(4, 1) : (2, 1)])
 

@@ -18,7 +18,7 @@
 Tensor Instruction Lowering
 ===========================
 
-Backend tensor operations are ordinary ``tvm.ir.Call`` nodes with opaque
+Backend tensor operations are ordinary ``tvm_tirx.ir.Call`` nodes with opaque
 side effects and void return types. CUDA and Trainium register their contracts
 in ``python/tvm/backend/{cuda,trn}/tile/instructions.py`` using the shared
 ``python/tvm/tirx/tile/instruction.py`` machinery. C++ reflected attribute

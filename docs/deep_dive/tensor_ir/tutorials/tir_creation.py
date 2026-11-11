@@ -44,7 +44,7 @@ If not already acquainted, please refer to :ref:`tirx-learning` initially.
 #     with Python tools like auto-completion and linting, it is not a native Python
 #     language and cannot be executed by a Python interpreter.
 #
-#     More precisely, the decorator **@tvm.script** extracts the Python AST from
+#     More precisely, the decorator **@tvm_tirx.script** extracts the Python AST from
 #     the decorated function, subsequently parsing it into TensorIR.
 #
 # Standard Format

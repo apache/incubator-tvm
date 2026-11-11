@@ -20,7 +20,7 @@ Tensor Instruction Registration
 
 Backend authors define an ``Instruction`` with its canonical operator name,
 ordered ``Operand`` list, reflected static attribute schema, and one lowerer.
-The shared implementation is ``tvm.tirx.tile.instruction``; CUDA and
+The shared implementation is ``tvm_tirx.tirx.tile.instruction``; CUDA and
 Trainium's ``tile/instructions.py`` files contain the concrete contracts.
 
 Registration installs the fixed argument count, void return type, opaque
@@ -32,16 +32,16 @@ scope uses a reflected attribute. See :doc:`../cuda_tile_patterns` for the
 CUDA pattern extension workflow.
 
 Lowerers receive a semantic view and ``DispatchContext`` and return a
-``tvm.ir.Stmt`` directly. They can prepare pointers/descriptors and expand
+``tvm_tirx.ir.Stmt`` directly. They can prepare pointers/descriptors and expand
 layouts for the selected core instruction. They must report unsupported
 contracts rather than select a different instruction family.
 
 ``FTileOpDispatch`` has the signature
-``(tvm.ir.Call, DispatchContext) -> tvm.ir.Stmt``. Its presence identifies
+``(tvm_tirx.ir.Call, DispatchContext) -> tvm_tirx.ir.Stmt``. Its presence identifies
 a tile Op; no separate category registration is required. ``Instruction``
 registers an adapter that decodes the semantic view and invokes its lowerer.
 Custom implementations can register the callback directly using
-``tvm.ir.register_op_attr(op_name, "FTileOpDispatch", dispatch)`` or C++
+``tvm_tirx.ir.register_op_attr(op_name, "FTileOpDispatch", dispatch)`` or C++
 ``OpDef::set_attr<tile::FTileOpDispatch>``. The Call must carry reflected
 attributes with a required ``ThreadScope`` ``scope`` field in the target's
 execution hierarchy. Direct construction may use a registered qualified name,
@@ -53,10 +53,10 @@ caller-owned algorithms. See :doc:`../arch/tile_dispatch` for callbacks and
 the statement replacement boundary.
 
 
-The common Python API is under ``tvm.tirx.tile`` (also ``T.tile``):
+The common Python API is under ``tvm_tirx.tirx.tile`` (also ``T.tile``):
 ``Instruction``, ``Operand``, ``TensorCall``, and ``DispatchContext``. Backend
-implementations live under ``tvm.backend.cuda.tile`` and
-``tvm.backend.trn.tile``. Their user-facing instruction paths remain
+implementations live under ``tvm_tirx.backend.cuda.tile`` and
+``tvm_tirx.backend.trn.tile``. Their user-facing instruction paths remain
 ``T.cuda.tile`` and ``T.trn.tile``. Instruction operator names and attribute
 schema type keys remain unchanged. Scope tags use the ``tirx.ThreadScope`` type
 key; serialized data containing the former scope type must be regenerated.

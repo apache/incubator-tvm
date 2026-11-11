@@ -114,7 +114,7 @@ can be issued by an elected thread in a larger CTA.
 
 .. code-block:: python
 
-    from tvm.script import tirx as T
+    from tvm_tirx.script import tirx as T
 
 
     @T.function
@@ -157,11 +157,12 @@ Compile and verify on a device supporting thread-block clusters:
 
     import numpy as np
     import tvm
+    import tvm_tirx
 
     x = np.arange(64, dtype="uint32")
-    compiled = tvm.tirx.compile(cluster_copy, target="cuda", pipeline="tirx")
-    out = tvm.runtime.tensor(np.zeros_like(x), tvm.cuda())
-    compiled(tvm.runtime.tensor(x, tvm.cuda()), out)
+    compiled = tvm_tirx.tirx.compile(cluster_copy, target="cuda", pipeline="tirx")
+    out = tvm_tirx.runtime.tensor(np.zeros_like(x), tvm_tirx.cuda())
+    compiled(tvm_tirx.runtime.tensor(x, tvm_tirx.cuda()), out)
     np.testing.assert_array_equal(out.numpy(), x)
 
 Repeated chunks and synchronization

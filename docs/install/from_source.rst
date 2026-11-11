@@ -196,7 +196,7 @@ Therefore, it is highly recommended to validate Apache TVM installation before u
 
 .. code-block:: bash
 
-    >>> python -c "import tvm; print(tvm.base._LOADED_LIBS['tvm_runtime'])"
+    >>> python -c "import tvm; print(tvm.base._LOADED_LIBS['tvm_runtime_extra'])"
     <CDLL '/some-path/lib/python3.11/site-packages/tvm/libtvm_runtime.dylib', handle 95ada510 at 0x1030e4e50>
 
 **Step 3. Inspect the build configuration.** For a local source build, inspect
@@ -215,11 +215,11 @@ configuration problem.
 
 .. code-block:: bash
 
-    >>> python -c "import tvm; print(tvm.metal().exist)"
+    >>> python -c "import tvm_tirx; print(tvm_tirx.metal().exist)"
     True # or False
-    >>> python -c "import tvm; print(tvm.cuda().exist)"
+    >>> python -c "import tvm_tirx; print(tvm_tirx.cuda().exist)"
     False # or True
-    >>> python -c "import tvm; print(tvm.vulkan().exist)"
+    >>> python -c "import tvm_tirx; print(tvm_tirx.vulkan().exist)"
     False # or True
 
 Please note that the commands above verify the presence of an actual device on the local machine for the TVM runtime (not the compiler) to execute properly. However, TVM compiler can perform compilation tasks without requiring a physical device. As long as the necessary toolchain, such as NVCC, is available, TVM supports cross-compilation even in the absence of an actual device.

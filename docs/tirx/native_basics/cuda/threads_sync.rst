@@ -20,7 +20,7 @@ CUDA C++/PTX intrinsics
 
 When no tile op covers what you need, two escape hatches reach the hardware
 directly: **call a backend intrinsic** (the ``Tx.cuda.*`` / ``Tx.ptx.*`` namespaces
-from ``tvm.backend.cuda``), or **inline raw CUDA** source.
+from ``tvm_tirx.backend.cuda``), or **inline raw CUDA** source.
 
 Calling backend intrinsics
 --------------------------

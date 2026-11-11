@@ -149,7 +149,7 @@ Trainium's ``LowerTrainiumLayout``. The generic pipeline inserts ``PrintIR``
 between dispatch and layout lowering when ``TVM_TIRX_PRINT_AFTER_DISPATCH_OPS``
 is set.
 
-After both passes the module remains a ``tvm.tirx.Function``, but contains no
+After both passes the module remains a ``tvm_tirx.tirx.Function``, but contains no
 tile ops or ``TileLayout`` indirection, and CUDA indices read hardware coordinates.  Later TIRx passes lower the remaining opaque constructs and
 the target code generators consume ``tirx::Function`` directly; there is no
 conversion to the separate ``tvm.tir`` object model.
@@ -205,10 +205,11 @@ IR snippets across these docs were produced:
 
 .. code-block:: python
 
-    from tvm.tirx import transform as TT
+    import tvm_tirx
+    from tvm_tirx.tirx import transform as TT
 
-    target = tvm.target.Target("cuda")
-    mod = TT.BindTarget(target.with_host("llvm"))(tvm.IRModule({"main": scale}))
+    target = tvm_tirx.target.Target("cuda")
+    mod = TT.BindTarget(target.with_host("llvm"))(tvm_tirx.IRModule({"main": scale}))
     mod = TT.TileDispatch()(mod)         # tile ops dispatched
     mod = TT.LowerTensorLayouts()(mod)   # layouts applied
     print(mod.script())               # inspect the lowered TIRx IR
@@ -217,5 +218,5 @@ Or compile the whole module and read the generated CUDA:
 
 .. code-block:: python
 
-    exe = tvm.compile(tvm.IRModule({"main": scale}), target=target, tir_pipeline="tirx")
+    exe = tvm.compile(tvm_tirx.IRModule({"main": scale}), target=target, tir_pipeline="tirx")
     print(exe.mod.imports[0].inspect_source())
