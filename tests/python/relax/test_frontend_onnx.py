@@ -7084,6 +7084,47 @@ def test_reduce_funcs_axes_attr_numerical(func, opset, dynamic, keepdims):
     )
 
 
+@pytest.mark.parametrize("opset", [13, 18])
+@pytest.mark.parametrize("keepdims", [0, 1])
+def test_reduce_log_sum_exp_infinite_inputs(opset, keepdims):
+    # Rows with a +inf, an all -inf row, a mixed -inf/+inf row and a finite row;
+    # shifting by a non-finite max used to compute inf - inf = nan.
+    data = np.array(
+        [[np.inf, 0.0, 1.0], [-np.inf, -np.inf, -np.inf], [-np.inf, np.inf, 2.0], [1.0, 2.0, 3.0]],
+        dtype=np.float32,
+    )
+    inputs = ["x"]
+    initializers = []
+    attrs = {"keepdims": keepdims}
+    if opset < 18:
+        attrs["axes"] = [1]
+    else:
+        inputs.append("axes")
+        initializers.append(helper.make_tensor("axes", TensorProto.INT64, [1], [1]))
+    node = helper.make_node("ReduceLogSumExp", inputs, ["y"], **attrs)
+    out_shape = [4, 1] if keepdims else [4]
+    graph = helper.make_graph(
+        [node],
+        "reduce_log_sum_exp_infinite_inputs",
+        inputs=[helper.make_tensor_value_info("x", TensorProto.FLOAT, [4, 3])],
+        outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, out_shape)],
+        initializer=initializers,
+    )
+    model = helper.make_model(graph, producer_name="reduce_log_sum_exp_infinite_inputs")
+    tvm_model = from_onnx(model, opset=opset, keep_params_in_input=True)
+    tvm_model = relax.transform.LegalizeOps()(tvm_model)
+    tvm_model, params = relax.frontend.detach_params(tvm_model)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex = tvm.compile(tvm_model, target="llvm")
+        vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
+    input_list = [data] + (list(params["main"]) if params else [])
+    vm.set_input("main", *input_list)
+    vm.invoke_stateful("main")
+    actual = vm.get_outputs("main").numpy()
+    expected = np.logaddexp.reduce(data, axis=1, keepdims=bool(keepdims))
+    tvm_tirx.testing.assert_allclose(actual, expected, rtol=1e-6)
+
+
 def _make_reduce_expected_ir(
     func: str,
     input_shape: list[int],
@@ -7139,18 +7180,21 @@ def _make_reduce_expected_ir(
         parser_vars["logsumexp_keepdims"] = True
         body = [
             "            lv = R.max(x, axis=axis, keepdims=logsumexp_keepdims)",
-            "            lv1 = R.subtract(x, lv)",
-            "            lv2 = R.exp(lv1)",
-            "            lv3 = R.sum(lv2, axis=axis, keepdims=logsumexp_keepdims)",
-            "            lv4 = R.log(lv3)",
+            "            lv1 = R.isfinite(lv)",
+            "            lv2 = R.zeros_like(lv)",
+            "            lv3 = R.where(lv1, lv, lv2)",
+            "            lv4 = R.subtract(x, lv3)",
+            "            lv5 = R.exp(lv4)",
+            "            lv6 = R.sum(lv5, axis=axis, keepdims=logsumexp_keepdims)",
+            "            lv7 = R.log(lv6)",
         ]
         if keepdims:
-            body.append("            gv = R.add(lv4, lv)")
+            body.append("            gv = R.add(lv7, lv3)")
         else:
             parser_vars["squeeze_axis"] = None if axis is None else list(axis)
             body += [
-                "            lv5 = R.add(lv4, lv)",
-                "            gv = R.squeeze(lv5, axis=squeeze_axis)",
+                "            lv8 = R.add(lv7, lv3)",
+                "            gv = R.squeeze(lv8, axis=squeeze_axis)",
             ]
     elif func == "ReduceL1":
         body = [

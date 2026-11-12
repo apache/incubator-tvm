@@ -5065,10 +5065,18 @@ class ReduceLogSumExp(OnnxOpConverter):
         x = inputs[0]
         axes = attr.get("axes", None)
         keepdims = attr.get("keepdims", 1)
+        return cls._log_sum_exp(x, axes, keepdims)
+
+    @staticmethod
+    def _log_sum_exp(x, axes, keepdims):
+        # Shift by the reduced max for stability. A non-finite max (an infinite
+        # input, or an all -inf slice) is replaced by 0 so that x - max never
+        # computes inf - inf = nan; exp/sum/log then yield the right +-inf.
         max_x = relax.op.max(x, axes, True)
-        exp_x = relax.op.exp(relax.op.subtract(x, max_x))
+        shift = relax.op.where(relax.op.isfinite(max_x), max_x, relax.op.zeros_like(max_x))
+        exp_x = relax.op.exp(relax.op.subtract(x, shift))
         sum_x = relax.op.sum(exp_x, axes, True)
-        out_x = relax.op.add(relax.op.log(sum_x), max_x)
+        out_x = relax.op.add(relax.op.log(sum_x), shift)
         if not keepdims:
             out_x = relax.op.squeeze(out_x, axes)
         return out_x
@@ -5088,14 +5096,7 @@ class ReduceLogSumExp(OnnxOpConverter):
             )
             axes = axes_const.value.numpy().tolist()
 
-        # Calculate LogSumExp
-        log_sum_exp = lambda axes: (
-            max_x := relax.op.max(x, axes, True),
-            exp_x := relax.op.exp(relax.op.subtract(x, max_x)),
-            sum_x := relax.op.sum(exp_x, axes, True),
-            out_x := relax.op.add(relax.op.log(sum_x), max_x),
-            relax.op.squeeze(out_x, axes) if not keepdims else out_x,
-        )[-1]
+        log_sum_exp = lambda axes: cls._log_sum_exp(x, axes, keepdims)
 
         # If axes is empty and noop_with_empty_axes is 0, reduce all dimensions
         if not axes and not noop_with_empty_axes:
