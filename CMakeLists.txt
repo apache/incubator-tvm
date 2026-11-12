@@ -158,8 +158,8 @@ if(TVM_USE_INSTALLED_TIRX)
       OUTPUT_VARIABLE TVM_TIRX_VERSION OUTPUT_STRIP_TRAILING_WHITESPACE
       COMMAND_ERROR_IS_FATAL ANY)
   endif()
-  if(NOT TVM_TIRX_VERSION MATCHES "^0\\.1\\.0(-rc2|rc2)$")
-    message(FATAL_ERROR "TVM requires apache-tvm-tirx 0.1.0rc2")
+  if(NOT TVM_TIRX_VERSION MATCHES "^0\\.1\\.0(-rc[23]|rc[23])$")
+    message(FATAL_ERROR "TVM requires apache-tvm-tirx 0.1.0rc2 or 0.1.0rc3")
   endif()
 else()
   # Keep source-built core libraries beside the parent libraries.
