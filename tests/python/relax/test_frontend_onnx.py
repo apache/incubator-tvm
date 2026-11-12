@@ -12575,6 +12575,38 @@ def test_nms():
     )
 
 
+def test_nms_iou_equal_threshold():
+    """ONNX keeps a box when its IoU equals the threshold (only a greater IoU suppresses)."""
+    nms_node = helper.make_node(
+        "NonMaxSuppression",
+        ["boxes", "scores", "max_out", "iou"],
+        ["selected_indices"],
+    )
+    graph = helper.make_graph(
+        [nms_node],
+        "nms_iou_boundary",
+        inputs=[
+            helper.make_tensor_value_info("boxes", TensorProto.FLOAT, [1, 2, 4]),
+            helper.make_tensor_value_info("scores", TensorProto.FLOAT, [1, 1, 2]),
+        ],
+        initializer=[
+            helper.make_tensor("max_out", TensorProto.INT64, [1], [10]),
+            helper.make_tensor("iou", TensorProto.FLOAT, [1], [0.5]),
+        ],
+        outputs=[helper.make_tensor_value_info("selected_indices", TensorProto.INT64, [None, 3])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)])
+    model.ir_version = 10
+    check_correctness(
+        model,
+        inputs={
+            "boxes": np.array([[[0, 0, 1, 1], [0, 0, 1, 2]]], dtype="float32"),
+            "scores": np.array([[[0.9, 0.8]]], dtype="float32"),
+        },
+        opset=11,
+    )
+
+
 def test_nms_scalar_shape1_constants():
     """Scalar params given as 1-D single-element constants must import (NumPy 2.x cast)."""
     nms_node = helper.make_node(

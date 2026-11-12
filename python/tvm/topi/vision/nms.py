@@ -970,7 +970,7 @@ def _nms_loop(
                 with T.then_():
                     iou = calc_overlap_func(i, j, k)
 
-                    with T.if_(iou >= iou_threshold):
+                    with T.if_(iou > iou_threshold):
                         with T.then_():
                             T.tensor_store(out_scores, (i, k), T.float32(-1.0))
                             on_new_invalidated_box_func(i, k)
