@@ -11851,6 +11851,73 @@ def test_sequence_at():
     tvm_tirx.ir.assert_structural_equal(tvm_model, Expected)
 
 
+def test_sequence_ops_from_split():
+    a_val = helper.make_tensor_value_info("a", TensorProto.FLOAT, [6, 4])
+    split_node = helper.make_node("SplitToSequence", ["a"], ["seq"], axis=0)
+
+    # SequenceLength
+    len_val = helper.make_tensor_value_info("out_len", TensorProto.INT64, [])
+    len_node = helper.make_node("SequenceLength", ["seq"], ["out_len"])
+    graph_len = helper.make_graph([split_node, len_node], "test_len", [a_val], [len_val])
+    model_len = helper.make_model(
+        graph_len, opset_imports=[helper.make_opsetid("", 11)], ir_version=8
+    )
+    mod_len = from_onnx(model_len, opset=11)
+    assert 'const(6, "int64")' in str(mod_len)
+
+    # SequenceAt with negative index
+    pos_at = make_constant_node("pos_at", TensorProto.INT64, (), [-1])
+    at_val = helper.make_tensor_value_info("out_at", TensorProto.FLOAT, [1, 4])
+    at_node = helper.make_node("SequenceAt", ["seq", "pos_at"], ["out_at"])
+    graph_at = helper.make_graph([pos_at, split_node, at_node], "test_at", [a_val], [at_val])
+    model_at = helper.make_model(
+        graph_at, opset_imports=[helper.make_opsetid("", 11)], ir_version=8
+    )
+    mod_at = from_onnx(model_at, opset=11)
+    assert mod_at is not None
+
+    # SequenceErase + ConcatFromSequence
+    pos_erase = make_constant_node("pos_erase", TensorProto.INT64, (), [0])
+    concat_erase_val = helper.make_tensor_value_info("out_concat_erase", TensorProto.FLOAT, [5, 4])
+    erase_node = helper.make_node("SequenceErase", ["seq", "pos_erase"], ["seq_erased"])
+    concat_erase_node = helper.make_node(
+        "ConcatFromSequence", ["seq_erased"], ["out_concat_erase"], axis=0
+    )
+    graph_erase = helper.make_graph(
+        [pos_erase, split_node, erase_node, concat_erase_node],
+        "test_erase",
+        [a_val],
+        [concat_erase_val],
+    )
+    model_erase = helper.make_model(
+        graph_erase, opset_imports=[helper.make_opsetid("", 11)], ir_version=8
+    )
+    mod_erase = from_onnx(model_erase, opset=11)
+    assert mod_erase is not None
+
+    # SequenceInsert + ConcatFromSequence
+    t_ins = helper.make_tensor_value_info("t_ins", TensorProto.FLOAT, [1, 4])
+    pos_insert = make_constant_node("pos_insert", TensorProto.INT64, (), [0])
+    concat_ins_val = helper.make_tensor_value_info("out_concat_ins", TensorProto.FLOAT, [7, 4])
+    insert_node = helper.make_node(
+        "SequenceInsert", ["seq", "t_ins", "pos_insert"], ["seq_inserted"]
+    )
+    concat_ins_node = helper.make_node(
+        "ConcatFromSequence", ["seq_inserted"], ["out_concat_ins"], axis=0
+    )
+    graph_insert = helper.make_graph(
+        [pos_insert, split_node, insert_node, concat_ins_node],
+        "test_insert",
+        [a_val, t_ins],
+        [concat_ins_val],
+    )
+    model_insert = helper.make_model(
+        graph_insert, opset_imports=[helper.make_opsetid("", 11)], ir_version=8
+    )
+    mod_insert = from_onnx(model_insert, opset=11)
+    assert mod_insert is not None
+
+
 def test_optional_get_element_tensor():
     x_shape = [2, 3]
     optional_node = helper.make_node("Optional", ["x"], ["optional"])
