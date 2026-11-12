@@ -1940,5 +1940,197 @@ def test_lift_transform_with_primitive_param_used_by_model_tensor():
     )
 
 
+def test_lift_binding_that_produces_function_output():
+    """It is possible that the function doesn't depend on any runtime values"""
+
+    @tvm.script.ir_module
+    class Before:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                B_t = R.permute_dims(B)
+                R.output(B_t)
+            return B_t
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B_t: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            return B_t
+
+        @R.function
+        def main_transform_params(params: R.Tuple([R.Tensor([16, 16], "int32")])):
+            R.func_attr({"num_input": 0})
+            with R.dataflow():
+                B = params[0]
+                B_t = R.permute_dims(B)
+                output = (B_t,)
+                R.output(output)
+            return output
+
+    mod = Before
+    after = relax.transform.LiftTransformParams()(mod)
+    tvm.ir.assert_structural_equal(after, Expected)
+
+
+def test_lift_binding_that_produces_part_of_function_output():
+    """The function's output may include a compile-time value."""
+
+    @tvm.script.ir_module
+    class Before:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                B_t = R.permute_dims(B)
+                C = R.matmul(A, B_t)
+                R.output(C, B_t)
+            return (C, B_t)
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B_t: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                C = R.matmul(A, B_t)
+                R.output(C)
+
+            gv = (C, B_t)
+            return gv
+
+        @R.function
+        def main_transform_params(params: R.Tuple([R.Tensor([16, 16], "int32")])):
+            R.func_attr({"num_input": 0})
+            with R.dataflow():
+                B = params[0]
+                B_t = R.permute_dims(B)
+                output = (B_t,)
+                R.output(output)
+            return output
+
+    mod = Before
+    after = relax.transform.LiftTransformParams()(mod)
+    tvm.ir.assert_structural_equal(after, Expected)
+
+
+def test_lift_shared_binding_that_produces_part_of_function_output():
+    """The function's output may include a compile-time value."""
+
+    @tvm.script.ir_module
+    class Before:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                B_t = R.permute_dims(B)
+                C = R.matmul(A, B_t)
+                R.output(C, B_t)
+            return (C, B_t)
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            A: R.Tensor([16], "int32"),
+            B_t: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                C = R.matmul(A, B_t)
+                R.output(C)
+
+            gv = (C, B_t)
+            return gv
+
+        @R.function
+        def transform_params(params: R.Tuple([R.Tensor([16, 16], "int32")])):
+            R.func_attr({"num_input": 0})
+            with R.dataflow():
+                B = params[0]
+                B_t = R.permute_dims(B)
+                output = (B_t,)
+                R.output(output)
+            return output
+
+    mod = Before
+    after = relax.transform.LiftTransformParams(shared_transform=True)(mod)
+    tvm.ir.assert_structural_equal(after, Expected)
+
+
+def test_lift_all_bindings_from_dataflow_block():
+    """A variable that has no inputs should not be lifted
+
+    For example, `R.zeros`, or the result of allocation function
+    calls.
+    """
+
+    @tvm.script.ir_module
+    class Before:
+        @R.function(pure=False)
+        def main(
+            A: R.Tensor([16], "int32"),
+            B: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                B_t = R.permute_dims(B)
+                R.output(B_t)
+
+            _ = R.print(format="impure func")
+
+            with R.dataflow():
+                C = R.matmul(A, B_t)
+                R.output(C)
+
+            return C
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function(pure=False)
+        def main(
+            A: R.Tensor([16], "int32"),
+            B_t: R.Tensor([16, 16], "int32"),
+        ):
+            R.func_attr({"num_input": 1})
+            _ = R.print(format="impure func")
+            with R.dataflow():
+                C = R.matmul(A, B_t)
+                R.output(C)
+
+            return C
+
+        @R.function
+        def main_transform_params(params: R.Tuple([R.Tensor([16, 16], "int32")])):
+            R.func_attr({"num_input": 0})
+            with R.dataflow():
+                B = params[0]
+                B_t = R.permute_dims(B)
+                output = (B_t,)
+                R.output(output)
+            return output
+
+    mod = Before
+    after = relax.transform.LiftTransformParams()(mod)
+    tvm.ir.assert_structural_equal(after, Expected)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

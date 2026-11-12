@@ -476,13 +476,22 @@ class LocalLiftableBindingCollector : public BaseLiftableBindingCollector {
 
     } else {
       info_.required_at_runtime.insert(binding->var);
-      for (const auto& upstream_var : FreeVars(bound_value)) {
-        info_.required_at_runtime.insert(upstream_var);
-      }
       for (const auto& tir_var : FreeSymbolicVars(bound_value)) {
         info_.required_at_runtime.insert(tir_var);
       }
+
+      // Visit the bound value for expressions that must be computable
+      // at runtime, to populate the `required_at_runtime` set of
+      // variables.  Populating it from `FreeVars(bound_value)` would
+      // not be sufficient, because it would omit variables that are
+      // used in a function's output.
+      VisitExpr(bound_value);
     }
+  }
+
+  void VisitExpr_(const VarNode* op) override {
+    auto var = GetRef<Var>(op);
+    info_.required_at_runtime.insert(var);
   }
 
   LocalCollectInfo info_;
