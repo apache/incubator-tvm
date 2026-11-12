@@ -245,8 +245,9 @@ def rope_freq_yarn(
         inv_theta_log_scale=inv_theta_log_scale,
     )
     high = tirx.if_then_else(low == high, high + 0.001, high)
+    # Both coordinates of a rotary pair need the same interpolation weight.
     inv_freq_mask = tirx.const(1, "float32") - tirx.max(
-        tirx.min((d - low) / (high - low), 1.0), 0.0
+        tirx.min((d % (d_range // 2) - low) / (high - low), 1.0), 0.0
     ).astype("float32")
     inv_freq = freq_inter * (1 - inv_freq_mask) + freq_extra * inv_freq_mask
     freq = s * inv_freq
