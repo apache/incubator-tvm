@@ -1408,5 +1408,29 @@ def test_tuple_projection_rejects_escaping_tuple():
     assert result_value.fields[0].same_as(split_result)
 
 
+def test_unrelated_public_relax_function():
+    """An uncalled public Relax function must not abort MergeCompositeFunctions."""
+
+    @I.ir_module
+    class Module:
+        @R.function
+        def main(x: R.Tensor((4,), "float32")) -> R.Tensor((4,), "float32"):
+            with R.dataflow():
+                y = R.add(x, x)
+                R.output(y)
+            return y
+
+        @R.function
+        def stray(x: R.Tensor((4,), "float32")) -> R.Tensor((4,), "float32"):
+            with R.dataflow():
+                z = R.add(x, x)
+                R.output(z)
+            return z
+
+    after = relax.transform.MergeCompositeFunctions()(Module)
+    tvm.ir.assert_structural_equal(after["main"], Module["main"], map_free_vars=True)
+    tvm.ir.assert_structural_equal(after["stray"], Module["stray"], map_free_vars=True)
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

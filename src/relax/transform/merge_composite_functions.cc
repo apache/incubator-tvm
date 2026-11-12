@@ -552,7 +552,10 @@ IRModule MergeCompositeFunctions(IRModule mod) {
   auto func = mod->Lookup(gvar).as_or_throw<Function>();
   support::Arena arena;
   auto group_map = CompositeGroupsBuilder(mod, &arena).Run(func);
-  auto new_mod = MakeGroupedFunctions(mod, group_map);
+  // The group map only covers main. Sibling Relax functions are not in it, and
+  // visiting them makes OperatorFusor abort in GetGroupFromVar.
+  auto new_mod = MakeGroupedFunctions(mod, group_map, /*lift_constants*/ true,
+                                      /*entry_function_names*/ {"main"});
   new_mod = CompositeFunctionAnnotator(mod, new_mod).update();
 
   // TODO(@tvm-team): Implicit pass dependency. Revisit when we have a better way to handle this.
