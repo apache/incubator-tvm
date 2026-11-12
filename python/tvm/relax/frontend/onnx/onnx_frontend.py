@@ -914,7 +914,9 @@ class BitShift(BitwiseBase):
 
     @classmethod
     def _impl_v11(cls, bb, inputs, attr, params):
-        direction = attr.get("direction", "LEFT").decode("ascii")
+        direction = attr.get("direction", "LEFT")
+        if isinstance(direction, bytes):
+            direction = direction.decode("ascii")
         if direction == "LEFT":
             cls.numpy_op = _np.left_shift
             cls.relax_op = relax.op.left_shift

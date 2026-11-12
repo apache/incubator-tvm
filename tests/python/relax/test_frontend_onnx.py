@@ -14730,5 +14730,60 @@ def test_quantizelinear_output_dtype_mismatch(opset):
         from_onnx(model, opset=opset, keep_params_in_input=True)
 
 
+@pytest.mark.parametrize("direction", ["LEFT", "RIGHT"])
+@pytest.mark.parametrize("dtype", [TensorProto.UINT8, TensorProto.UINT32, TensorProto.UINT64])
+def test_bitshift(direction, dtype):
+    np_dtype = helper.tensor_dtype_to_np_dtype(dtype)
+    a_data = np.array([1, 4, 16, 64], dtype=np_dtype)
+    b_data = np.array([1, 2, 1, 2], dtype=np_dtype)
+    inputs = {"a": a_data, "b": b_data}
+
+    test_node = helper.make_node("BitShift", ["a", "b"], ["c"], direction=direction)
+    graph = helper.make_graph(
+        [test_node],
+        "bitshift_test",
+        inputs=[
+            helper.make_tensor_value_info("a", dtype, [4]),
+            helper.make_tensor_value_info("b", dtype, [4]),
+        ],
+        outputs=[helper.make_tensor_value_info("c", dtype, [4])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)], ir_version=8)
+    check_correctness(model, inputs=inputs, opset=11)
+
+
+def test_bitshift_default_direction():
+    test_node = helper.make_node("BitShift", ["a", "b"], ["c"])
+    graph = helper.make_graph(
+        [test_node],
+        "bitshift_default_test",
+        inputs=[
+            helper.make_tensor_value_info("a", TensorProto.UINT32, [4]),
+            helper.make_tensor_value_info("b", TensorProto.UINT32, [4]),
+        ],
+        outputs=[helper.make_tensor_value_info("c", TensorProto.UINT32, [4])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)], ir_version=8)
+    mod = from_onnx(model, opset=11)
+    assert "left_shift" in str(mod)
+
+
+def test_bitshift_uint16():
+    test_node = helper.make_node("BitShift", ["a", "b"], ["c"], direction="RIGHT")
+    graph = helper.make_graph(
+        [test_node],
+        "bitshift_uint16_test",
+        inputs=[
+            helper.make_tensor_value_info("a", TensorProto.UINT16, [4]),
+            helper.make_tensor_value_info("b", TensorProto.UINT16, [4]),
+        ],
+        outputs=[helper.make_tensor_value_info("c", TensorProto.UINT16, [4])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 11)], ir_version=8)
+    mod = from_onnx(model, opset=11)
+    assert "right_shift" in str(mod)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
+
