@@ -9710,6 +9710,37 @@ def test_resize(with_roi, roi_list, with_constant):
     check_correctness(model)
 
 
+@pytest.mark.parametrize(
+    "policy,out_shape",
+    [
+        ("not_larger", [1, 1, 1, 2]),
+        ("not_smaller", [1, 1, 2, 4]),
+        ("stretch", [1, 1, 1, 3]),
+    ],
+)
+def test_resize_keep_aspect_ratio_policy(policy, out_shape):
+    """Resize-18 keep_aspect_ratio_policy must adjust the requested sizes."""
+    x = helper.make_tensor_value_info("x", TensorProto.FLOAT, [1, 1, 2, 4])
+    y = helper.make_tensor_value_info("y", TensorProto.FLOAT, out_shape)
+    sizes = numpy_helper.from_array(np.array([1, 1, 1, 3], dtype="int64"), "sizes")
+    node = helper.make_node(
+        "Resize",
+        ["x", "", "", "sizes"],
+        ["y"],
+        mode="nearest",
+        coordinate_transformation_mode="asymmetric",
+        keep_aspect_ratio_policy=policy,
+    )
+    graph = helper.make_graph([node], "resize_keep_aspect_ratio", [x], [y], [sizes])
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 18)])
+    model.ir_version = 10
+    check_correctness(
+        model,
+        inputs={"x": np.arange(1, 9, dtype="float32").reshape(1, 1, 2, 4)},
+        opset=18,
+    )
+
+
 def test_resize_dynamic_roi_tf_crop_and_resize():
     """ROI is a graph input (not initializer), lowered through TOPI dynamic-ROI path."""
     resize_node = helper.make_node(

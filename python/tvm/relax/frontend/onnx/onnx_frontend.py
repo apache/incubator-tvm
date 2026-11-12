@@ -3910,6 +3910,39 @@ def _emit_resize_topi_dynamic_roi(
     )
 
 
+def _round_half_up(value: float) -> int:
+    return int(value + 0.5)
+
+
+def _apply_keep_aspect_ratio_policy(x, sizes, attr):
+    """Adjust requested sizes for the Resize-18 keep_aspect_ratio_policy attribute."""
+    policy = attr.get("keep_aspect_ratio_policy", b"stretch")
+    if isinstance(policy, bytes):
+        policy = policy.decode("ascii")
+    if policy in (None, "", "stretch"):
+        return sizes
+    if policy not in ("not_larger", "not_smaller"):
+        raise ValueError(f"Invalid keep_aspect_ratio_policy={policy!r}")
+
+    in_shape = []
+    for dim in x.ty.shape:
+        try:
+            in_shape.append(int(dim))
+        except (TypeError, ValueError):
+            return sizes
+    if len(in_shape) != len(sizes) or any(dim <= 0 for dim in in_shape):
+        return sizes
+
+    axes = attr.get("axes")
+    axes = list(range(len(in_shape))) if axes is None else [int(axis) for axis in axes]
+    scales = [sizes[i] / in_shape[i] for i in axes]
+    scale = min(scales) if policy == "not_larger" else max(scales)
+    return [
+        _round_half_up(scale * in_shape[i]) if i in axes else in_shape[i]
+        for i in range(len(in_shape))
+    ]
+
+
 class Resize(OnnxOpConverter):
     """Converts an onnx Resize node into an equivalent Relax expression."""
 
@@ -3979,9 +4012,13 @@ class Resize(OnnxOpConverter):
             sizes = sizes[2:]
         else:
             if isinstance(sizes, tvm_tirx.ir.GenericConst):
-                sizes = sizes.value.numpy().astype("int64").tolist()[2:]
+                sizes = sizes.value.numpy().astype("int64").tolist()
+                sizes = _apply_keep_aspect_ratio_policy(x, sizes, attr)
+                sizes = sizes[2:]
             elif isinstance(sizes, relax.expr.ShapeExpr):
-                sizes = [int(val.value) for val in sizes.values][2:]
+                sizes = [int(val.value) for val in sizes.values]
+                sizes = _apply_keep_aspect_ratio_policy(x, sizes, attr)
+                sizes = sizes[2:]
             else:
                 raise ValueError(f"Type {type(sizes)} for size is currently unsupported.")
 
