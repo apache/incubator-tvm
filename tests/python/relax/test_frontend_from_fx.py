@@ -737,6 +737,38 @@ def test_linear():
     )
 
 
+def test_linear_float16():
+    # The matmul accumulates in float32 and is cast back to float16 before the bias add.
+    class Dense(Module):
+        def __init__(self):
+            super().__init__()
+            self.linear = torch.nn.Linear(10, 7, bias=True).half()
+
+        def forward(self, input):
+            return self.linear(input)
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            input_1: R.Tensor((4, 10), dtype="float16"),
+            w1: R.Tensor((7, 10), dtype="float16"),
+            w2: R.Tensor((7,), dtype="float16"),
+        ) -> R.Tensor((4, 7), dtype="float16"):
+            with R.dataflow():
+                lv: R.Tensor((10, 7), dtype="float16") = R.permute_dims(w1, axes=None)
+                lv1: R.Tensor((4, 7), dtype="float32") = R.matmul(input_1, lv, out_dtype="float32")
+                lv2: R.Tensor((4, 7), dtype="float16") = R.astype(lv1, dtype="float16")
+                lv3: R.Tensor((4, 7), dtype="float16") = R.add(lv2, w2)
+                gv: R.Tensor((4, 7), dtype="float16") = lv3
+                R.output(gv)
+            return gv
+
+    model = Dense()
+    binding = {"w1": model.linear.weight.detach().numpy(), "w2": model.linear.bias.detach().numpy()}
+    verify_model(model, [([4, 10], "float16")], binding, Expected)
+
+
 def test_bmm():
     class BMM(Module):
         def forward(self, x, y):

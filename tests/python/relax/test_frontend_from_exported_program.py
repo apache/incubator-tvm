@@ -8206,6 +8206,67 @@ def test_mm():
     verify_model(MatrixMultiply(), example_args, {}, Expected)
 
 
+@pytest.mark.parametrize("dtype", ["float16", "bfloat16"])
+def test_low_precision_matmul_and_conv_keep_input_dtype(dtype):
+    # Matmul and convolution accumulate in float32, and the result is cast back to the
+    # input dtype before the bias is added, as PyTorch returns the input dtype.
+    torch_dtype = getattr(torch, dtype)
+
+    class Linear(Module):
+        def forward(self, x, w, b):
+            return torch.nn.functional.linear(x, w, b)
+
+    @tvm.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor((4, 10), dtype=dtype),
+            w: R.Tensor((7, 10), dtype=dtype),
+            b: R.Tensor((7,), dtype=dtype),
+        ) -> R.Tuple(R.Tensor((4, 7), dtype=dtype)):
+            with R.dataflow():
+                lv: R.Tensor((10, 7), dtype=dtype) = R.permute_dims(w, axes=[1, 0])
+                lv1: R.Tensor((4, 7), dtype="float32") = R.matmul(x, lv, out_dtype="float32")
+                lv2: R.Tensor((4, 7), dtype=dtype) = R.astype(lv1, dtype=dtype)
+                lv3: R.Tensor((4, 7), dtype=dtype) = R.add(b, lv2)
+                gv: R.Tuple(R.Tensor((4, 7), dtype=dtype)) = (lv3,)
+                R.output(gv)
+            return gv
+
+    def rand(*shape):
+        return torch.randn(*shape, dtype=torch_dtype)
+
+    verify_model(Linear(), (rand(4, 10), rand(7, 10), rand(7)), {}, Expected)
+
+    def addmm(x, a, b):
+        return torch.addmm(x, a, b, beta=0.5, alpha=2.0)
+
+    F = nn.functional
+    cases = [
+        (torch.mm, [(2, 3), (3, 4)]),
+        (torch.bmm, [(2, 2, 3), (2, 3, 4)]),
+        (torch.matmul, [(2, 2, 3), (3, 4)]),
+        (addmm, [(4,), (2, 3), (3, 4)]),
+        (F.linear, [(2, 3, 10), (7, 10), (7,)]),
+        (F.linear, [(4, 10), (7, 10)]),
+        (F.conv1d, [(1, 3, 8), (6, 3, 3), (6,)]),
+        (F.conv2d, [(1, 3, 8, 8), (6, 3, 3, 3), (6,)]),
+        (F.conv2d, [(1, 3, 8, 8), (6, 3, 3, 3)]),
+        (F.conv3d, [(1, 3, 4, 4, 4), (6, 3, 3, 3, 3), (6,)]),
+        (F.conv_transpose1d, [(1, 3, 8), (3, 6, 3), (6,)]),
+        (F.conv_transpose2d, [(1, 3, 8, 8), (3, 6, 3, 3), (6,)]),
+    ]
+    for fn, shapes in cases:
+
+        class Model(Module):
+            def forward(self, *args):
+                return fn(*args)
+
+        example_args = tuple(rand(*shape) for shape in shapes)
+        mod = from_exported_program(export(Model(), example_args))
+        assert mod["main"].ret_ty.fields[0].dtype == dtype, fn
+
+
 def test_sparse_mm():
     class SparseMatrixMultiply(Module):
         def forward(self, sparse_input, dense_input):

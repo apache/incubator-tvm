@@ -295,6 +295,13 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
         return False
 
+    def _to_input_dtype(self, res: relax.Var, dtype) -> relax.Var:
+        """Cast a float32-accumulated matmul or convolution result back to a float16 or
+        bfloat16 input dtype, which is the dtype PyTorch returns."""
+        if dtype in ("float16", "bfloat16"):
+            return self.block_builder.emit(relax.op.astype(res, dtype))
+        return res
+
     def retrieve_args(self, node: fx.Node):
         return self._retrieve_args(node.args)
 
@@ -824,6 +831,14 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
     ########## Linear Algebra ##########
 
+    @staticmethod
+    def _matmul(lhs: relax.Expr, rhs: relax.Expr) -> relax.Expr:
+        res = relax.op.linear_algebra.matmul(lhs, rhs, out_dtype="float32")
+        dtype = lhs.ty.dtype
+        if dtype in ("float16", "bfloat16"):
+            return relax.op.astype(res, dtype)
+        return res
+
     def _linalg_vector_norm(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
 
@@ -917,6 +932,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         res = None
         if alpha != 0:
             res = self.block_builder.emit(relax.op.linear_algebra.matmul(y, z, out_dtype="float32"))
+            res = self._to_input_dtype(res, y.ty.dtype)
             if alpha != 1:
                 dtype = res.ty.dtype
                 res = self.block_builder.emit(relax.op.multiply(res, relax.const(alpha, dtype)))
@@ -1101,6 +1117,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 out_dtype="float32",
             )
         )
+        conv1d_transpose = self._to_input_dtype(conv1d_transpose, x.ty.dtype)
 
         if self._is_no_bias(bias):
             return conv1d_transpose
@@ -1155,6 +1172,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 out_dtype="float32",
             )
         )
+        conv2d_transpose = self._to_input_dtype(conv2d_transpose, x.ty.dtype)
 
         if self._is_no_bias(bias):
             return conv2d_transpose
@@ -1207,6 +1225,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 out_dtype="float32",
             )
         )
+        conv1d = self._to_input_dtype(conv1d, x.ty.dtype)
 
         if self._is_no_bias(bias):
             return conv1d
@@ -1256,6 +1275,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 out_dtype="float32",
             )
         )
+        conv2d = self._to_input_dtype(conv2d, x.ty.dtype)
 
         if self._is_no_bias(bias):
             return conv2d
@@ -1305,6 +1325,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 out_dtype="float32",
             )
         )
+        conv3d = self._to_input_dtype(conv3d, x.ty.dtype)
 
         if self._is_no_bias(bias):
             return conv3d
@@ -1586,7 +1607,11 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         x = args[0]
         weight = args[1]
         bias = args[2] if len(args) > 2 else None
-        return self.block_builder.emit(relax.op.linear(x, weight, bias, "float32"))
+        res = self.block_builder.emit(relax.op.linear(x, weight, None, "float32"))
+        res = self._to_input_dtype(res, x.ty.dtype)
+        if bias is None:
+            return res
+        return self.block_builder.emit(relax.op.add(res, bias))
 
     def _max_pool1d_impl(
         self,

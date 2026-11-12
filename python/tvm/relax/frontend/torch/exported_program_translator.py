@@ -23,7 +23,6 @@
 import contextlib
 from collections import ChainMap, OrderedDict
 from collections.abc import Callable
-from functools import partial
 
 import tvm_ffi
 
@@ -1870,12 +1869,8 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "le.Tensor": self._binary_op(relax.op.less_equal, operator.le),
             "lt.Scalar": self._binary_op(relax.op.less, operator.lt),
             "lt.Tensor": self._binary_op(relax.op.less, operator.lt),
-            "matmul.default": self._binary_op(
-                partial(relax.op.linear_algebra.matmul, out_dtype="float32"), operator.matmul
-            ),
-            "mm.default": self._binary_op(
-                partial(relax.op.linear_algebra.matmul, out_dtype="float32"), operator.matmul
-            ),
+            "matmul.default": self._binary_op(self._matmul, operator.matmul),
+            "mm.default": self._binary_op(self._matmul, operator.matmul),
             "max.other": self._binary_op(relax.op.maximum, max),
             "min.other": self._binary_op(relax.op.minimum, min),
             "max.default": self._unary_op(relax.op.max),
@@ -1926,9 +1921,7 @@ class ExportedProgramImporter(BaseFXGraphImporter):
             "avg_pool2d.default": self._avg_pool2d,
             "avg_pool3d.default": self._avg_pool3d,
             "baddbmm.default": self._baddbmm,
-            "bmm.default": self._binary_op(
-                partial(relax.op.linear_algebra.matmul, out_dtype="float32"), operator.matmul
-            ),
+            "bmm.default": self._binary_op(self._matmul, operator.matmul),
             "conv_transpose1d.default": self._conv_transpose1d,
             "conv_transpose2d.input": self._conv_transpose2d,
             "conv1d.default": self._conv1d,

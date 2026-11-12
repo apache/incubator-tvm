@@ -20,7 +20,7 @@
 """PyTorch FX frontend of Relax."""
 
 from collections.abc import Callable
-from functools import partial, reduce
+from functools import reduce
 
 import tvm_tirx
 from tvm import relax
@@ -589,7 +589,11 @@ class TorchFXImporter(BaseFXGraphImporter):
         module = self.named_modules[node.target]
         weight = self.params[module.weight]
         bias = self.params.get(module.bias, None)
-        return self.block_builder.emit(relax.op.linear(x, weight, bias, "float32"))
+        res = self.block_builder.emit(relax.op.linear(x, weight, None, "float32"))
+        res = self._to_input_dtype(res, x.ty.dtype)
+        if bias is None:
+            return res
+        return self.block_builder.emit(relax.op.add(res, bias))
 
     def _max_pool1d_module(self, node: fx.Node) -> relax.Var:
         x = self.env[node.args[0]]
@@ -926,9 +930,7 @@ class TorchFXImporter(BaseFXGraphImporter):
             "le": self._binary_op(relax.op.less_equal, operator.le),
             "lshift": self._binary_op(relax.op.left_shift, operator.lshift),
             "lt": self._binary_op(relax.op.less, operator.lt),
-            "matmul": self._binary_op(
-                partial(relax.op.linear_algebra.matmul, out_dtype="float32"), operator.matmul
-            ),
+            "matmul": self._binary_op(self._matmul, operator.matmul),
             "max": self._binary_op(relax.op.maximum, max),
             "min": self._binary_op(relax.op.minimum, min),
             "mod": self._binary_op(relax.op.floor_mod, operator.mod),
@@ -953,9 +955,7 @@ class TorchFXImporter(BaseFXGraphImporter):
             "avg_pool2d": self._avg_pool2d,
             "avg_pool3d": self._avg_pool3d,
             "baddbmm": self._baddbmm,
-            "bmm": self._binary_op(
-                partial(relax.op.linear_algebra.matmul, out_dtype="float32"), operator.matmul
-            ),
+            "bmm": self._binary_op(self._matmul, operator.matmul),
             "conv_transpose1d": self._conv_transpose1d,
             "conv_transpose2d": self._conv_transpose2d,
             "conv1d": self._conv1d,
