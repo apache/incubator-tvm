@@ -5841,6 +5841,24 @@ def test_select():
 
     verify_model(Select(), [([5, 3], "float32")], {}, Expected)
 
+    class SelectLast(Module):
+        def forward(self, data):
+            return torch.select(data, 1, -1)
+
+    @tvm_tirx.script.ir_module
+    class ExpectedLast:
+        @R.function
+        def main(
+            inp_0: R.Tensor((5, 3), dtype="float32"),
+        ) -> R.Tensor((5,), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((5,), dtype="float32") = R.take(inp_0, R.const(2, "int64"), axis=1)
+                gv: R.Tensor((5,), dtype="float32") = lv
+                R.output(gv)
+            return gv
+
+    verify_model(SelectLast(), [([5, 3], "float32")], {}, ExpectedLast)
+
 
 def test_inplace_copy():
     class Copy(Module):

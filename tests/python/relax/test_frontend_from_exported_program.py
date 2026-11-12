@@ -6990,6 +6990,64 @@ def test_select():
     verify_model(Select(), example_args, {}, Expected)
 
 
+def test_select_negative_index():
+    class SelectLast(Module):
+        def forward(self, input):
+            return input[:, -1]
+
+    @tvm_tirx.script.ir_module
+    class Expected:
+        @R.function
+        def main(
+            input: R.Tensor((2, 5, 3), dtype="float32"),
+        ) -> R.Tuple(R.Tensor((2, 3), dtype="float32")):
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.take(
+                    input, R.const(4, "int64"), axis=1, mode="fast"
+                )
+                gv: R.Tuple(R.Tensor((2, 3), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    class SelectFirstDynamic(Module):
+        def forward(self, input):
+            return torch.select(input, 0, -2)
+
+    s0 = T.dynamic("s0", "int64")
+
+    @I.ir_module
+    class ExpectedDynamic:
+        @R.function
+        def main(
+            input: R.Tensor((s0, 3), dtype="float32"),
+        ) -> R.Tuple(R.Tensor((3,), dtype="float32")):
+            R.func_attr({"tir_var_lower_bound": {"s31": 2}, "tir_var_upper_bound": {"s31": 64}})
+            with R.dataflow():
+                lv: R.Tensor((3,), dtype="float32") = R.take(
+                    input, R.const(-2, "int64"), axis=0, mode="wrap"
+                )
+                gv: R.Tuple(R.Tensor((3,), dtype="float32")) = (lv,)
+                R.output(gv)
+            return gv
+
+    example_args = (torch.randn(2, 5, 3, dtype=torch.float32),)
+    verify_model(SelectLast(), example_args, {}, Expected)
+    verify_model_numerically(SelectLast(), example_args)
+
+    batch = torch.export.Dim("batch", min=2, max=64)
+    example_args = (torch.randn(4, 3, dtype=torch.float32),)
+    dynamic_shapes = {"input": {0: batch}}
+    verify_model(
+        SelectFirstDynamic(),
+        example_args,
+        {},
+        ExpectedDynamic,
+        dynamic_shapes=dynamic_shapes,
+        map_free_vars=True,
+    )
+    verify_model_numerically(SelectFirstDynamic(), example_args, dynamic_shapes=dynamic_shapes)
+
+
 def test_unflatten():
     class Unflatten(Module):
         def forward(self, input):
