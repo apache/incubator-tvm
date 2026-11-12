@@ -150,7 +150,29 @@ class AllocateCollector : public StmtExprVisitor {
         call && call->op.same_as(tirx::alloc_tensor_op())) {
       return DispatchAllocTensor(op, call);
     }
+    // Only a binding that always runs can be copied before the merged allocation.
+    if (auto value = op->value.as<PrimExpr>(); value && guard_depth_ == 0 && !after_assert_ &&
+                                               SideEffect(value.value()) <= CallEffectKind::kPure) {
+      let_bindings_.insert_or_assign(op->var.get(), ffi::GetRef<Bind>(op));
+    }
     return StmtExprVisitor::Visit_(op);
+  }
+
+  ffi::Optional<VisitInterrupt> Visit_(const IfObj* op) final { return VisitGuarded(op); }
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final { return VisitGuarded(op); }
+  ffi::Optional<VisitInterrupt> Visit_(const WhileObj* op) final { return VisitGuarded(op); }
+
+  ffi::Optional<VisitInterrupt> Visit_(const AssertStmtObj* op) final {
+    after_assert_ = true;
+    return StmtExprVisitor::Visit_(op);
+  }
+
+  template <typename T>
+  ffi::Optional<VisitInterrupt> VisitGuarded(const T* op) {
+    ++guard_depth_;
+    auto result = StmtExprVisitor::Visit_(op);
+    --guard_depth_;
+    return result;
   }
 
   ffi::Optional<VisitInterrupt> DispatchAllocTensor(const BindObj* op, const CallObj* call) {
@@ -177,9 +199,14 @@ class AllocateCollector : public StmtExprVisitor {
   bool has_opaque_region_{false};
   // The mapping from the original buffer var to its TensorVar
   std::unordered_map<const VarObj*, TensorVar> shmem_allocs_;
+  // Pure scalar bindings in the subtree that are not under a condition, a loop or an assert.
+  // Tensor shapes can use their variables.
+  std::unordered_map<const VarObj*, Bind> let_bindings_;
 
  private:
   bool is_dynamic_;
+  int guard_depth_{0};
+  bool after_assert_{false};
 };
 
 // Find a linear pattern of storage access
@@ -457,6 +484,12 @@ class SharedMemoryRewriter : public StmtExprMutator {
     PrimExpr merged_alloc_size{0};
     // Allocations from THIS kernel's subtree.
     std::unordered_map<const VarObj*, TensorVar> shmem_allocs;
+    // Pure scalar bindings from THIS kernel's subtree.
+    std::unordered_map<const VarObj*, Bind> let_bindings;
+    // Copies of the bindings that the merged allocation, the tensor views and the offsets use.
+    // They are placed before the merged allocation, in dependency order.
+    std::unordered_map<const VarObj*, Var> hoisted_vars;
+    std::vector<Stmt> hoisted_bindings;
     // Per-buffer byte offset into merged_buf_var.
     std::unordered_map<const VarObj*, PrimExpr> buffer_byte_offsets;
     // TensorVar-object remap: original TensorVar -> merged-data-var TensorVar.
@@ -499,6 +532,7 @@ class SharedMemoryRewriter : public StmtExprMutator {
       auto collector = ffi::make_object<AllocateCollector>(is_dynamic_);
       collector->Visit(op->body);
       scope.shmem_allocs = std::move(collector->shmem_allocs_);
+      scope.let_bindings = std::move(collector->let_bindings_);
 
       // Per-scope early bail-out: if this launch region has ≤1 shmem
       // allocation, there is nothing to merge. Unknown region operations also
@@ -519,6 +553,13 @@ class SharedMemoryRewriter : public StmtExprMutator {
 
       // 4. Compute byte offsets / merged_alloc_size.
       this->ComputeOffsets(scope);
+      // The merged allocation and the tensor views are placed at the start of the launch body,
+      // and an offset can use the shape of a tensor that is allocated after the access. Use
+      // copies of the bindings that these shapes use, which are defined before the allocation.
+      scope.merged_alloc_size = HoistLetBindings(scope.merged_alloc_size, scope);
+      for (auto& kv : scope.buffer_byte_offsets) {
+        kv.second = HoistLetBindings(kv.second, scope);
+      }
       scope.merged_tensor = MakeMergedTensor(scope.merged_alloc_size);
 
       // 5. Recursively mutate the body — reads scope_stack_.back() for all rewrites.
@@ -550,7 +591,10 @@ class SharedMemoryRewriter : public StmtExprMutator {
       Stmt alloc_stmt = Bind(scope.merged_tensor.value(),
                              Call(scope.merged_tensor.value().ty(), tirx::alloc_tensor_op(), {},
                                   DictAttrs(annotations), {scope.merged_tensor.value().ty()}));
-      Stmt new_body = SeqStmt({alloc_stmt, visited_body});
+      std::vector<Stmt> new_seq = scope.hoisted_bindings;
+      new_seq.push_back(alloc_stmt);
+      new_seq.push_back(visited_body);
+      Stmt new_body = SeqStmt(new_seq);
 
       // 8. Pop the scope.
       scope_stack_.pop_back();
@@ -686,9 +730,9 @@ class SharedMemoryRewriter : public StmtExprMutator {
           << "MergeSharedMemoryAllocations expects flat memory tensors, "
           << "and is to be run after "
           << "FlattenTensor";
-      tensor =
-          TensorVar(tensor->name, TensorType(ffi::make_object<TensorTypeObj>(*tensor.ty().get())),
-                    tensor->loc);
+      auto ty = ffi::make_object<TensorTypeObj>(*tensor.ty().get());
+      ty->shape = ty->shape.Map([&](const PrimExpr& e) { return HoistLetBindings(e, scope); });
+      tensor = TensorVar(tensor->name, TensorType(ty), tensor->loc);
     }
 
     scope.tensor_remap.insert_or_assign(key, tensor);
@@ -763,6 +807,33 @@ class SharedMemoryRewriter : public StmtExprMutator {
     } else {
       return StmtExprMutator::Mutate_(op, inplace_mode);
     }
+  }
+
+  /*!
+   * \brief Replace the variables bound inside the kernel scope with copies of the bindings that
+   *        are placed before the merged allocation.
+   * \param expr The expression to rewrite
+   * \param scope The kernel scope that holds the bindings
+   */
+  PrimExpr HoistLetBindings(const PrimExpr& expr, KernelScope& scope) {
+    if (scope.let_bindings.empty()) return expr;
+    auto f_substitute = [this,
+                         &scope](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
+      auto it = scope.let_bindings.find(var.get());
+      if (it == scope.let_bindings.end()) return ffi::Unchanged();
+      auto hoisted = scope.hoisted_vars.find(var.get());
+      if (hoisted == scope.hoisted_vars.end()) {
+        // The bindings are in SSA form, so this recursion stops. It adds the bindings that the
+        // value uses before this one.
+        PrimExpr value = HoistLetBindings(it->second->value.as_or_throw<PrimExpr>(), scope);
+        Var copy = var.CopyWithSuffix("");
+        scope.hoisted_bindings.push_back(Bind(copy, value));
+        hoisted = scope.hoisted_vars.emplace(var.get(), copy).first;
+      }
+      return ffi::Any(hoisted->second);
+    };
+    return ffi::StructuralMap<ffi::WalkOrder::kPostOrder>(expr, f_substitute)
+        .as_or_throw<PrimExpr>();
   }
 
   PrimExpr GetBufferOffset(Var buffer_var, DLDataType dtype) {

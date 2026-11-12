@@ -16,6 +16,7 @@
 # under the License.
 # ruff: noqa: F401, F841
 import numpy as np
+import pytest
 
 import tvm
 import tvm_tirx
@@ -25,6 +26,7 @@ from tvm.s_tir import script as Ts
 from tvm.topi.math import cast
 from tvm_tirx.script import ir as I
 from tvm_tirx.script import tirx as T
+from tvm_tirx.testing import env
 
 
 def test_matmul_t_tensor():
@@ -397,6 +399,74 @@ def test_multi_thread_extent_blocks():
     # If kernel #1 referenced an undefined buf_dyn_shmem, this
     # would raise during well-formedness checking inside SplitHostDevice.
     split(mod_with_target)
+
+
+def _dynamic_size_bound_in_kernel():
+    @I.ir_module
+    class Module:
+        @Ts.function
+        def main(A: T.Tensor((128,), "float32"), n: T.int64):
+            T.func_attr({"tirx.noalias": True})
+            bx = T.launch_thread("blockIdx.x", T.int64(1))
+            B = T.alloc_tensor(ty_args=[T.Tensor((128,), "float32", scope="shared.dyn")])
+            size: T.let[T.int64] = T.min(n, T.int64(128))
+            C = T.alloc_tensor(ty_args=[T.Tensor((size,), "float32", scope="shared.dyn")])
+            tx = T.launch_thread("threadIdx.x", T.int64(128))
+            B[tx] = A[tx]
+            if tx < size:
+                C[tx] = B[tx]
+                A[tx] = C[tx] + T.float32(1)
+
+    return Module
+
+
+def test_dynamic_size_bound_in_kernel():
+    """The merged allocation is placed before a binding that a merged shape uses."""
+    After = tvm.s_tir.transform.MergeSharedMemoryAllocations()(_dynamic_size_bound_in_kernel())
+    tvm_tirx.tirx.analysis.check_well_formed(After["main"])
+    assert "buf_dyn_shmem" in After["main"].script()
+
+
+def test_dynamic_size_bound_after_access():
+    """An access offset uses the shape of a tensor that is allocated after the access."""
+
+    @I.ir_module
+    class Module:
+        @Ts.function
+        def main(A: T.Tensor((128,), "float32"), n: T.int64, m: T.int64):
+            T.func_attr({"tirx.noalias": True})
+            bx = T.launch_thread("blockIdx.x", T.int64(1))
+            size_b: T.let[T.int64] = T.min(m, T.int64(128))
+            B = T.alloc_tensor(ty_args=[T.Tensor((size_b,), "float32", scope="shared.dyn")])
+            tx = T.launch_thread("threadIdx.x", T.int64(128))
+            if tx < size_b:
+                B[tx] = A[tx]
+            size: T.let[T.int64] = T.min(n, T.int64(128))
+            C = T.alloc_tensor(ty_args=[T.Tensor((size,), "float32", scope="shared.dyn")])
+            if tx < size:
+                C[tx] = A[tx] * T.float32(2)
+                A[tx] = C[tx]
+            if tx < size_b:
+                A[tx] = A[tx] + B[tx]
+
+    After = tvm.s_tir.transform.MergeSharedMemoryAllocations()(Module)
+    tvm_tirx.tirx.analysis.check_well_formed(After["main"])
+    assert "buf_dyn_shmem" in After["main"].script()
+
+
+@pytest.mark.gpu
+@pytest.mark.skipif(not env.has_cuda(), reason="need cuda")
+def test_dynamic_size_bound_in_kernel_cuda():
+    target = tvm_tirx.target.Target({"kind": "cuda", "arch": env.cuda_arch()})
+    lib = tvm.compile(_dynamic_size_bound_in_kernel(), target=target)
+    dev = tvm_tirx.cuda(0)
+    for n in [1, 64, 128, 200]:
+        a_np = np.arange(128, dtype="float32")
+        a = tvm_tirx.runtime.tensor(a_np, dev)
+        lib(a, n)
+        expected = a_np.copy()
+        expected[: min(n, 128)] += 1
+        np.testing.assert_array_equal(a.numpy(), expected)
 
 
 if __name__ == "__main__":
