@@ -1809,6 +1809,19 @@ class Where(OnnxOpConverter):
                 tensors.append(inp)
         return relax.op.where(tensors[0], tensors[1], tensors[2])
 
+def _clip_default_bound(dtype: str, *, lower: bool):
+    """Return the finite dtype bound ONNX Clip uses when min/max are omitted."""
+    try:
+        np_dtype = _np.dtype(dtype)
+    except (TypeError, ValueError):
+        # Dtypes unknown to numpy (e.g. bfloat16) keep the previous unbounded default.
+        return -_np.inf if lower else _np.inf
+    if _np.issubdtype(np_dtype, _np.floating):
+        return float(_np.finfo(np_dtype).min if lower else _np.finfo(np_dtype).max)
+    if _np.issubdtype(np_dtype, _np.integer):
+        return int(_np.iinfo(np_dtype).min if lower else _np.iinfo(np_dtype).max)
+    return -_np.inf if lower else _np.inf
+
 
 class Clip(OnnxOpConverter):
     """Converts an onnx Clip node into an equivalent Relax expression."""
@@ -1839,12 +1852,27 @@ class Clip(OnnxOpConverter):
     @classmethod
     def _impl_v13(cls, bb, inputs, attr, params):
         x: Any = inputs[0]
+        dtype = str(x.ty.dtype)
+        # The dtype limits are identity for integer inputs; skipping the clamp
+        # there keeps the result dtype instead of promoting it to the bound's
+        # int32 constant.
+        try:
+            np_dtype = _np.dtype(dtype)
+        except (TypeError, ValueError):
+            np_dtype = None
+        is_integer = np_dtype is not None and _np.issubdtype(np_dtype, _np.integer)
         results = x
         if inputs[1] is not None:
             lo = cls._sanitize_nan_clip_bound(bb, inputs[1], for_min=True)
             results = bb.emit_te(topi.maximum, results, lo)
+        elif np_dtype is not None and not is_integer:
+            lo = tirx.const(_clip_default_bound(dtype, lower=True), dtype)
+            results = bb.emit_te(topi.maximum, results, lo)
         if inputs[2] is not None:
             hi = cls._sanitize_nan_clip_bound(bb, inputs[2], for_min=False)
+            results = bb.emit_te(topi.minimum, results, hi)
+        elif np_dtype is not None and not is_integer:
+            hi = tirx.const(_clip_default_bound(dtype, lower=False), dtype)
             results = bb.emit_te(topi.minimum, results, hi)
         return results
 

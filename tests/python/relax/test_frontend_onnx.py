@@ -3731,6 +3731,13 @@ def test_clip():
         ):
             T.evaluate(0)
 
+        @Ts.function(private=True)
+        def minimum(
+            var_input: T.Tensor((32, 64), "float32"),
+            var_output: T.Tensor((32, 64), "float32"),
+        ):
+            T.evaluate(0)
+
         @R.function
         def main(
             input: R.Tensor((32, 64), dtype="float32"),
@@ -3748,7 +3755,12 @@ def test_clip():
                     (input, lv1),
                     ty_args=[R.Tensor((32, 64), dtype="float32")],
                 )
-                gv: R.Tensor((32, 64), dtype="float32") = lv2
+                lv3 = R.call_tir(
+                    cls.minimum,
+                    (lv2,),
+                    ty_args=[R.Tensor((32, 64), dtype="float32")],
+                )
+                gv: R.Tensor((32, 64), dtype="float32") = lv3
                 R.output(gv)
             return gv
 
@@ -3758,6 +3770,13 @@ def test_clip():
         def maximum(
             var_input: T.Tensor((32, 64), "float32"),
             var_min: T.Tensor((), "float32"),
+            var_output: T.Tensor((32, 64), "float32"),
+        ):
+            T.evaluate(0)
+
+        @Ts.function(private=True)
+        def minimum(
+            var_input: T.Tensor((32, 64), "float32"),
             var_output: T.Tensor((32, 64), "float32"),
         ):
             T.evaluate(0)
@@ -3779,19 +3798,49 @@ def test_clip():
                     (input, lv1),
                     ty_args=[R.Tensor((32, 64), dtype="float32")],
                 )
-                gv: R.Tensor((32, 64), dtype="float32") = lv2
+                lv3 = R.call_tir(
+                    cls.minimum,
+                    (lv2,),
+                    ty_args=[R.Tensor((32, 64), dtype="float32")],
+                )
+                gv: R.Tensor((32, 64), dtype="float32") = lv3
                 R.output(gv)
             return gv
 
     @I.ir_module
-    class ExpectedClipIdentity:
+    class ExpectedClipDefaultBounds:
+        @Ts.function(private=True)
+        def maximum(
+            var_input: T.Tensor((32, 64), "float32"),
+            var_output: T.Tensor((32, 64), "float32"),
+        ):
+            T.evaluate(0)
+
+        @Ts.function(private=True)
+        def minimum(
+            var_input: T.Tensor((32, 64), "float32"),
+            var_output: T.Tensor((32, 64), "float32"),
+        ):
+            T.evaluate(0)
+
         @R.function
         def main(
             input: R.Tensor((32, 64), dtype="float32"),
         ) -> R.Tensor((32, 64), dtype="float32"):
             R.func_attr({"num_input": 1})
+            cls = ExpectedClipDefaultBounds
             with R.dataflow():
-                gv: R.Tensor((32, 64), dtype="float32") = input
+                lv = R.call_tir(
+                    cls.maximum,
+                    (input,),
+                    ty_args=[R.Tensor((32, 64), dtype="float32")],
+                )
+                lv1 = R.call_tir(
+                    cls.minimum,
+                    (lv,),
+                    ty_args=[R.Tensor((32, 64), dtype="float32")],
+                )
+                gv: R.Tensor((32, 64), dtype="float32") = lv1
                 R.output(gv)
             return gv
 
@@ -3800,9 +3849,11 @@ def test_clip():
     verify_clip(
         ["input", "min", "max"], [min_info, max_info], ExpectedClipMinMax, ("maximum", "minimum")
     )
-    verify_clip(["input", "min"], [min_info], ExpectedClipMin, ("maximum",))
-    verify_clip(["input", "max"], [max_info], ExpectedClipMaxOnlyInput, ("maximum",))
-    verify_clip(["input"], [], ExpectedClipIdentity)
+    verify_clip(["input", "min"], [min_info], ExpectedClipMin, ("maximum", "minimum"))
+    verify_clip(
+        ["input", "max"], [max_info], ExpectedClipMaxOnlyInput, ("maximum", "minimum")
+    )
+    verify_clip(["input"], [], ExpectedClipDefaultBounds, ("maximum", "minimum"))
 
 
 @pytest.mark.parametrize("min", [-6.0, 0.0])
@@ -3905,6 +3956,23 @@ def test_clip_v13(input, min, max):
     check_correctness(
         model,
         inputs={"input": input, "min": min, "max": max},
+        opset=13,
+    )
+
+
+def test_clip_v13_omitted_bounds():
+    # Opset 13: omitted min/max default to the finite limits of the input dtype.
+    clip_node = helper.make_node("Clip", ["input"], ["output"])
+    graph = helper.make_graph(
+        [clip_node],
+        "clip_v13_omitted_bounds",
+        inputs=[helper.make_tensor_value_info("input", TensorProto.FLOAT, [3])],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.FLOAT, [3])],
+    )
+    model = helper.make_model(graph, producer_name="clip_v13_omitted_bounds")
+    check_correctness(
+        model,
+        inputs={"input": np.array([np.inf, -np.inf, 0.0], dtype=np.float32)},
         opset=13,
     )
 
