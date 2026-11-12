@@ -10640,6 +10640,94 @@ def test_stablehlo_remainder():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
+def test_dynamic_update_slice():
+    """DYNAMIC_UPDATE_SLICE with constant starts clamps them and lowers to scatter_nd."""
+    from tensorflow.compiler.tf2xla.python import xla
+
+    class Model(tf.Module):
+        @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=(3, 4), dtype=tf.float32),
+                tf.TensorSpec(shape=(2, 2), dtype=tf.float32),
+            ]
+        )
+        def func(self, operand, update):
+            return xla.dynamic_update_slice(operand, update, tf.constant([5, -1], dtype=tf.int32))
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            operand: R.Tensor((3, 4), dtype="float32"),
+            update: R.Tensor((2, 2), dtype="float32"),
+        ) -> R.Tensor((3, 4), dtype="float32"):
+            R.func_attr({"num_input": 2})
+            with R.dataflow():
+                gv: R.Tensor((3, 4), dtype="float32") = R.scatter_nd(
+                    operand,
+                    R.const([[[1, 0], [1, 1]], [[2, 0], [2, 1]]], dtype="int64"),
+                    update,
+                    reduction="update",
+                )
+                R.output(gv)
+            return gv
+
+    verify(Model, Expected)
+
+
+def test_dynamic_update_slice_dynamic_starts():
+    """DYNAMIC_UPDATE_SLICE with runtime starts builds a clamped index grid."""
+    from tensorflow.compiler.tf2xla.python import xla
+
+    class Model(tf.Module):
+        @tf.function(
+            input_signature=[
+                tf.TensorSpec(shape=(3, 4), dtype=tf.float32),
+                tf.TensorSpec(shape=(2, 2), dtype=tf.float32),
+                tf.TensorSpec(shape=(2,), dtype=tf.int32),
+            ]
+        )
+        def func(self, operand, update, start):
+            return xla.dynamic_update_slice(operand, update, start)
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            operand: R.Tensor((3, 4), dtype="float32"),
+            update: R.Tensor((2, 2), dtype="float32"),
+            start: R.Tensor((2,), dtype="int32"),
+        ) -> R.Tensor((3, 4), dtype="float32"):
+            R.func_attr({"num_input": 3})
+            with R.dataflow():
+                lv: R.Tensor((), dtype="int32") = R.take(start, R.const(0, "int64"), axis=0)
+                lv1: R.Tensor((2,), dtype="int64") = R.arange(0, 2, 1, dtype="int64")
+                lv2: R.Tensor((), dtype="int64") = R.astype(lv, dtype="int64")
+                lv3: R.Tensor((), dtype="int64") = R.maximum(lv2, R.const(0, "int64"))
+                lv4: R.Tensor((), dtype="int64") = R.minimum(lv3, R.const(1, "int64"))
+                lv5: R.Tensor((2,), dtype="int64") = R.add(lv1, lv4)
+                lv6: R.Tensor((2, 1), dtype="int64") = R.reshape(lv5, (2, 1))
+                lv7: R.Tensor((2, 2), dtype="int64") = R.broadcast_to(lv6, (2, 2))
+                lv8: R.Tensor((), dtype="int32") = R.take(start, R.const(1, "int64"), axis=0)
+                lv9: R.Tensor((2,), dtype="int64") = R.arange(0, 2, 1, dtype="int64")
+                lv10: R.Tensor((), dtype="int64") = R.astype(lv8, dtype="int64")
+                lv11: R.Tensor((), dtype="int64") = R.maximum(lv10, R.const(0, "int64"))
+                lv12: R.Tensor((), dtype="int64") = R.minimum(lv11, R.const(2, "int64"))
+                lv13: R.Tensor((2,), dtype="int64") = R.add(lv9, lv12)
+                lv14: R.Tensor((1, 2), dtype="int64") = R.reshape(lv13, (1, 2))
+                lv15: R.Tensor((2, 2), dtype="int64") = R.broadcast_to(lv14, (2, 2))
+                lv16: R.Tensor((2, 2, 1), dtype="int64") = R.expand_dims(lv7, axis=[-1])
+                lv17: R.Tensor((2, 2, 1), dtype="int64") = R.expand_dims(lv15, axis=[-1])
+                lv18: R.Tensor((2, 2, 2), dtype="int64") = R.concat((lv16, lv17), axis=-1)
+                gv: R.Tensor((3, 4), dtype="float32") = R.scatter_nd(
+                    operand, lv18, update, reduction="update"
+                )
+                R.output(gv)
+            return gv
+
+    verify(Model, Expected)
+
+
 def _build_stablehlo_dynamic_update_slice_model(start_vals, dynamic_starts=False):
     """Build a minimal STABLEHLO_DYNAMIC_UPDATE_SLICE model."""
     builder = flatbuffers.Builder(1024)

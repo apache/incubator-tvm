@@ -232,6 +232,7 @@ class OperatorConverter:
             "DETECTION_POSTPROCESS": self.convert_detection_postprocess,
             "DILATE": self.convert_dilate,
             "DIV": functools.partial(self._convert_elemwise, relax_op=_op.divide),
+            "DYNAMIC_UPDATE_SLICE": self.convert_dynamic_update_slice,
             "ELU": self.convert_elu,
             "EMBEDDING_LOOKUP": self.convert_embedding_lookup,
             "EMBEDDING_LOOKUP_SPARSE": self.convert_embedding_lookup_sparse,
@@ -3384,6 +3385,39 @@ class OperatorConverter:
 
         return self.bb.normalize(relax.op.dynamic_strided_slice(operand, begin, end, strides))
 
+    def convert_dynamic_update_slice(self, op):
+        """Convert TFLite DYNAMIC_UPDATE_SLICE"""
+        input_tensors = self.get_input_tensors(op)
+        assert len(input_tensors) == 3, "input tensors length should be 3"
+        assert len(self.get_output_tensors(op)) == 1
+
+        operand_tensor, update_tensor, start_tensor = input_tensors
+        operand_shape = self._get_static_tensor_shape(operand_tensor, "DYNAMIC_UPDATE_SLICE")
+        update_shape = self._get_static_tensor_shape(update_tensor, "DYNAMIC_UPDATE_SLICE")
+        rank = len(operand_shape)
+        operand = self.get_tensor_expr(operand_tensor)
+        update = self.get_tensor_expr(update_tensor)
+
+        if self.has_expr(start_tensor.tensor_idx):
+            start = self.get_tensor_expr(start_tensor)
+            start_exprs = [
+                relax.op.take(start, relax.const(axis, "int64"), axis=0) for axis in range(rank)
+            ]
+            indices = self._build_dynamic_update_slice_indices(
+                start_exprs, operand_shape, update_shape, rank
+            )
+            return self.bb.normalize(relax.op.scatter_nd(operand, indices, update, "update"))
+
+        update_indices = np.indices(update_shape, dtype=np.int64)
+        for axis, start in enumerate(self.get_tensor_value(start_tensor).reshape(-1)):
+            update_indices[axis] += min(
+                max(int(start), 0), operand_shape[axis] - update_shape[axis]
+            )
+        update_indices = np.moveaxis(update_indices, 0, -1)
+
+        indices = self.bb.normalize(relax.const(update_indices, dtype="int64"))
+        return self.bb.normalize(relax.op.scatter_nd(operand, indices, update, "update"))
+
     def _convert_stablehlo_dynamic_update_slice(self, op):
         """Convert STABLEHLO_DYNAMIC_UPDATE_SLICE to Relax.
 
@@ -3422,7 +3456,7 @@ class OperatorConverter:
 
         if any(self.has_expr(t.tensor_idx) for t in start_tensors):
             indices = self._build_dynamic_update_slice_indices(
-                start_tensors, operand_shape, update_shape, rank
+                [self.get_tensor_expr(t) for t in start_tensors], operand_shape, update_shape, rank
             )
             return self.bb.normalize(relax.op.scatter_nd(operand, indices, update, "update"))
 
@@ -3442,7 +3476,7 @@ class OperatorConverter:
         indices = self.bb.normalize(relax.const(update_indices, dtype="int64"))
         return self.bb.normalize(relax.op.scatter_nd(operand, indices, update, "update"))
 
-    def _build_dynamic_update_slice_indices(self, start_tensors, operand_shape, update_shape, rank):
+    def _build_dynamic_update_slice_indices(self, start_exprs, operand_shape, update_shape, rank):
         """Build the scatter_nd index grid for runtime DYNAMIC_UPDATE_SLICE starts.
 
         Returns an int64 tensor of shape ``(*update_shape, rank)`` where axis ``a``
@@ -3451,9 +3485,7 @@ class OperatorConverter:
         """
         axis_indices = []
         for axis in range(rank):
-            start_expr = self.bb.normalize(
-                relax.op.astype(self.get_tensor_expr(start_tensors[axis]), "int64")
-            )
+            start_expr = self.bb.normalize(relax.op.astype(start_exprs[axis], "int64"))
             max_start = operand_shape[axis] - update_shape[axis]
             start_expr = relax.op.maximum(start_expr, relax.const(0, "int64"))
             start_expr = relax.op.minimum(start_expr, relax.const(max_start, "int64"))
