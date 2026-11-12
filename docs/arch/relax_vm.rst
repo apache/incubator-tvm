@@ -370,6 +370,45 @@ function object, its symbol name, a flag indicating before/after, the return val
 after), and all arguments.
 
 
+C++ Interface
+-------------
+
+An exported Relax executable can also be loaded without Python. The module exposes
+``vm_load_executable``, which creates a VM module; initialize that VM before invoking
+its Relax functions. For a CPU-targeted executable exported with
+``ex.export_library("model.so")``:
+
+.. code-block:: cpp
+
+   #include <tvm/ffi/extra/module.h>
+
+   tvm::ffi::Module CreateCPUVM(const tvm::ffi::String& path) {
+     auto executable = tvm::ffi::Module::LoadFromFile(path);
+     auto vm = executable->GetFunction("vm_load_executable", true).value()()
+                   .cast<tvm::ffi::Module>();
+     vm->GetFunction("vm_initialization").value()(static_cast<int>(kDLCPU), 0);
+     return vm;
+   }
+
+Create the VM with ``auto vm = CreateCPUVM("model.so");`` and retain it for repeated
+inference. Look up its entry function once with
+``auto main = vm->GetFunction("main").value();`` and invoke it as ``main(input)``, where
+``input`` is a CPU ``tvm::ffi::Tensor`` with the shape and dtype expected by the model.
+The return value is ``tvm::ffi::Any``; cast it to the model's output type (for example,
+``tvm::ffi::Tensor`` for a single tensor), rather than assuming every model returns a
+single tensor. The ``.value()`` calls above assume a valid Relax executable exporting
+the named functions.
+
+Link the application with ``tvm_runtime_extra``, ``tvm_runtime``, and ``tvm_ffi`` from
+compatible builds. The Relax VM implementation and its module loader are registered
+by ``tvm_runtime_extra``; linking only the core runtime is not sufficient. With linkers
+that discard unused shared libraries, ensure that this library remains loaded.
+
+The initialization arguments are pairs of device type and device ID. A GPU VM also
+needs a CPU device for shape computations, as supplied by the Python wrapper; simply
+replacing ``kDLCPU`` in this example is not a complete GPU deployment setup.
+
+
 Inspecting Bytecode
 -------------------
 
