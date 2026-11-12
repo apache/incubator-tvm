@@ -3741,6 +3741,23 @@ def test_detection_postprocess_rejects_invalid_class_count():
         _build_detection_postprocess_mod(num_classes=2, input_num_classes=5)
 
 
+@pytest.mark.parametrize(
+    "custom_options",
+    [
+        pytest.param({f"option_{i}_" + "x" * 40: i for i in range(8)}, id="long_keys"),
+        pytest.param({f"key_{i:03d}": i for i in range(40)}, id="many_keys"),
+    ],
+)
+def test_flexbuffer_decoder_wide_key_vector(custom_options):
+    # Over 255 bytes of key strings make the keys vector use 2-byte offsets.
+    from flatbuffers import flexbuffers
+
+    from tvm.relax.frontend.tflite.tflite_flexbuffer import FlexBufferDecoder
+
+    flexbuffer = bytes(flexbuffers.Dumps(custom_options))
+    assert FlexBufferDecoder(flexbuffer).decode() == custom_options
+
+
 def _make_resize_expected(
     input_shape, output_size, method, coordinate_transformation_mode, rounding_method
 ):

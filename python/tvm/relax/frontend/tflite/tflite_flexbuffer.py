@@ -135,10 +135,15 @@ class FlexBufferDecoder:
         size_fmt = {1: "<b", 2: "<h", 4: "<i", 8: "<q"}[byte_width]
         map_size = struct.unpack(size_fmt, self.buffer[mid_loc - byte_width : mid_loc])[0]
 
-        # Find keys
+        # Find keys. The map header also stores the byte width of the keys vector, which is
+        # wider than one byte once a key string sits more than 255 bytes before it.
         keys_offset = mid_loc - byte_width * 3
         keys_end = self.indirect_jump(keys_offset, byte_width)
-        keys = self.decode_keys(keys_end, map_size, 1)
+        keys_byte_width_fmt = {1: "<B", 2: "<H", 4: "<I", 8: "<Q"}[byte_width]
+        keys_byte_width = struct.unpack(
+            keys_byte_width_fmt, self.buffer[mid_loc - byte_width * 2 : mid_loc - byte_width]
+        )[0]
+        keys = self.decode_keys(keys_end, map_size, keys_byte_width)
 
         # Find values
         values_end = self.indirect_jump(end, parent_byte_width)
