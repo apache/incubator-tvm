@@ -12789,6 +12789,60 @@ def test_quantized_fully_connected_with_int32_bias_dequantizes_bias():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
+def test_fully_connected_flattens_input_without_keep_num_dims():
+    builder = flatbuffers.Builder(1024)
+
+    t_in = _build_tensor(builder, 0, [2, 3, 4])
+    t_wt = _build_tensor(builder, 0, [5, 4])
+    t_ou = _build_tensor(builder, 0, [6, 5])
+
+    _tfl_fully_connected_options.FullyConnectedOptionsStart(builder)
+    _tfl_fully_connected_options.FullyConnectedOptionsAddKeepNumDims(builder, False)
+    fc_opts = _tfl_fully_connected_options.FullyConnectedOptionsEnd(builder)
+
+    fc_op = _build_operator(
+        builder,
+        0,
+        [0, 1],
+        [2],
+        builtin_options_type=_tfl_builtin_options.FullyConnectedOptions,
+        builtin_options=fc_opts,
+    )
+    subgraph = _build_subgraph(
+        builder,
+        tensors=[t_in, t_wt, t_ou],
+        operators=[fc_op],
+        inputs=[0, 1],
+        outputs=[2],
+    )
+    buf = _finish_tflite_model(
+        builder,
+        subgraph=subgraph,
+        operator_codes=[_build_operator_code(builder, _tfl_builtin_operator.FULLY_CONNECTED)],
+        buffers=[_build_buffer(builder)],
+    )
+    mod = _load_model_from_buffer(buf)
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            tvmgen_tensor_0: R.Tensor((2, 3, 4), dtype="float32"),
+            tvmgen_tensor_1: R.Tensor((5, 4), dtype="float32"),
+        ) -> R.Tensor((6, 5), dtype="float32"):
+            R.func_attr({"num_input": 2})
+            with R.dataflow():
+                lv: R.Tensor((6, 4), dtype="float32") = R.reshape(tvmgen_tensor_0, R.shape([6, 4]))
+                lv1: R.Tensor((4, 5), dtype="float32") = R.permute_dims(
+                    tvmgen_tensor_1, axes=[1, 0]
+                )
+                gv: R.Tensor((6, 5), dtype="float32") = R.matmul(lv, lv1)
+                R.output(gv)
+            return gv
+
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
+
+
 def _build_csr_sparsity(
     builder,
     *,

@@ -4398,13 +4398,14 @@ class OperatorConverter:
         # Weight require a transpose
         in_expr = self.get_tensor_expr(input_tensor)
 
-        # TODO: Change the output shape calculation based on keep_dim option
         assert op.BuiltinOptionsType() == BuiltinOptions.FullyConnectedOptions
         op_options = op.BuiltinOptions()
         fully_connected_options = FullyConnectedOptions()
         fully_connected_options.Init(op_options.Bytes, op_options.Pos)
         fused_activation_fn = fully_connected_options.FusedActivationFunction()
         keep_num_dims = fully_connected_options.KeepNumDims()
+        if not keep_num_dims and len(self.get_tensor_shape(input_tensor)) > 2:
+            in_expr = relax.op.reshape(in_expr, [-1, weight_tensor_shape[1]])
 
         # weight tensor type should be INT8/UINT8 (quantization) or FLOAT32
         weight_tensor_type = weight_tensor.tensor.Type()
