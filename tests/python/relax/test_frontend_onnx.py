@@ -9160,6 +9160,37 @@ def test_split():
                 )
 
 
+@pytest.mark.parametrize("opset", [11, 13, 18])
+@pytest.mark.parametrize(
+    "length, split",
+    [(3, [1, 0, 2]), (3, [0, 3]), (3, [3, 0, 0]), (0, [0, 0, 0])],
+)
+def test_split_zero_length_outputs(opset, length, split):
+    # A zero-length part repeats a split boundary, which relax.op.split rejects.
+    inputs = ["input"]
+    initializer = []
+    attrs = {"axis": 0}
+    if opset >= 13:
+        inputs.append("split")
+        initializer.append(helper.make_tensor("split", TensorProto.INT64, [len(split)], split))
+    else:
+        attrs["split"] = split
+    outputs = [f"output_{i}" for i in range(len(split))]
+    graph = helper.make_graph(
+        [helper.make_node("Split", inputs, outputs, **attrs)],
+        "split_zero_length_outputs",
+        inputs=[helper.make_tensor_value_info("input", TensorProto.FLOAT, [length])],
+        outputs=[
+            helper.make_tensor_value_info(name, TensorProto.FLOAT, [n])
+            for name, n in zip(outputs, split)
+        ],
+        initializer=initializer,
+    )
+    model = helper.make_model(graph, producer_name="split_zero_length_outputs")
+    data = np.arange(length, dtype=np.float32)
+    check_correctness(model, inputs={"input": data}, opset=opset)
+
+
 def test_split_initializer_with_params_in_input():
     split_sizes = np.array([2, 4], dtype="int64")
     split_node = helper.make_node(

@@ -2985,6 +2985,8 @@ class Split(OnnxOpConverter):
     @classmethod
     def _impl_v1(cls, bb, inputs, attr, params):
         splits = attr.get("split", None)
+        if splits is not None and len(splits) > 1 and 0 in list(splits):
+            return cls._split_with_empty_parts(inputs[0], splits, attr.get("axis", 0))
         if splits is not None and len(splits) > 1:
             indices = []
             index = 0
@@ -3007,6 +3009,8 @@ class Split(OnnxOpConverter):
         if splits is not None and splits_rank > 0:
             if isinstance(splits, tvm_tirx.ir.GenericConst):
                 splits = splits.value.numpy()
+                if len(splits) > 1 and (splits == 0).any():
+                    return cls._split_with_empty_parts(inputs[0], splits, attr.get("axis", 0))
                 indices = []
                 index = 0
                 for i in splits[:-1]:
@@ -3018,6 +3022,18 @@ class Split(OnnxOpConverter):
         else:
             indices = attr["tvm_custom"]["num_outputs"]
         return relax.op.split(inputs[0], indices, attr.get("axis", 0))
+
+    @staticmethod
+    def _split_with_empty_parts(data, splits, axis):
+        # relax.op.split needs strictly increasing indices, so a zero-length part
+        # (a repeated boundary) is lowered as one strided_slice per output.
+        outputs = []
+        begin = 0
+        for length in splits:
+            end = begin + int(length)
+            outputs.append(relax.op.strided_slice(data, axes=[axis], begin=[begin], end=[end]))
+            begin = end
+        return relax.Tuple(outputs)
 
 
 def get_prim_value_list(values):
