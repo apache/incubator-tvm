@@ -18,6 +18,9 @@
 
 from typing import Union
 
+import numpy as np
+import pytest
+
 import tvm
 import tvm_tirx
 import tvm_tirx.script
@@ -25,6 +28,7 @@ import tvm_tirx.testing
 from tvm import relax
 from tvm.relax import Function
 from tvm.relax import script as R
+from tvm.testing import device_enabled
 from tvm_tirx import IRModule
 from tvm_tirx.script import ir as I
 from tvm_tirx.script import tirx as T
@@ -359,6 +363,90 @@ def test_layer_norm():
 
     After = relax.transform.DecomposeOpsForTraining()(Before)
     tvm_tirx.ir.assert_structural_equal(Expected, After)
+
+
+def test_layer_norm_fp16():
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((2, 64, 64), "float16"),
+            gamma: R.Tensor((64, 64), "float16"),
+            beta: R.Tensor((64, 64), "float16"),
+        ):
+            with R.dataflow():
+                out = R.nn.layer_norm(x, gamma, beta, axes=[-2, -1], epsilon=1e-5)
+                R.output(out)
+            return out
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor((2, 64, 64), "float16"),
+            gamma: R.Tensor((64, 64), "float16"),
+            beta: R.Tensor((64, 64), "float16"),
+        ) -> R.Tensor((2, 64, 64), "float16"):
+            with R.dataflow():
+                data = R.astype(x, "float32")
+                mean = R.mean(data, axis=[-2, -1], keepdims=True)
+                centered = R.subtract(data, mean)
+                var = R.variance(data, axis=[-2, -1], keepdims=True)
+                var_eps = R.add(var, R.const(1e-5, "float32"))
+                std = R.sqrt(var_eps)
+                normalized = R.divide(centered, std)
+                normalized_fp16 = R.astype(normalized, "float16")
+                scaled = R.multiply(normalized_fp16, gamma)
+                out = R.add(scaled, beta)
+                R.output(out)
+            return out
+
+    After = relax.transform.DecomposeOpsForTraining()(Before)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
+
+
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.parametrize("dtype", ["float16", "float32"])
+@pytest.mark.parametrize("scale", [False, True])
+@pytest.mark.parametrize("center", [False, True])
+def test_layer_norm_numerical(dtype, scale, center):
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((1, 4096), dtype),
+            gamma: R.Tensor((4096,), dtype),
+            beta: R.Tensor((4096,), dtype),
+        ):
+            with R.dataflow():
+                out = R.nn.layer_norm(
+                    x, gamma, beta, axes=[-1], epsilon=1e-5, scale=scale, center=center
+                )
+                R.output(out)
+            return out
+
+    # FP16 variance accumulation loses contributions after 2048 additions.
+    x = np.tile(np.array([-0.25, 0.25], dtype=dtype), 2048).reshape(1, 4096)
+    gamma = np.linspace(0.5, 1.5, 4096).astype(dtype)
+    beta = np.linspace(-0.25, 0.25, 4096).astype(dtype)
+    data = x.astype("float64")
+    mean = data.mean(axis=-1, keepdims=True)
+    var = ((data - mean) ** 2).mean(axis=-1, keepdims=True)
+    expected = ((data - mean) / np.sqrt(var + 1e-5)).astype(dtype)
+    if scale:
+        expected = (expected * gamma).astype(dtype)
+    if center:
+        expected = (expected + beta).astype(dtype)
+
+    after = relax.transform.DecomposeOpsForTraining()(Before)
+    executable = tvm.compile(after, target="llvm")
+    vm = relax.VirtualMachine(executable, tvm_tirx.cpu())
+    result = vm["main"](*[tvm_tirx.runtime.tensor(a) for a in (x, gamma, beta)]).numpy()
+
+    assert result.shape == x.shape
+    assert result.dtype == x.dtype
+    tolerance = 1e-3 if dtype == "float16" else 1e-5
+    tvm_tirx.testing.assert_allclose(result, expected, rtol=tolerance, atol=tolerance)
 
 
 def test_op_tensor_to_shape():
