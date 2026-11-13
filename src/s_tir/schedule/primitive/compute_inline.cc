@@ -1079,6 +1079,19 @@ void ReverseComputeInlineImpl(ScheduleState self, const StmtSRef& consumer_block
   StmtSRef producer_block_sref =
       NonSingleProducerError::Check(self, consumer_block_sref, scope_root_sref);
   CheckNotOutputBlock(self, producer_block_sref, scope_root_sref);
+  // If the producer has an init statement, the consumer is merged into both its init and its
+  // update, so any computation in the consumer would be applied twice. Only allow the consumer
+  // to be a direct copy of the inlined tensor.
+  const SBlockObj* producer_block = producer_block_sref->StmtAs<SBlockObj>();
+  if (producer_block->init.has_value()) {
+    const auto* store = consumer_block->body->size() == 1
+                            ? consumer_block->body->seq[0].as<TensorStoreObj>()
+                            : nullptr;
+    const auto* load = store ? store->value.as<TensorLoadObj>() : nullptr;
+    if (load == nullptr || !load->source.same_as(inlined_tensor)) {
+      throw MakeScheduleError<HasInitBlock>(self->mod, ffi::GetRef<SBlock>(producer_block));
+    }
+  }
   // Step 4. Analyze the block body
   auto inliner = ffi::make_object<ReverseComputeInliner>(
       inlined_tensor, producer_block_sref->StmtAs<SBlockObj>(), consumer_block_realize,
