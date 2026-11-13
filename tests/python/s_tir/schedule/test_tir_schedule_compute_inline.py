@@ -725,6 +725,26 @@ def elementwise_producer_is_reduction(
 
 
 @Ts.function
+def spatial_producer_with_init(
+    A: T.Tensor((16, 16), "float32"),
+    W: T.Tensor((1,), "float32"),
+    B: T.Tensor((1,), "float32"),
+    D: T.Tensor((16, 16), "float32"),
+) -> None:
+    C = Ts.sblock_alloc_tensor([16, 16], dtype="float32")
+    for i, j in T.grid(16, 16):
+        with Ts.sblock("conv"):
+            vi, vj = Ts.axis.remap("SS", [i, j])
+            with Ts.init():
+                C[vi, vj] = T.float32(0)
+            C[vi, vj] = C[vi, vj] + A[vi, vj] * W[0]
+    for i, j in T.grid(16, 16):
+        with Ts.sblock("bias"):
+            vi, vj = Ts.axis.remap("SS", [i, j])
+            D[vi, vj] = C[vi, vj] + B[0]
+
+
+@Ts.function
 def elementwise_predicate_producer(
     A: T.Tensor((128, 128), "float32"), C: T.Tensor((127, 128), "float32")
 ) -> None:
@@ -1322,6 +1342,15 @@ def test_reverse_compute_inline_producer_is_reduction():
     sch = tvm.s_tir.Schedule(elementwise_producer_is_reduction, debug_mask="all")
     with pytest.raises(tvm.s_tir.ScheduleError):
         sch.reverse_compute_inline(sch.get_sblock("C"))
+
+
+def test_reverse_compute_inline_fail_producer_with_init():
+    """Test reverse compute inline failure when the producer has an init statement and the
+    consumer is not a direct copy, since the consumer would be merged into both init and update
+    """
+    sch = tvm.s_tir.Schedule(spatial_producer_with_init, debug_mask="all")
+    with pytest.raises(tvm.s_tir.ScheduleError):
+        sch.reverse_compute_inline(sch.get_sblock("bias"))
 
 
 def test_compute_inline_softmax():
