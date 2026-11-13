@@ -49,13 +49,16 @@ def test_ragged_causal_loop_bound(group_size, dtype):
     assert len(loops) == 1
     analyzer = tvm_tirx.sym.Analyzer()
     # PagedKVCache passes the same indptr for Q and KV, so each sequence has q_len == kv_len.
-    for seq_len, causal in itertools.product((1, 7, 33, 65, 129), (0, 1)):
+    # Also cover longer KV sequences, supported by the kernel's separate indptr arrays.
+    for seq_len, kv_extra, causal in itertools.product((1, 7, 33, 65, 129), (0, 37), (0, 1)):
+        kv_len = seq_len + kv_extra
         for start in range(0, seq_len * group_size, tile_x):
             values = {"q_len": seq_len, "LH_start": start, "causal": causal}
 
             def substitute(node):
+                # q_len is replaced below, leaving only kv_chunk_len[0] as a tensor load.
                 if isinstance(node, ir.TensorLoad):
-                    return ir.IntImm("int32", seq_len)
+                    return ir.IntImm("int32", kv_len)
                 if isinstance(node, ir.Var):
                     if node.name in values:
                         return ir.IntImm("int32", values[node.name])
@@ -67,10 +70,10 @@ def test_ragged_causal_loop_bound(group_size, dtype):
             for _ in range(3):
                 end = tvm_ffi.structural_map(end, substitute)
             actual = int(analyzer.simplify(end))
-            # Derive the last visible key independently of the bound expression in the kernel.
+            # Derive the last visible key independently of the kernel's bound expression.
             last_row = min(start + tile_x, seq_len * group_size) - 1
-            last_key = last_row // group_size if causal else seq_len - 1
-            assert actual == last_key // tile_z + 1, (seq_len, causal, start, group_size)
+            last_key = kv_len - seq_len + last_row // group_size if causal else kv_len - 1
+            assert actual == last_key // tile_z + 1, (seq_len, kv_len, causal, start, group_size)
 
 
 def test_ragged_prefill_webgpu_codegen():
