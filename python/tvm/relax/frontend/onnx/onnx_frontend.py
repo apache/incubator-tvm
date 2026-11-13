@@ -62,7 +62,6 @@ from tvm.ir import Expr as TvmExpr
 from tvm.ir import IRModule
 from tvm.ir.supply import UniqueNameSupply
 from tvm.runtime import DataType, DataTypeCode
-from tvm.topi.utils import get_const_tuple
 
 from ..common import autopad
 
@@ -4605,15 +4604,6 @@ class LayerNormalization(OnnxOpConverter):
         epsilon = attr.get("epsilon", 1e-05)
         stash_type = attr.get("stash_type", 1)
 
-        gamma_shape = get_const_tuple(scale.ty.shape)
-
-        if bias is None:
-            bias = relax.const(_np.zeros(gamma_shape), dtype=scale.ty.dtype)
-        else:
-            beta_shape = get_const_tuple(bias.ty.shape)
-            if gamma_shape != beta_shape:
-                raise ValueError("gamma and beta shapes do not match")
-
         if stash_type != 1:
             raise ValueError("LayerNormalization currently only supports stash_type=1 (FLOAT).")
         ndim = _get_known_tensor_rank(data)
@@ -4621,16 +4611,34 @@ class LayerNormalization(OnnxOpConverter):
             raise ValueError("LayerNormalization requires a statically known input rank.")
         axis = _normalize_constant_axes([axis], ndim, "LayerNormalization")[0]
         axes = list(range(axis, ndim))
+        num_outputs = attr["tvm_custom"]["num_outputs"]
+        dtype = str(data.ty.dtype)
 
-        output = relax.op.nn.layer_norm(data, scale, bias, axes, epsilon)
-        stats_data = data
-        if str(data.ty.dtype) != "float32":
-            stats_data = relax.op.astype(data, "float32")
-        mean = relax.op.mean(stats_data, axis=axes, keepdims=True)
-        variance = relax.op.variance(stats_data, axis=axes, keepdims=True)
-        inv_std_dev = relax.op.rsqrt(
-            relax.op.add(variance, relax.const(epsilon, dtype="float32"))
+        # Relax's fused operator requires affine parameters to match the normalized shape.
+        if num_outputs == 1 and dtype == "float32" and isinstance(data.ty.shape, relax.ShapeExpr):
+            normalized_shape = relax.ShapeExpr(data.ty.shape.values[axis:])
+            if tvm_ffi.structural_equal(scale.ty.shape, normalized_shape) and (
+                bias is None or tvm_ffi.structural_equal(bias.ty.shape, normalized_shape)
+            ):
+                if bias is None:
+                    bias = relax.op.zeros_like(scale)
+                return relax.op.nn.layer_norm(data, scale, bias, axes, epsilon)
+
+        stats_data = data if dtype == "float32" else bb.emit(relax.op.astype(data, "float32"))
+        mean = bb.emit(relax.op.mean(stats_data, axis=axes, keepdims=True))
+        centered = bb.emit(relax.op.subtract(stats_data, mean))
+        variance = relax.op.mean(relax.op.multiply(centered, centered), axis=axes, keepdims=True)
+        inv_std_dev = bb.emit(
+            relax.op.rsqrt(relax.op.add(variance, relax.const(epsilon, dtype="float32")))
         )
+        normalized = relax.op.multiply(centered, inv_std_dev)
+        if dtype != "float32":
+            normalized = relax.op.astype(normalized, dtype)
+        output = relax.op.multiply(normalized, scale)
+        if bias is not None:
+            output = relax.op.add(output, bias)
+        if num_outputs == 1:
+            return output
         return relax.Tuple([output, mean, inv_std_dev])
 
 

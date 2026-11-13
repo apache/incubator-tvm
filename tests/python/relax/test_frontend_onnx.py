@@ -5971,6 +5971,74 @@ def test_layer_norm_optional_outputs():
     )
 
 
+@pytest.mark.parametrize("dtype", ["float32", "float16"])
+@pytest.mark.parametrize("axis", [1, -2])
+@pytest.mark.parametrize(
+    "scale_shape, bias_shape",
+    [((4,), (4,)), ((1, 4), (4,)), ((4, 4), None), ((4, 4), (4, 4))],
+)
+@pytest.mark.parametrize("num_outputs", [1, 2, 3])
+def test_layer_norm_broadcast_parameters(dtype, axis, scale_shape, bias_shape, num_outputs):
+    tensor_type = TensorProto.FLOAT if dtype == "float32" else TensorProto.FLOAT16
+    input_names = ["input", "scale"]
+    input_infos = [
+        helper.make_tensor_value_info("input", tensor_type, [2, 4, 4]),
+        helper.make_tensor_value_info("scale", tensor_type, scale_shape),
+    ]
+    inputs = {
+        "input": np.linspace(-3.0, 5.0, 32).reshape(2, 4, 4).astype(dtype),
+        "scale": np.linspace(0.5, 1.5, int(np.prod(scale_shape)))
+        .reshape(scale_shape)
+        .astype(dtype),
+    }
+    if bias_shape is not None:
+        input_names.append("bias")
+        input_infos.append(helper.make_tensor_value_info("bias", tensor_type, bias_shape))
+        inputs["bias"] = (
+            np.linspace(-0.25, 0.25, int(np.prod(bias_shape))).reshape(bias_shape).astype(dtype)
+        )
+    output_infos = [
+        helper.make_tensor_value_info("Y", tensor_type, [2, 4, 4]),
+        helper.make_tensor_value_info("Mean", TensorProto.FLOAT, [2, 1, 1]),
+        helper.make_tensor_value_info("InvStdDev", TensorProto.FLOAT, [2, 1, 1]),
+    ][:num_outputs]
+    node = helper.make_node(
+        "LayerNormalization", input_names, [info.name for info in output_infos], axis=axis
+    )
+    model = helper.make_model(
+        helper.make_graph([node], "layer_norm_broadcast_parameters", input_infos, output_infos),
+        opset_imports=[helper.make_opsetid("", 17)],
+    )
+    check_correctness(
+        model,
+        inputs=inputs,
+        opset=17,
+        check_dtypes=True,
+        rtol=1e-3 if dtype == "float16" else 1e-5,
+        atol=1e-3 if dtype == "float16" else 1e-5,
+    )
+
+
+def test_layer_norm_y_only_keeps_fused_path():
+    node = helper.make_node("LayerNormalization", ["input", "scale"], ["Y"])
+    model = helper.make_model(
+        helper.make_graph(
+            [node],
+            "layer_norm_y_only",
+            [
+                helper.make_tensor_value_info("input", TensorProto.FLOAT, [2, 4]),
+                helper.make_tensor_value_info("scale", TensorProto.FLOAT, [4]),
+            ],
+            [helper.make_tensor_value_info("Y", TensorProto.FLOAT, [2, 4])],
+        ),
+        opset_imports=[helper.make_opsetid("", 17)],
+    )
+    ops = collect_relax_call_ops(from_onnx(model)["main"])
+    assert "relax.nn.layer_norm" in ops
+    assert "relax.mean" not in ops
+    assert "relax.rsqrt" not in ops
+
+
 def test_layer_norm_with_nd_gamma_beta():
     layer_norm_node = helper.make_node(
         "LayerNormalization", ["input", "scale", "bias"], ["Y"], axis=1, epsilon=1e-12
