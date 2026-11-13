@@ -5455,7 +5455,7 @@ class OneHot(OnnxOpConverter):
         assert isinstance(depth, tvm_tirx.ir.GenericConst), (
             "Only constant depth currently supported."
         )
-        depth = depth.value.numpy().tolist()
+        depth = int(depth.value.numpy().item())
         assert isinstance(values, tvm_tirx.ir.GenericConst), (
             "Only constant values currently supported."
         )
