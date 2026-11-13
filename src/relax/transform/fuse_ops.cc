@@ -876,6 +876,7 @@ class OperatorFusor : public ExprMutator {
 
   BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) final {
     group2func_.clear();
+    CollectGroupsWithCall(block->bindings);
 
     // Step 1. Collect the bindings for each grouped function.
     CollectFuncBindings(block->bindings);
@@ -910,7 +911,7 @@ class OperatorFusor : public ExprMutator {
       // Case 1. If the binding is the only binding in its group, recurse into it and emit the
       // transformed binding as usual.
       Group* group = GetGroupFromBinding(binding);
-      if (group->num_nodes == 1 && group->attrs.empty()) {
+      if (!NeedsGroupedFunction(group)) {
         VisitBinding(binding);
         continue;
       }
@@ -993,6 +994,30 @@ class OperatorFusor : public ExprMutator {
     return builder_->EndBlock();
   }
 
+  /*! \brief Record the groups that contain at least one call, e.g. a call to `relax.call_tir`. */
+  void CollectGroupsWithCall(const ffi::Array<Binding>& bindings) {
+    groups_with_call_.clear();
+    for (const Binding& binding : bindings) {
+      const auto* var_binding = binding.as<VarBindingNode>();
+      if (var_binding && var_binding->value->IsInstance<CallNode>()) {
+        groups_with_call_.insert(GetGroupFromBinding(binding));
+      }
+    }
+  }
+
+  /*!
+   * \brief Check whether a grouped function should be created for the group.
+   * \note A group with a single binding needs no function. Neither does a group without any call,
+   * e.g. a chain of TupleGetItem: there is nothing to fuse, and the resulting function would
+   * contain no PrimFunc call for FuseTIR to lower.
+   */
+  bool NeedsGroupedFunction(Group* group) const {
+    if (!group->attrs.empty()) {
+      return true;
+    }
+    return group->num_nodes > 1 && groups_with_call_.count(group);
+  }
+
   /*!
    * \brief Collect the bindings for each grouped function and update the information of the grouped
    * function
@@ -1003,7 +1028,7 @@ class OperatorFusor : public ExprMutator {
     for (const Binding& binding : bindings) {
       // If the binding is the only binding in its group, there is no need to create a new function.
       Group* group = GetGroupFromBinding(binding);
-      if (group->num_nodes == 1 && group->attrs.empty()) {
+      if (!NeedsGroupedFunction(group)) {
         continue;
       }
       // Add the binding to the grouped function it's in, and update the function information
@@ -1136,6 +1161,8 @@ class OperatorFusor : public ExprMutator {
   support::Arena arena_;
   /*! \brief The group assignment map. */
   GroupMap obj2group_;
+  /*! \brief The groups in the current binding block that contain at least one call. */
+  std::unordered_set<Group*> groups_with_call_;
   /*! \brief Internal function information map. */
   std::unordered_map<Group*, FunctionCreator> group2func_;
   /*! \brief Bindings visible while rewriting the current Relax function. */

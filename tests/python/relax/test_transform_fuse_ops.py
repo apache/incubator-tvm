@@ -379,6 +379,27 @@ def test_tuple_get_root():
     _check(before(dim), expected(dim))
 
 
+def test_tuple_get_item_chain_without_call():
+    """Chained TupleGetItem without any call has nothing to fuse, so it stays in main.
+
+    Fusing it used to create a function without any call_tir, which FuseTIR rejects.
+    """
+
+    @I.ir_module
+    class Module:
+        @R.function
+        def main(x: R.Tensor((2, 3), "float32")) -> R.Tensor((2, 3), "float32"):
+            with R.dataflow():
+                inner = (x, x)
+                outer = (inner, x)
+                a = outer[0]
+                b = a[0]
+                R.output(b)
+            return b
+
+    _check(Module, Module)
+
+
 def test_tuple_intermediate():
     def before():
         bb = relax.BlockBuilder()
