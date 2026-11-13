@@ -5611,6 +5611,164 @@ class HardSwish(OnnxOpConverter):
         )
 
 
+class Swish(OnnxOpConverter):
+    """Converts an onnx Swish node into an equivalent Relax expression.
+
+    swish(x, beta=1) = x * sigmoid(beta * x) = x / (1 + exp(-beta * x))
+    When beta == 1 this is equivalent to the SiLU activation.
+    """
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        x = inputs[0]
+        beta = attr.get("beta", 1.0)
+        if beta == 1.0:
+            return relax.op.nn.silu(x)
+        dtype = x.ty.dtype
+        return relax.op.multiply(x, relax.op.sigmoid(relax.op.multiply(relax.const(beta, dtype), x)))
+
+
+class Celu(OnnxOpConverter):
+    """Converts an onnx Celu node into an equivalent Relax expression.
+
+    celu(x, alpha=1) = max(0, x) + min(0, alpha * (exp(x / alpha) - 1))
+    """
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        x = inputs[0]
+        alpha = attr.get("alpha", 1.0)
+        dtype = x.ty.dtype
+        alpha_const = relax.const(alpha, dtype)
+        zero = relax.const(0, dtype)
+        pos_part = relax.op.nn.relu(x)
+        neg_expr = relax.op.multiply(
+            alpha_const,
+            relax.op.subtract(relax.op.exp(relax.op.divide(x, alpha_const)), relax.const(1.0, dtype)),
+        )
+        neg_part = relax.op.where(relax.op.less(x, zero), neg_expr, zero)
+        return relax.op.add(pos_part, neg_part)
+
+
+class ReverseSequence(OnnxOpConverter):
+    """Converts an onnx ReverseSequence node into an equivalent Relax expression.
+
+    Reverses each slice of ``data`` along ``time_axis`` for its first
+    ``time_lens[batch_idx]`` elements. ONNX defaults are ``time_axis=0`` and
+    ``batch_axis=1``; Relax's :func:`relax.op.reverse_sequence` uses the same
+    semantics under the names ``seq_axis`` and ``batch_axis`` respectively.
+    """
+
+    @classmethod
+    def _impl_v10(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        time_lens = inputs[1]
+        time_axis = attr.get("time_axis", 0)
+        batch_axis = attr.get("batch_axis", 1)
+        return relax.op.reverse_sequence(
+            data, time_lens, seq_axis=time_axis, batch_axis=batch_axis
+        )
+
+
+class CumProd(OnnxOpConverter):
+    """Converts an onnx CumProd node into an equivalent Relax expression.
+
+    ONNX CumProd supports an ``exclusive`` attribute (default ``false``)
+    matching Relax's :func:`relax.op.cumprod`. ``reverse`` is not supported by
+    Relax cumprod, so ``reverse=true`` falls back to a manual ``flip + cumprod +
+    flip`` composition.
+    """
+
+    @classmethod
+    def _impl_v11(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        axis = attr.get("axis", 0)
+        exclusive = bool(attr.get("exclusive", False))
+        reverse = bool(attr.get("reverse", False))
+        result = relax.op.cumprod(data, axis=axis, exclusive=exclusive)
+        if reverse:
+            result = relax.op.flip(result, axis=axis)
+        return result
+
+
+class SoftmaxCrossEntropyLoss(OnnxOpConverter):
+    """Converts an onnx SoftmaxCrossEntropyLoss node into an equivalent Relax expression.
+
+    Computes ``CrossEntropy(LogSoftmax(scores), labels)`` with optional label
+    smoothing, per-element ignore masking, and mean/sum/none reduction.
+
+    ONNX SoftmaxCrossEntropyLoss normalises internally; this converter explicitly
+    applies ``log_softmax`` then neg-likelihood per-class weighting so the forward
+    graph is composed of verifiable Relax primitives.
+    """
+
+    @classmethod
+    def _impl_v13(cls, bb, inputs, attr, params):
+        scores = inputs[0]
+        labels = inputs[1]
+        ignore_index = attr.get("ignore_index", -100)
+        reduction = attr.get("reduction", "mean")
+        label_smoothing = float(attr.get("label_smoothing", 0.0))
+        opset_version = attr.get("opset_version", 20)
+
+        # ONNX-21 added a class_weights input (optional 3rd input).
+        class_weights = inputs[2] if len(inputs) >= 3 else None
+
+        # Class/probability dimension is always axis=1 for 4-D (N,C,H,W) or the
+        # last dimension for 2-D (N,C).
+        rank = _get_known_tensor_rank(scores)
+        if rank is None:
+            raise ValueError(
+                "SoftmaxCrossEntropyLoss requires a statically known input rank."
+            )
+        class_axis = 1 if rank >= 2 else 0
+        if rank == 2:
+            class_axis = 1
+
+        log_probs = relax.op.nn.log_softmax(scores, axis=class_axis)
+
+        # Per-position NLL: gather log_probs at the label index.
+        # We scatter labels into one-hot along class_axis then sum.
+        label_dtype = labels.ty.dtype
+        vocab_size = scores.ty.shape[class_axis]
+        if not isinstance(vocab_size, tirx.IntImm):
+            raise ValueError(
+                "SoftmaxCrossEntropyLoss requires a statically known class dimension."
+            )
+        vocab = int(vocab_size)
+
+        one_hot = relax.op.one_hot(labels, vocab, axis=class_axis, dtype="float32")
+        # Mask out ignore_index positions before dot-product.
+        not_ignored = relax.op.not_equal(labels, relax.const(ignore_index, label_dtype))
+        # Expand mask to broadcast over class_axis (reduce via product).
+        axes_to_reduce = [i for i in range(rank) if i != class_axis]
+        mask_broadcast = relax.op.expand_dims(not_ignored, axis=class_axis)
+
+        if label_smoothing > 0:
+            # Smooth one-hot: label position gets (1-smooth), others get smooth/(C-1).
+            smooth_pos = 1.0 - label_smoothing
+            smooth_neg = label_smoothing / float(vocab - 1)
+            uniform = relax.op.full_like(one_hot, smooth_neg)
+            one_hot = relax.op.where(one_hot > 0, relax.op.full_like(one_hot, smooth_pos), uniform)
+
+        # nll = -sum(log_probs * one_hot, axis=class_axis) * mask
+        nll_per_pos = -relax.op.sum(log_probs * one_hot, axis=class_axis)
+        nll_per_pos = nll_per_pos * relax.op.squeeze(mask_broadcast, axis=class_axis)
+
+        if class_weights is not None:
+            # class_weights: [vocab] → broadcast to shape of nll_per_pos
+            cw = relax.op.reshape(class_weights, [vocab] + [1] * (rank - 2))
+            nll_per_pos = nll_per_pos * cw
+
+        if reduction == "none":
+            return nll_per_pos
+        elif reduction == "sum":
+            return relax.op.sum(nll_per_pos)
+        else:  # "mean"
+            denom = relax.op.sum(relax.op.cast(not_ignored, "float32"))
+            return relax.op.sum(nll_per_pos) / relax.op.maximum(denom, relax.const(1.0, "float32"))
+
+
 class Sign(OnnxOpConverter):
     """Converts an onnx Sign node into an equivalent Relax expression."""
 
@@ -6245,6 +6403,11 @@ def _get_convert_map():
         "BiasGelu": BiasGelu,
         "HardSigmoid": HardSigmoid,
         "HardSwish": HardSwish,
+        "Swish": Swish,
+        "Celu": Celu,
+        "ReverseSequence": ReverseSequence,
+        "CumProd": CumProd,
+        "SoftmaxCrossEntropyLoss": SoftmaxCrossEntropyLoss,
         "Sign": Sign,
         "Softplus": Softplus,
         "Softsign": Softsign,
