@@ -17,6 +17,7 @@
  * under the License.
  */
 const { WebGPUContext } = require("../../src/webgpu");
+const { CacheState } = require("../../src/cache_state");
 
 global.GPUBufferUsage = {
   MAP_READ: 1 << 0,
@@ -47,6 +48,8 @@ function createMockDevice({
   onSubmittedWorkDone = () => Promise.resolve(),
 } = {}) {
   const events = [];
+  // Like `events`, but also records compute pass boundaries.
+  const trace = [];
   const encoders = [];
 
   const queue = {
@@ -59,25 +62,61 @@ function createMockDevice({
     queue,
     createCommandEncoder: jest.fn(() => {
       const commands = [];
+      const passes = [];
       const encoderId = encoders.length;
+      // WebGPU locks a command encoder while one of its passes is open:
+      // recording a copy, opening a second pass, or calling finish() in that
+      // state is a validation error. The mock throws so tests catch it.
+      let openPass = null;
+      const assertUnlocked = (what) => {
+        if (openPass !== null) {
+          throw new Error("mock WebGPU: " + what + " while a compute pass is open");
+        }
+      };
       const encoder = {
         commands,
-        beginComputePass: jest.fn(() => ({
-          setPipeline: jest.fn(),
-          setBindGroup: jest.fn(),
-          dispatchWorkgroups: jest.fn(() => {
-            commands.push("compute");
-            events.push("compute");
-          }),
-          end: jest.fn(),
-        })),
+        passes,
+        beginComputePass: jest.fn(() => {
+          assertUnlocked("beginComputePass");
+          const pass = {
+            ended: false,
+            dispatchCount: 0,
+            setPipeline: jest.fn(),
+            setBindGroup: jest.fn(),
+            dispatchWorkgroups: jest.fn(() => {
+              if (pass.ended) {
+                throw new Error("mock WebGPU: dispatch on an ended compute pass");
+              }
+              pass.dispatchCount += 1;
+              commands.push("compute");
+              events.push("compute");
+              trace.push("dispatch");
+            }),
+            end: jest.fn(() => {
+              if (pass.ended) {
+                throw new Error("mock WebGPU: compute pass ended twice");
+              }
+              pass.ended = true;
+              openPass = null;
+              trace.push("endPass");
+            }),
+          };
+          openPass = pass;
+          passes.push(pass);
+          trace.push("beginPass");
+          return pass;
+        }),
         copyBufferToBuffer: jest.fn(() => {
+          assertUnlocked("copyBufferToBuffer");
           commands.push("copy");
           events.push("copy");
+          trace.push("copy");
         }),
         finish: jest.fn(() => {
+          assertUnlocked("finish");
           const commandBuffer = { encoderId, commands: commands.slice() };
           events.push("finish");
+          trace.push("finish");
           return commandBuffer;
         }),
       };
@@ -104,17 +143,17 @@ function createMockDevice({
     destroy: jest.fn(),
   };
 
-  return { device, queue, events, encoders };
+  return { device, queue, events, trace, encoders };
 }
 
-function createContext(deviceOptions) {
+function createContext(deviceOptions, cacheState) {
   const gpu = createMockDevice(deviceOptions);
   const memory = {
     loadRawBytes: jest.fn(),
     viewRawBytes: jest.fn(),
     storeRawBytes: jest.fn(),
   };
-  const context = new WebGPUContext(memory, gpu.device);
+  const context = new WebGPUContext(memory, gpu.device, cacheState);
   const allocate = context.getDeviceAPI("deviceAllocDataSpace");
 
   return {
@@ -444,4 +483,523 @@ test("sync propagates a pending readback failure", async () => {
 
   await expect(context.sync()).rejects.toBe(readError);
   expect(queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+});
+
+function createNoArgShader(context, name = "main") {
+  return context.createShader(
+    {
+      name,
+      arg_types: [],
+      launch_param_tags: [],
+    },
+    "@compute @workgroup_size(1) fn " + name + "() {}"
+  );
+}
+
+test("consecutive dispatches share one compute pass", async () => {
+  const { context, queue, trace, encoders } = createContext();
+  const shader = createNoArgShader(context);
+
+  shader();
+  shader();
+  shader();
+
+  expect(encoders).toHaveLength(1);
+  expect(encoders[0].beginComputePass).toHaveBeenCalledTimes(1);
+  expect(encoders[0].passes[0].dispatchCount).toBe(3);
+  expect(encoders[0].passes[0].ended).toBe(false);
+  expect(queue.submit).not.toHaveBeenCalled();
+
+  await context.sync();
+
+  expect(trace).toEqual([
+    "beginPass", "dispatch", "dispatch", "dispatch", "endPass", "finish",
+  ]);
+  expect(queue.submit).toHaveBeenCalledTimes(1);
+
+  // Dispatches after a flush start a new encoder and a new pass.
+  shader();
+  shader();
+  await context.sync();
+
+  expect(encoders).toHaveLength(2);
+  expect(encoders[1].passes).toHaveLength(1);
+  expect(encoders[1].passes[0].dispatchCount).toBe(2);
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+});
+
+test("a GPU copy ends the open compute pass and the next dispatch opens a new one", async () => {
+  const { context, trace, encoders, source, destination } = createContext();
+  const copyWithinGPU = context.getDeviceAPI("deviceCopyWithinGPU");
+  const shader = createNoArgShader(context);
+
+  shader();
+  shader();
+  copyWithinGPU(source, 0, destination, 0, 16);
+  copyWithinGPU(destination, 16, source, 32, 16);
+  shader();
+  await context.sync();
+
+  expect(encoders).toHaveLength(1);
+  expect(encoders[0].beginComputePass).toHaveBeenCalledTimes(2);
+  expect(trace).toEqual([
+    "beginPass", "dispatch", "dispatch", "endPass",
+    "copy", "copy",
+    "beginPass", "dispatch", "endPass",
+    "finish",
+  ]);
+});
+
+test.each([
+  ["buffer deallocation", ({ context, source }) =>
+    context.getDeviceAPI("deviceFreeDataSpace")(source)],
+  ["host write", ({ context, destination }) =>
+    context.copyRawBytesToBuffer(new Uint8Array([1, 2, 3, 4]), destination, 0, 4)],
+  ["GPU readback", ({ context, source }) =>
+    context.getDeviceAPI("deviceCopyFromGPU")(source, 0, 128, 16)],
+  ["dispose", ({ context }) => context.dispose()],
+])("%s ends the open compute pass before finishing the encoder", (_name, flushPoint) => {
+  const gpu = createContext();
+  createNoArgShader(gpu.context)();
+  // The mock throws if the encoder is finished while its pass is open.
+  flushPoint(gpu);
+  expect(gpu.trace.slice(0, 4)).toEqual(["beginPass", "dispatch", "endPass", "finish"]);
+});
+
+test("a launch that throws leaves the shared pass usable and closable", async () => {
+  const { context, queue, trace } = createContext();
+  const shader = createNoArgShader(context);
+
+  // Wrong argument count: the launch throws after the pass has been opened.
+  expect(() => shader(1)).toThrow();
+  shader();
+  await context.sync();
+
+  expect(trace).toEqual(["beginPass", "dispatch", "endPass", "finish"]);
+  expect(queue.submit).toHaveBeenCalledTimes(1);
+});
+
+// A kernel with two buffer arguments, one int32 POD argument and a blockIdx.x
+// launch dimension: shader(bufferA, bufferB, podValue, gridX).
+function createBufferShader(context, name = "kernel", extraPodArgs = 0) {
+  const podTypes = new Array(1 + extraPodArgs).fill("int32");
+  return context.createShader(
+    {
+      name,
+      arg_types: ["handle", "handle", ...podTypes],
+      launch_param_tags: ["blockIdx.x", "paramWriteAccess:[0,1]"],
+    },
+    "@compute @workgroup_size(1) fn " + name + "() {}"
+  );
+}
+
+function boundBuffers(device, callIndex) {
+  const descriptor = device.createBindGroup.mock.calls[callIndex][0];
+  return descriptor.entries.map((entry) => entry.resource.buffer);
+}
+
+test("a launch reuses the bind group of its shader, buffers and batch position", async () => {
+  const { context, device, encoders, source, destination } = createContext();
+  const shader = createBufferShader(context);
+
+  shader(source, destination, 7, 1);
+  await context.sync();
+  shader(source, destination, 8, 1);
+  await context.sync();
+
+  expect(device.createBindGroup).toHaveBeenCalledTimes(1);
+  const bindGroup = device.createBindGroup.mock.results[0].value;
+  expect(encoders[0].passes[0].setBindGroup).toHaveBeenCalledWith(0, bindGroup);
+  expect(encoders[1].passes[0].setBindGroup).toHaveBeenCalledWith(0, bindGroup);
+
+  // The second position of a batch owns another uniform buffer, since both
+  // launches are pending at once and may carry different POD arguments.
+  shader(source, destination, 9, 1);
+  shader(source, destination, 10, 1);
+  await context.sync();
+  expect(device.createBindGroup).toHaveBeenCalledTimes(2);
+  expect(boundBuffers(device, 1)[2]).not.toBe(boundBuffers(device, 0)[2]);
+  shader(source, destination, 9, 1);
+  shader(source, destination, 10, 1);
+  expect(device.createBindGroup).toHaveBeenCalledTimes(2);
+});
+
+test("different buffer arguments or shaders get different bind groups", () => {
+  const { context, device, source, destination } = createContext();
+  const first = createBufferShader(context, "first");
+  const second = createBufferShader(context, "second");
+  const buffers = device.createBuffer.mock.results.map((r) => r.value);
+
+  first(source, destination, 7, 1);
+  context.flushCommands();
+  first(destination, source, 7, 1);
+  context.flushCommands();
+  second(source, destination, 7, 1);
+
+  expect(device.createBindGroup).toHaveBeenCalledTimes(3);
+  expect(boundBuffers(device, 0).slice(0, 2)).toEqual([buffers[0], buffers[1]]);
+  expect(boundBuffers(device, 1).slice(0, 2)).toEqual([buffers[1], buffers[0]]);
+  expect(boundBuffers(device, 2).slice(0, 2)).toEqual([buffers[0], buffers[1]]);
+});
+
+test("a pointer slot reused by a new buffer never hits a stale bind group", () => {
+  const { context, device, source, destination } = createContext();
+  const allocate = context.getDeviceAPI("deviceAllocDataSpace");
+  const free = context.getDeviceAPI("deviceFreeDataSpace");
+  const shader = createBufferShader(context);
+
+  shader(source, destination, 7, 1);
+  free(source);
+  const reused = allocate(64);
+  expect(reused).toBe(source);
+  const newBuffer = device.createBuffer.mock.results.at(-1).value;
+
+  shader(reused, destination, 7, 1);
+
+  expect(device.createBindGroup).toHaveBeenCalledTimes(2);
+  expect(boundBuffers(device, 1)[0]).toBe(newBuffer);
+});
+
+test("a replaced uniform pool buffer never hits a stale bind group", () => {
+  const { context, device, source, destination } = createContext();
+  const small = createBufferShader(context, "small");
+  const large = createBufferShader(context, "large", 4);
+
+  small(source, destination, 7, 1);
+  context.flushCommands();
+  const smallUniform = boundBuffers(device, 0)[2];
+
+  // Pool slot 0 is too small for this kernel, so its buffer is replaced.
+  large(source, destination, 1, 2, 3, 4, 5, 1);
+  context.flushCommands();
+  expect(smallUniform.destroy).toHaveBeenCalledTimes(1);
+
+  small(source, destination, 7, 1);
+
+  expect(device.createBindGroup).toHaveBeenCalledTimes(3);
+  expect(boundBuffers(device, 2)[2]).toBe(boundBuffers(device, 1)[2]);
+  expect(boundBuffers(device, 2)[2]).not.toBe(smallUniform);
+});
+
+test("every buffer argument contributes a defined id to the cache key", () => {
+  const { context, source, destination } = createContext();
+  const allocate = context.getDeviceAPI("deviceAllocDataSpace");
+  const computeKey = CacheState.computeBindGroupKey;
+  const seen = [];
+  // The runtime reuses one array for the buffer ids, so copy it per call.
+  const keys = jest.spyOn(CacheState, "computeBindGroupKey").mockImplementation(
+    (shaderUid, bufferUids, uniformUid) => {
+      seen.push([shaderUid, ...bufferUids, uniformUid]);
+      return computeKey(shaderUid, bufferUids, uniformUid);
+    }
+  );
+  const shader = createBufferShader(context);
+
+  shader(source, destination, 7, 1);
+  shader(destination, allocate(64), 7, 1);
+  keys.mockRestore();
+
+  expect(seen).toHaveLength(2);
+  expect(seen.flat().every(Number.isInteger)).toBe(true);
+  // Three buffers and two uniform pool buffers: five distinct ids.
+  const bufferAndUniformIds = seen.flatMap((ids) => ids.slice(1));
+  expect(new Set(bufferAndUniformIds).size).toBe(5);
+});
+
+test("the bind group cache is bounded by the CacheState size", () => {
+  const { context, device } = createContext(undefined, new CacheState(256, 2));
+  const allocate = context.getDeviceAPI("deviceAllocDataSpace");
+  const [a, b, c] = [allocate(64), allocate(64), allocate(64)];
+  const shader = createBufferShader(context);
+  const run = (x, y) => {
+    shader(x, y, 7, 1);
+    context.flushCommands();
+  };
+
+  run(a, b);
+  run(a, c);
+  run(a, b); // hit, and now more recently used than (a, c)
+  run(b, c); // evicts (a, c)
+  run(a, b); // still cached
+  expect(device.createBindGroup).toHaveBeenCalledTimes(3);
+  run(a, c); // was evicted
+  expect(device.createBindGroup).toHaveBeenCalledTimes(4);
+});
+
+test("contexts sharing a CacheState never share bind groups, and dispose clears them", () => {
+  const cacheState = new CacheState();
+  const launch = () => {
+    const { context, device } = createContext(undefined, cacheState);
+    const allocate = context.getDeviceAPI("deviceAllocDataSpace");
+    createBufferShader(context)(allocate(64), allocate(64), 7, 1);
+    return { context, device };
+  };
+
+  // Same shader, pointers and pool slot on two devices: a bind group of the
+  // first device must not be handed to the second.
+  const first = launch();
+  const second = launch();
+  expect(first.device.createBindGroup).toHaveBeenCalledTimes(1);
+  expect(second.device.createBindGroup).toHaveBeenCalledTimes(1);
+  expect(cacheState.bindGroupCache.size).toBe(2);
+
+  first.context.dispose();
+  expect(cacheState.bindGroupCache.size).toBe(0);
+});
+
+// Uploads of POD arguments: writeBuffer(buffer, 0, data). Host-to-GPU copies
+// pass five arguments.
+function uniformWrites(queue) {
+  return queue.writeBuffer.mock.calls
+    .filter((call) => call.length === 3)
+    .map((call) => Array.from(new Int32Array(call[2])));
+}
+
+test("POD arguments are uploaded only when the launch's pool buffer holds other words", async () => {
+  const { context, queue, source, destination } = createContext();
+  const shader = createBufferShader(context);
+
+  shader(source, destination, 7, 1);
+  await context.sync();
+  shader(source, destination, 7, 1);
+  await context.sync();
+  expect(uniformWrites(queue)).toEqual([[7, 1]]);
+
+  shader(source, destination, 8, 1);
+  await context.sync();
+  shader(source, destination, 7, 2);
+  await context.sync();
+  expect(uniformWrites(queue)).toEqual([[7, 1], [8, 1], [7, 2]]);
+
+  // Each batch position has its own pool buffer, and so its own record.
+  shader(source, destination, 7, 2);
+  shader(source, destination, 8, 1);
+  await context.sync();
+  shader(source, destination, 8, 1);
+  shader(source, destination, 7, 2);
+  expect(uniformWrites(queue)).toEqual([[7, 1], [8, 1], [7, 2], [8, 1], [8, 1], [7, 2]]);
+});
+
+test("a launch reuses a matching prefix of its pool buffer, but never a replaced buffer", async () => {
+  const { context, queue, source, destination } = createContext();
+  const small = createBufferShader(context, "small");
+  const large = createBufferShader(context, "large", 1);
+
+  small(source, destination, 7, 1);
+  await context.sync();
+  // Slot 0 is too small for the large kernel: its buffer is replaced and
+  // written although the first two words would match.
+  large(source, destination, 7, 1, 1);
+  await context.sync();
+  const writes = queue.writeBuffer.mock.calls.filter((call) => call.length === 3);
+  expect(writes[1][0]).not.toBe(writes[0][0]);
+  expect(writes[0][0].destroy).toHaveBeenCalledTimes(1);
+  // The pool buffer holds [7, 1, 1]; the small kernel reads its first two words.
+  small(source, destination, 7, 1);
+  await context.sync();
+  expect(uniformWrites(queue)).toEqual([[7, 1], [7, 1, 1]]);
+
+  small(source, destination, 7, 2);
+  await context.sync();
+  // Only two words were rewritten, so the record must not claim three.
+  large(source, destination, 7, 2, 1);
+  expect(uniformWrites(queue)).toEqual([[7, 1], [7, 1, 1], [7, 2], [7, 2, 1]]);
+});
+
+test("float POD arguments are compared by bit pattern", async () => {
+  const { context, queue, source } = createContext();
+  const shader = context.createShader(
+    {
+      name: "scale",
+      arg_types: ["handle", "float32"],
+      launch_param_tags: ["blockIdx.x", "paramWriteAccess:[1]"],
+    },
+    "@compute @workgroup_size(1) fn scale() {}"
+  );
+  const uploads = () => queue.writeBuffer.mock.calls.filter((call) => call.length === 3).length;
+
+  shader(source, 0.0, 1);
+  await context.sync();
+  expect(uploads()).toBe(1);
+
+  // -0.0 == 0.0 as floats, but the bits differ: it must be uploaded.
+  shader(source, -0.0, 1);
+  await context.sync();
+  expect(uploads()).toBe(2);
+
+  shader(source, NaN, 1);
+  await context.sync();
+  expect(uploads()).toBe(3);
+
+  // NaN != NaN as floats, but the bits are equal: no upload.
+  shader(source, NaN, 1);
+  expect(uploads()).toBe(3);
+});
+
+test("the pool owns the upload record and commits it only after a successful write", async () => {
+  const { context, queue, source, destination } = createContext();
+  const shader = createBufferShader(context);
+  const written = [];
+  // Record what each upload carried, then scribble over the caller's array,
+  // as a runtime that reuses one array per shader would.
+  queue.writeBuffer.mockImplementation((_buffer, _offset, data) => {
+    const words = new Int32Array(data);
+    written.push(Array.from(words));
+    words.fill(-1);
+  });
+
+  shader(source, destination, 7, 1);
+  await context.sync();
+  shader(source, destination, 7, 1);
+  await context.sync();
+  expect(written).toEqual([[7, 1]]);
+
+  queue.writeBuffer.mockImplementationOnce(() => {
+    throw new Error("mock WebGPU: writeBuffer failed");
+  });
+  expect(() => shader(source, destination, 8, 1)).toThrow("writeBuffer failed");
+  await context.sync();
+  // The pool buffer still holds [7, 1]: the same arguments are uploaded again.
+  shader(source, destination, 8, 1);
+  expect(written).toEqual([[7, 1], [8, 1]]);
+});
+
+test("pending dispatches are submitted every maxDispatchesPerFlush launches", async () => {
+  const { context, queue, trace } = createContext();
+  const shader = createNoArgShader(context);
+  expect(context.maxDispatchesPerFlush).toBeGreaterThan(0); // periodic submission is on by default
+  context.maxDispatchesPerFlush = 2;
+
+  for (let i = 0; i < 5; ++i) shader();
+
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+  expect(trace).toEqual([
+    "beginPass", "dispatch", "dispatch", "endPass", "finish",
+    "beginPass", "dispatch", "dispatch", "endPass", "finish",
+    "beginPass", "dispatch",
+  ]);
+
+  await context.sync();
+  expect(queue.submit).toHaveBeenCalledTimes(3);
+
+  // A flush point restarts the count.
+  shader();
+  expect(queue.submit).toHaveBeenCalledTimes(3);
+  shader();
+  expect(queue.submit).toHaveBeenCalledTimes(4);
+});
+
+test("maxDispatchesPerFlush is read at every launch and 0 turns periodic submission off", async () => {
+  const { context, queue } = createContext();
+  const shader = createNoArgShader(context);
+  context.maxDispatchesPerFlush = 2;
+
+  shader();
+  context.maxDispatchesPerFlush = 0;
+  shader();
+  shader();
+  expect(queue.submit).not.toHaveBeenCalled();
+
+  context.maxDispatchesPerFlush = 1;
+  shader(); // the count is already past the threshold
+  expect(queue.submit).toHaveBeenCalledTimes(1);
+  shader();
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+
+  await context.sync();
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+});
+
+test("pool positions restart at a flush point even if nothing is pending", async () => {
+  const { context, device, queue, source, destination } = createContext();
+  const shader = createBufferShader(context);
+  context.maxDispatchesPerFlush = 1;
+
+  // The periodic submission leaves nothing pending when sync() runs.
+  shader(source, destination, 7, 1);
+  expect(queue.submit).toHaveBeenCalledTimes(1);
+  await context.sync();
+  shader(source, destination, 7, 1);
+  await context.sync();
+
+  expect(device.createBuffer.mock.calls.filter(
+    ([d]) => d.usage === (GPUBufferUsage.UNIFORM | GPUBufferUsage.COPY_DST)
+  )).toHaveLength(1);
+});
+
+// A periodic submission puts dispatches on the queue after an in-flight
+// readback, so the readback is no longer the queue tail and sync() must await
+// onSubmittedWorkDone(), even though nothing is pending when sync() runs.
+test("sync waits for the queue after a periodic submission that followed a readback", async () => {
+  const readback = createDeferred();
+  const queueDone = createDeferred();
+  const { context, queue, memory, source } = createContext({
+    mapAsync: () => readback.promise,
+    onSubmittedWorkDone: () => queueDone.promise,
+  });
+  const copyFromGPU = context.getDeviceAPI("deviceCopyFromGPU");
+  const shader = createNoArgShader(context);
+  context.maxDispatchesPerFlush = 2;
+
+  copyFromGPU(source, 0, 128, 16);
+  shader();
+  shader(); // periodic submission: the readback is no longer the queue tail
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+
+  let syncResolved = false;
+  const syncPromise = context.sync().then(() => {
+    syncResolved = true;
+  });
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+  expect(queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+
+  readback.resolve();
+  await new Promise((resolve) => setImmediate(resolve));
+  expect(memory.storeRawBytes).toHaveBeenCalledTimes(1);
+  expect(syncResolved).toBe(false);
+
+  queueDone.resolve();
+  await syncPromise;
+  expect(syncResolved).toBe(true);
+});
+
+test("a pool buffer replaced after periodic submissions is destroyed only after every submit that used it", () => {
+  const { context, device, queue, events, source, destination } = createContext();
+  const small = createBufferShader(context, "small");
+  const large = createBufferShader(context, "large", 4);
+  context.maxDispatchesPerFlush = 2;
+
+  small(source, destination, 7, 1);
+  small(source, destination, 8, 1); // periodic submission (slots 0, 1)
+  small(source, destination, 9, 1); // pending, slot 2
+  const slot0 = boundBuffers(device, 0)[2];
+  expect(slot0.destroy).not.toHaveBeenCalled();
+
+  context.flushCommands(); // submits slot 2's command buffer, restarts the pool
+  large(source, destination, 1, 2, 3, 4, 5, 1); // slot 0 is undersized: replaced
+
+  expect(slot0.destroy).toHaveBeenCalledTimes(1);
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+  expect(events.indexOf("destroy")).toBeGreaterThan(events.lastIndexOf("submit"));
+  expect(boundBuffers(device, 3)[2]).not.toBe(slot0);
+});
+
+test("a periodic submission keeps uniform pool positions, so caches still hit", async () => {
+  const { context, device, queue, source, destination } = createContext();
+  const shader = createBufferShader(context);
+  context.maxDispatchesPerFlush = 3;
+
+  for (let i = 0; i < 10; ++i) shader(source, destination, i, 1);
+  expect(queue.submit).toHaveBeenCalledTimes(3);
+  const uniforms = [];
+  for (let i = 0; i < 10; ++i) uniforms.push(boundBuffers(device, i)[2]);
+  expect(new Set(uniforms).size).toBe(10);
+
+  await context.sync();
+  expect(queue.submit).toHaveBeenCalledTimes(4);
+  // The next batch revisits the same slots in the same order, so every bind
+  // group and every uniform upload is reused.
+  for (let i = 0; i < 10; ++i) shader(source, destination, i, 1);
+  expect(device.createBindGroup).toHaveBeenCalledTimes(10);
+  expect(uniformWrites(queue)).toHaveLength(10);
 });
