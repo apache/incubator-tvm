@@ -1376,6 +1376,96 @@ def test_binary_scalar(op, relax_op):
     verify_model(BinaryScalar(op), example_args, {}, expected_binary_scalar)
 
 
+def test_add_sub_alpha():
+    class AddSubAlpha(Module):
+        def forward(self, lhs, rhs):
+            return (
+                torch.add(lhs, rhs, alpha=2),
+                torch.sub(lhs, rhs, alpha=2),
+                torch.rsub(lhs, rhs, alpha=2),
+                torch.add(lhs, 3.0, alpha=2),
+                torch.sub(lhs, 3.0, alpha=2),
+                torch.rsub(lhs, 3.0, alpha=2),
+                lhs.clone().add_(rhs, alpha=2),
+                lhs.clone().sub_(rhs, alpha=2),
+            )
+
+    @I.ir_module
+    class expected:
+        @R.function
+        def main(
+            lhs: R.Tensor((2, 3), dtype="float32"),
+            rhs: R.Tensor((2, 3), dtype="float32"),
+        ) -> R.Tuple(
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+            R.Tensor((2, 3), dtype="float32"),
+        ):
+            with R.dataflow():
+                scaled_rhs: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    rhs, R.const(2.0, "float32")
+                )
+                add_tensor: R.Tensor((2, 3), dtype="float32") = R.add(lhs, scaled_rhs)
+                scaled_rhs_1: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    rhs, R.const(2.0, "float32")
+                )
+                sub_tensor: R.Tensor((2, 3), dtype="float32") = R.subtract(lhs, scaled_rhs_1)
+                scaled_lhs: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    lhs, R.const(2.0, "float32")
+                )
+                rsub_tensor: R.Tensor((2, 3), dtype="float32") = R.subtract(rhs, scaled_lhs)
+                add_scalar: R.Tensor((2, 3), dtype="float32") = R.add(lhs, R.const(6.0, "float32"))
+                sub_scalar: R.Tensor((2, 3), dtype="float32") = R.subtract(
+                    lhs, R.const(6.0, "float32")
+                )
+                scaled_lhs_1: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    lhs, R.const(2.0, "float32")
+                )
+                rsub_scalar: R.Tensor((2, 3), dtype="float32") = R.subtract(
+                    R.const(3.0, "float32"), scaled_lhs_1
+                )
+                scaled_rhs_2: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    rhs, R.const(2.0, "float32")
+                )
+                add_inplace: R.Tensor((2, 3), dtype="float32") = R.add(lhs, scaled_rhs_2)
+                scaled_rhs_3: R.Tensor((2, 3), dtype="float32") = R.multiply(
+                    rhs, R.const(2.0, "float32")
+                )
+                sub_inplace: R.Tensor((2, 3), dtype="float32") = R.subtract(lhs, scaled_rhs_3)
+                gv: R.Tuple(
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                    R.Tensor((2, 3), dtype="float32"),
+                ) = (
+                    add_tensor,
+                    sub_tensor,
+                    rsub_tensor,
+                    add_scalar,
+                    sub_scalar,
+                    rsub_scalar,
+                    add_inplace,
+                    sub_inplace,
+                )
+                R.output(gv)
+            return gv
+
+    example_args = (
+        torch.randn(2, 3, dtype=torch.float32),
+        torch.randn(2, 3, dtype=torch.float32),
+    )
+    verify_model(AddSubAlpha(), example_args, {}, expected)
+
+
 operator_binary_promote = [
     (operator.add, R.add),
     (operator.sub, R.subtract),

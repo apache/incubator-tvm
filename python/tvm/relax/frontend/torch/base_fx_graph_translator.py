@@ -688,7 +688,14 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
     ########## Binary Ops ##########
 
-    def _binary_op(self, relax_op: Callable, intrinsic_op: Callable) -> Callable:
+    def _binary_op(
+        self,
+        relax_op: Callable,
+        intrinsic_op: Callable,
+        *,
+        scale_rhs_by_alpha: bool = False,
+        reverse: bool = False,
+    ) -> Callable:
         from torch import fx
 
         def convert(node: fx.Node) -> relax.Var:
@@ -720,6 +727,16 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 return self.block_builder.emit(op(lhs, rhs))
 
             lhs, rhs = self.retrieve_args(node)
+            if reverse:
+                lhs, rhs = rhs, lhs
+
+            if scale_rhs_by_alpha:
+                alpha = node.kwargs.get("alpha", 1)
+                if alpha != 1:
+                    if isinstance(rhs, relax.Expr):
+                        rhs = call_binary_op(relax.op.multiply, rhs, alpha)
+                    else:
+                        rhs *= alpha
 
             if (isinstance(lhs, tvm_tirx.ir.Var) and isinstance(lhs.ty, relax.TensorType)) or (
                 isinstance(rhs, tvm_tirx.ir.Var) and isinstance(rhs.ty, relax.TensorType)
@@ -799,14 +816,12 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         return self.block_builder.emit(relax.op.mod(lhs, rhs))
 
     def _rsub(self, node: fx.Node) -> relax.Var:
-        args = self.retrieve_args(node)
-        lhs = args[0]
-        rhs = args[1]
-
-        if isinstance(rhs, int | float):
-            rhs = relax.const(rhs)
-
-        return self.block_builder.emit(relax.op.subtract(rhs, lhs))
+        return self._binary_op(
+            relax.op.subtract,
+            operator.sub,
+            scale_rhs_by_alpha=True,
+            reverse=True,
+        )(node)
 
     def _isin(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
