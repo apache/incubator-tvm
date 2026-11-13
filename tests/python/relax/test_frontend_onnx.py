@@ -5981,6 +5981,37 @@ def test_lp_norm():
         atol=1e-2,
     )
 
+    # float16 values whose squares or sums underflow or overflow in float16
+    for p, values in [(2, [1e-4, 1e-4]), (2, [300, 400]), (1, [40000, 40000])]:
+        check_correctness(
+            make_lp_norm_model([1, 2], dtype=TensorProto.FLOAT16, p=p),
+            inputs={"input": np.array([values], dtype=np.float16)},
+            rtol=1e-2,
+            atol=1e-2,
+        )
+
+    @I.ir_module
+    class ExpectedBF16:
+        @R.function
+        def main(input: R.Tensor((2, 3), dtype="bfloat16")) -> R.Tensor((2, 3), dtype="bfloat16"):
+            R.func_attr({"num_input": 1})
+            with R.dataflow():
+                lv: R.Tensor((2, 3), dtype="float32") = R.astype(input, dtype="float32")
+                lv1: R.Tensor((2, 3), dtype="float32") = R.multiply(lv, lv)
+                lv2: R.Tensor((2, 1), dtype="float32") = R.sum(lv1, axis=[1], keepdims=True)
+                lv3: R.Tensor((2, 1), dtype="float32") = R.sqrt(lv2)
+                lv4: R.Tensor((2, 1), dtype="bool") = R.equal(lv3, R.const(0.0, "float32"))
+                lv5: R.Tensor((2, 1), dtype="float32") = R.where(lv4, R.const(1.0, "float32"), lv3)
+                lv6: R.Tensor((2, 3), dtype="float32") = R.divide(lv, lv5)
+                gv: R.Tensor((2, 3), dtype="bfloat16") = R.astype(lv6, dtype="bfloat16")
+                R.output(gv)
+            return gv
+
+    tvm_model = from_onnx(
+        make_lp_norm_model([2, 3], dtype=TensorProto.BFLOAT16), keep_params_in_input=True
+    )
+    tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedBF16)
+
     # Only p=1 and p=2 are defined by the ONNX spec, and the axis must be within the input rank
     with pytest.raises(ValueError, match="p=1 or p=2"):
         from_onnx(make_lp_norm_model([2, 3], p=3))

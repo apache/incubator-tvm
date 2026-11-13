@@ -4685,6 +4685,13 @@ class LpNormalization(OnnxOpConverter):
         if ndim is not None:
             axis = _normalize_constant_axes([axis], ndim, "LpNormalization")[0]
 
+        # Compute half-precision inputs in float32 in float16 the squares and sums can
+        # overflow (e.g. 300 * 300 > 65504) or 
+        # underflow(e.g. 1e-4 * 1e-4), and bfloat16 loses precision when summing.
+        compute_dtype = "float32" if dtype in ("float16", "bfloat16") else dtype
+        if compute_dtype != dtype:
+            data = bb.emit(relax.op.astype(data, compute_dtype))
+
         if p == 1:
             norm = relax.op.sum(relax.op.abs(data), axis=axis, keepdims=True)
         else:
@@ -4696,9 +4703,14 @@ class LpNormalization(OnnxOpConverter):
         # Match onnxruntime, which produces zeros (rather than NaN) for slices whose norm is 0.
         # Replacing a zero norm with 1 keeps the output exact instead of clamping with an epsilon.
         norm = relax.op.where(
-            relax.op.equal(norm, relax.const(0, dtype)), relax.const(1, dtype), norm
+            relax.op.equal(norm, relax.const(0, compute_dtype)),
+            relax.const(1, compute_dtype),
+            norm,
         )
-        return relax.op.divide(data, norm)
+        output = relax.op.divide(data, norm)
+        if compute_dtype != dtype:
+            output = relax.op.astype(output, dtype)
+        return output
 
 
 class RMSNormalization(OnnxOpConverter):
