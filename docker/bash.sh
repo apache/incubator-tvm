@@ -236,6 +236,14 @@ function validate_mount() {
 break_joined_flag='if (( ${#1} == 2 )); then shift; else set -- -"${1#-i}" "${@:2}"; fi'
 
 DOCKER_ENV=( )
+# Forward build settings selected by the caller without overriding explicit values.
+BUILD_ENV_VARS=(SCCACHE_BUCKET SCCACHE_REGION CMAKE_BUILD_PARALLEL_LEVEL
+                CMAKE_C_COMPILER_LAUNCHER CMAKE_CXX_COMPILER_LAUNCHER)
+for build_var in "${BUILD_ENV_VARS[@]}"; do
+    if [ "${!build_var+x}" = "x" ]; then
+        DOCKER_ENV+=( --env "$build_var=${!build_var}" )
+    fi
+done
 DOCKER_FLAGS=( )
 
 while (( $# )); do
@@ -431,7 +439,7 @@ if [ -n "${EXPANDED_SHORTCUT}" ]; then
     if [ "${CI+x}" == "x" ]; then
         DOCKER_IMAGE_NAME="${EXPANDED_SHORTCUT}"
     else
-        python3 ci/scripts/jenkins/determine_docker_images.py "$DOCKER_IMAGE_NAME" 2> /dev/null
+        python3 ci/jenkins/scripts/determine_docker_images.py "$DOCKER_IMAGE_NAME" 2> /dev/null
         DOCKER_IMAGE_NAME=$(cat ".docker-image-names/$DOCKER_IMAGE_NAME")
         if [[ "$DOCKER_IMAGE_NAME" == *"tlcpackstaging"* ]]; then
             echo "WARNING: resolved docker image to fallback tag in tlcpackstaging" >&2
@@ -541,7 +549,8 @@ fi
 
 # Set TVM import path inside the docker image
 if [[ "${DOCKER_IMAGE_NAME}" == *"ci"* ]]; then
-    DOCKER_ENV+=( --env PYTHONPATH="${REPO_MOUNT_POINT}"/python )
+    DOCKER_ENV+=( --env PYTHONPATH="${REPO_MOUNT_POINT}/3rdparty/tvm-tirx/python:${REPO_MOUNT_POINT}/python" )
+    DOCKER_ENV+=( --env TVM_TIRX_LIBRARY_PATH="${REPO_MOUNT_POINT}/build/lib" )
 fi
 
 

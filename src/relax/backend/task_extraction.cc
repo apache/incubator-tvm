@@ -42,10 +42,10 @@ using s_tir::meta_schedule::ModuleHash;
  * \brief Extract the Meta-Schedule tuning task from a given IRModule.
  * \note
  *   1. The task extractor is responsible for task deduplication. The
- *   deduplication is achieved by comparing structural hashes of PrimFuncs.
- *   2. For a PrimFunc, the weight of its corresponding task is the number
+ *   deduplication is achieved by comparing structural hashes of Functions.
+ *   2. For a tirx::Function, the weight of its corresponding task is the number
  *   of times it called by op Call-TIR. Say in an IRModule there are three
- *   PrimFuncs `fn1`, `fn2` and `fn3` sharing the same structural hash.
+ *   Functions `fn1`, `fn2` and `fn3` sharing the same structural hash.
  *   Suppose `fn1` is called by 5 Call-TIR ops among all Relax function,
  *   `fn2` is called by 3 Call-TIR and `fn3` is called by 5 Call-TIR.
  *   Then we will have a ExtractedTask for all three functions, whose weight
@@ -54,18 +54,18 @@ using s_tir::meta_schedule::ModuleHash;
 class BlockCounter : public s_tir::StmtExprVisitor {
  public:
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<tvm::ExprNode>()) return std::nullopt;
+    if (value.as<tvm::ExprObj>()) return std::nullopt;
     return s_tir::StmtExprVisitor::Visit(value);
   }
 
-  static size_t GetSBlockCount(const tirx::PrimFunc& func) {
+  static size_t GetSBlockCount(const tirx::Function& func) {
     auto counter = ffi::make_object<BlockCounter>();
     counter->Visit(func->body);
     return counter->count;
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     ++count;
     return s_tir::StmtExprVisitor::Visit_(op);
   }
@@ -79,7 +79,7 @@ class TaskExtractor : public ExprVisitor {
     TaskExtractor extractor(mod, target, mod_eq_name);
     // We go through each Relax function in the module.
     for (const auto& kv : mod->functions) {
-      if (const auto* func = kv.second.as<FunctionNode>()) {
+      if (const auto* func = kv.second.as<FunctionObj>()) {
         extractor(ffi::GetRef<Function>(func));
       }
     }
@@ -100,7 +100,7 @@ class TaskExtractor : public ExprVisitor {
     TVM_FFI_ICHECK(normalize_mod_func_.has_value()) << "Normalization function is not found.";
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
 
     // TODO(@tvm-team): When we differentiate the call for tirx function and packed function,
@@ -112,13 +112,13 @@ class TaskExtractor : public ExprVisitor {
     }
 
     const GlobalVar& global_var = call->args[0].as_or_throw<GlobalVar>();
-    const tirx::PrimFunc& func = mod_->Lookup(global_var).as_or_throw<tirx::PrimFunc>();
+    const tirx::Function& func = mod_->Lookup(global_var).as_or_throw<tirx::Function>();
     IRModule mod = (*normalize_mod_func_)(func).cast<IRModule>();
     size_t weight = 1;
     auto it = func2task_.find(mod);
     if (it != func2task_.end()) {
       it->second->weight += 1;
-      const tirx::PrimFunc& alt_func = it->first->Lookup("main").as_or_throw<tirx::PrimFunc>();
+      const tirx::Function& alt_func = it->first->Lookup("main").as_or_throw<tirx::Function>();
       // When anchor-block based equality is used, tuning tasks "nn_conv2d_add_nn_relu" and
       // "nn_conv2d_add_add_nn_relu", for example, can be identified as equal. Thus, one of them
       // will be selected to tune by the code below.

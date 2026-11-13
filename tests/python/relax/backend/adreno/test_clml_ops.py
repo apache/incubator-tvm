@@ -47,20 +47,21 @@ from mod_utils import (
 from utils import skip_unless_adreno_clml, verify_results
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax, rpc
+from tvm.relax import script as R
 from tvm.relax.backend.adreno import clml
 from tvm.relax.backend.adreno.clml import OpenCLMLOffLoad, OpenCLMLOffLoadForLLM
 from tvm.relax.script import ir_builder as relax_builder
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
-from tvm.script.ir_builder import IRBuilder
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
+from tvm_tirx.script.ir_builder import IRBuilder
 
 CLML_VERSION = clml.clml_sdk_version()
 TARGET_CLML_VERSION = int(os.environ.get("ADRENO_TARGET_CLML_VERSION", 4))
-clml_target = tvm.target.Target("qcom/adreno-opencl-clml")
-ref_target = tvm.target.Target("opencl")
+clml_target = tvm_tirx.target.Target("qcom/adreno-opencl-clml")
+ref_target = tvm_tirx.target.Target("opencl")
 
 
 def verify_clml_codegen(clml_mod, clml_codegen):
@@ -672,4 +673,4 @@ def test_dequant_vec_matmul(K, N):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

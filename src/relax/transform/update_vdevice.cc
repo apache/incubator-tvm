@@ -34,17 +34,17 @@ namespace relax {
 class VDeviceMutator : public ExprMutator {
  public:
   VDeviceMutator(const IRModule& mod, VDevice new_vdevice, int64_t index)
-      : ExprMutator(mod), mod_(mod), new_vdevice_(new_vdevice) {
-    ffi::Array<GlobalInfo> vdevices = mod->global_infos["vdevice"];
-    old_vdevice_ = vdevices[index].as_or_throw<VDevice>();
-  }
+      : ExprMutator(mod),
+        mod_(mod),
+        new_vdevice_(new_vdevice),
+        old_vdevice_(mod->global_infos["vdevice"][index].as_or_throw<VDevice>()) {}
 
   using ExprMutator::VisitExpr_;
 
   Expr VisitExpr(const Expr& expr) final {
     auto visited_expr = ExprMutator::VisitExpr(expr);
-    if (!visited_expr->ty.IsMissing()) {
-      auto* tinfo = GetTypeAs<TensorTypeNode>(visited_expr);
+    if (!visited_expr->ty.as<MissingType>().has_value()) {
+      auto* tinfo = GetTypeAs<TensorTypeObj>(visited_expr);
       bool unchanged = true;
       if (tinfo != nullptr) {
         if (tinfo->vdevice.has_value()) {
@@ -57,9 +57,9 @@ class VDeviceMutator : public ExprMutator {
       if (!unchanged) {
         if (tinfo->shape.has_value()) {
           visited_expr->ty =
-              TensorType(tinfo->shape.value(), tinfo->dtype, new_vdevice_, tinfo->span);
+              TensorType(tinfo->shape.value(), tinfo->dtype, new_vdevice_, tinfo->loc);
         } else {
-          visited_expr->ty = TensorType(tinfo->dtype, tinfo->ndim, new_vdevice_, tinfo->span);
+          visited_expr->ty = TensorType(tinfo->dtype, tinfo->ndim, new_vdevice_, tinfo->loc);
         }
       }
     }
@@ -68,7 +68,7 @@ class VDeviceMutator : public ExprMutator {
 
   IRModule Run() {
     for (const auto& [gv, func] : mod_->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         relax::Function update_func = VisitExpr(func).as_or_throw<Function>();
         builder_->UpdateFunction(gv, update_func);
       }
@@ -103,8 +103,7 @@ Pass UpdateVDevice(VDevice new_vdevice, int64_t index) {
   };
   return CreateModulePass(/*pass_function=*/pass_func,
                           /*opt_level=*/0,
-                          /*pass_name=*/"UpdateVDevice",
-                          /*required=*/{});
+                          /*pass_name=*/"UpdateVDevice");
 }
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

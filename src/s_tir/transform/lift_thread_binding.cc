@@ -26,9 +26,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/s_tir/transform.h>
-
-#include "../../runtime/thread_storage_scope.h"
-#include "../../tirx/transform/ir_utils.h"
+#include <tvm/tirx/stmt.h>
 
 namespace tvm {
 namespace s_tir {
@@ -42,41 +40,42 @@ FindLoopLCA(const Stmt& root) {
    public:
     using StmtExprVisitor::Visit_;
     ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-      if (value.as<ExprNode>()) return std::nullopt;
+      if (value.as<ExprObj>()) return std::nullopt;
       return StmtExprVisitor::Visit(value);
     }
-    ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) final {
+    ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) final {
       stack.push_back(ffi::GetRef<Stmt>(op));
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(op));
-      if (op->kind == ForKind::kThreadBinding) {
+      if (tvm::s_tir::GetThreadBinding(op).has_value()) {
         UpdateLCA(op);
       }
       stack.pop_back();
       return std::nullopt;
     }
 
-    void UpdateLCA(const ForNode* loop) {
-      std::string thread_tag = loop->thread_binding.value()->thread_tag;
+    void UpdateLCA(const ForObj* loop) {
+      std::string thread_tag = tvm::s_tir::GetThreadBinding(loop).value();
       {
         ffi::Map<ffi::String, ffi::Any>* tgt = &annotations[thread_tag];
         for (const auto& kv : loop->annotations) {
           tgt->Set(kv.first, kv.second);
         }
       }
-      IterVar& iter_var = iters[thread_tag];
-      if (!iter_var.defined()) {
-        iter_var = IterVar(Range::FromMinExtent(loop->min, loop->extent),  //
-                           loop->loop_var
-                               .as_or_throw<Var>()                   //
-                               .CopyWithName(thread_tag)             //
-                               .as_or_throw<PrimVar>(),              //
-                           loop->thread_binding.value()->iter_type,  //
-                           thread_tag);
+      auto it = iters.find(thread_tag);
+      if (it == iters.end()) {
+        IterVar iter_var(Range(loop->begin, loop->end),  //
+                         loop->var
+                             .as_or_throw<Var>()        //
+                             .CopyWithName(thread_tag)  //
+                             .as_or_throw<PrimVar>(),   //
+                         kThreadIndex,                  //
+                         thread_tag);
+        iters.emplace(thread_tag, iter_var);
         lca[thread_tag] = stack;
-        var_subst.Set(loop->loop_var, iter_var->var);
+        var_subst.Set(loop->var, iter_var->var);
         return;
       }
-      var_subst.Set(loop->loop_var, iter_var->var);
+      var_subst.Set(loop->var, it->second->var);
       std::vector<Stmt>& path = lca[thread_tag];
       uint32_t i = 0;
       for (; i < stack.size() && i < path.size(); ++i) {
@@ -84,7 +83,7 @@ FindLoopLCA(const Stmt& root) {
           break;
         }
       }
-      path.resize(i);
+      path.erase(path.begin() + i, path.end());
     }
 
     std::unordered_map<std::string, std::vector<Stmt>> lca;
@@ -103,18 +102,10 @@ FindLoopLCA(const Stmt& root) {
     sorted_thread_tags.push_back(kv.first);
   }
   std::sort(sorted_thread_tags.begin(), sorted_thread_tags.end(),
-            [](const std::string& lhs, const std::string& rhs) {
-              return lhs.size() > rhs.size();
-              runtime::ThreadScope lhs_scope = runtime::ThreadScope::Create(lhs);
-              runtime::ThreadScope rhs_scope = runtime::ThreadScope::Create(rhs);
-              if (lhs_scope.rank != rhs_scope.rank) {
-                return lhs_scope.rank < rhs_scope.rank;
-              }
-              return lhs_scope.dim_index < rhs_scope.dim_index;
-            });
+            [](const std::string& lhs, const std::string& rhs) { return lhs.size() > rhs.size(); });
   for (const auto& thread_tag : sorted_thread_tags) {
     Stmt lca = finder->lca[thread_tag].back();
-    const IterVar& iter = finder->iters[thread_tag];
+    const IterVar& iter = finder->iters.at(thread_tag);
     const ffi::Map<ffi::String, ffi::Any>& annotations = finder->annotations[thread_tag];
     result[lca].emplace_back(iter, annotations);
   }
@@ -130,10 +121,10 @@ class ThreadBindingLifter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<Stmt> Mutate_(const ForNode* _op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const ForObj* _op, InplaceMode inplace_mode) final {
     For op = ffi::GetRef<For>(_op);
     bool is_kernel_root = false;
-    if (op->kind == ForKind::kThreadBinding) {
+    if (tvm::s_tir::GetThreadBinding(op).has_value()) {
       if (iter_lca.empty()) {
         is_kernel_root = true;
         SetKernelRoot(_op);
@@ -145,17 +136,18 @@ class ThreadBindingLifter : public StmtExprMutator {
     Stmt body = std::move(new_op.CopyOnWrite()->body);
     if (auto it = iter_lca.find(op); it != iter_lca.end()) {
       for (const auto& [iter_var, annotation] : it->second) {
-        body = For(iter_var->var, iter_var->dom->min, iter_var->dom->extent,
-                   ForKind::kThreadBinding, std::move(body),
-                   IterVar(Range(nullptr), PrimVar(iter_var->thread_tag, iter_var->var.ty()),
-                           kThreadIndex, iter_var->thread_tag),
-                   annotation, std::nullopt);
+        auto annotations = annotation;
+        annotations.Set(tvm::s_tir::attr::kThreadBinding.name, iter_var->thread_tag);
+        body = For(iter_var->var, iter_var->dom.value()->begin,
+                   iter_var->dom.value()->begin + iter_var->dom.value()->extent,
+                   IntImm(iter_var->var.ty(), 1), ForKind::kParallel, std::move(body),
+                   std::move(annotations));
       }
     }
     if (is_kernel_root) {
       iter_lca.clear();
     }
-    if (op->kind == ForKind::kThreadBinding) {
+    if (tvm::s_tir::GetThreadBinding(op).has_value()) {
       return body;
     } else {
       new_op.CopyOnWrite()->body = std::move(body);
@@ -163,7 +155,7 @@ class ThreadBindingLifter : public StmtExprMutator {
     }
   }
 
-  void SetKernelRoot(const ForNode* op) {
+  void SetKernelRoot(const ForObj* op) {
     auto result = FindLoopLCA(ffi::GetRef<Stmt>(op));
     this->iter_lca = std::move(result.first);
     for (const auto& [var, replacement] : result.second) VarRemapSet(var, replacement);
@@ -177,14 +169,14 @@ class ThreadBindingLifter : public StmtExprMutator {
 namespace transform {
 
 Pass LiftThreadBinding() {
-  auto pass_func = [=](PrimFunc f, IRModule m, PassContext ctx) {
-    PrimFuncNode* fptr = f.CopyOnWrite();
+  auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
+    FunctionObj* fptr = f.CopyOnWrite();
     fptr->body = ffi::make_object<ThreadBindingLifter>()
                      ->Mutate(fptr->body, InplaceMode::kAllow)
                      .ValueOrUnchanged(std::move(fptr->body));
     return f;
   };
-  return CreatePrimFuncPass(pass_func, 0, "s_tir.LiftThreadBinding", {});
+  return CreateFunctionPass(pass_func, 0, "s_tir.LiftThreadBinding");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

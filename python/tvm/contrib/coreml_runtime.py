@@ -18,10 +18,8 @@
 
 import tvm_ffi
 
-from ..rpc import base as rpc_base
 
-
-def create(symbol, compiled_model_path, device):
+def create(symbol, compiled_model_path, device, session=None):
     """Create a runtime executor module given a coreml model and context.
 
     Parameters
@@ -31,21 +29,20 @@ def create(symbol, compiled_model_path, device):
     compiled_model_path : str
         The path of the compiled model to be deployed.
     device : Device
-        The device to deploy the module. It can be local or remote when there
-        is only one Device.
+        The device to deploy the module.
+    session : RPCSession, optional
+        Explicit remote session when deploying on an RPC server.
     Returns
     -------
     coreml_runtime : CoreMLModule
         Runtime coreml module that can be used to execute the coreml model.
     """
-    device_type = device.dlpack_device_type()
     runtime_func = "tvm.coreml_runtime.create"
-
-    if device_type >= rpc_base.RPC_SESS_MASK:
-        fcreate = device._rpc_sess.get_function(runtime_func)
-    else:
-        fcreate = tvm_ffi.get_global_func(runtime_func)
-        assert fcreate, "Cannot find `tvm.coreml_runtime.create` function."
+    fcreate = (
+        session.get_function(runtime_func)
+        if session is not None
+        else tvm_ffi.get_global_func(runtime_func)
+    )
 
     return CoreMLModule(fcreate(symbol, compiled_model_path))
 

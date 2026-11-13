@@ -20,11 +20,11 @@ import re
 
 import pytest
 
-import tvm
+import tvm_tirx
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
-from tvm.script import tirx as T
-from tvm.script.parser import relax as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import tirx as T
+from tvm_tirx.script.parser import relax as R
 
 
 def test_copy_with_new_vars():
@@ -42,7 +42,7 @@ def test_copy_with_new_vars():
 
 
 def test_copy_with_new_vars_copied_symbolic_vars():
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @R.function
     def before(x: R.Tensor((m,), "float32"), y: R.Tensor((m,), "float32")):
@@ -59,14 +59,14 @@ def test_copy_with_new_vars_copied_symbolic_vars():
 
 
 def test_copy_with_new_vars_on_ir_module():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Actual:
         @R.function
         def func(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")):
             gv = R.add(x, y)
             return gv
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def func(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")):
@@ -82,13 +82,13 @@ def test_copy_with_new_vars_on_ir_module():
         "global_symbol", "func_copied"
     )
 
-    # Assertion will fail if the f_copied contains the same VarNode that's used in
+    # Assertion will fail if the f_copied contains the same VarObj that's used in
     # the original function, due to var mapping during structural equal.
     assert_structural_equal(Actual, Expected)
 
 
 def test_copy_with_new_vars_on_ir_module_nested_function():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Actual:
         @R.function
         def func(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")):
@@ -100,7 +100,7 @@ def test_copy_with_new_vars_on_ir_module_nested_function():
             gv = R.add(x, y)
             return gv
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def func(x: R.Tensor((3,), "float32"), y: R.Tensor((3,), "float32")):
@@ -170,7 +170,7 @@ def test_structural_equal_of_call_nodes():
         C = R.add(A, B)
         return C
 
-    tvm.ir.assert_structural_equal(uses_same_object_twice, uses_two_different_objects)
+    tvm_tirx.ir.assert_structural_equal(uses_same_object_twice, uses_two_different_objects)
 
 
 def test_structural_equal_with_recursive_lambda_function():
@@ -206,7 +206,7 @@ def test_structural_equal_with_recursive_lambda_function():
     func_1 = define_function()
     func_2 = define_function()
 
-    tvm.ir.assert_structural_equal(func_1, func_2)
+    tvm_tirx.ir.assert_structural_equal(func_1, func_2)
 
 
 def test_structural_equal_with_distinct_recursive_lambda_function():
@@ -268,7 +268,7 @@ def test_structural_equal_with_distinct_recursive_lambda_function():
     ]
 
     with pytest.raises(ValueError, match=re.escape(".".join(mismatch_path))):
-        tvm.ir.assert_structural_equal(func_a, func_b)
+        tvm_tirx.ir.assert_structural_equal(func_a, func_b)
 
 
 if __name__ == "__main__":

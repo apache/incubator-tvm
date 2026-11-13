@@ -52,7 +52,7 @@ class cuDNNJSONRuntime : public JSONRuntimeBase {
                    const ffi::Array<ffi::String> const_names)
       : JSONRuntimeBase(symbol_name, graph_json, const_names) {}
 
-  void Init(const ffi::Array<Tensor>& consts) override {
+  void Init(const ffi::Array<ffi::Tensor>& consts) override {
     op_execs_.resize(nodes_.size());
     // get some config from the graph
     for (size_t i = 0; i < nodes_.size(); ++i) {

@@ -29,32 +29,31 @@ using s_tir::InstructionKind;
 using s_tir::Trace;
 
 /*! \brief A mutator that mutates the compute-at location decision of SampleComputeLocation */
-class MutateComputeLocationNode : public MutatorNode {
+class MutateComputeLocationObj : public MutatorObj {
  public:
   /*! \brief JSON representation of the workload */
   std::string json_mod_;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MutateComputeLocationNode>();
+    refl::ObjectDef<MutateComputeLocationObj>();
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MutateComputeLocation",
-                                    MutateComputeLocationNode, MutatorNode);
+                                    MutateComputeLocationObj, MutatorObj);
 
  public:
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   void InitializeWithTuneContext(const TuneContext& context) final {
     this->json_mod_ = ffi::json::Stringify(
         ffi::ToJSONGraph(context->mod.value(), ffi::json::Object{{"tvm_version", TVM_VERSION}}),
         /*indent=*/2);
   }
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   ffi::Optional<Trace> Apply(const Trace& trace, TRandState* rand_state) final;
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   Mutator Clone() const final {
-    ffi::ObjectPtr<MutateComputeLocationNode> n =
-        ffi::make_object<MutateComputeLocationNode>(*this);
-    return Mutator(n);
+    ffi::ObjectPtr<MutateComputeLocationObj> n = ffi::make_object<MutateComputeLocationObj>(*this);
+    return Mutator(ffi::UnsafeInit{}, n);
   }
 
  private:
@@ -77,7 +76,7 @@ class MutateComputeLocationNode : public MutatorNode {
  * \param trace The trace from which to find the instructions
  * \return All the candidate instructions together with the candidate compute-at locations
  */
-std::vector<MutateComputeLocationNode::Candidate> MutateComputeLocationNode::FindCandidates(
+std::vector<MutateComputeLocationObj::Candidate> MutateComputeLocationObj::FindCandidates(
     const Trace& trace, TRandState* rand_state) {
   s_tir::Schedule sch = s_tir::Schedule::Traced(                                       //
       /*mod=*/ffi::FromJSONGraph(ffi::json::Parse(this->json_mod_)).cast<IRModule>(),  //
@@ -87,7 +86,7 @@ std::vector<MutateComputeLocationNode::Candidate> MutateComputeLocationNode::Fin
 
   static InstructionKind inst_sample_compute_location =
       InstructionKind::Get("SampleComputeLocation");
-  std::vector<MutateComputeLocationNode::Candidate> candidates;
+  std::vector<MutateComputeLocationObj::Candidate> candidates;
 
   auto f_decision_provider = [&](const s_tir::Instruction& inst,  //
                                  const ffi::Array<Any>& inputs,   //
@@ -123,7 +122,7 @@ std::vector<MutateComputeLocationNode::Candidate> MutateComputeLocationNode::Fin
   return candidates;
 }
 
-ffi::Optional<Trace> MutateComputeLocationNode::Apply(const Trace& trace, TRandState* rand_state) {
+ffi::Optional<Trace> MutateComputeLocationObj::Apply(const Trace& trace, TRandState* rand_state) {
   std::vector<Candidate> candidates = FindCandidates(trace, rand_state);
   if (candidates.empty()) {
     return std::nullopt;
@@ -134,10 +133,10 @@ ffi::Optional<Trace> MutateComputeLocationNode::Apply(const Trace& trace, TRandS
 }
 
 Mutator Mutator::MutateComputeLocation() {
-  return Mutator(ffi::make_object<MutateComputeLocationNode>());
+  return Mutator(ffi::UnsafeInit{}, ffi::make_object<MutateComputeLocationObj>());
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { MutateComputeLocationNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { MutateComputeLocationObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

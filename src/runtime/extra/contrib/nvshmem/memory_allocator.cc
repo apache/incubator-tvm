@@ -20,86 +20,73 @@
 #include <nvshmemx.h>
 #include <tvm/ffi/extra/cuda/base.h>
 #include <tvm/ffi/function.h>
+#include <tvm/ffi/reflection/enum_def.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/runtime/memory/memory_manager.h>
+#include <tvm/runtime/tensor.h>
 
-#include <thread>
-
-#include "../../../memory/pooled_allocator.h"
 #include "../../disco/utils.h"
 
 namespace tvm {
 namespace runtime {
 
-using tvm::runtime::memory::Buffer;
-using tvm::runtime::memory::PooledAllocator;
-
 /*!
- * \brief The memory allocator of NVSHMEM.
- * Overriding PooledAllocator for efficient memory management.
+ * \brief Tensor pool for NVSHMEM symmetric memory.
+ * Allocations, releases and finalization retain NVSHMEM's collective ordering
+ * requirements. All tensor owners must be released before finalization.
  */
-class NVSHMEMAllocator final : public PooledAllocator {
+class NVSHMEMPool final : public TensorMemoryPool {
  public:
-  explicit NVSHMEMAllocator() : PooledAllocator() {}
+  explicit NVSHMEMPool() = default;
 
-  ~NVSHMEMAllocator() { PooledAllocator::ReleaseAll(); }
-
-  void Clear() final { PooledAllocator::ReleaseAll(); }
-
-  bool AllowMemoryScope(const std::string& mem_scope) const final {
-    // The allowed memory scope of NVSHMEM is "nvshmem";
-    return mem_scope == "nvshmem";
+  /*! \brief Return the global NVSHMEM singleton pool. */
+  static NVSHMEMPool* Global() {
+    static auto* pool = new ffi::ObjectPtr<NVSHMEMPool>(ffi::make_object<NVSHMEMPool>());
+    return pool->get();
   }
 
-  /*! \brief Return the global NVSHMEM singleton allocator. */
-  static NVSHMEMAllocator* Global() {
-    static NVSHMEMAllocator* allocator = new NVSHMEMAllocator();
-    return allocator;
-  }
-
-  Tensor Empty(ffi::Shape shape, DLDataType dtype, Device device) {
-    class NVSHMEMAlloc {
-     public:
-      explicit NVSHMEMAlloc(Buffer buffer) : buffer_(buffer) {}
-      void AllocData(DLTensor* tensor) { tensor->data = buffer_.data; }
-      void FreeData(DLTensor* tensor) { NVSHMEMAllocator::Global()->Free(buffer_); }
-
-     private:
-      Buffer buffer_;
-    };
-
-    Buffer buffer = PooledAllocator::Alloc(device, shape, dtype, ffi::String("nvshmem"));
-    return Tensor::FromNDAlloc(NVSHMEMAlloc(buffer), shape, dtype, device);
+  ffi::Tensor Empty(ffi::ShapeView shape, DLDataType dtype, DLDevice device,
+                    ffi::Optional<MemoryScope> mem_scope = std::nullopt) final {
+    TVM_FFI_ICHECK_EQ(device.device_type, DLDeviceType::kDLCUDA)
+        << "nvshmem can only allocate cuda device memory space.";
+    TVM_FFI_ICHECK(dtype.code == kDLInt || dtype.code == kDLUInt || dtype.code == kDLFloat ||
+                   dtype.code == kDLBfloat)
+        << "nvshmem can only allocate tensor with int, unsigned int, float, or bfloat data types.";
+    static const auto scope = MemoryScope::Get("nvshmem");
+    TVM_FFI_CHECK(!mem_scope.has_value() || mem_scope.value() == scope, ValueError)
+        << "NVSHMEM memory requires the nvshmem scope";
+    return TensorMemoryPool::Empty(shape, dtype, device);
   }
 
  private:
-  void* DeviceAllocDataSpace(Device dev, size_t size, size_t alignment,
-                             DLDataType type_hint) final {
-    TVM_FFI_ICHECK_EQ(dev.device_type, DLDeviceType::kDLCUDA)
-        << "nvshmem can only allocate cuda device memory space.";
-    TVM_FFI_ICHECK(
-        type_hint.code == DLDataTypeCode::kDLInt || type_hint.code == DLDataTypeCode::kDLUInt ||
-        type_hint.code == DLDataTypeCode::kDLFloat || type_hint.code == DLDataTypeCode::kDLBfloat)
-        << "nvshmem can only allocate tensor with int, usingned int, float, or bfloat data types.";
-    return nvshmem_align(alignment, size);
+  ffi::Tensor AllocBacking(size_t size, size_t alignment, DLDevice device) final {
+    struct Backing {
+      size_t size;
+      size_t alignment;
+      void AllocData(DLTensor* tensor) { tensor->data = nvshmem_align(alignment, size); }
+      void FreeData(DLTensor* tensor) { nvshmem_free(tensor->data); }
+    };
+    int64_t extent = static_cast<int64_t>(size);
+    return ffi::Tensor::FromNDAlloc(Backing{size, alignment}, ffi::ShapeView(&extent, 1),
+                                    DLDataType{kDLUInt, 8, 1}, device);
   }
-
-  void DeviceFreeDataSpace(Device dev, void* ptr) final { nvshmem_free(ptr); }
 };
 
-Tensor NVSHMEMEmpty(ffi::Shape shape, DLDataType dtype, ffi::Optional<Device> device) {
+ffi::Tensor NVSHMEMEmpty(ffi::Shape shape, DLDataType dtype, ffi::Optional<Device> device) {
   Device resolved_device =
       device.has_value() ? device.value() : UseDefaultDeviceIfNone(std::nullopt);
-  return NVSHMEMAllocator::Global()->Empty(shape, dtype, resolved_device);
+  return NVSHMEMPool::Global()->Empty(shape, dtype, resolved_device);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
+  MemoryScope::Global();
+  refl::EnumDef<MemoryScopeObj>("nvshmem").set_attr(
+      attr::kMemoryAllocProperty, static_cast<int>(MemoryAllocProperty::kSeparateAllocations));
   refl::GlobalDef().def("runtime.disco.nvshmem.empty", NVSHMEMEmpty);
 }
 
 void NVSHMEMFinalize() {
-  NVSHMEMAllocator::Global()->Clear();
+  NVSHMEMPool::Global()->Clear();
   nvshmem_finalize();
 }
 

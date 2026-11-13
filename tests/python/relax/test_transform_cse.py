@@ -20,16 +20,17 @@
 import numpy as np
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.transform import EliminateCommonSubexpr
-from tvm.script import s_tir as Ts
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 def verify(input, expected, call_only=False):
-    tvm.ir.assert_structural_equal(EliminateCommonSubexpr(call_only)(input), expected)
+    tvm_tirx.ir.assert_structural_equal(EliminateCommonSubexpr(call_only)(input), expected)
 
 
 def test_simple():
@@ -68,8 +69,8 @@ def test_constants():
                 lv0 = R.add(R.const(1, dtype="int32"), R.const(1, dtype="int32"))
                 # we expect to bind the repeated large constants
                 lv1 = R.add(
-                    R.const(tvm.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
-                    R.const(tvm.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
+                    R.const(tvm_tirx.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
+                    R.const(tvm_tirx.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
                 )
                 gv = (lv0, lv1)
                 R.output(gv)
@@ -82,8 +83,8 @@ def test_constants():
             with R.dataflow():
                 lv0 = R.add(R.const(1, dtype="int32"), R.const(1, dtype="int32"))
                 lv1 = R.add(
-                    R.const(tvm.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
-                    R.const(tvm.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
+                    R.const(tvm_tirx.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
+                    R.const(tvm_tirx.runtime.tensor(np.zeros((2, 2), dtype="int32"))),
                 )
                 gv = (lv0, lv1)
                 R.output(gv)
@@ -242,7 +243,7 @@ def test_no_cse_across_dataflow():
                 gv1 = R.multiply(lv0, lv1)
                 R.output(gv1)
 
-            _ = R.print(format="Prevent dataflow block merging")
+            _ = R.print("Prevent dataflow block merging")
 
             with R.dataflow():
                 lv2 = R.add(x, y)
@@ -268,7 +269,7 @@ def test_no_cse_across_dataflow():
                 gv1 = R.multiply(lv0, lv0)
                 R.output(gv1)
 
-            _ = R.print(format="Prevent dataflow block merging")
+            _ = R.print("Prevent dataflow block merging")
 
             with R.dataflow():
                 # However, the later dataflow block may not be
@@ -336,26 +337,26 @@ def test_do_not_eliminate_impure():
         @R.function(pure=False)
         def foo(x: R.Tensor((2, 3), dtype="float32"), y: R.Tensor((2, 3), dtype="float32")):
             # it's a repeated subexpression but it would be wrong to deduplicate it
-            p1 = R.print(format="Message")
-            p2 = R.print(format="Message")
-            a1 = R.assert_op(R.const(False), format="Always fails")
+            p1 = R.print("Message")
+            p2 = R.print("Message")
+            a1 = R.assert_op(R.const(False), "Always fails")
             lv0 = R.add(x, y)
             lv1 = R.add(x, y)
             gv = R.multiply(lv0, lv1)
-            a2 = R.assert_op(R.const(False), format="Always fails")
+            a2 = R.assert_op(R.const(False), "Always fails")
             return gv
 
     @I.ir_module
     class Expected:
         @R.function(pure=False)
         def foo(x: R.Tensor((2, 3), dtype="float32"), y: R.Tensor((2, 3), dtype="float32")):
-            p1 = R.print(format="Message")
-            p2 = R.print(format="Message")
-            a1 = R.assert_op(R.const(False), format="Always fails")
+            p1 = R.print("Message")
+            p2 = R.print("Message")
+            a1 = R.assert_op(R.const(False), "Always fails")
             lv0 = R.add(x, y)
             lv1 = lv0
             gv = R.multiply(lv0, lv0)
-            a2 = R.assert_op(R.const(False), format="Always fails")
+            a2 = R.assert_op(R.const(False), "Always fails")
             return gv
 
     verify(Before, Expected)
@@ -396,26 +397,26 @@ def test_call_tir_tuple_arg():
         @R.function
         def main(A: R.Tensor([16, 16], "int32"), B: R.Tensor([16, 16], "int32")):
             cls = Before
-            Prod = R.call_tir(cls.product, [A, B], out_ty=R.Tensor([16, 16], "int32"))
-            Sum = R.call_tir(cls.sum, [A, B], out_ty=R.Tensor([16, 16], "int32"))
+            Prod = R.call_tir(cls.product, [A, B], ty_args=[R.Tensor([16, 16], "int32")])
+            Sum = R.call_tir(cls.sum, [A, B], ty_args=[R.Tensor([16, 16], "int32")])
             return (Prod, Sum)
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def product(
-            A: T.Buffer([16, 16], "int32"),
-            B: T.Buffer([16, 16], "int32"),
-            C: T.Buffer([16, 16], "int32"),
+            A: T.Tensor([16, 16], "int32"),
+            B: T.Tensor([16, 16], "int32"),
+            C: T.Tensor([16, 16], "int32"),
         ):
             for (*iters,) in T.grid(*A.shape):
                 with Ts.sblock("compute"):
                     i, j = Ts.axis.remap("SS", iters)
                     C[i, j] = A[i, j] * B[i, j]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def sum(
-            A: T.Buffer([16, 16], "int32"),
-            B: T.Buffer([16, 16], "int32"),
-            C: T.Buffer([16, 16], "int32"),
+            A: T.Tensor([16, 16], "int32"),
+            B: T.Tensor([16, 16], "int32"),
+            C: T.Tensor([16, 16], "int32"),
         ):
             for (*iters,) in T.grid(*A.shape):
                 with Ts.sblock("compute"):
@@ -428,13 +429,13 @@ def test_call_tir_tuple_arg():
     # normalization of those expressions may produce additional
     # variables bindings.  This test case should be agnostic to those
     # additional bindings, so DCE is applied after CSE.
-    After = tvm.ir.transform.Sequential(
+    After = tvm_tirx.ir.transform.Sequential(
         [
             EliminateCommonSubexpr(),
             tvm.relax.transform.DeadCodeElimination(),
         ]
     )(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_do_not_eliminate_dtype():
@@ -493,10 +494,10 @@ def test_match_cast():
 
 
 def test_match_cast_with_symbolic_vars():
-    n = T.dynamic("n")
-    m = T.dynamic("m")
-    p = T.dynamic("p")
-    q = T.dynamic("q")
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
+    p = T.dynamic("p", "int64")
+    q = T.dynamic("q", "int64")
 
     @I.ir_module
     class Before:
@@ -514,10 +515,10 @@ def test_match_cast_with_symbolic_vars():
                 R.output(gv)
             return gv
 
-    n = T.dynamic("n")
-    m = T.dynamic("m")
-    p = T.dynamic("p")
-    q = T.dynamic("q")
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
+    p = T.dynamic("p", "int64")
+    q = T.dynamic("q", "int64")
 
     @I.ir_module
     class Expected:
@@ -665,4 +666,4 @@ def test_keep_alloc_storage():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

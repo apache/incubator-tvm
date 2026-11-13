@@ -48,20 +48,20 @@ struct RewriteSpec {
   void Append(RewriteSpec other);
 };
 
-class PatternMatchingRewriterNode : public tvm::transform::PassNode {
+class PatternMatchingRewriterObj : public tvm::transform::PassObj {
  public:
   virtual RewriteSpec RewriteBindings(const ffi::Array<Binding>& bindings) const {
     return RewriteSpec();
   }
 
   static void RegisterReflection() {
-    // PatternMatchingRewriterNode has no fields to register
+    // PatternMatchingRewriterObj has no fields to register
   }
 
   IRModule operator()(IRModule mod, const tvm::transform::PassContext& pass_ctx) const override;
   tvm::transform::PassInfo Info() const override;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.PatternMatchingRewriter", PatternMatchingRewriterNode,
-                              PassNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.PatternMatchingRewriter", PatternMatchingRewriterObj,
+                              PassObj);
 };
 
 class PatternMatchingRewriter : public tvm::transform::Pass {
@@ -77,12 +77,15 @@ class PatternMatchingRewriter : public tvm::transform::Pass {
   Expr operator()(Expr expr);
   using Pass::operator();
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(PatternMatchingRewriter, Pass,
-                                             PatternMatchingRewriterNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PatternMatchingRewriter, Pass,
+                                                PatternMatchingRewriterObj);
 };
 
-class ExprPatternRewriterNode : public PatternMatchingRewriterNode {
+class ExprPatternRewriterObj : public PatternMatchingRewriterObj {
  public:
+  explicit ExprPatternRewriterObj(DFPattern value) : pattern(std::move(value)) {}
+  explicit ExprPatternRewriterObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+
   DFPattern pattern;
   ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func;
   ffi::Optional<ffi::Array<DFPattern>> additional_bindings;
@@ -94,12 +97,12 @@ class ExprPatternRewriterNode : public PatternMatchingRewriterNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExprPatternRewriterNode>()
-        .def_ro("pattern", &ExprPatternRewriterNode::pattern)
-        .def_ro("func", &ExprPatternRewriterNode::func);
+    refl::ObjectDef<ExprPatternRewriterObj>()
+        .def_ro("pattern", &ExprPatternRewriterObj::pattern)
+        .def_ro("func", &ExprPatternRewriterObj::func);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.ExprPatternRewriter", ExprPatternRewriterNode,
-                              PatternMatchingRewriterNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.ExprPatternRewriter", ExprPatternRewriterObj,
+                              PatternMatchingRewriterObj);
 };
 
 class ExprPatternRewriter : public PatternMatchingRewriter {
@@ -109,12 +112,15 @@ class ExprPatternRewriter : public PatternMatchingRewriter {
                       ffi::Optional<ffi::Array<DFPattern>> additional_bindings = std::nullopt,
                       ffi::Map<GlobalVar, BaseFunc> new_subroutines = {});
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(ExprPatternRewriter, PatternMatchingRewriter,
-                                             ExprPatternRewriterNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExprPatternRewriter, PatternMatchingRewriter,
+                                                ExprPatternRewriterObj);
 };
 
-class OrRewriterNode : public PatternMatchingRewriterNode {
+class OrRewriterObj : public PatternMatchingRewriterObj {
  public:
+  OrRewriterObj(PatternMatchingRewriter lhs, PatternMatchingRewriter rhs)
+      : lhs(std::move(lhs)), rhs(std::move(rhs)) {}
+  explicit OrRewriterObj(ffi::UnsafeInit) : lhs(ffi::UnsafeInit{}), rhs(ffi::UnsafeInit{}) {}
   PatternMatchingRewriter lhs;
   PatternMatchingRewriter rhs;
 
@@ -122,21 +128,21 @@ class OrRewriterNode : public PatternMatchingRewriterNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<OrRewriterNode>()
-        .def_ro("lhs", &OrRewriterNode::lhs)
-        .def_ro("rhs", &OrRewriterNode::rhs);
+    refl::ObjectDef<OrRewriterObj>()
+        .def_ro("lhs", &OrRewriterObj::lhs)
+        .def_ro("rhs", &OrRewriterObj::rhs);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.OrRewriter", OrRewriterNode, PatternMatchingRewriterNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.OrRewriter", OrRewriterObj, PatternMatchingRewriterObj);
 };
 
 class OrRewriter : public PatternMatchingRewriter {
  public:
   OrRewriter(PatternMatchingRewriter lhs, PatternMatchingRewriter rhs);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(OrRewriter, PatternMatchingRewriter, OrRewriterNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(OrRewriter, PatternMatchingRewriter, OrRewriterObj);
 };
 
-class TupleRewriterNode : public PatternMatchingRewriterNode {
+class TupleRewriterObj : public PatternMatchingRewriterObj {
  public:
   ffi::Array<DFPattern> patterns;
   ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func;
@@ -147,12 +153,12 @@ class TupleRewriterNode : public PatternMatchingRewriterNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TupleRewriterNode>()
-        .def_ro("patterns", &TupleRewriterNode::patterns)
-        .def_ro("func", &TupleRewriterNode::func);
+    refl::ObjectDef<TupleRewriterObj>()
+        .def_ro("patterns", &TupleRewriterObj::patterns)
+        .def_ro("func", &TupleRewriterObj::func);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.TupleRewriter", TupleRewriterNode,
-                              PatternMatchingRewriterNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.dpl.TupleRewriter", TupleRewriterObj,
+                              PatternMatchingRewriterObj);
 
  private:
   struct VarInfo {
@@ -176,8 +182,8 @@ class TupleRewriter : public PatternMatchingRewriter {
                 ffi::Optional<ffi::Array<DFPattern>> additional_bindings = std::nullopt,
                 ffi::Map<GlobalVar, BaseFunc> new_subroutines = {});
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(TupleRewriter, PatternMatchingRewriter,
-                                             TupleRewriterNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TupleRewriter, PatternMatchingRewriter,
+                                                TupleRewriterObj);
 };
 
 }  // namespace relax

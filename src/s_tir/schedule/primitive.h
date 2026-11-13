@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_SCHEDULE_PRIMITIVE_H_
 #define TVM_S_TIR_SCHEDULE_PRIMITIVE_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/prim/expr.h>
 #include <tvm/s_tir/random_engine.h>
 #include <tvm/s_tir/schedule/state.h>
@@ -194,10 +195,10 @@ ffi::Array<StmtSRef> GetProducers(const ScheduleState& self, const StmtSRef& blo
 ffi::Array<StmtSRef> GetConsumers(const ScheduleState& self, const StmtSRef& block_sref);
 /*!
  * \brief Get the list of output blocks within the given scope
- * An output block is a block which has atleast one buffer being written
- * to, but is not allocated within the PrimFunc
+ * An output block is a block which has atleast one tensor being written
+ * to, but is not allocated within the Function
  * \param scope_block_rv The scope block from which output blocks are collected
- * \return A list of all blocks that write to some output buffer
+ * \return A list of all blocks that write to some output tensor
  * block
  */
 ffi::Array<StmtSRef> GetOutputBlocks(const ScheduleState& self, const StmtSRef& scope_sref);
@@ -336,78 +337,78 @@ TVM_DLL void Bind(ScheduleState self, const StmtSRef& loop_sref, const ffi::Stri
 TVM_DLL void Unroll(ScheduleState self, const StmtSRef& loop_sref);
 /******** Schedule: Insert cache stages ********/
 /*!
- * \brief Create a block that reads a buffer region into a read cache. It requires:
- * 1) There is at most one block who writes the buffer in the scope.
+ * \brief Create a block that reads a tensor region into a read cache. It requires:
+ * 1) There is at most one block who writes the tensor in the scope.
  * 2) The scope block have stage-pipeline property.
  * \param self The state of the schedule
- * \param block_sref The consumer block of the target buffer.
- * \param read_buffer_index The index of the buffer in block's read region.
+ * \param block_sref The consumer block of the target tensor.
+ * \param read_tensor_index The index of the tensor in block's read region.
  * \param storage_scope The target storage scope.
  * \param consumer_blocks Array of blocks that consume the cache.
  * \return The cache stage block.
  */
-TVM_DLL StmtSRef CacheRead(ScheduleState self, const StmtSRef& block_sref, int read_buffer_index,
+TVM_DLL StmtSRef CacheRead(ScheduleState self, const StmtSRef& block_sref, int read_tensor_index,
                            const ffi::String& storage_scope,
                            const ffi::Array<StmtSRef> consumer_blocks = {});
 /*!
- * \brief Create a block that writes a buffer region into a write cache. It requires:
- * 1) There is only one block that writes the target buffer.
+ * \brief Create a block that writes a tensor region into a write cache. It requires:
+ * 1) There is only one block that writes the target tensor.
  * 2) The scope block have stage-pipeline property.
  * \param self The state of the schedule
- * \param block_sref The producer of the buffer
- * \param write_buffer_index The index of the buffer in block's write region
+ * \param block_sref The producer of the tensor
+ * \param write_tensor_index The index of the tensor in block's write region
  * \param storage_scope The target storage scope
  * \param consumer_blocks Array of blocks that consume the cache.
  * \return The cache stage block.
  */
-TVM_DLL StmtSRef CacheWrite(ScheduleState self, const StmtSRef& block_sref, int write_buffer_index,
+TVM_DLL StmtSRef CacheWrite(ScheduleState self, const StmtSRef& block_sref, int write_tensor_index,
                             const ffi::String& storage_scope,
                             const ffi::Array<StmtSRef> consumer_blocks = {});
 /*!
- * \brief Create a block that reads a buffer region into a read cache. It requires:
- * 1) There is at most one block who writes the buffer in the scope.
+ * \brief Create a block that reads a tensor region into a read cache. It requires:
+ * 1) There is at most one block who writes the tensor in the scope.
  * 2) The scope block have stage-pipeline property.
- * Compared to cache read, the indices to access allocated cache buffer is customized by user.
+ * Compared to cache read, the indices to access allocated cache tensor is customized by user.
  * \param self The state of the schedule
- * \param block_sref The consumer block of the target buffer.
- * \param read_buffer_index The index of the buffer in block's read region.
+ * \param block_sref The consumer block of the target tensor.
+ * \param read_tensor_index The index of the tensor in block's read region.
  * \param storage_scope The target storage scope.
- * \param index_map User defined indices to access allocated cache buffer, maps from block iter
+ * \param index_map User defined indices to access allocated cache tensor, maps from block iter
  * vars.
  * \return The cache stage block.
  */
 TVM_DLL StmtSRef ReindexCacheRead(ScheduleState self, const StmtSRef& block_sref,
-                                  int read_buffer_index, const ffi::String& storage_scope,
+                                  int read_tensor_index, const ffi::String& storage_scope,
                                   const IndexMap& index_map);
 /*!
- * \brief Create a block that writes a buffer region into a write cache. It requires:
- * 1) There is only one block that writes the target buffer.
+ * \brief Create a block that writes a tensor region into a write cache. It requires:
+ * 1) There is only one block that writes the target tensor.
  * 2) The scope block have stage-pipeline property.
- * Compared to cache write, the indices to access allocated cache buffer is customized by user.
+ * Compared to cache write, the indices to access allocated cache tensor is customized by user.
  * \param self The state of the schedule
- * \param block_sref The producer of the buffer
- * \param write_buffer_index The index of the buffer in block's write region
+ * \param block_sref The producer of the tensor
+ * \param write_tensor_index The index of the tensor in block's write region
  * \param storage_scope The target storage scope
- * \param index_map User defined indices to access allocated cache buffer, maps from block iter
+ * \param index_map User defined indices to access allocated cache tensor, maps from block iter
  * vars.
  * \return The cache stage block.
  */
 TVM_DLL StmtSRef ReindexCacheWrite(ScheduleState self, const StmtSRef& block_sref,
-                                   int write_buffer_index, const ffi::String& storage_scope,
+                                   int write_tensor_index, const ffi::String& storage_scope,
                                    const IndexMap& index_map);
 
 /*!
  *!
- * \brief Create 2 blocks that read&write a buffer region into a read/write cache.
- * It requires the target block both read & write the target buffer.
+ * \brief Create 2 blocks that read&write a tensor region into a read/write cache.
+ * It requires the target block both read & write the target tensor.
  * \param self The state of the schedule
- * \param block_sref The target block operates on the target buffer.
- * \param read_buffer_index The index of the buffer in block's read region.
+ * \param block_sref The target block operates on the target tensor.
+ * \param read_tensor_index The index of the tensor in block's read region.
  * \param storage_scope The target storage scope
  * \return The cache stage blocks, cache read block together with cache write block.
  */
 TVM_DLL ffi::Array<StmtSRef> CacheInplace(ScheduleState self, const StmtSRef& block_sref,
-                                          int read_buffer_index, const ffi::String& storage_scope);
+                                          int read_tensor_index, const ffi::String& storage_scope);
 /*!
  * \brief Create a block to cache precomputed index for later use.
  * if there is no index computation, keep unchanged.
@@ -420,39 +421,39 @@ TVM_DLL ffi::Array<StmtSRef> CacheIndex(ScheduleState self, const StmtSRef& bloc
                                         const ffi::String& storage_scope, int cse_thresh);
 /*!
  *!
- * \brief Create a block that read/write a buffer region into a read/write cache with reindexing.
+ * \brief Create a block that read/write a tensor region into a read/write cache with reindexing.
  * The layout of the cache will be the same as by the iterators of the block that reads/writes the
- * buffer. It requires:
- * 1) There is only one block who reads/writes the target buffer
- * 2) There is only one buffer load/store of this buffer in the block
+ * tensor. It requires:
+ * 1) There is only one block who reads/writes the target tensor
+ * 2) There is only one tensor load/store of this tensor in the block
  * \param self The state of the schedule
- * \param block_sref The block operates on the target buffer.
- * \param buffer_index The index of the buffer in block's read or write region.
- * \param buffer_index_type The type of the buffer index, kRead or kWrite.
+ * \param block_sref The block operates on the target tensor.
+ * \param tensor_index The index of the tensor in block's read or write region.
+ * \param tensor_index_type The type of the tensor index, kRead or kWrite.
  * \return The reindex stage block.
  */
-TVM_DLL StmtSRef ReIndex(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
-                         BufferIndexType buffer_index_type);
+TVM_DLL StmtSRef ReIndex(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
+                         TensorIndexType tensor_index_type);
 
 /******** Schedule: Data movement ********/
 
 TVM_DLL StmtSRef ReadAt(ScheduleState self, const StmtSRef& loop_sref, const StmtSRef& block_sref,
-                        int read_buffer_index, const ffi::String& storage_scope);
+                        int read_tensor_index, const ffi::String& storage_scope);
 
 TVM_DLL StmtSRef WriteAt(ScheduleState self, const StmtSRef& loop_sref, const StmtSRef& block_sref,
-                         int write_buffer_index, const ffi::String& storage_scope);
+                         int write_tensor_index, const ffi::String& storage_scope);
 
 /******** Schedule: Compute location ********/
 /*!
  * \brief Move a producer block under the specific loop, and regenerate the
- * loops induced by the block so that the buffer region produced by the producer block could
+ * loops induced by the block so that the tensor region produced by the producer block could
  * cover those regions consumed by its consumer blocks under the given loop. It requires:
  * 1) `block` and `loop` are under the same scope, `loop` is not the ancestor of `block`
  * 2) The scope block has stage-pipeline property
  * 3) The subtree of the scope block, where the given block is in, satisfies the compact dataflow
  * condition. i.e. all the blocks in the scope block's subtree must be either complete block or
  * reduction block
- * 4) The block is not an output block with regard to the scope block, i.e. the buffers written by
+ * 4) The block is not an output block with regard to the scope block, i.e. the tensors written by
  * the block are allocated under the scope block
  * 5) All the consumers of the block are under the given loop
  *
@@ -468,7 +469,7 @@ TVM_DLL void ComputeAt(ScheduleState self, const StmtSRef& block_sref, const Stm
                        bool preserve_unit_loops, int index = -1);
 /*!
  * \brief Move a consumer block under the specific loop, and regenerate the
- * loops induced by the block so that the buffer region consumed by the consumer block could
+ * loops induced by the block so that the tensor region consumed by the consumer block could
  * cover those regions produced by its producer blocks under the given loop. It requires:
  * 1) `block` and `loop` are under the same scope, `loop` is not the ancestor of `block`
  * 2) The scope block has stage-pipeline property
@@ -490,9 +491,9 @@ TVM_DLL void ReverseComputeAt(ScheduleState self, const StmtSRef& block_sref,
                               const StmtSRef& loop_sref, bool preserve_unit_loops, int index = -1);
 /*!
  * \brief Inline a block into its consumer(s). It requires:
- * 1) The block is a complete non-root block, which only produces one buffer
+ * 1) The block is a complete non-root block, which only produces one tensor
  * 2) The block must not be the only leaf in the scope.
- * 3) The body of the block must be a BufferStore statement in the form of,
+ * 3) The body of the block must be a TensorStore statement in the form of,
  *    A[i, j, k, ...] = ...
  * where the indices of the LHS are all distinct atomic variables,
  * and no variables other than those indexing variables are allowed in the statement.
@@ -502,12 +503,12 @@ TVM_DLL void ReverseComputeAt(ScheduleState self, const StmtSRef& block_sref,
 TVM_DLL void ComputeInline(ScheduleState self, const StmtSRef& block_sref);
 /*!
  * \brief Inline a block into its only producer. It requires:
- * 1) The block is a complete non-root block, which only produces and consumers one buffer
+ * 1) The block is a complete non-root block, which only produces and consumers one tensor
  * 2) The block must not be the only leaf in the scope.
  * 3) The only producer of the block is a read-after-write producer and a complete non-root block
- * 4) The body of the block must be a BufferStore statement in the form of,
+ * 4) The body of the block must be a TensorStore statement in the form of,
  *    B[f(i, j, k, ...)] = g(i, j, k, A[i, j, k, ...] ...)
- * where the indices of each `BufferLoad` on the RHS are all distinct atomic variables,
+ * where the indices of each `TensorLoad` on the RHS are all distinct atomic variables,
  * and no variables other than those indexing variables are allowed in the statement.
  * \param self The state of the schedule
  * \param block_sref The sref to the block to be inlined to its producer
@@ -545,7 +546,7 @@ TVM_DLL StmtSRef DecomposeReduction(ScheduleState self, const StmtSRef& block_sr
  * \param self The state of the schedule
  * \param loop_sref The loop outside block for which we want to do rfactor
  * \param factor_axis The position where the new dimension is placed in the new introduced rfactor
- *                    buffer. Suppose the original reduction block writes to buffer `B` with
+ *                    tensor. Suppose the original reduction block writes to tensor `B` with
  *                    ndim(B) dimensions, then `factor_axis` should be in range `[-ndim(B) - 1,
  *                    ndim(B)]`, and the negative index will be normalized to a non-negative one
  * \return The sref of the rfactor block
@@ -560,35 +561,35 @@ TVM_DLL StmtSRef RFactor(ScheduleState self, const StmtSRef& loop_sref, int fact
  *        offset=1 to avoid bank conflict for thread access on higher dimension in GPU shared
  *        memory.
  * \param self The state of the schedule
- * \param block_sref The producer block of the buffer
- * \param buffer_index The index of the buffer in block's write region
+ * \param block_sref The producer block of the tensor
+ * \param tensor_index The index of the tensor in block's write region
  * \param axis The dimension to be specified for alignment
  * \param factor The factor multiple of alignment
  * \param offset The required offset factor
  */
-TVM_DLL void StorageAlign(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
+TVM_DLL void StorageAlign(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
                           int axis, int factor, int offset);
 /*!
- * \brief Set the storage scope of a buffer, where the buffer is specified by the a block and a
+ * \brief Set the storage scope of a tensor, where the tensor is specified by the a block and a
  * write-index
  * \param self The state of the schedule
- * \param block_sref The sref of the producer block of the buffer
- * \param buffer_index The index of the buffer in block's write region
+ * \param block_sref The sref of the producer block of the tensor
+ * \param tensor_index The index of the tensor in block's write region
  * \param storage_scope The storage scope to be set
  */
-TVM_DLL void SetScope(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
+TVM_DLL void SetScope(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
                       const ffi::String& storage_scope);
 /*!
- * \brief Set the data type of a buffer, where the buffer is specified by a block and a
+ * \brief Set the data type of a tensor, where the tensor is specified by a block and a
  * write-index
  * \note This schedule primitive is unsafe and may change correctness of program because of
  *   type conversion, please use with caution.
  * \param self The state of the schedule
- * \param block_sref The sref of the producer block of the buffer
- * \param buffer_index The index of the buffer in block's write region
+ * \param block_sref The sref of the producer block of the tensor
+ * \param tensor_index The index of the tensor in block's write region
  * \param dtype The data type to be set
  */
-TVM_DLL void UnsafeSetDType(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
+TVM_DLL void UnsafeSetDType(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
                             const ffi::String& dtype);
 /******** Schedule: Blockize & Tensorize ********/
 
@@ -641,15 +642,15 @@ TVM_DLL void Unannotate(ScheduleState self, const StmtSRef& sref, const ffi::Str
 
 /******** Schedule: Layout transformation ********/
 /*!
- * \brief Apply a transformation represented by IndexMap to buffer
- * \details The indices and the access region to the target buffer is transformed by the given
- * index_map. The index_map is also used to infer the new shape of the buffer. Buffer must be
- * one of the parameter of the function, or allocated in some blocks (it cannot be a buffer
- * subregion created via match_buffer).
+ * \brief Apply a transformation represented by IndexMap to tensor
+ * \details The indices and the access region to the target tensor is transformed by the given
+ * index_map. The index_map is also used to infer the new shape of the tensor. Tensor must be
+ * one of the parameter of the function, or allocated in some blocks (it cannot be a tensor
+ * subregion created via match_tensor).
  * \param self The state of the schedule
- * \param block_sref The block sref that accesses the target buffer.
- * \param buffer_index The index of the buffer in block's read or write region.
- * \param buffer_index_type The type of the buffer index, kRead or kWrite.
+ * \param block_sref The block sref that accesses the target tensor.
+ * \param tensor_index The index of the tensor in block's read or write region.
+ * \param tensor_index_type The type of the tensor index, kRead or kWrite.
  * \param index_map The transformation to apply.
  * \param pad_value The value to write into padding introduced by the transformation.
  * \param assume_injective_transform If set to true, the schedule primitive will assume the
@@ -658,8 +659,8 @@ TVM_DLL void Unannotate(ScheduleState self, const StmtSRef& sref, const ffi::Str
  * to ensure the index map is injective, otherwise, the correctness of the schedule is not
  * guaranteed.
  */
-TVM_DLL void TransformLayout(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
-                             BufferIndexType buffer_index_type, const IndexMap& index_map,
+TVM_DLL void TransformLayout(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
+                             TensorIndexType tensor_index_type, const IndexMap& index_map,
                              const ffi::Optional<IndexMap>& pad_value,
                              bool assume_injective_transform);
 
@@ -694,45 +695,45 @@ TVM_DLL StmtSRef DecomposePadding(ScheduleState self, const StmtSRef& block_sref
  */
 TVM_DLL void PadEinsum(ScheduleState self, const StmtSRef& block_sref,
                        const ffi::Array<int64_t>& padding);
-/******** Schedule: Buffer transformation ********/
+/******** Schedule: Tensor transformation ********/
 /*!
- * \brief Compute the target buffer via rolling buffering.
+ * \brief Compute the target tensor via rolling buffering.
  * \details This primitive selects the outermost rollable axis with a positive bound overlap that
- * appears in the block's ancestor loops as `rolling axis`, fold and circularize the buffer along
+ * appears in the block's ancestor loops as `rolling axis`, fold and circularize the tensor along
  * the rolling dimension, append block predicate to avoid recomputing overlapping elements.
  * It requires:
- * 1) The buffer to be an intermediate buffer defined via `alloc_buffer`.
- * 2) The LCA of the producer and consumer of the buffer is a for loop, typically,
- *    the producer and consumer of the buffer are cascaded through compute_at.
- * 3) The access region of the buffer has at least one dimension that contains
+ * 1) The tensor to be an intermediate tensor defined via `alloc_tensor`.
+ * 2) The LCA of the producer and consumer of the tensor is a for loop, typically,
+ *    the producer and consumer of the tensor are cascaded through compute_at.
+ * 3) The access region of the tensor has at least one dimension that contains
  *    a positive bound overlap.
- * \param block_rv The producer block of the buffer.
- * \param write_buffer_index The index of the buffer in block's write region.
+ * \param block_rv The producer block of the tensor.
+ * \param write_tensor_index The index of the tensor in block's write region.
  */
-TVM_DLL void RollingBuffer(ScheduleState self, const StmtSRef& block_sref, int write_buffer_index);
+TVM_DLL void RollingBuffer(ScheduleState self, const StmtSRef& block_sref, int write_tensor_index);
 /******** Schedule: Misc ********/
 
 /*!
- * \brief Hide some buffer access in the given block.
+ * \brief Hide some tensor access in the given block.
  * \param self The state of the schedule.
  * \param block_sref The sref of the block we hide access.
- * \param buf_type The buffer type: read/write
- * \param buf_index_array The array of buffer indices we hide access.
+ * \param tensor_type The tensor type: read/write
+ * \param tensor_index_array The array of tensor indices we hide access.
  */
-TVM_DLL void UnsafeHideBufferAccess(ScheduleState self, const StmtSRef& block_sref,
-                                    const ffi::String& buf_type,
-                                    const ffi::Array<IntImm>& buf_index_array);
+TVM_DLL void UnsafeHideTensorAccess(ScheduleState self, const StmtSRef& block_sref,
+                                    const ffi::String& tensor_type,
+                                    const ffi::Array<int64_t>& tensor_index_array);
 
 /*!
- * \brief Annotate the read or write region of a specific buffer in a block
+ * \brief Annotate the read or write region of a specific tensor in a block
  * \param self The state of the schedule
  * \param block_sref The sref of the block to be annotated
- * \param buffer_index The index of the buffer in block's read or write region
- * \param buffer_index_type The type of the buffer index, kRead or kWrite
- * \param index_map The IndexMap that defines the new read or write region for the buffer
+ * \param tensor_index The index of the tensor in block's read or write region
+ * \param tensor_index_type The type of the tensor index, kRead or kWrite
+ * \param index_map The IndexMap that defines the new read or write region for the tensor
  */
-TVM_DLL void AnnotateBufferAccess(ScheduleState self, const StmtSRef& block_sref, int buffer_index,
-                                  BufferIndexType buffer_index_type, const IndexMap& index_map);
+TVM_DLL void AnnotateTensorAccess(ScheduleState self, const StmtSRef& block_sref, int tensor_index,
+                                  TensorIndexType tensor_index_type, const IndexMap& index_map);
 }  // namespace s_tir
 }  // namespace tvm
 

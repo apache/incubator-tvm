@@ -18,13 +18,11 @@
 
 import tvm_ffi
 
-from tvm.runtime import Object
-
 from . import _ffi_api
 
 
 @tvm_ffi.register_object("s_tir.SLayout")
-class SLayout(Object):
+class SLayout(tvm_ffi.Object):
     """SLayout is composed of upper cases, lower cases and numbers,
     where upper case indicates a primal axis and
     the corresponding lower case with factor size indicates the subordinate axis.
@@ -83,7 +81,7 @@ class SLayout(Object):
 
 
 @tvm_ffi.register_object("s_tir.SBijectiveLayout")
-class SBijectiveLayout(Object):
+class SBijectiveLayout(tvm_ffi.Object):
     """Bijective mapping for two layouts (src-layout and dst-layout).
     It provides shape and index conversion between each other.
 
@@ -164,7 +162,7 @@ class SBijectiveLayout(Object):
         return _ffi_api.SBijectiveLayoutBackwardShape(self, shape)  # type: ignore
 
 
-def slayout(layout_str: str, dtype: str = "int32") -> SLayout:
+def slayout(layout_str: str, dtype: str = "int32") -> SLayout | None:
     """Create a layout node from a string.
 
     Parameters
@@ -184,13 +182,15 @@ def slayout(layout_str: str, dtype: str = "int32") -> SLayout:
 
     Returns
     -------
-    layout : SLayout
-        The created layout
+    layout : SLayout or None
+        The created layout, or None for an empty string or "__undef__".
     """
     return _ffi_api.SLayout(layout_str, dtype)  # type: ignore
 
 
-def sbijective_layout(src_layout: str | SLayout, dst_layout: str | SLayout) -> SBijectiveLayout:
+def sbijective_layout(
+    src_layout: str | SLayout | None, dst_layout: str | SLayout | None
+) -> SBijectiveLayout | None:
     """Create a bijective layout mapping.
 
     Parameters
@@ -203,8 +203,8 @@ def sbijective_layout(src_layout: str | SLayout, dst_layout: str | SLayout) -> S
 
     Returns
     -------
-    sbijective_layout : SBijectiveLayout
-        The created bijective layout
+    sbijective_layout : SBijectiveLayout or None
+        The created bijective layout, or None when the layouts are not convertible.
     """
     if isinstance(src_layout, str):
         src_layout = slayout(src_layout)

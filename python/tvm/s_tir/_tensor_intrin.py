@@ -20,22 +20,21 @@ from typing import Optional
 
 import tvm_ffi
 
-from tvm.runtime import Object
-from tvm.tirx.function import PrimFunc
+from tvm_tirx.tirx.function import Function
 
 from . import _ffi_api
 
 
 @tvm_ffi.register_object("s_tir.TensorIntrin")
-class TensorIntrin(Object):
+class TensorIntrin(tvm_ffi.Object):
     """A tensor intrinsic.
 
     Parameters
     ----------
-    desc : PrimFunc
+    desc : Function
         The function to describe the computation.
 
-    impl : PrimFunc
+    impl : Function
         The function of the implementation for the execution.
     """
 
@@ -43,16 +42,16 @@ class TensorIntrin(Object):
         self.__init_handle_by_constructor__(_ffi_api.TensorIntrin, desc, impl)
 
     @staticmethod
-    def register(name: str, desc: PrimFunc, impl: PrimFunc, override: bool = False):
+    def register(name: str, desc: Function, impl: Function, override: bool = False):
         """Register a tensor intrinsic with its name.
 
         Parameters
         ----------
         name : str
             The name of the TensorIntrin to register.
-        desc : PrimFunc
+        desc : Function
             The function to describe the computation.
-        impl : PrimFunc
+        impl : Function
             The function of the implementation for the execution.
         override: bool
             Whether override existing intrinsic.

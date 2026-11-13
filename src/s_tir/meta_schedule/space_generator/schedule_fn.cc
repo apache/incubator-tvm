@@ -25,7 +25,7 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The union of design space generators. */
-class ScheduleFnNode : public SpaceGeneratorNode {
+class ScheduleFnObj : public SpaceGeneratorObj {
  public:
   /*! \brief The random state. -1 means using random number. */
   TRandState rand_state_ = -1;
@@ -35,11 +35,11 @@ class ScheduleFnNode : public SpaceGeneratorNode {
   static void RegisterReflection() {
     // `schedule_fn_` is not registered.
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ScheduleFnNode>();
+    refl::ObjectDef<ScheduleFnObj>();
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final {
-    SpaceGeneratorNode::InitializeWithTuneContext(context);
+    SpaceGeneratorObj::InitializeWithTuneContext(context);
     this->rand_state_ = ForkSeed(&context->rand_state);
   }
 
@@ -79,20 +79,20 @@ class ScheduleFnNode : public SpaceGeneratorNode {
   }
 
   SpaceGenerator Clone() const final {
-    ffi::ObjectPtr<ScheduleFnNode> n = ffi::make_object<ScheduleFnNode>(*this);
+    ffi::ObjectPtr<ScheduleFnObj> n = ffi::make_object<ScheduleFnObj>(*this);
     CloneRules(this, n.get());
     return SpaceGenerator(n);
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ScheduleFn", ScheduleFnNode,
-                                    SpaceGeneratorNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ScheduleFn", ScheduleFnObj,
+                                    SpaceGeneratorObj);
 };
 
 SpaceGenerator SpaceGenerator::ScheduleFn(
     ffi::Function schedule_fn, ffi::Optional<ffi::Array<ScheduleRule>> sch_rules,
     ffi::Optional<ffi::Array<Postproc>> postprocs,
     ffi::Optional<ffi::Map<Mutator, FloatImm>> mutator_probs) {
-  ffi::ObjectPtr<ScheduleFnNode> n = ffi::make_object<ScheduleFnNode>();
+  ffi::ObjectPtr<ScheduleFnObj> n = ffi::make_object<ScheduleFnObj>();
   n->sch_rules = std::move(sch_rules);
   n->postprocs = std::move(postprocs);
   n->mutator_probs = std::move(mutator_probs);
@@ -102,7 +102,7 @@ SpaceGenerator SpaceGenerator::ScheduleFn(
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  ScheduleFnNode::RegisterReflection();
+  ScheduleFnObj::RegisterReflection();
   refl::GlobalDef().def("s_tir.meta_schedule.SpaceGeneratorScheduleFn", SpaceGenerator::ScheduleFn);
 }
 

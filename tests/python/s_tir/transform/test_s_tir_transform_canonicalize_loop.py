@@ -18,74 +18,76 @@
 import pytest
 
 import tvm
-from tvm import s_tir, tirx
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+from tvm import s_tir
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 
 def test_canonicalize_loop():
-    @Ts.prim_func
-    def before(A: T.Buffer((128,), "float32"), B: T.Buffer((128,), "float32")):
+    @Ts.function
+    def before(A: T.Tensor((128,), "float32"), B: T.Tensor((128,), "float32")):
         T.func_attr({"global_symbol": "main"})
         for i in range(1, 128, 5):
             B[i] = A[i] + 1.0
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((128,), "float32"), B: T.Buffer((128,), "float32")):
+    @Ts.function
+    def expected(A: T.Tensor((128,), "float32"), B: T.Tensor((128,), "float32")):
         T.func_attr({"global_symbol": "main"})
         for i in T.serial(0, 26):
             B[i * 5 + 1] = A[i * 5 + 1] + 1.0
 
-    mod = tvm.IRModule.from_expr(before)
+    mod = tvm_tirx.IRModule.from_expr(before)
     mod = s_tir.transform.CanonicalizeLoop()(mod)
-    tvm.ir.assert_structural_equal(mod["main"], expected)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
 def test_canonicalize_nested_loop():
-    @Ts.prim_func
-    def before(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")):
+    @Ts.function
+    def before(A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")):
         T.func_attr({"global_symbol": "main"})
         for i in range(1, 128, 5):
             for j in range(2, 128, 3):
                 B[i, j] = A[i, j] + 1.0
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")):
+    @Ts.function
+    def expected(A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")):
         T.func_attr({"global_symbol": "main"})
         for i in T.serial(0, 26):
             for j in T.serial(0, 42):
                 B[i * 5 + 1, j * 3 + 2] = A[i * 5 + 1, j * 3 + 2] + 1.0
 
-    mod = tvm.IRModule.from_expr(before)
+    mod = tvm_tirx.IRModule.from_expr(before)
     mod = s_tir.transform.CanonicalizeLoop()(mod)
-    tvm.ir.assert_structural_equal(mod["main"], expected)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
 def test_canonicalize_negative_step():
-    @Ts.prim_func
-    def before(A: T.Buffer((128,), "float32"), B: T.Buffer((128,), "float32")):
+    @Ts.function
+    def before(A: T.Tensor((128,), "float32"), B: T.Tensor((128,), "float32")):
         T.func_attr({"global_symbol": "main"})
         for i in T.serial(0, 127, step=-3):
             B[i] = A[i] + 1.0
 
-    mod = tvm.IRModule.from_expr(before)
-    with pytest.raises(tvm.error.InternalError):
+    mod = tvm_tirx.IRModule.from_expr(before)
+    with pytest.raises(RuntimeError):
         mod = s_tir.transform.CanonicalizeLoop()(mod)
 
 
 def test_canonicalize_dynamic_step():
     """Currently we report error for dynamic step since we could not prove it is positive"""
 
-    @Ts.prim_func
-    def before(A: T.Buffer((128,), "float32"), B: T.Buffer((128,), "float32"), step: T.int32):
+    @Ts.function
+    def before(A: T.Tensor((128,), "float32"), B: T.Tensor((128,), "float32"), step: T.int32):
         T.func_attr({"global_symbol": "main"})
         for i in T.serial(0, 128, step=step):
             B[i] = A[i] + 1.0
 
-    mod = tvm.IRModule.from_expr(before)
-    with pytest.raises(tvm.error.InternalError):
+    mod = tvm_tirx.IRModule.from_expr(before)
+    with pytest.raises(RuntimeError):
         mod = s_tir.transform.CanonicalizeLoop()(mod)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

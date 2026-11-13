@@ -19,20 +19,21 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.schedule import ScheduleError
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 
-@Ts.prim_func
+@Ts.function
 def transpose_elementwise(
-    A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")
+    A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")
 ) -> None:
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
@@ -40,11 +41,11 @@ def transpose_elementwise(
             B[vi, vj] = A[vj, vi] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def transpose_elementwise_reindex_read(
-    A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")
+    A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")
 ) -> None:
-    A_reindex = Ts.sblock_alloc_buffer((128, 128), "float32")
+    A_reindex = Ts.sblock_alloc_tensor((128, 128), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("A_reindex"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -55,13 +56,13 @@ def transpose_elementwise_reindex_read(
             B[vi, vj] = A_reindex[vi, vj] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def conv2d_nhwc(
-    Input: T.Buffer((1, 224, 224, 3), "float32"),
-    Weight: T.Buffer((7, 7, 3, 64), "float32"),
-    Conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32"),
+    Input: T.Tensor((1, 224, 224, 3), "float32"),
+    Weight: T.Tensor((7, 7, 3, 64), "float32"),
+    Conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32"),
 ) -> None:
-    PadInput = Ts.sblock_alloc_buffer([1, 230, 230, 3], dtype="float32")
+    PadInput = Ts.sblock_alloc_tensor([1, 230, 230, 3], dtype="float32")
     for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
         with Ts.sblock("PadInput"):
             i0_1, i1_1, i2_1, i3_1 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -69,7 +70,6 @@ def conv2d_nhwc(
                 ((((i1_1 >= 3) and (i1_1 < 227)) and (i2_1 >= 3)) and (i2_1 < 227)),
                 Input[i0_1, (i1_1 - 3), (i2_1 - 3), i3_1],
                 T.float32(0),
-                dtype="float32",
             )
     for i0, i1, i2, i3, i4, i5, i6 in T.grid(1, 112, 112, 64, 7, 7, 3):
         with Ts.sblock("conv2d_nhwc"):
@@ -82,14 +82,14 @@ def conv2d_nhwc(
             )
 
 
-@Ts.prim_func
+@Ts.function
 def conv2d_nhwc_reindex_data(
-    Input: T.Buffer((1, 224, 224, 3), "float32"),
-    Weight: T.Buffer((7, 7, 3, 64), "float32"),
-    Conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32"),
+    Input: T.Tensor((1, 224, 224, 3), "float32"),
+    Weight: T.Tensor((7, 7, 3, 64), "float32"),
+    Conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32"),
 ) -> None:
-    PadInput = Ts.sblock_alloc_buffer([1, 230, 230, 3], dtype="float32")
-    ReindexInput = Ts.sblock_alloc_buffer([1, 112, 112, 7, 7, 3], dtype="float32")
+    PadInput = Ts.sblock_alloc_tensor([1, 230, 230, 3], dtype="float32")
+    ReindexInput = Ts.sblock_alloc_tensor([1, 112, 112, 7, 7, 3], dtype="float32")
     for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
         with Ts.sblock("PadInput"):
             i0_1, i1_1, i2_1, i3_1 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -97,7 +97,6 @@ def conv2d_nhwc_reindex_data(
                 ((((i1_1 >= 3) and (i1_1 < 227)) and (i2_1 >= 3)) and (i2_1 < 227)),
                 Input[i0_1, (i1_1 - 3), (i2_1 - 3), i3_1],
                 T.float32(0),
-                dtype="float32",
             )
     for i0, i1, i2, i3, i4, i5 in T.grid(1, 112, 112, 7, 7, 3):
         with Ts.sblock("ReindexInput"):
@@ -113,14 +112,14 @@ def conv2d_nhwc_reindex_data(
             )
 
 
-@Ts.prim_func
+@Ts.function
 def conv2d_nhwc_reindex_weight(
-    inputs: T.Buffer([1, 224, 224, 3], dtype="float32"),
-    weight: T.Buffer([7, 7, 3, 64], dtype="float32"),
-    conv2d_nhwc: T.Buffer([1, 112, 112, 64], dtype="float32"),
+    inputs: T.Tensor([1, 224, 224, 3], dtype="float32"),
+    weight: T.Tensor([7, 7, 3, 64], dtype="float32"),
+    conv2d_nhwc: T.Tensor([1, 112, 112, 64], dtype="float32"),
 ) -> None:
-    PadInput = Ts.sblock_alloc_buffer([1, 230, 230, 3], dtype="float32")
-    weight_reindex = Ts.sblock_alloc_buffer([64, 7, 7, 3], dtype="float32")
+    PadInput = Ts.sblock_alloc_tensor([1, 230, 230, 3], dtype="float32")
+    weight_reindex = Ts.sblock_alloc_tensor([64, 7, 7, 3], dtype="float32")
     for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
         with Ts.sblock("PadInput"):
             i0_1, i1_1, i2_1, i3_1 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -130,7 +129,6 @@ def conv2d_nhwc_reindex_weight(
                 i1_1 >= 3 and i1_1 < 227 and i2_1 >= 3 and i2_1 < 227,
                 inputs[i0_1, i1_1 - 3, i2_1 - 3, i3_1],
                 T.float32(0),
-                dtype="float32",
             )
     for ax3, ax4, ax5, ax6 in T.grid(64, 7, 7, 3):
         with Ts.sblock("weight_reindex"):
@@ -155,11 +153,11 @@ def conv2d_nhwc_reindex_weight(
             )
 
 
-@Ts.prim_func
+@Ts.function
 def matmul(
-    A: T.Buffer((512, 512), "float32"),
-    B: T.Buffer((512, 512), "float32"),
-    C: T.Buffer((512, 512), "float32"),
+    A: T.Tensor((512, 512), "float32"),
+    B: T.Tensor((512, 512), "float32"),
+    C: T.Tensor((512, 512), "float32"),
 ) -> None:
     for i0, i1, i2 in T.grid(512, 512, 512):
         with Ts.sblock("matmul"):
@@ -171,13 +169,13 @@ def matmul(
             C[i, j] = C[i, j] + A[i, k] * B[k, j]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_reindex_write(
-    A: T.Buffer((512, 512), "float32"),
-    B: T.Buffer((512, 512), "float32"),
-    C: T.Buffer((512, 512), "float32"),
+    A: T.Tensor((512, 512), "float32"),
+    B: T.Tensor((512, 512), "float32"),
+    C: T.Tensor((512, 512), "float32"),
 ) -> None:
-    C_reindex = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+    C_reindex = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
     for i0, i1, i2 in T.grid(512, 512, 512):
         with Ts.sblock("matmul"):
             i, j, k = Ts.axis.remap("SSR", [i0, i1, i2])
@@ -194,19 +192,19 @@ def matmul_reindex_write(
             C[v0, v1] = C_reindex[v0, v1]
 
 
-@Ts.prim_func
-def multiple_read(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")) -> None:
+@Ts.function
+def multiple_read(A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")) -> None:
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             B[vi, vj] = A[vj, vi] + A[vi, vj]
 
 
-@Ts.prim_func
+@Ts.function
 def mixed_dtype(
-    p0: T.Buffer((T.int64(2), 1280), "float16"),
-    p1: T.Buffer((1280, 1280), "float16"),
-    T_matmul_NT: T.Buffer((T.int64(2), 1280), "float16"),
+    p0: T.Tensor((T.int64(2), 1280), "float16"),
+    p1: T.Tensor((1280, 1280), "float16"),
+    T_matmul_NT: T.Tensor((T.int64(2), 1280), "float16"),
 ) -> None:
     for i0, i1, i2 in T.grid(T.int64(2), 1280, 1280):
         with Ts.sblock("T_matmul_NT"):
@@ -219,13 +217,13 @@ def mixed_dtype(
             T_matmul_NT[i, j] = T_matmul_NT[i, j] + p0[i, k] * p1[j, k]
 
 
-@Ts.prim_func
+@Ts.function
 def mixed_dtype_reindex_write(
-    p0: T.Buffer((T.int64(2), 1280), "float16"),
-    p1: T.Buffer((1280, 1280), "float16"),
-    T_matmul_NT: T.Buffer((T.int64(2), 1280), "float16"),
+    p0: T.Tensor((T.int64(2), 1280), "float16"),
+    p1: T.Tensor((1280, 1280), "float16"),
+    T_matmul_NT: T.Tensor((T.int64(2), 1280), "float16"),
 ) -> None:
-    T_matmul_NT_reindex = Ts.sblock_alloc_buffer([T.int64(2), 1280], dtype="float16")
+    T_matmul_NT_reindex = Ts.sblock_alloc_tensor([T.int64(2), 1280], dtype="float16")
     for i0, i1, i2 in T.grid(T.int64(2), 1280, 1280):
         with Ts.sblock("T_matmul_NT"):
             i = Ts.axis.spatial(T.int64(2), i0)
@@ -244,11 +242,11 @@ def mixed_dtype_reindex_write(
             T_matmul_NT[v0, v1] = T_matmul_NT_reindex[v0, v1]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_unit_dim(
-    A: T.Buffer((1, 512), "float32"),
-    B: T.Buffer((512, 1), "float32"),
-    C: T.Buffer((1, 1), "float32"),
+    A: T.Tensor((1, 512), "float32"),
+    B: T.Tensor((512, 1), "float32"),
+    C: T.Tensor((1, 1), "float32"),
 ) -> None:
     for i0, i1, i2 in T.grid(1, 1, 512):
         with Ts.sblock("matmul"):
@@ -260,13 +258,13 @@ def matmul_unit_dim(
             C[i, j] = C[i, j] + A[i, k] * B[k, j]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_unit_dim_reindex_write(
-    A: T.Buffer((1, 512), "float32"),
-    B: T.Buffer((512, 1), "float32"),
-    C: T.Buffer((1, 1), "float32"),
+    A: T.Tensor((1, 512), "float32"),
+    B: T.Tensor((512, 1), "float32"),
+    C: T.Tensor((1, 1), "float32"),
 ) -> None:
-    C_reindex = Ts.sblock_alloc_buffer([1, 1], dtype="float32")
+    C_reindex = Ts.sblock_alloc_tensor([1, 1], dtype="float32")
     for i0, i1, i2 in T.grid(1, 1, 512):
         with Ts.sblock("matmul"):
             i, j, k = Ts.axis.remap("SSR", [i0, i1, i2])
@@ -283,14 +281,26 @@ def matmul_unit_dim_reindex_write(
             C[v0, v1] = C_reindex[v0, v1]
 
 
-use_block_name = tvm.testing.parameter(by_dict={"block_obj": False, "block_name": True})
-use_buffer_name = tvm.testing.parameter(by_dict={"buffer_index": False, "buffer_name": True})
+@pytest.fixture(
+    params=[pytest.param(False, id="block_obj"), pytest.param(True, id="block_name")],
+    scope="session",
+)
+def use_block_name(request):
+    return request.param
 
 
-def test_reindex_read_basic(use_block_name, use_buffer_name):
+@pytest.fixture(
+    params=[pytest.param(False, id="tensor_index"), pytest.param(True, id="tensor_name")],
+    scope="session",
+)
+def use_tensor_name(request):
+    return request.param
+
+
+def test_reindex_read_basic(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(transpose_elementwise)
     block = "B" if use_block_name else sch.get_sblock("B")
-    buf = "A" if use_buffer_name else ("read", 0)
+    buf = "A" if use_tensor_name else ("read", 0)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(
         transpose_elementwise_reindex_read, sch.mod["main"]
@@ -298,59 +308,59 @@ def test_reindex_read_basic(use_block_name, use_buffer_name):
     verify_trace_roundtrip(sch=sch, mod=transpose_elementwise)
 
 
-def test_conv2d_reindex_weight(use_block_name, use_buffer_name):
+def test_conv2d_reindex_weight(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(conv2d_nhwc)
     block = "conv2d_nhwc" if use_block_name else sch.get_sblock("conv2d_nhwc")
-    buf = "Weight" if use_buffer_name else ("read", 1)
+    buf = "Weight" if use_tensor_name else ("read", 1)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(conv2d_nhwc_reindex_weight, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=conv2d_nhwc)
 
 
-def test_conv2d_reindex_data(use_block_name, use_buffer_name):
+def test_conv2d_reindex_data(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(conv2d_nhwc)
     block = "conv2d_nhwc" if use_block_name else sch.get_sblock("conv2d_nhwc")
-    buffer_name = sch.get(sch.get_sblock("conv2d_nhwc")).reads[0].source.name
-    buf = buffer_name if use_buffer_name else ("read", 0)
+    tensor_name = sch.get(sch.get_sblock("conv2d_nhwc")).reads[0].source.name
+    buf = tensor_name if use_tensor_name else ("read", 0)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(conv2d_nhwc_reindex_data, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=conv2d_nhwc)
 
 
-def test_matmul_reindex_write(use_block_name, use_buffer_name):
+def test_matmul_reindex_write(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(matmul)
     block = "matmul" if use_block_name else sch.get_sblock("matmul")
-    buf = "C" if use_buffer_name else ("write", 0)
+    buf = "C" if use_tensor_name else ("write", 0)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(matmul_reindex_write, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=matmul)
 
 
-def test_reindex_fail_multiple_read(use_block_name, use_buffer_name):
+def test_reindex_fail_multiple_read(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(multiple_read)
     block = "B" if use_block_name else sch.get_sblock("B")
-    buf = "A" if use_buffer_name else ("read", 0)
+    buf = "A" if use_tensor_name else ("read", 0)
     with pytest.raises(ScheduleError):
         sch.reindex(block, buf)
 
 
-def test_reindex_mixed_dtype(use_block_name, use_buffer_name):
+def test_reindex_mixed_dtype(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(mixed_dtype)
     block = "T_matmul_NT" if use_block_name else sch.get_sblock("T_matmul_NT")
-    buf = "T_matmul_NT" if use_buffer_name else ("write", 0)
+    buf = "T_matmul_NT" if use_tensor_name else ("write", 0)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(mixed_dtype_reindex_write, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=mixed_dtype)
 
 
-def test_matmul_unit_dim_reindex_write(use_block_name, use_buffer_name):
+def test_matmul_unit_dim_reindex_write(use_block_name, use_tensor_name):
     sch = tvm.s_tir.Schedule(matmul_unit_dim)
     block = "matmul" if use_block_name else sch.get_sblock("matmul")
-    buf = "C" if use_buffer_name else ("write", 0)
+    buf = "C" if use_tensor_name else ("write", 0)
     sch.reindex(block, buf)
     assert_structural_equal_ignore_global_symbol(matmul_unit_dim_reindex_write, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=matmul_unit_dim)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -26,13 +26,13 @@
 #include <tvm/runtime/logging.h>
 #include <tvm/runtime/vm/executable.h>
 #include <tvm/runtime/vm/vm.h>
+#include <tvm/support/bytes_io.h>
+#include <tvm/support/file_utils.h>
 #include <tvm/support/io.h>
 
 #include <functional>
 #include <sstream>
 
-#include "../../support/bytes_io.h"
-#include "../file_utils.h"
 #include "./module_utils.h"
 
 namespace tvm {
@@ -70,9 +70,9 @@ std::string VMExecutable::Stats() const {
   // If the constant is an DLDataType, get the data type of each of them.
   oss << "  Constant pool (# " << constants.size() << "): [";
   for (const auto& it : constants) {
-    if (auto opt_nd = it.as<runtime::Tensor>()) {
+    if (auto opt_nd = it.as<ffi::Tensor>(); opt_nd && opt_nd->defined()) {
       const auto ndarray = opt_nd.value();
-      const auto& shape = ndarray.Shape();
+      const auto& shape = ndarray.shape();
       // Scalar
       if (shape.empty()) {
         oss << "scalar, ";
@@ -203,7 +203,7 @@ ffi::Bytes VMExecutable::SaveToBytes() const {
 }
 
 void VMExecutable::WriteToFile(const ffi::String& file_name, const ffi::String& format) const {
-  runtime::SaveBinaryToFile(file_name, VMExecutable::SaveToBytes());
+  support::WriteBytesToFile(file_name, VMExecutable::SaveToBytes());
 }
 
 ffi::Module VMExecutable::LoadFromBytes(const ffi::Bytes& bytes) {
@@ -232,8 +232,7 @@ ffi::Module VMExecutable::LoadFromBytes(const ffi::Bytes& bytes) {
 }
 
 ffi::Module VMExecutable::LoadFromFile(const ffi::String& file_name) {
-  std::string data;
-  runtime::LoadBinaryFromFile(file_name, &data);
+  std::string data = support::ReadBytesFromFile(file_name);
   return VMExecutable::LoadFromBytes(ffi::Bytes(data));
 }
 
@@ -275,7 +274,7 @@ void VMExecutable::SaveMemoryScopeSection(support::Stream* strm) const {
   for (auto it = this->memory_scopes.begin(); it != this->memory_scopes.end(); it++) {
     LOG(WARNING) << "Scope Saving:" << it->second;
     strm->Write(it->first);
-    strm->Write(it->second);
+    strm->Write(std::string(it->second.name()));
   }
 }
 
@@ -284,9 +283,9 @@ void VMExecutable::SaveConstantSection(support::Stream* strm) const {
   // so the load/save is 32/64 bit compatible
   strm->Write(static_cast<uint64_t>(this->constants.size()));
   for (const auto& it : this->constants) {
-    if (auto opt_nd = it.as<runtime::Tensor>()) {
+    if (auto opt_nd = it.as<ffi::Tensor>(); opt_nd && opt_nd->defined()) {
       strm->Write<int32_t>(ffi::TypeIndex::kTVMFFITensor);
-      runtime::SaveDLTensor(strm, opt_nd.value().operator->());
+      runtime::SaveTensor(opt_nd.value(), strm);
     } else if (auto opt_shape = it.as<ffi::Shape>()) {
       ffi::Shape shape = opt_shape.value();
       strm->Write<int32_t>(ffi::TypeIndex::kTVMFFIShape);
@@ -338,7 +337,7 @@ void VMExecutable::LoadMemoryScopeSection(support::Stream* strm) {
     STREAM_CHECK(strm->Read(&const_idx), "memory scopes");
     STREAM_CHECK(strm->Read(&scope), "memory scopes");
     LOG(WARNING) << "Scope Loaded:" << scope;
-    this->memory_scopes[const_idx] = scope;
+    this->memory_scopes[const_idx] = MemoryScope::Get(scope);
   }
 }
 
@@ -348,14 +347,13 @@ void VMExecutable::LoadConstantSection(support::Stream* strm) {
   STREAM_CHECK(strm->Read(&sz, sizeof(sz)), "constant");
 
   size_t size = static_cast<size_t>(sz);
-  runtime::Tensor ndarray;
   DLDataType dtype;
   // Load each of the constants.
   for (size_t i = 0; i < size; i++) {
     int constant_type;
     STREAM_CHECK(strm->Read(&constant_type, sizeof(constant_type)), "constant");
     if (constant_type == ffi::TypeIndex::kTVMFFITensor) {
-      ndarray.Load(strm);
+      ffi::Tensor ndarray = LoadTensor(strm);
       ffi::Any cell;
       cell = ndarray;
       this->constants.push_back(cell);

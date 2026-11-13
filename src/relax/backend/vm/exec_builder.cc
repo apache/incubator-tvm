@@ -31,27 +31,27 @@ namespace relax {
 
 using namespace vm;
 
-TVM_FFI_STATIC_INIT_BLOCK() { ExecBuilderNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ExecBuilderObj::RegisterReflection(); }
 
-ExecBuilder ExecBuilderNode::Create() {
-  ExecBuilder ret(ffi::make_object<ExecBuilderNode>());
+ExecBuilder ExecBuilderObj::Create() {
+  ExecBuilder ret(ffi::UnsafeInit{}, ffi::make_object<ExecBuilderObj>());
   ret->exec_ = ffi::make_object<VMExecutable>();
   return ret;
 }
 
-VMExecutable* ExecBuilderNode::exec() const { return exec_.get(); }
+VMExecutable* ExecBuilderObj::exec() const { return exec_.get(); }
 
-ffi::ObjectPtr<VMExecutable> ExecBuilderNode::Get() {
+ffi::ObjectPtr<VMExecutable> ExecBuilderObj::Get() {
   this->Formalize();
   this->CheckExecutable();
   return exec_;
 }
 
-void ExecBuilderNode::SaveMemoryScope(vm::Instruction::Arg idx, ffi::String scope) {
+void ExecBuilderObj::SaveMemoryScope(vm::Instruction::Arg idx, runtime::MemoryScope scope) {
   exec_->memory_scopes[idx.value()] = scope;
 }
 
-vm::Instruction::Arg ExecBuilderNode::ConvertConstant_(Any cvalue) {
+vm::Instruction::Arg ExecBuilderObj::ConvertConstant_(Any cvalue) {
   // emit constant immediate as immediate.
   if (auto opt_int = cvalue.as<int64_t>()) {
     int64_t val = opt_int.value();
@@ -70,7 +70,7 @@ vm::Instruction::Arg ExecBuilderNode::ConvertConstant_(Any cvalue) {
   return vm::Instruction::Arg::ConstIdx(idx);
 }
 
-void ExecBuilderNode::DeclareFunction(const std::string& func_name, VMFuncInfo::FuncKind kind) {
+void ExecBuilderObj::DeclareFunction(const std::string& func_name, VMFuncInfo::FuncKind kind) {
   auto it = exec_->func_map.find(func_name);
   if (it != exec_->func_map.end()) {
     TVM_FFI_ICHECK(kind == exec_->func_table[it->second].kind)
@@ -88,15 +88,15 @@ void ExecBuilderNode::DeclareFunction(const std::string& func_name, VMFuncInfo::
   exec_->func_table.push_back(vmfunc);
 }
 
-vm::Instruction::Arg ExecBuilderNode::GetFunction(const std::string& func_name) {
+vm::Instruction::Arg ExecBuilderObj::GetFunction(const std::string& func_name) {
   auto it = exec_->func_map.find(func_name);
   TVM_FFI_ICHECK(it != exec_->func_map.end()) << "Cannot find function " << func_name;
   return vm::Instruction::Arg::FuncIdx(it->second);
 }
 
-void ExecBuilderNode::EmitFunction(const std::string& func_name, int64_t num_inputs,
-                                   ffi::Optional<ffi::Array<ffi::String>> param_names,
-                                   vm::VMFuncInfo::FuncKind kind, int64_t init_register_size) {
+void ExecBuilderObj::EmitFunction(const std::string& func_name, int64_t num_inputs,
+                                  ffi::Optional<ffi::Array<ffi::String>> param_names,
+                                  vm::VMFuncInfo::FuncKind kind, int64_t init_register_size) {
   auto it = exec_->func_map.find(func_name);
   if (it == exec_->func_map.end()) {
     this->DeclareFunction(func_name, kind);
@@ -122,7 +122,7 @@ void ExecBuilderNode::EmitFunction(const std::string& func_name, int64_t num_inp
   }
 }
 
-void ExecBuilderNode::EndFunction(const std::string& func_name) {
+void ExecBuilderObj::EndFunction(const std::string& func_name) {
   auto it = exec_->func_map.find(func_name);
   TVM_FFI_ICHECK(it != exec_->func_map.end());
   VMFuncInfo& vmfunc = exec_->func_table.at(it->second);
@@ -133,8 +133,8 @@ void ExecBuilderNode::EndFunction(const std::string& func_name) {
   }
 }
 
-void ExecBuilderNode::EmitCall(vm::Instruction::Arg func, std::vector<vm::Instruction::Arg> args,
-                               vm::RegName dst) {
+void ExecBuilderObj::EmitCall(vm::Instruction::Arg func, std::vector<vm::Instruction::Arg> args,
+                              vm::RegName dst) {
   TVM_FFI_ICHECK(func.kind() == vm::Instruction::ArgKind::kFuncIdx);
   // store instruction
   exec_->instr_offset.push_back(exec_->instr_data.size());
@@ -147,8 +147,8 @@ void ExecBuilderNode::EmitCall(vm::Instruction::Arg func, std::vector<vm::Instru
   }
 }
 
-void ExecBuilderNode::EmitCall(const std::string& func, std::vector<Instruction::Arg> args,
-                               RegName dst) {
+void ExecBuilderObj::EmitCall(const std::string& func, std::vector<Instruction::Arg> args,
+                              RegName dst) {
   auto it = exec_->func_map.find(func);
   if (it == exec_->func_map.end()) {
     this->DeclareFunction(func, VMFuncInfo::FuncKind::kPackedFunc);
@@ -157,20 +157,20 @@ void ExecBuilderNode::EmitCall(const std::string& func, std::vector<Instruction:
   EmitCall(vm::Instruction::Arg::FuncIdx(func_idx), args, dst);
 }
 
-void ExecBuilderNode::EmitRet(vm::Instruction::Arg result) {
+void ExecBuilderObj::EmitRet(vm::Instruction::Arg result) {
   TVM_FFI_ICHECK(result.kind() == vm::Instruction::ArgKind::kRegister);
   exec_->instr_offset.push_back(exec_->instr_data.size());
   exec_->instr_data.push_back(static_cast<ExecWord>(Opcode::Ret));
   exec_->instr_data.push_back(result.value());
 }
 
-void ExecBuilderNode::EmitGoto(Index pc_offset) {
+void ExecBuilderObj::EmitGoto(Index pc_offset) {
   exec_->instr_offset.push_back(exec_->instr_data.size());
   exec_->instr_data.push_back(static_cast<ExecWord>(Opcode::Goto));
   exec_->instr_data.push_back(pc_offset);
 }
 
-void ExecBuilderNode::EmitIf(vm::Instruction::Arg cond, vm::Index false_offset) {
+void ExecBuilderObj::EmitIf(vm::Instruction::Arg cond, vm::Index false_offset) {
   TVM_FFI_ICHECK(cond.kind() == vm::Instruction::ArgKind::kRegister);
   exec_->instr_offset.push_back(exec_->instr_data.size());
   exec_->instr_data.push_back(static_cast<ExecWord>(Opcode::If));
@@ -178,7 +178,7 @@ void ExecBuilderNode::EmitIf(vm::Instruction::Arg cond, vm::Index false_offset) 
   exec_->instr_data.push_back(false_offset);
 }
 
-void ExecBuilderNode::CheckExecutable() {
+void ExecBuilderObj::CheckExecutable() {
   for (auto it = exec_->func_table.cbegin(); it != exec_->func_table.cend(); ++it) {
     if (it->kind == VMFuncInfo::FuncKind::kPackedFunc) continue;
     Index num_inputs = it->num_args;
@@ -257,7 +257,7 @@ void ExecBuilderNode::CheckExecutable() {
   }
 }
 
-void ExecBuilderNode::Formalize() {
+void ExecBuilderObj::Formalize() {
   // a pass to formalize user-specified register indexes in the order of use
   // and decide the number of registers to allocate for each VMFunction in the VMExecutable
   for (auto it = this->exec_->func_table.begin(); it != this->exec_->func_table.end(); ++it) {
@@ -323,7 +323,7 @@ void ExecBuilderNode::Formalize() {
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
-      .def("relax.ExecBuilderCreate", ExecBuilderNode::Create)
+      .def("relax.ExecBuilderCreate", ExecBuilderObj::Create)
       .def_packed("relax.ExecBuilderConvertConstant",
                   [](ffi::PackedArgs args, ffi::Any* ret) {
                     ExecBuilder builder = args[0].cast<ExecBuilder>();
@@ -336,7 +336,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
               ffi::Optional<ffi::Array<ffi::String>> param_names) {
              builder->EmitFunction(func, num_inputs, param_names);
            })
-      .def_method("relax.ExecBuilderEndFunction", &ExecBuilderNode::EndFunction)
+      .def_method("relax.ExecBuilderEndFunction", &ExecBuilderObj::EndFunction)
       .def("relax.ExecBuilderDeclareFunction",
            [](ExecBuilder builder, ffi::String name, int32_t kind) {
              builder->DeclareFunction(name, static_cast<VMFuncInfo::FuncKind>(kind));
@@ -354,7 +354,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
            [](ExecBuilder builder, int64_t data) {
              builder->EmitRet(Instruction::Arg::FromData(data));
            })
-      .def_method("relax.ExecBuilderEmitGoto", &ExecBuilderNode::EmitGoto)
+      .def_method("relax.ExecBuilderEmitGoto", &ExecBuilderObj::EmitGoto)
       .def("relax.ExecBuilderEmitIf",
            [](ExecBuilder builder, int64_t data, vm::Index false_offset) {
              builder->EmitIf(Instruction::Arg::FromData(data), false_offset);

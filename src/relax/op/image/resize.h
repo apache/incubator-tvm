@@ -25,7 +25,7 @@
 #ifndef TVM_RELAX_OP_IMAGE_RESIZE_H_
 #define TVM_RELAX_OP_IMAGE_RESIZE_H_
 
-#include <tvm/relax/attrs/image.h>
+#include <tvm/relax/op/image.h>
 
 #include "../op_common.h"
 

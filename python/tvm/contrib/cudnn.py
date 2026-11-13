@@ -23,7 +23,7 @@ import ctypes
 import numpy as np
 import tvm_ffi
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 # algos can be read from cudnn.h
@@ -51,7 +51,7 @@ def exists():
             True if CuDNN support is enabled and a CuDNN-capable GPU
             exists.  Otherwise, False.
     """
-    func = tvm.get_global_func("tvm.contrib.cudnn.exists", allow_missing=True)
+    func = tvm_ffi.get_global_func("tvm.contrib.cudnn.exists", allow_missing=True)
     if func is None:
         return False
 
@@ -199,7 +199,7 @@ def conv_output_shape(
         c_output = w_shape[0]
         x_chan = x_shape[1]
         w_chan_input = w_shape[1]
-        w_lanes = tvm.runtime.DataType(conv_dtype).lanes
+        w_lanes = tvm_ffi.dtype(conv_dtype).lanes
         assert w_lanes == 1
         x_shape = x_shape[2:]
         w_shape = w_shape[2:]
@@ -207,7 +207,7 @@ def conv_output_shape(
     else:
         raise ValueError(f"Unknown CuDNN tensor format: '{tensor_format}'")
 
-    x_lanes = tvm.runtime.DataType(data_dtype).lanes
+    x_lanes = tvm_ffi.dtype(data_dtype).lanes
     assert x_chan * x_lanes == w_chan_input * groups, (
         f"Mismatched dimensions, data has {x_chan // groups} channels/group "
         f"(dimension {x_chan} with {x_lanes} lanes/value, {groups} groups), "
@@ -573,7 +573,7 @@ def conv_forward(
 
     x_shape = list(x.shape)
 
-    if isinstance(x.shape[0], tvm.tirx.expr.IntImm):
+    if isinstance(x.shape[0], tvm_tirx.ir.IntImm):
         oshape = conv_output_shape(
             tensor_format,
             pad,
@@ -628,7 +628,7 @@ def conv_forward(
         return te.extern(
             oshape,
             [x, w],
-            lambda ins, outs: tvm.tirx.call_packed(
+            lambda ins, outs: tvm_tirx.tirx.call_packed(
                 "tvm.contrib.cudnn.conv2d.forward",
                 conv_mode,
                 tensor_format,
@@ -651,7 +651,7 @@ def conv_forward(
     return te.extern(
         oshape,
         [x, w],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cudnn.conv3d.forward",
             conv_mode,
             tensor_format,
@@ -723,7 +723,7 @@ def conv_backward_data(
     conv_dtype = dy.dtype if conv_dtype is None else conv_dtype
     pad, stride, dilation, _, _ = _prepare_global_func_params(dims - 2, pad, stride, dilation)
 
-    assert isinstance(dy.shape[0], tvm.tirx.expr.IntImm), (
+    assert isinstance(dy.shape[0], tvm_tirx.ir.IntImm), (
         "Dynamic batch is not supported for cudnn conv2d backwad data yet."
     )
 
@@ -752,7 +752,7 @@ def conv_backward_data(
     return te.extern(
         dx_shape,
         [dy, w],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cudnn.conv2d.backward_data",
             conv_mode,
             tensor_format,
@@ -817,7 +817,7 @@ def conv_backward_filter(
 
     x_shape = list(x.shape)
 
-    assert isinstance(x.shape[0], tvm.tirx.expr.IntImm), (
+    assert isinstance(x.shape[0], tvm_tirx.ir.IntImm), (
         "Dynamic batch is not supported for cudnn conv2d backwad filter yet."
     )
 
@@ -853,7 +853,7 @@ def conv_backward_filter(
     return te.extern(
         dw_shape,
         [dy, x],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cudnn.conv2d.backward_filter",
             conv_mode,
             tensor_format,
@@ -893,7 +893,7 @@ def softmax(x, axis=-1):
     return te.extern(
         x.shape,
         [x],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cudnn.softmax.forward", ins[0], outs[0], axis
         ),
         name="y",
@@ -919,7 +919,7 @@ def log_softmax(x, axis=-1):
     return te.extern(
         x.shape,
         [x],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cudnn.log_softmax.forward", ins[0], outs[0], axis
         ),
         name="y",

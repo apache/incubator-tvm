@@ -25,12 +25,12 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief A search strategy that generates measure candidates using space generator. */
-class ReplayFuncNode : public SearchStrategyNode {
+class ReplayFuncObj : public SearchStrategyObj {
  public:
   /*! \brief The state of the search strategy. */
   struct State {
     /*! \brief The search strategy itself */
-    ReplayFuncNode* self;
+    ReplayFuncObj* self;
     /*! \brief The number of total trials. */
     int max_trials;
     /*! \brief The number of trials per iteration. */
@@ -40,7 +40,7 @@ class ReplayFuncNode : public SearchStrategyNode {
     /*! \brief `[st, ed)` are the indices of the next batch of candidates. */
     int ed;
 
-    explicit State(ReplayFuncNode* self, int max_trials, int num_trials_per_iter)
+    explicit State(ReplayFuncObj* self, int max_trials, int num_trials_per_iter)
         : self(self),
           max_trials(max_trials),
           num_trials_per_iter(num_trials_per_iter),
@@ -65,10 +65,10 @@ class ReplayFuncNode : public SearchStrategyNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ReplayFuncNode>();
+    refl::ObjectDef<ReplayFuncObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ReplayFunc", ReplayFuncNode,
-                                    SearchStrategyNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ReplayFunc", ReplayFuncObj,
+                                    SearchStrategyObj);
 
   void InitializeWithTuneContext(const TuneContext& ctx) final {
     TVM_FFI_CHECK(ctx->mod.has_value(), ValueError) << "TuneContext.mod is not defined";
@@ -114,17 +114,17 @@ class ReplayFuncNode : public SearchStrategyNode {
   }
 
   SearchStrategy Clone() const final {
-    ffi::ObjectPtr<ReplayFuncNode> n = ffi::make_object<ReplayFuncNode>();
+    ffi::ObjectPtr<ReplayFuncObj> n = ffi::make_object<ReplayFuncObj>();
     n->rand_state_ = -1;
     n->mod_ = std::nullopt;
     n->space_generator_ = std::nullopt;
     n->state_ = nullptr;
-    return SearchStrategy(n);
+    return SearchStrategy(ffi::UnsafeInit{}, n);
   }
 };
 
 inline ffi::Optional<ffi::Array<MeasureCandidate>>
-ReplayFuncNode::State::GenerateMeasureCandidates() {
+ReplayFuncObj::State::GenerateMeasureCandidates() {
   if (st >= max_trials) {
     return std::nullopt;
   }
@@ -155,17 +155,17 @@ ReplayFuncNode::State::GenerateMeasureCandidates() {
   return result;
 }
 
-inline void ReplayFuncNode::State::NotifyRunnerResults(const ffi::Array<RunnerResult>& results) {
+inline void ReplayFuncObj::State::NotifyRunnerResults(const ffi::Array<RunnerResult>& results) {
   st += num_trials_per_iter;
   ed += num_trials_per_iter;
 }
 
 SearchStrategy SearchStrategy::ReplayFunc() {
-  ffi::ObjectPtr<ReplayFuncNode> n = ffi::make_object<ReplayFuncNode>();
-  return SearchStrategy(n);
+  ffi::ObjectPtr<ReplayFuncObj> n = ffi::make_object<ReplayFuncObj>();
+  return SearchStrategy(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { ReplayFuncNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ReplayFuncObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

@@ -18,7 +18,7 @@
 # ruff: noqa: E741, F821
 """TVM operator fully connected compute."""
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 from .. import add, tag
@@ -95,7 +95,7 @@ def matmul(
         reduce_dim_b, out_dim = tensor_b.shape[-2:]
     batch_dims_b = tensor_b.shape[:-2]
 
-    if not tvm.ir.is_prim_var(reduce_dim_a) and not tvm.ir.is_prim_var(reduce_dim_b):
+    if not tvm_tirx.ir.is_prim_var(reduce_dim_a) and not tvm_tirx.ir.is_prim_var(reduce_dim_b):
         assert int(reduce_dim_a) == int(reduce_dim_b), (
             f"Reduction dimensions of dense do not match. {reduce_dim_a} vs {reduce_dim_b}."
         )
@@ -105,12 +105,17 @@ def matmul(
     batch_dims_b = [1] * (result_ndim - len(batch_dims_b)) + batch_dims_b
 
     for idx, (l, r) in enumerate(zip(batch_dims_a, batch_dims_b)):
-        if not tvm.ir.is_prim_var(l) and not tvm.ir.is_prim_var(r) and int(l) != 1 and int(r) != 1:
+        if (
+            not tvm_tirx.ir.is_prim_var(l)
+            and not tvm_tirx.ir.is_prim_var(r)
+            and int(l) != 1
+            and int(r) != 1
+        ):
             assert int(l) == int(r), (
                 "Batch dimensions of dense do not match: "
                 f"{tensor_a.shape[:-2]} vs {tensor_b.shape[:-2]}."
             )
-        if not tvm.ir.is_prim_var(l) and int(l) == 1:
+        if not tvm_tirx.ir.is_prim_var(l) and int(l) == 1:
             batch_dims_a[idx] = batch_dims_b[idx]
 
     k = te.reduce_axis((0, reduce_dim_a), name="k")
@@ -118,12 +123,12 @@ def matmul(
     def compute(*indices):
         batch_indices_a = indices[-len(tensor_a.shape) : -2]
         batch_indices_a = [
-            i if tvm.ir.is_prim_var(dim) or int(dim) != 1 else 0
+            i if tvm_tirx.ir.is_prim_var(dim) or int(dim) != 1 else 0
             for i, dim in zip(batch_indices_a, tensor_a.shape[:-2])
         ]
         batch_indices_b = indices[-len(tensor_b.shape) : -2]
         batch_indices_b = [
-            i if tvm.ir.is_prim_var(dim) or int(dim) != 1 else 0
+            i if tvm_tirx.ir.is_prim_var(dim) or int(dim) != 1 else 0
             for i, dim in zip(batch_indices_b, tensor_b.shape[:-2])
         ]
         i, j = indices[-2:]
@@ -238,8 +243,8 @@ def dense_pack(data, weight, bias=None, out_dtype=None):
     N, _, packw_bn = get_const_tuple(weight.shape)  # out_dim
     N = N * packw_bn
 
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
     k = te.reduce_axis((0, K), name="k")
     C = te.compute(
         (M, N),

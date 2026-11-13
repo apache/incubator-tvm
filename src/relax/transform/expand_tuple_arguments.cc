@@ -18,6 +18,7 @@
  */
 
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 
@@ -33,12 +34,12 @@ template <typename T, typename U>
 using PMap = std::unordered_map<T, U, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>;
 
 ffi::Optional<Function> ExpandParams(Function func) {
-  bool is_exposed = func->attrs.GetAttr<ffi::String>(tvm::attr::kGlobalSymbol).has_value();
+  bool is_exposed = func->attrs.GetAttr(tvm::attr::kGlobalSymbol).has_value();
   if (is_exposed) return std::nullopt;
 
   bool has_tuple_param =
       std::any_of(func->params.begin(), func->params.end(),
-                  [](const Var& param) -> bool { return param->ty.as<TupleTypeNode>(); });
+                  [](const Var& param) -> bool { return param->ty.as<TupleTypeObj>(); });
 
   if (!has_tuple_param) return std::nullopt;
 
@@ -46,7 +47,7 @@ ffi::Optional<Function> ExpandParams(Function func) {
   ffi::Array<Binding> bindings;
 
   std::function<void(const Var&)> expand_param = [&](const Var& param) {
-    if (auto ty = param->ty.as<TupleTypeNode>()) {
+    if (auto ty = param->ty.as<TupleTypeObj>()) {
       ffi::Array<Expr> internal_tuple;
       for (size_t i = 0; i < ty->fields.size(); i++) {
         auto name =
@@ -83,7 +84,7 @@ class TupleExpander : public ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     auto node = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     if (auto gvar = node->op.as<GlobalVar>()) {
@@ -91,7 +92,7 @@ class TupleExpander : public ExprMutator {
         ffi::Array<Expr> new_args;
 
         std::function<void(const Expr&)> expand_arg = [&](const Expr& arg) {
-          if (auto ty = arg->ty.as<TupleTypeNode>()) {
+          if (auto ty = arg->ty.as<TupleTypeObj>()) {
             for (size_t i = 0; i < ty->fields.size(); i++) {
               expand_arg(TupleGetItem(arg, i));
             }
@@ -133,8 +134,8 @@ Pass ExpandTupleArguments() {
             auto new_func = opt.value();
             GlobalVar new_gvar(gvar->name_hint);
             new_gvar->ty = new_func->ty;
-            gvar_replacements[gvar] = new_gvar;
-            new_callees[new_gvar] = new_func;
+            gvar_replacements.insert_or_assign(gvar, new_gvar);
+            new_callees.insert_or_assign(new_gvar, new_func);
           }
         }
       }
@@ -167,7 +168,7 @@ Pass ExpandTupleArguments() {
     }
     return mod;
   };
-  auto inner_pass = CreateModulePass(pass_func, 0, "ExpandTupleArgumentsInner", {});
+  auto inner_pass = CreateModulePass(pass_func, 0, "ExpandTupleArgumentsInner");
 
   return tvm::transform::Sequential(
       {

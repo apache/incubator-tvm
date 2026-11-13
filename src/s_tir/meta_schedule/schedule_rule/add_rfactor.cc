@@ -25,9 +25,9 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class AddRFactorNode : public ScheduleRuleNode {
+class AddRFactorObj : public ScheduleRuleObj {
  public:
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   void InitializeWithTuneContext(const TuneContext& context) final {
     TVM_FFI_ICHECK(context->target.has_value());
     Target target = context->target.value();
@@ -37,13 +37,13 @@ class AddRFactorNode : public ScheduleRuleNode {
     }
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch, const s_tir::SBlockRV& block_rv);
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<AddRFactorNode> n = ffi::make_object<AddRFactorNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<AddRFactorObj> n = ffi::make_object<AddRFactorObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
  public:
@@ -62,26 +62,26 @@ class AddRFactorNode : public ScheduleRuleNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AddRFactorNode>()
-        .def_ro("max_jobs_per_core", &AddRFactorNode::max_jobs_per_core)
-        .def_ro("max_innermost_factor", &AddRFactorNode::max_innermost_factor);
+    refl::ObjectDef<AddRFactorObj>()
+        .def_ro("max_jobs_per_core", &AddRFactorObj::max_jobs_per_core)
+        .def_ro("max_innermost_factor", &AddRFactorObj::max_innermost_factor);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AddRFactor", AddRFactorNode,
-                                    ScheduleRuleNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AddRFactor", AddRFactorObj,
+                                    ScheduleRuleObj);
 };
 
 ScheduleRule ScheduleRule::AddRFactor(int max_jobs_per_core,
                                       ffi::Optional<int64_t> max_innermost_factor) {
-  ffi::ObjectPtr<AddRFactorNode> n = ffi::make_object<AddRFactorNode>();
+  ffi::ObjectPtr<AddRFactorObj> n = ffi::make_object<AddRFactorObj>();
   n->max_jobs_per_core = max_jobs_per_core;
   n->max_innermost_factor = max_innermost_factor.value_or(-1);
   n->max_parallel_extent_ = -1;
   n->max_parallel_basic_ = -1;
-  return ScheduleRule(n);
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-ffi::Array<s_tir::Schedule> AddRFactorNode::Apply(const s_tir::Schedule& sch,
-                                                  const s_tir::SBlockRV& block_rv) {
+ffi::Array<s_tir::Schedule> AddRFactorObj::Apply(const s_tir::Schedule& sch,
+                                                 const s_tir::SBlockRV& block_rv) {
   tirx::StmtSRef block_sref = sch->GetSRef(block_rv);
   if (!NeedsRFactorOrCrossThreadReduction(sch->state(), block_sref, max_parallel_extent_,
                                           max_parallel_basic_)) {
@@ -99,10 +99,9 @@ ffi::Array<s_tir::Schedule> AddRFactorNode::Apply(const s_tir::Schedule& sch,
   ReorderAndFuseReductionLoops(sch, block_rv, &fused_reduce_loop, &num_spatial_loops);
 
   // Split the fused reduction loop.
-  ffi::Array<s_tir::ExprRV> factors =
+  ffi::Array<ffi::Optional<s_tir::ExprRV>> factors =
       sch->SamplePerfectTile(fused_reduce_loop, 2, max_innermost_factor);
-  ffi::Array<s_tir::LoopRV> split_loops =
-      sch->Split(fused_reduce_loop, {factors.begin(), factors.end()});
+  ffi::Array<s_tir::LoopRV> split_loops = sch->Split(fused_reduce_loop, factors);
 
   ffi::Array<s_tir::Schedule> res;
   for (const s_tir::LoopRV& split_loop : split_loops) {
@@ -115,8 +114,7 @@ ffi::Array<s_tir::Schedule> AddRFactorNode::Apply(const s_tir::Schedule& sch,
 
       // Annotate that the rfactor block, which is now the producer of the original block, needs to
       // be considered by the rule Random-Compute-Location.
-      sch_tmp->Annotate(block_rv, s_tir::attr::meta_schedule_random_compute_producer,
-                        IntImm::Int32(1));
+      sch_tmp->Annotate(block_rv, tvm::s_tir::attr::kMetaScheduleRandomComputeProducer.name, 1);
       res.push_back(sch_tmp);
     } catch (const tvm::ffi::Error& e) {
     }
@@ -126,7 +124,7 @@ ffi::Array<s_tir::Schedule> AddRFactorNode::Apply(const s_tir::Schedule& sch,
   return res;
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { AddRFactorNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { AddRFactorObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

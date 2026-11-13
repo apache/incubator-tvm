@@ -20,10 +20,11 @@ import pytest
 import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm.ir.module import IRModule
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.script import tirx as T
 
 
 def collect_visit(stmt, f):
@@ -33,7 +34,7 @@ def collect_visit(stmt, f):
 
 
 def test_multi_loop():
-    @Ts.prim_func
+    @Ts.function
     def func(n: T.int64, m: T.int64):
         for i in range(4):
             for j in T.serial(n):
@@ -43,15 +44,15 @@ def test_multi_loop():
                     else:
                         T.evaluate(n)
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
     mod = tvm.s_tir.transform.LoopPartition()(mod)
-    stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+    stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt.body[0], lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt[0].body[0], lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
 def test_multi_if():
-    @Ts.prim_func
+    @Ts.function
     def func(n: T.int64, m: T.int64):
         for i in range(4):
             for j in T.serial(n):
@@ -65,43 +66,45 @@ def test_multi_if():
                     else:
                         T.evaluate(n)
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
     mod = tvm.s_tir.transform.LoopPartition()(mod)
-    stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+    stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt.body[0], lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt[0].body[0], lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
 def test_condition():
-    @Ts.prim_func
+    @Ts.function
     def func(m: T.int64, n: T.int64):
         for i in T.serial(T.truncdiv(n + 3, 4)):
             for j in range(4):
                 T.evaluate(T.Select(T.likely(i * 4 + j < n), m, n))
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
     mod = tvm.s_tir.transform.LoopPartition()(mod)
-    stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+    stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt[0], lambda x: isinstance(x, tvm.tirx.Select)))
+    assert not any(collect_visit(stmt[0], lambda x: isinstance(x, tvm_tirx.tirx.Select)))
 
 
 def test_condition_EQ():
-    @Ts.prim_func
+    @Ts.function
     def func(m: T.int64, n: T.int64):
         for i in range(10):
             T.evaluate(T.Select(T.likely(i == 5), m, n))
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
-    with tvm.transform.PassContext(config={"s_tir.LoopPartition": {"partition_const_loop": True}}):
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+        stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt[0], lambda x: isinstance(x, tvm.tirx.Select)))
+    assert not any(collect_visit(stmt[0], lambda x: isinstance(x, tvm_tirx.tirx.Select)))
 
 
 def test_everything_during_deduction():
-    @Ts.prim_func
+    @Ts.function
     def func(m: T.int64, n: T.int64):
         for i in T.serial(n):
             for j in range(32):
@@ -109,18 +112,18 @@ def test_everything_during_deduction():
                     # this guard will produce everything during deduction
                     T.evaluate(m)
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
     mod = tvm.s_tir.transform.LoopPartition()(mod)
-    stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+    stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert isinstance(stmt.body.body, tvm.tirx.IfThenElse)
+    assert isinstance(stmt[0].body[0].body[0], tvm_tirx.ir.If)
 
 
 def test_oneD_pool():
-    @Ts.prim_func
+    @Ts.function
     def func(m: T.int64, data: T.handle("float32"), out: T.handle("float32")):
-        data_ptr = T.decl_buffer((16,), "float32", data=data)
-        out_ptr = T.decl_buffer((16,), "float32", data=out)
+        data_ptr = T.decl_tensor(data, ty_args=[T.Tensor((16,), "float32", data=data)])
+        out_ptr = T.decl_tensor(out, ty_args=[T.Tensor((16,), "float32", data=out)])
         for ow in range(16):
             for kw in range(3):
                 if T.likely(ow > 0):
@@ -137,21 +140,23 @@ def test_oneD_pool():
                     if T.likely(kw < 2):
                         out_ptr[ow] = T.max(out_ptr[ow], data_ptr[ow + kw - 1])
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
 
-    with tvm.transform.PassContext(config={"s_tir.LoopPartition": {"partition_const_loop": True}}):
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+        stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
 def test_cce_loop_1():
     n = 514
     m = 514
 
-    @Ts.prim_func
-    def func(A: T.Buffer((n * m,), "float16"), B: T.Buffer((n * m,), "float16")):
+    @Ts.function
+    def func(A: T.Tensor((n * m,), "float16"), B: T.Tensor((n * m,), "float16")):
         for i in range(11):
             for j in range(160):
                 if T.likely(i * 160 + j < 1600):
@@ -159,12 +164,14 @@ def test_cce_loop_1():
                         B[i * m + j + 1] + B[(i + 1) * m + j + 1] + B[(i + 2) * m + j + 1]
                     )
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
-    with tvm.transform.PassContext(config={"s_tir.LoopPartition": {"partition_const_loop": True}}):
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+        stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
 def test_cce_loop_2():
@@ -172,20 +179,22 @@ def test_cce_loop_2():
     tile = 32
     loop = (length + tile - 1) // tile
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def func():
         for i in range(loop):
             if T.likely(i * tile + tile > length):
-                T.evaluate(T.call_extern("float32", "cce_intrisic", i * tile, length))
+                T.evaluate(T.call_extern("cce_intrisic", i * tile, length, ty="float32"))
             else:
-                T.evaluate(T.call_extern("float32", "cce_intrisic", i * tile, i * tile + tile))
+                T.evaluate(T.call_extern("cce_intrisic", i * tile, i * tile + tile, ty="float32"))
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
-    with tvm.transform.PassContext(config={"s_tir.LoopPartition": {"partition_const_loop": True}}):
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+        stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
 def test_cce_loop_3():
@@ -193,25 +202,27 @@ def test_cce_loop_3():
     loop2 = 9998
     tile = 39991
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def func():
         for i in range(loop2):
             for j in range(loop1):
                 if T.likely(i * loop1 + j < tile):
-                    T.evaluate(T.call_extern("float16", "cce_intrisic", i))
+                    T.evaluate(T.call_extern("cce_intrisic", i, ty="float16"))
 
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
 
-    with tvm.transform.PassContext(config={"s_tir.LoopPartition": {"partition_const_loop": True}}):
+    with tvm_tirx.ir.transform.PassContext(
+        config={"s_tir.LoopPartition": {"partition_const_loop": True}}
+    ):
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        stmt = tvm.tirx.transform.StmtSimplify()(mod)["main"].body
+        stmt = tvm_tirx.tirx.transform.StmtSimplify()(mod)["main"].body
 
-    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm.tirx.IfThenElse)))
+    assert not any(collect_visit(stmt, lambda x: isinstance(x, tvm_tirx.ir.If)))
 
 
-@Ts.prim_func
+@Ts.function
 def partitioned_concat(
-    A: T.Buffer((16,), "float32"), B: T.Buffer((16,), "float32"), C: T.Buffer((32,), "float32")
+    A: T.Tensor((16,), "float32"), B: T.Tensor((16,), "float32"), C: T.Tensor((32,), "float32")
 ) -> None:
     T.func_attr({"global_symbol": "main", "tirx.noalias": True})
     for i in T.serial(0, 16):
@@ -220,29 +231,38 @@ def partitioned_concat(
         C[i + 16] = B[i + 16]
 
 
-def partition_from_scheduled_tir(prim_func, pass_cfg, do_flatten=True):
-    with tvm.transform.PassContext(config=pass_cfg):
-        mod = IRModule.from_expr(prim_func.with_attr("global_symbol", "main"))
-        mod = tvm.s_tir.transform.LowerOpaqueBlock()(mod)
-        if do_flatten:
-            mod = tvm.tirx.transform.FlattenBuffer()(mod)
+def partition_from_scheduled_tir(function, pass_cfg, do_flatten=True):
+    with tvm_tirx.ir.transform.PassContext(config=pass_cfg):
+        mod = IRModule.from_expr(function.with_attr("global_symbol", "main"))
         mod = tvm.s_tir.transform.LoopPartition()(mod)
-        mod = tvm.tirx.transform.StmtSimplify()(mod)
-        mod = tvm.tirx.transform.RemoveNoOp()(mod)
+        mod = tvm.s_tir.transform.LowerOpaqueBlock()(mod)
+        mod = tvm.s_tir.transform.LowerThreadBinding()(mod)
+        if do_flatten:
+            mod = tvm_tirx.tirx.transform.FlattenTensor()(mod)
+        mod = tvm_tirx.tirx.transform.StmtSimplify()(mod)
+        mod = tvm_tirx.tirx.transform.RemoveNoOp()(mod)
         return mod
 
 
-@Ts.prim_func
+@Ts.function
 def partitioned_concat_3(
-    placeholder: T.Buffer((1, 64, 28, 28), "int8"),
-    placeholder_1: T.Buffer((1, 32, 28, 28), "int8"),
-    placeholder_2: T.Buffer((1, 32, 28, 28), "int8"),
-    T_concat: T.Buffer((1, 128, 28, 28), "int8"),
+    placeholder: T.Tensor((1, 64, 28, 28), "int8"),
+    placeholder_1: T.Tensor((1, 32, 28, 28), "int8"),
+    placeholder_2: T.Tensor((1, 32, 28, 28), "int8"),
+    T_concat: T.Tensor((1, 128, 28, 28), "int8"),
 ) -> None:
-    placeholder_flat = T.decl_buffer([50176], "int8", data=placeholder.data)
-    placeholder_1_flat = T.decl_buffer([25088], "int8", data=placeholder_1.data)
-    placeholder_2_flat = T.decl_buffer([25088], "int8", data=placeholder_2.data)
-    T_concat_flat = T.decl_buffer([100352], "int8", data=T_concat.data)
+    placeholder_flat = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor([50176], "int8", data=placeholder.data)]
+    )
+    placeholder_1_flat = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor([25088], "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_flat = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor([25088], "int8", data=placeholder_2.data)]
+    )
+    T_concat_flat = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor([100352], "int8", data=T_concat.data)]
+    )
     for i1, i2, i3 in T.grid(64, 28, 28):
         T_concat_flat[i1 * 784 + i2 * 28 + i3] = placeholder_flat[i1 * 784 + i2 * 28 + i3]
     for i1, i2, i3 in T.grid(32, 28, 28):
@@ -251,18 +271,26 @@ def partitioned_concat_3(
         T_concat_flat[i1 * 784 + i2 * 28 + i3 + 75264] = placeholder_2_flat[i1 * 784 + i2 * 28 + i3]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_3(
-    placeholder: T.Buffer((1, 64, 28, 28), "int8"),
-    placeholder_1: T.Buffer((1, 32, 28, 28), "int8"),
-    placeholder_2: T.Buffer((1, 32, 28, 28), "int8"),
-    T_concat: T.Buffer((1, 128, 28, 28), "int8"),
+    placeholder: T.Tensor((1, 64, 28, 28), "int8"),
+    placeholder_1: T.Tensor((1, 32, 28, 28), "int8"),
+    placeholder_2: T.Tensor((1, 32, 28, 28), "int8"),
+    T_concat: T.Tensor((1, 128, 28, 28), "int8"),
 ) -> None:
-    placeholder_flat = T.decl_buffer([50176], "int8", data=placeholder.data)
-    placeholder_1_flat = T.decl_buffer([25088], "int8", data=placeholder_1.data)
-    placeholder_2_flat = T.decl_buffer([25088], "int8", data=placeholder_2.data)
-    T_concat_flat = T.decl_buffer([100352], "int8", data=T_concat.data)
-    for i1 in T.serial(128, annotations={"pragma_loop_partition_hint": 1}):
+    placeholder_flat = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor([50176], "int8", data=placeholder.data)]
+    )
+    placeholder_1_flat = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor([25088], "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_flat = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor([25088], "int8", data=placeholder_2.data)]
+    )
+    T_concat_flat = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor([100352], "int8", data=T_concat.data)]
+    )
+    for i1 in T.serial(128, annotations={"loop_partition_hint": 1}):
         for i2, i3 in T.grid(28, 28):
             if 96 <= i1:
                 T_concat_flat[i1 * 784 + i2 * 28 + i3] = placeholder_2_flat[
@@ -280,32 +308,32 @@ def test_condition_mutually_exclusive():
     mod = partition_from_scheduled_tir(
         concat_func_3, {"s_tir.LoopPartition": {"partition_const_loop": True}}
     )
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"], partitioned_concat_3.with_attr("global_symbol", "main")
     )
 
 
 def test_loop_partition_unroll_hint():
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A_arg: T.Buffer((1, 3, 224, 224), "int8"), B_arg: T.Buffer((1, 224, 7, 16), "int8")
+        A_arg: T.Tensor((1, 3, 224, 224), "int8"), B_arg: T.Tensor((1, 224, 7, 16), "int8")
     ) -> None:
-        A = T.decl_buffer(150528, "int8", data=A_arg.data)
-        B = T.decl_buffer(25088, "int8", data=B_arg.data)
+        A = T.decl_tensor(A_arg.data, ty_args=[T.Tensor(150528, "int8", data=A_arg.data)])
+        B = T.decl_tensor(B_arg.data, ty_args=[T.Tensor(25088, "int8", data=B_arg.data)])
         for ax0 in T.serial(
             112,
-            annotations={"pragma_loop_partition_hint": True},
+            annotations={"loop_partition_hint": True},
         ):
             for ax1, ax2, ax3 in T.grid(224, 7, 16):
                 if 3 <= ax0 * 2 + ax2 and ax0 * 2 + ax2 < 227 and ax3 < 3:
                     B[ax1 * 112 + ax2 * 16 + ax3] = A[ax3 * 50176 + ax1 * 224 + ax0 * 2 + ax2 - 3]
 
-    @Ts.prim_func
+    @Ts.function
     def partitioned_main(
-        A_arg: T.Buffer((1, 3, 224, 224), "int8"), B_arg: T.Buffer((1, 224, 7, 16), "int8")
+        A_arg: T.Tensor((1, 3, 224, 224), "int8"), B_arg: T.Tensor((1, 224, 7, 16), "int8")
     ) -> None:
-        A = T.decl_buffer(150528, dtype="int8", data=A_arg.data)
-        B = T.decl_buffer(25088, dtype="int8", data=B_arg.data)
+        A = T.decl_tensor(A_arg.data, ty_args=[T.Tensor(150528, "int8", data=A_arg.data)])
+        B = T.decl_tensor(B_arg.data, ty_args=[T.Tensor(25088, "int8", data=B_arg.data)])
         # body
         for ax1, ax2, ax3 in T.grid(224, 7, 16):
             if 3 <= ax2 and ax3 < 3:
@@ -329,19 +357,21 @@ def test_loop_partition_unroll_hint():
             }
         },
     )
-    mod = tvm.tirx.transform.UnrollLoop()(mod)
-    mod = tvm.tirx.transform.RemoveNoOp()(mod)
-    mod = tvm.tirx.transform.StmtSimplify()(mod)
-    tvm.ir.assert_structural_equal(mod["main"], partitioned_main.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.tirx.transform.UnrollLoop()(mod)
+    mod = tvm_tirx.tirx.transform.RemoveNoOp()(mod)
+    mod = tvm_tirx.tirx.transform.StmtSimplify()(mod)
+    tvm_tirx.ir.assert_structural_equal(
+        mod["main"], partitioned_main.with_attr("global_symbol", "main")
+    )
 
 
 def test_loop_partition_recursive_unroll_hint():
-    @Ts.prim_func
+    @Ts.function
     def main():
-        placeholder_0_dm = T.decl_buffer([1, 32, 32, 16], dtype="int8")
-        for i3_0 in T.serial(5, annotations={"pragma_loop_partition_hint": 1}):
-            for i2_0 in T.serial(2, annotations={"pragma_loop_partition_hint": 1}):
-                pad_temp = T.decl_buffer([1, 16, 16, 16], dtype="int8")
+        placeholder_0_dm = T.alloc_tensor(ty_args=[T.Tensor([1, 32, 32, 16], "int8")])
+        for i3_0 in T.serial(5, annotations={"loop_partition_hint": 1}):
+            for i2_0 in T.serial(2, annotations={"loop_partition_hint": 1}):
+                pad_temp = T.alloc_tensor(ty_args=[T.Tensor([1, 16, 16, 16], "int8")])
                 for ax0, ax1, ax2 in T.grid(16, 16, 16):
                     if (
                         6 <= i2_0 * 4 + ax0
@@ -361,19 +391,19 @@ def test_loop_partition_recursive_unroll_hint():
                             ax2,
                         ]
 
-    @Ts.prim_func
+    @Ts.function
     def partitioned_main():
-        placeholder_0_dm = T.decl_buffer((16384,), "int8")
+        placeholder_0_dm = T.alloc_tensor(ty_args=[T.Tensor((16384,), "int8")])
         for i3_0 in T.unroll(2):
             for i2_0 in T.unroll(2):
-                pad_temp = T.decl_buffer((4096,), "int8")
+                pad_temp = T.alloc_tensor(ty_args=[T.Tensor((4096,), "int8")])
                 for ax0, ax1, ax2 in T.grid(16, 16, 16):
                     if 6 <= i2_0 * 4 + ax0 and 6 <= i3_0 * 4 + ax1:
                         pad_temp[ax0 * 256 + ax1 * 16 + ax2] = placeholder_0_dm[
                             i2_0 * 2048 + ax0 * 512 + i3_0 * 64 + ax1 * 16 + ax2
                         ]
         for i2_0 in T.unroll(2):
-            pad_temp = T.decl_buffer((4096,), "int8")
+            pad_temp = T.alloc_tensor(ty_args=[T.Tensor((4096,), "int8")])
             for ax0, ax1, ax2 in T.grid(16, 16, 16):
                 if 6 <= i2_0 * 4 + ax0:
                     pad_temp[ax0 * 256 + ax1 * 16 + ax2] = placeholder_0_dm[
@@ -381,7 +411,7 @@ def test_loop_partition_recursive_unroll_hint():
                     ]
         for i3_0 in T.unroll(2):
             for i2_0 in T.unroll(2):
-                pad_temp = T.decl_buffer((4096,), "int8")
+                pad_temp = T.alloc_tensor(ty_args=[T.Tensor((4096,), "int8")])
                 for ax0, ax1, ax2 in T.grid(16, 16, 16):
                     if 6 <= i2_0 * 4 + ax0 and i3_0 * 4 + ax1 < 14:
                         pad_temp[ax0 * 256 + ax1 * 16 + ax2] = placeholder_0_dm[
@@ -397,15 +427,17 @@ def test_loop_partition_recursive_unroll_hint():
             }
         },
     )
-    tvm.ir.assert_structural_equal(mod["main"], partitioned_main.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(
+        mod["main"], partitioned_main.with_attr("global_symbol", "main")
+    )
 
 
 def test_loop_partition_keep_loop_annotations():
-    @Ts.prim_func
-    def before(A: T.Buffer(160, "int32"), B: T.Buffer(160, "int32")) -> None:
+    @Ts.function
+    def before(A: T.Tensor(160, "int32"), B: T.Tensor(160, "int32")) -> None:
         for i in T.serial(
             160,
-            annotations={"pragma_loop_partition_hint": True, "key": "value"},
+            annotations={"loop_partition_hint": True, "key": "value"},
         ):
             if i < 10:
                 B[i] = A[i] + 1
@@ -414,10 +446,10 @@ def test_loop_partition_keep_loop_annotations():
             else:
                 B[i] = A[i] + 3
 
-    @Ts.prim_func
-    def after(A: T.Buffer(160, "int32"), B: T.Buffer(160, "int32")) -> None:
-        A_1 = T.decl_buffer((160,), "int32", data=A.data)
-        B_1 = T.decl_buffer((160,), "int32", data=B.data)
+    @Ts.function
+    def after(A: T.Tensor(160, "int32"), B: T.Tensor(160, "int32")) -> None:
+        A_1 = T.decl_tensor(A.data, ty_args=[T.Tensor((160,), "int32", data=A.data)])
+        B_1 = T.decl_tensor(B.data, ty_args=[T.Tensor((160,), "int32", data=B.data)])
         for i in T.serial(10, annotations={"key": "value"}):
             B_1[i] = A_1[i] + 1
         for i in T.serial(140, annotations={"key": "value"}):
@@ -433,19 +465,19 @@ def test_loop_partition_keep_loop_annotations():
             }
         },
     )
-    tvm.ir.assert_structural_equal(mod["main"], after.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(mod["main"], after.with_attr("global_symbol", "main"))
 
 
 def test_loop_partition_with_unit_loop_in_condition():
-    @Ts.prim_func
+    @Ts.function
     def before(
-        placeholder: T.Buffer((50176,), "int8"),
-        placeholder_1: T.Buffer((25088,), "int8"),
-        placeholder_2: T.Buffer((25088,), "int8"),
-        T_concat: T.Buffer((100352,), "int8"),
+        placeholder: T.Tensor((50176,), "int8"),
+        placeholder_1: T.Tensor((25088,), "int8"),
+        placeholder_2: T.Tensor((25088,), "int8"),
+        T_concat: T.Tensor((100352,), "int8"),
     ) -> None:
         for k in range(1, annotations={"preserve_unit_loop": True}):
-            for i1 in T.serial(128, annotations={"pragma_loop_partition_hint": 1}):
+            for i1 in T.serial(128, annotations={"loop_partition_hint": 1}):
                 for i2, i3 in T.grid(28, 28):
                     if 96 <= k * 128 + i1:
                         T_concat[k * i1 * 784 + i2 * 28 + i3] = placeholder_2[
@@ -458,17 +490,25 @@ def test_loop_partition_with_unit_loop_in_condition():
                     if k * 128 + i1 < 64:
                         T_concat[i1 * 784 + i2 * 28 + i3] = placeholder[i1 * 784 + i2 * 28 + i3]
 
-    @Ts.prim_func
+    @Ts.function
     def after(
-        placeholder: T.Buffer(50176, "int8"),
-        placeholder_1: T.Buffer(25088, "int8"),
-        placeholder_2: T.Buffer(25088, "int8"),
-        T_concat: T.Buffer(100352, "int8"),
+        placeholder: T.Tensor(50176, "int8"),
+        placeholder_1: T.Tensor(25088, "int8"),
+        placeholder_2: T.Tensor(25088, "int8"),
+        T_concat: T.Tensor(100352, "int8"),
     ) -> None:
-        placeholder_3 = T.decl_buffer((50176,), "int8", data=placeholder.data)
-        placeholder_1_1 = T.decl_buffer((25088,), "int8", data=placeholder_1.data)
-        placeholder_2_1 = T.decl_buffer((25088,), "int8", data=placeholder_2.data)
-        T_concat_1 = T.decl_buffer((100352,), "int8", data=T_concat.data)
+        placeholder_3 = T.decl_tensor(
+            placeholder.data, ty_args=[T.Tensor((50176,), "int8", data=placeholder.data)]
+        )
+        placeholder_1_1 = T.decl_tensor(
+            placeholder_1.data, ty_args=[T.Tensor((25088,), "int8", data=placeholder_1.data)]
+        )
+        placeholder_2_1 = T.decl_tensor(
+            placeholder_2.data, ty_args=[T.Tensor((25088,), "int8", data=placeholder_2.data)]
+        )
+        T_concat_1 = T.decl_tensor(
+            T_concat.data, ty_args=[T.Tensor((100352,), "int8", data=T_concat.data)]
+        )
         for k in T.serial(1, annotations={"preserve_unit_loop": True}):
             for i1, i2, i3 in T.grid(64, 28, 28):
                 T_concat_1[i1 * 784 + i2 * 28 + i3] = placeholder_3[i1 * 784 + i2 * 28 + i3]
@@ -487,18 +527,18 @@ def test_loop_partition_with_unit_loop_in_condition():
             }
         },
     )
-    tvm.ir.assert_structural_equal(mod["main"], after.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(mod["main"], after.with_attr("global_symbol", "main"))
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_single_point(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ) -> None:
     for i0 in range(28):
-        for i1 in T.serial(128, annotations={"pragma_loop_partition_hint": 1}):
+        for i1 in T.serial(128, annotations={"loop_partition_hint": 1}):
             if i1 > 63:
                 T_concat[i0, i1] = placeholder[i0, i1 - 64]
             elif i1 == 63:
@@ -507,17 +547,25 @@ def concat_func_single_point(
                 T_concat[i0, i1] = placeholder_2[i0, i1]
 
 
-@Ts.prim_func
+@Ts.function
 def expected_partitioned_concat_single_point(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ):
-    placeholder_3 = T.decl_buffer((1792,), "int8", data=placeholder.data)
-    placeholder_1_1 = T.decl_buffer((28,), "int8", data=placeholder_1.data)
-    placeholder_2_1 = T.decl_buffer((1764,), "int8", data=placeholder_2.data)
-    T_concat_1 = T.decl_buffer((3584,), "int8", data=T_concat.data)
+    placeholder_3 = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor((1792,), "int8", data=placeholder.data)]
+    )
+    placeholder_1_1 = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor((28,), "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_1 = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor((1764,), "int8", data=placeholder_2.data)]
+    )
+    T_concat_1 = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor((3584,), "int8", data=T_concat.data)]
+    )
     for i0 in range(28):
         for i1 in range(63):
             T_concat_1[i0 * 128 + i1] = placeholder_2_1[i0 * 63 + i1]
@@ -526,15 +574,15 @@ def expected_partitioned_concat_single_point(
             T_concat_1[i0 * 128 + i1 + 64] = placeholder_3[i0 * 64 + i1]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_start_point_equality(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ) -> None:
     for i0 in range(28):
-        for i1 in range(128, annotations={"pragma_loop_partition_hint": 1}):
+        for i1 in range(128, annotations={"loop_partition_hint": 1}):
             if i1 == 0:
                 # Special case for i1 == 0
                 T_concat[i0, i1] = placeholder_1[i0, 0]
@@ -546,17 +594,25 @@ def concat_func_start_point_equality(
                 T_concat[i0, i1] = placeholder[i0, i1 - 64]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_start_point_equality_expected(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ):
-    placeholder_3 = T.decl_buffer((1792,), "int8", data=placeholder.data)
-    placeholder_1_1 = T.decl_buffer((28,), "int8", data=placeholder_1.data)
-    placeholder_2_1 = T.decl_buffer((1764,), "int8", data=placeholder_2.data)
-    T_concat_1 = T.decl_buffer((3584,), "int8", data=T_concat.data)
+    placeholder_3 = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor((1792,), "int8", data=placeholder.data)]
+    )
+    placeholder_1_1 = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor((28,), "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_1 = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor((1764,), "int8", data=placeholder_2.data)]
+    )
+    T_concat_1 = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor((3584,), "int8", data=T_concat.data)]
+    )
     for i0 in range(28):
         T_concat_1[i0 * 128] = placeholder_1_1[i0]
         for i1 in range(63):
@@ -565,15 +621,15 @@ def concat_func_start_point_equality_expected(
             T_concat_1[i0 * 128 + i1 + 64] = placeholder_3[i0 * 64 + i1]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_end_point_equality(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ) -> None:
     for i0 in range(28):
-        for i1 in range(128, annotations={"pragma_loop_partition_hint": 1}):
+        for i1 in range(128, annotations={"loop_partition_hint": 1}):
             if i1 == 127:
                 # Explicit equality check for the end point i1 == 127
                 T_concat[i0, i1] = placeholder_1[i0, 0]
@@ -585,17 +641,25 @@ def concat_func_end_point_equality(
                 T_concat[i0, i1] = placeholder_2[i0, i1]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_end_point_equality_expected(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 63), "int8"),
-    T_concat: T.Buffer((28, 128), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 63), "int8"),
+    T_concat: T.Tensor((28, 128), "int8"),
 ):
-    placeholder_3 = T.decl_buffer((1792,), "int8", data=placeholder.data)
-    placeholder_1_1 = T.decl_buffer((28,), "int8", data=placeholder_1.data)
-    placeholder_2_1 = T.decl_buffer((1764,), "int8", data=placeholder_2.data)
-    T_concat_1 = T.decl_buffer((3584,), "int8", data=T_concat.data)
+    placeholder_3 = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor((1792,), "int8", data=placeholder.data)]
+    )
+    placeholder_1_1 = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor((28,), "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_1 = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor((1764,), "int8", data=placeholder_2.data)]
+    )
+    T_concat_1 = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor((3584,), "int8", data=T_concat.data)]
+    )
     for i0 in range(28):
         for i1 in range(64):
             T_concat_1[i0 * 128 + i1] = placeholder_2_1[i0 * 63 + i1]
@@ -604,17 +668,15 @@ def concat_func_end_point_equality_expected(
         T_concat_1[i0 * 128 + 127] = placeholder_1_1[i0]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_edge_equalities(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 1), "int8"),
-    T_concat: T.Buffer((28, 66), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 1), "int8"),
+    T_concat: T.Tensor((28, 66), "int8"),
 ) -> None:
     for i0 in range(28):
-        for i1 in range(
-            66, annotations={"pragma_loop_partition_hint": 1}
-        ):  # Loop from 0 to 65 inclusive
+        for i1 in range(66, annotations={"loop_partition_hint": 1}):  # Loop from 0 to 65 inclusive
             if i1 == 0:
                 # Handle equality at the start of the range: i1 == 0
                 T_concat[i0, i1] = placeholder_2[i0, 0]
@@ -626,17 +688,25 @@ def concat_func_edge_equalities(
                 T_concat[i0, i1] = placeholder[i0, i1 - 1]
 
 
-@Ts.prim_func
+@Ts.function
 def concat_func_edge_equalities_expected(
-    placeholder: T.Buffer((28, 64), "int8"),
-    placeholder_1: T.Buffer((28, 1), "int8"),
-    placeholder_2: T.Buffer((28, 1), "int8"),
-    T_concat: T.Buffer((28, 66), "int8"),
+    placeholder: T.Tensor((28, 64), "int8"),
+    placeholder_1: T.Tensor((28, 1), "int8"),
+    placeholder_2: T.Tensor((28, 1), "int8"),
+    T_concat: T.Tensor((28, 66), "int8"),
 ):
-    placeholder_3 = T.decl_buffer((1792,), "int8", data=placeholder.data)
-    placeholder_1_1 = T.decl_buffer((28,), "int8", data=placeholder_1.data)
-    placeholder_2_1 = T.decl_buffer((28,), "int8", data=placeholder_2.data)
-    T_concat_1 = T.decl_buffer((1848,), "int8", data=T_concat.data)
+    placeholder_3 = T.decl_tensor(
+        placeholder.data, ty_args=[T.Tensor((1792,), "int8", data=placeholder.data)]
+    )
+    placeholder_1_1 = T.decl_tensor(
+        placeholder_1.data, ty_args=[T.Tensor((28,), "int8", data=placeholder_1.data)]
+    )
+    placeholder_2_1 = T.decl_tensor(
+        placeholder_2.data, ty_args=[T.Tensor((28,), "int8", data=placeholder_2.data)]
+    )
+    T_concat_1 = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor((1848,), "int8", data=T_concat.data)]
+    )
     for i0 in range(28):
         T_concat_1[i0 * 66] = placeholder_2_1[i0]
         for i1 in range(64):
@@ -644,70 +714,76 @@ def concat_func_edge_equalities_expected(
         T_concat_1[i0 * 66 + 65] = placeholder_1_1[i0]
 
 
-@Ts.prim_func
-def concat_five_buffers_with_equalities(
-    buffer_a: T.Buffer((28, 1), "int8"),  # Used for i1 == 0
-    buffer_b: T.Buffer((28, 63), "int8"),  # Fills i1 from 1 to 63
-    buffer_c: T.Buffer((28, 1), "int8"),  # Used for i1 == 64
-    buffer_d: T.Buffer((28, 63), "int8"),  # Fills i1 from 65 to 128
-    buffer_e: T.Buffer((28, 1), "int8"),  # Used for i1 == 129
-    T_concat: T.Buffer((28, 129), "int8"),
+@Ts.function
+def concat_five_tensors_with_equalities(
+    tensor_a: T.Tensor((28, 1), "int8"),  # Used for i1 == 0
+    tensor_b: T.Tensor((28, 63), "int8"),  # Fills i1 from 1 to 63
+    tensor_c: T.Tensor((28, 1), "int8"),  # Used for i1 == 64
+    tensor_d: T.Tensor((28, 63), "int8"),  # Fills i1 from 65 to 128
+    tensor_e: T.Tensor((28, 1), "int8"),  # Used for i1 == 129
+    T_concat: T.Tensor((28, 129), "int8"),
 ) -> None:
     for i0 in range(28):
-        for i1 in range(130, annotations={"pragma_loop_partition_hint": 1}):
+        for i1 in range(130, annotations={"loop_partition_hint": 1}):
             if i1 == 0:
-                T_concat[i0, i1] = buffer_a[i0, 0]
+                T_concat[i0, i1] = tensor_a[i0, 0]
             elif i1 == 64:
-                T_concat[i0, i1] = buffer_c[i0, 0]
+                T_concat[i0, i1] = tensor_c[i0, 0]
             elif i1 == 129:
-                T_concat[i0, i1] = buffer_e[i0, 0]
+                T_concat[i0, i1] = tensor_e[i0, 0]
             elif i1 < 64:
-                T_concat[i0, i1] = buffer_b[i0, i1 - 1]
+                T_concat[i0, i1] = tensor_b[i0, i1 - 1]
             else:  # i1 > 64 and i1 < 128
-                T_concat[i0, i1] = buffer_d[i0, i1 - 65]
+                T_concat[i0, i1] = tensor_d[i0, i1 - 65]
 
 
-@Ts.prim_func
-def concat_five_buffers_with_equalities_expected(
-    buffer_a: T.Buffer((28, 1), "int8"),  # Used for i1 == 0
-    buffer_b: T.Buffer((28, 63), "int8"),  # Fills i1 from 1 to 63
-    buffer_c: T.Buffer((28, 1), "int8"),  # Used for i1 == 64
-    buffer_d: T.Buffer((28, 63), "int8"),  # Fills i1 from 65 to 128
-    buffer_e: T.Buffer((28, 1), "int8"),  # Used for i1 == 129
-    T_concat: T.Buffer((28, 129), "int8"),
+@Ts.function
+def concat_five_tensors_with_equalities_expected(
+    tensor_a: T.Tensor((28, 1), "int8"),  # Used for i1 == 0
+    tensor_b: T.Tensor((28, 63), "int8"),  # Fills i1 from 1 to 63
+    tensor_c: T.Tensor((28, 1), "int8"),  # Used for i1 == 64
+    tensor_d: T.Tensor((28, 63), "int8"),  # Fills i1 from 65 to 128
+    tensor_e: T.Tensor((28, 1), "int8"),  # Used for i1 == 129
+    T_concat: T.Tensor((28, 129), "int8"),
 ):
-    buffer_a_1 = T.decl_buffer((28,), "int8", data=buffer_a.data)
-    buffer_b_1 = T.decl_buffer((1764,), "int8", data=buffer_b.data)
-    buffer_c_1 = T.decl_buffer((28,), "int8", data=buffer_c.data)
-    buffer_d_1 = T.decl_buffer((1764,), "int8", data=buffer_d.data)
-    buffer_e_1 = T.decl_buffer((28,), "int8", data=buffer_e.data)
-    T_concat_1 = T.decl_buffer((3612,), "int8", data=T_concat.data)
+    tensor_a_1 = T.decl_tensor(tensor_a.data, ty_args=[T.Tensor((28,), "int8", data=tensor_a.data)])
+    tensor_b_1 = T.decl_tensor(
+        tensor_b.data, ty_args=[T.Tensor((1764,), "int8", data=tensor_b.data)]
+    )
+    tensor_c_1 = T.decl_tensor(tensor_c.data, ty_args=[T.Tensor((28,), "int8", data=tensor_c.data)])
+    tensor_d_1 = T.decl_tensor(
+        tensor_d.data, ty_args=[T.Tensor((1764,), "int8", data=tensor_d.data)]
+    )
+    tensor_e_1 = T.decl_tensor(tensor_e.data, ty_args=[T.Tensor((28,), "int8", data=tensor_e.data)])
+    T_concat_1 = T.decl_tensor(
+        T_concat.data, ty_args=[T.Tensor((3612,), "int8", data=T_concat.data)]
+    )
     for i0 in range(28):
-        T_concat_1[i0 * 129] = buffer_a_1[i0]
+        T_concat_1[i0 * 129] = tensor_a_1[i0]
         for i1 in range(63):
-            T_concat_1[i0 * 129 + i1 + 1] = buffer_b_1[i0 * 63 + i1]
-        T_concat_1[i0 * 129 + 64] = buffer_c_1[i0]
+            T_concat_1[i0 * 129 + i1 + 1] = tensor_b_1[i0 * 63 + i1]
+        T_concat_1[i0 * 129 + 64] = tensor_c_1[i0]
         for i1 in range(64):
-            T_concat_1[i0 * 129 + i1 + 65] = buffer_d_1[i0 * 63 + i1]
-        T_concat_1[i0 * 129 + 129] = buffer_e_1[i0]
+            T_concat_1[i0 * 129 + i1 + 65] = tensor_d_1[i0 * 63 + i1]
+        T_concat_1[i0 * 129 + 129] = tensor_e_1[i0]
 
 
-@Ts.prim_func
-def nested_partition_with_single_points(A: T.Buffer((25,), "int32")):
-    for i in T.serial(5, annotations={"pragma_loop_partition_hint": 1}):
+@Ts.function
+def nested_partition_with_single_points(A: T.Tensor((25,), "int32")):
+    for i in T.serial(5, annotations={"loop_partition_hint": 1}):
         if i == 1:
-            for j in T.serial(5, annotations={"pragma_loop_partition_hint": 1}):
+            for j in T.serial(5, annotations={"loop_partition_hint": 1}):
                 if j > 2:
                     A[i * 5 + j] = i * 5 + j
         else:
-            for j in T.serial(5, annotations={"pragma_loop_partition_hint": 1}):
+            for j in T.serial(5, annotations={"loop_partition_hint": 1}):
                 if j > 2:
                     A[i * 5 + j] = i * 15 + j
 
 
-@Ts.prim_func
-def nested_partition_with_single_points_expected(A: T.Buffer((25,), "int32")):
-    A_1 = T.decl_buffer((25,), "int32", data=A.data)
+@Ts.function
+def nested_partition_with_single_points_expected(A: T.Tensor((25,), "int32")):
+    A_1 = T.decl_tensor(A.data, ty_args=[T.Tensor((25,), "int32", data=A.data)])
     for j in range(2):
         A_1[j + 3] = j + 3
     for j in range(2):
@@ -723,7 +799,7 @@ def nested_partition_with_single_points_expected(A: T.Buffer((25,), "int32")):
         (concat_func_start_point_equality, concat_func_start_point_equality_expected),
         (concat_func_end_point_equality, concat_func_end_point_equality_expected),
         (concat_func_edge_equalities, concat_func_edge_equalities_expected),
-        (concat_five_buffers_with_equalities, concat_five_buffers_with_equalities_expected),
+        (concat_five_tensors_with_equalities, concat_five_tensors_with_equalities_expected),
         (nested_partition_with_single_points, nested_partition_with_single_points_expected),
     ],
 )
@@ -739,20 +815,20 @@ def test_single_point_partition(origin, expected):
             }
         },
     )
-    tvm.ir.assert_structural_equal(mod["main"], expected)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
 def test_equation_on_floordiv():
-    @Ts.prim_func
-    def before(A: T.Buffer((2, 2, 20), "int32")):
-        for i in T.serial(5, annotations={"pragma_loop_partition_hint": 1}):
+    @Ts.function
+    def before(A: T.Tensor((2, 2, 20), "int32")):
+        for i in T.serial(5, annotations={"loop_partition_hint": 1}):
             if i == 1:
-                for vv in T.vectorized(640, annotations={"pragma_loop_partition_hint": 1}):
+                for vv in T.vectorized(640, annotations={"loop_partition_hint": 1}):
                     if i * 2 + vv // 320 == 3:
                         A[i - 1, i * 2 + vv // 320 - 3, vv % 320 // 16] = 1
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((2, 2, 20), "int32")):
+    @Ts.function
+    def expected(A: T.Tensor((2, 2, 20), "int32")):
         for vv in T.vectorized(320):
             A[0, 0, vv // 16] = 1
 
@@ -760,17 +836,17 @@ def test_equation_on_floordiv():
     after = partition_from_scheduled_tir(
         before.with_attr("global_symbol", "main"), {}, do_flatten=False
     )
-    tvm.ir.assert_structural_equal(after["main"], expected)
+    tvm_tirx.ir.assert_structural_equal(after["main"], expected)
 
 
 def test_ignore_loop_partition_hint():
     """Skip unroll body and prologue for pipeline case"""
 
-    @Ts.prim_func
-    def before(A: T.Buffer((10), "float32"), D: T.Buffer((10), "float32")):
-        B = T.decl_buffer([2], "float32")
-        C = T.decl_buffer([2], "float32")
-        for i in T.serial(12, annotations={"pragma_loop_partition_hint": 1}):
+    @Ts.function
+    def before(A: T.Tensor((10), "float32"), D: T.Tensor((10), "float32")):
+        B = T.alloc_tensor(ty_args=[T.Tensor([2], "float32")])
+        C = T.alloc_tensor(ty_args=[T.Tensor([2], "float32")])
+        for i in T.serial(12, annotations={"loop_partition_hint": 1}):
             if T.ignore_loop_partition(i < 10):
                 B[i % 2] = A[i] + 1.0
             if T.ignore_loop_partition(1 <= i and i < 11):
@@ -778,10 +854,10 @@ def test_ignore_loop_partition_hint():
             if 2 <= i:
                 D[i - 2] = C[i % 2] + 3.0
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((10), "float32"), D: T.Buffer((10), "float32")):
-        B = T.decl_buffer([2], "float32")
-        C = T.decl_buffer([2], "float32")
+    @Ts.function
+    def expected(A: T.Tensor((10), "float32"), D: T.Tensor((10), "float32")):
+        B = T.alloc_tensor(ty_args=[T.Tensor([2], "float32")])
+        C = T.alloc_tensor(ty_args=[T.Tensor([2], "float32")])
         for i in range(2):
             B[i] = A[i] + 1.0
             if i == 1:
@@ -797,8 +873,8 @@ def test_ignore_loop_partition_hint():
     after = partition_from_scheduled_tir(
         before.with_attr({"global_symbol": "main"}), {}, do_flatten=False
     )
-    tvm.ir.assert_structural_equal(after["main"], expected)
+    tvm_tirx.ir.assert_structural_equal(after["main"], expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

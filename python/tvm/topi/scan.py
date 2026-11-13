@@ -21,11 +21,11 @@ import operator
 from collections.abc import Callable
 
 import tvm
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx import TensorType, Var
+from tvm_tirx.tirx.script import ir_builder as T
 
 from ..te import extern
-from ..tirx import decl_buffer
 from . import utils
 from .math import cast
 
@@ -122,48 +122,48 @@ def scanop(
                 j = fused % axis_mul_after
                 base_idx = i * cumsum_axis_len * axis_mul_after + j
                 if exclusive:
-                    T.buffer_store(
-                        out_buf, cast(identity_value, dtype), T.buffer_indices(out_buf, base_idx)
+                    T.tensor_store(
+                        out_buf, T.tensor_indices(out_buf, base_idx), cast(identity_value, dtype)
                     )
                 else:
-                    T.buffer_store(
+                    T.tensor_store(
                         out_buf,
-                        maybe_cast(data_buf[T.buffer_indices(data_buf, base_idx)]),
-                        T.buffer_indices(out_buf, base_idx),
+                        T.tensor_indices(out_buf, base_idx),
+                        maybe_cast(data_buf[T.tensor_indices(data_buf, base_idx)]),
                     )
                 with T.serial(0, cumsum_axis_len - 1) as _k:
                     k = _k + 1
                     cur_idx = base_idx + k * axis_mul_after
                     prev_idx = base_idx + (k - 1) * axis_mul_after
                     if exclusive:
-                        T.buffer_store(
+                        T.tensor_store(
                             out_buf,
+                            T.tensor_indices(out_buf, cur_idx),
                             binop(
-                                out_buf[T.buffer_indices(out_buf, prev_idx)],
-                                maybe_cast(data_buf[T.buffer_indices(data_buf, prev_idx)]),
+                                out_buf[T.tensor_indices(out_buf, prev_idx)],
+                                maybe_cast(data_buf[T.tensor_indices(data_buf, prev_idx)]),
                             ),
-                            T.buffer_indices(out_buf, cur_idx),
                         )
                     else:
-                        T.buffer_store(
+                        T.tensor_store(
                             out_buf,
+                            T.tensor_indices(out_buf, cur_idx),
                             binop(
-                                out_buf[T.buffer_indices(out_buf, prev_idx)],
-                                maybe_cast(data_buf[T.buffer_indices(data_buf, cur_idx)]),
+                                out_buf[T.tensor_indices(out_buf, prev_idx)],
+                                maybe_cast(data_buf[T.tensor_indices(data_buf, cur_idx)]),
                             ),
-                            T.buffer_indices(out_buf, cur_idx),
                         )
 
             return ib.get()
 
-    out_buf = decl_buffer(shape, dtype, "out_buf")
+    out_buf = Var("out_buf", TensorType(shape, dtype))
 
     return extern(
         [shape],
         [data],
         lambda ins, outs: gen_ir(ins[0], outs[0]),
         dtype=dtype,
-        out_buffers=[out_buf],
+        out_tensors=[out_buf],
         name=op_name,
         tag=op_name,
     )

@@ -22,21 +22,25 @@ import pytest
 import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm import ir, tirx
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
+from tvm_tirx import ir, tirx
+from tvm_tirx.script import tirx as T
 
 
 def test_get_static_type_basic():
     # object
     s0 = rx.AnyType()
-    tvm.ir.assert_structural_equal(rx.analysis.get_static_type(s0), rx.AnyType())
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.get_static_type(s0), rx.AnyType())
 
     # prim
-    s1 = tvm.ir.PrimType("float32")
-    tvm.ir.assert_structural_equal(rx.analysis.get_static_type(s1), tvm.ir.PrimType("float32"))
+    s1 = tvm_tirx.ir.PrimType("float32")
+    tvm_tirx.ir.assert_structural_equal(
+        rx.analysis.get_static_type(s1), tvm_tirx.ir.PrimType("float32")
+    )
 
 
 def test_get_static_type_shape():
@@ -46,16 +50,16 @@ def test_get_static_type_shape():
     s2 = rx.ShapeType([1, n + 1, m])
     s3 = rx.ShapeType(ndim=2)
 
-    tvm.ir.assert_structural_equal(rx.analysis.get_static_type(s2), rx.ShapeType(ndim=3))
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.get_static_type(s2), rx.ShapeType(ndim=3))
 
-    tvm.ir.assert_structural_equal(rx.analysis.get_static_type(s3), rx.ShapeType(ndim=2))
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.get_static_type(s3), rx.ShapeType(ndim=2))
 
 
 def test_get_static_type_tensor():
     n, m = tirx.Var("n", "int64"), tirx.Var("m", "int64")
     s4 = rx.TensorType([1, n + 1, m], "int64")
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.get_static_type(s4), rx.TensorType(ndim=3, dtype="int64")
     )
 
@@ -69,7 +73,7 @@ def test_get_static_type_tuple():
     t0 = rx.TupleType([s4, s0])
     t1 = rx.TupleType([t0, s2])
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.get_static_type(t1),
         rx.TupleType(
             [
@@ -97,16 +101,16 @@ def test_get_static_type_func():
 
     f0 = fn_info(1)
 
-    tvm.ir.assert_structural_equal(rx.analysis.get_static_type(fn_info(1)), fn_type())
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.get_static_type(fn_info(1)), fn_type())
 
 
 def test_erase_to_well_defined_basic():
     s0 = rx.AnyType()
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s0), s0)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s0), s0)
 
     # prim
-    s1 = tvm.ir.PrimType("float32")
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s1), s1)
+    s1 = tvm_tirx.ir.PrimType("float32")
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s1), s1)
 
 
 def test_erase_to_well_defined_shape():
@@ -115,17 +119,17 @@ def test_erase_to_well_defined_shape():
     s2 = rx.ShapeType([1, n + 1, m])
     s3 = rx.ShapeType(ndim=2)
     # have undefined
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2), rx.ShapeType(ndim=3))
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2), rx.ShapeType(ndim=3))
     # all defined
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2, {n: n, m: m}), s2)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2, {n: n, m: m}), s2)
 
     # replacement
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s2, {n: 2, m: m + 1}), rx.ShapeType([1, 3, m + 1])
     )
 
     # partial defined
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s2, {n: n}), rx.ShapeType(ndim=3)
     )
 
@@ -136,38 +140,38 @@ def test_erase_to_well_defined_tensor():
     s0 = rx.TensorType(rshape, dtype="int32")
 
     # undefined
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s0, None, None),
         rx.TensorType(ndim=2, dtype="int32"),
     )
 
     # defined
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s0, None, {rshape: rshape}), s0
     )
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s0, None, {rshape: rx.ShapeExpr([1, 2])}),
         rx.TensorType([1, 2], dtype="int32"),
     )
 
     s1 = rx.TensorType([m + 1, n], dtype="float32")
 
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s1, {n: n, m: m}), s1)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s1, {n: n, m: m}), s1)
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s1, {n: 2, m: 3}),
         rx.TensorType([4, 2], dtype="float32"),
     )
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(s1, {m: m}, {rshape: rshape}),
         rx.TensorType(ndim=2, dtype="float32"),
     )
 
     s2 = rx.TensorType([1, 2], dtype="float32")
 
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2), s2)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(s2), s2)
 
 
 def test_erase_to_well_defined_tuple():
@@ -178,7 +182,7 @@ def test_erase_to_well_defined_tuple():
     t0 = rx.TupleType([s4, s0])
     t1 = rx.TupleType([t0, s2])
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.erase_to_well_defined(t1, {m: m + 1}),
         rx.TupleType(
             [
@@ -199,7 +203,7 @@ def test_erase_to_well_defined_func():
 
     f0 = fn_info(1)
 
-    tvm.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(f0), f0)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.erase_to_well_defined(f0), f0)
 
 
 def test_base_check():
@@ -208,8 +212,8 @@ def test_base_check():
 
     n, m = tirx.Var("n", "int64"), tirx.Var("m", "int64")
     obj0 = rx.AnyType()
-    prim0 = tvm.ir.PrimType("int32")
-    prim1 = tvm.ir.PrimType("float32")
+    prim0 = tvm_tirx.ir.PrimType("int32")
+    prim1 = tvm_tirx.ir.PrimType("float32")
 
     shape0 = rx.ShapeType(ndim=-1)
     shape1 = rx.ShapeType(ndim=2)
@@ -221,7 +225,7 @@ def test_base_check():
     vdevice1 = rx.VDevice("llvm")
     vdevice2 = rx.VDevice("cuda", 0)
     vdevice3 = rx.VDevice("cuda", 2)
-    vdevice4 = rx.VDevice("cuda", 0, "")
+    vdevice4 = rx.VDevice("cuda", 0, "global")
 
     tensor0 = rx.TensorType(ndim=-1, dtype="int32")
     tensor1 = rx.TensorType(ndim=-1, dtype="float32")
@@ -357,12 +361,12 @@ def _check_derive(ctx, finfo, args_ty, ret):
         args.append(arg)
     call = rx.Call(gv, args)
     derived_ret = rx.analysis.derive_call_ret_type(finfo, call, ctx)
-    tvm.ir.assert_structural_equal(ret, derived_ret)
+    tvm_tirx.ir.assert_structural_equal(ret, derived_ret)
 
 
 def test_derive_call_ret_type():
     obj0 = rx.AnyType()
-    prim0 = tvm.ir.PrimType("float32")
+    prim0 = tvm_tirx.ir.PrimType("float32")
 
     n, m = tirx.Var("n0", "int64"), tirx.Var("m0", "int64")
     bb = rx.BlockBuilder()
@@ -510,15 +514,15 @@ def test_derive_call_ret_type():
 
 
 def _check_lca(lhs, rhs, target):
-    tvm.ir.assert_structural_equal(rx.analysis.type_lca(lhs, rhs), target)
-    tvm.ir.assert_structural_equal(rx.analysis.type_lca(rhs, lhs), target)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.type_lca(lhs, rhs), target)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.type_lca(rhs, lhs), target)
 
 
 def test_type_lca():
     n, m = tirx.Var("n", "int64"), tirx.Var("m", "int64")
     obj0 = rx.AnyType()
-    prim0 = tvm.ir.PrimType("int32")
-    prim1 = tvm.ir.PrimType("float32")
+    prim0 = tvm_tirx.ir.PrimType("int32")
+    prim1 = tvm_tirx.ir.PrimType("float32")
 
     vdevice0 = rx.VDevice("llvm")
     vdevice1 = rx.VDevice("cuda", 0)
@@ -634,14 +638,18 @@ def _generate_prim_test_cases():
 
     for dtype in dtypes:
         # LCA of a PrimType with itself yields itself
-        yield (tvm.ir.PrimType(dtype), tvm.ir.PrimType(dtype), tvm.ir.PrimType(dtype))
+        yield (
+            tvm_tirx.ir.PrimType(dtype),
+            tvm_tirx.ir.PrimType(dtype),
+            tvm_tirx.ir.PrimType(dtype),
+        )
 
     for dtype_a in dtypes:
         for dtype_b in dtypes:
             if dtype_a != dtype_b:
                 # If the dtype differs between the two annotations,
                 # the next wider category is R.Any.
-                yield (tvm.ir.PrimType(dtype_a), tvm.ir.PrimType(dtype_b), R.Any)
+                yield (tvm_tirx.ir.PrimType(dtype_a), tvm_tirx.ir.PrimType(dtype_b), R.Any)
 
 
 @pytest.mark.parametrize("test_case", list(_generate_prim_test_cases()))
@@ -683,17 +691,19 @@ def _generate_tir_var_test_cases():
     yield func, [n, m], [n, m]
 
 
-tir_var_test_case = tvm.testing.parameter(*_generate_tir_var_test_cases())
+@pytest.fixture(params=[*_generate_tir_var_test_cases()], scope="session")
+def tir_var_test_case(request):
+    return request.param
 
 
 def test_tir_vars_in_type(tir_var_test_case):
     ty, _vars_definable, vars_used = tir_var_test_case
-    tvm.ir.assert_structural_equal(rx.analysis.tir_vars_in_type(ty), vars_used)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.tir_vars_in_type(ty), vars_used)
 
 
 def test_definable_tir_vars_in_type(tir_var_test_case):
     ty, vars_definable, _vars_used = tir_var_test_case
-    tvm.ir.assert_structural_equal(rx.analysis.definable_tir_vars_in_type(ty), vars_definable)
+    tvm_tirx.ir.assert_structural_equal(rx.analysis.definable_tir_vars_in_type(ty), vars_definable)
 
 
 def test_collect_symbolic_var_from_tensor_shape():
@@ -708,7 +718,9 @@ def test_collect_symbolic_var_from_tensor_shape():
     x = rx.Var("x", rx.TensorType([m, m + n], "float32"))
     with bb.function("main", [x]):
         v0 = bb.match_cast(x, rx.TensorType([m, k], "float32"))
-        v1 = bb.emit(rx.call_dps_packed("test", x, rx.TensorType([p, q], "float32")))
+        v1 = bb.emit(
+            rx.call_dps_packed(_ExternFunc("test"), x, ty_args=[rx.TensorType([p, q], "float32")])
+        )
         bb.emit_func_output(rx.const(1))
     func = bb.get()["main"]
 
@@ -718,8 +730,14 @@ def test_collect_symbolic_var_from_tensor_shape():
     assert free_vars == {n, p, q}
 
 
-param_type = tvm.testing.parameter("shape_expr")
-param_order = tvm.testing.parameter("definition_first", "usage_first")
+@pytest.fixture(params=["shape_expr"], scope="session")
+def param_type(request):
+    return request.param
+
+
+@pytest.fixture(params=["definition_first", "usage_first"], scope="session")
+def param_order(request):
+    return request.param
 
 
 def test_collect_symbolic_var_from_non_tensor_params(param_type, param_order):
@@ -755,8 +773,8 @@ def test_collect_symbolic_var_from_non_tensor_params(param_type, param_order):
 
 
 def test_collect_nonnegative_expressions():
-    M = T.dynamic("M")
-    N = T.dynamic("N")
+    M = T.dynamic("M", "int64")
+    N = T.dynamic("N", "int64")
 
     @R.function
     def func(
@@ -765,39 +783,39 @@ def test_collect_nonnegative_expressions():
         C: R.Shape([M, N]),
         D: T.int64,
     ):
-        return R.tuple()
+        return ()
 
     M, N = list(func.params[2].ty.values)
 
     # Expressions are de-duplicated, in order of their first appearance
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.collect_non_negative_expressions(func.ty),
         [M, N - 2, N, M + 2],
     )
 
     # Tensor shapes can imply that their shapes are non-negative
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.collect_non_negative_expressions(func.params[0].ty),
         [M, N - 2],
     )
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.collect_non_negative_expressions(func.params[1].ty),
         [N, M + 2],
     )
 
     # ShapeExpr values can imply that their contents are non-negative
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.collect_non_negative_expressions(func.params[2].ty),
         [M, N],
     )
 
     # Expr instances may contain negative values, and do not
     # imply that their contents are non-negative.
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rx.analysis.collect_non_negative_expressions(func.params[3].ty),
         [],
     )
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

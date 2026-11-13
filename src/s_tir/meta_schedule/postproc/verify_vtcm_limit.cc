@@ -25,7 +25,7 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class VerifyVTCMLimitNode : public PostprocNode {
+class VerifyVTCMLimitObj : public PostprocObj {
  public:
   int64_t vtcm_capacity = 0;
 
@@ -46,10 +46,9 @@ class VerifyVTCMLimitNode : public PostprocNode {
 
   bool Apply(const s_tir::Schedule& sch) final {
     IRModule mod = sch->mod();
-    IRModule lowered{nullptr};
     auto pass_list = s_tir::GetVTCMCompactionPasses();
     tvm::transform::PassContext pass_ctx = tvm::transform::PassContext::Current();
-    lowered = tvm::transform::Sequential(pass_list)(std::move(mod));
+    IRModule lowered = tvm::transform::Sequential(pass_list)(std::move(mod));
     if (!Verify(lowered)) {
       return false;
     }
@@ -57,27 +56,27 @@ class VerifyVTCMLimitNode : public PostprocNode {
   }
 
   Postproc Clone() const {
-    ffi::ObjectPtr<VerifyVTCMLimitNode> n = ffi::make_object<VerifyVTCMLimitNode>(*this);
-    return Postproc(n);
+    ffi::ObjectPtr<VerifyVTCMLimitObj> n = ffi::make_object<VerifyVTCMLimitObj>(*this);
+    return Postproc(ffi::UnsafeInit{}, n);
   }
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<VerifyVTCMLimitNode>();
+    refl::ObjectDef<VerifyVTCMLimitObj>();
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.VerifyVTCMLimit", VerifyVTCMLimitNode,
-                                    PostprocNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.VerifyVTCMLimit", VerifyVTCMLimitObj,
+                                    PostprocObj);
 };
 
 Postproc Postproc::VerifyVTCMLimit() {
-  ffi::ObjectPtr<VerifyVTCMLimitNode> n = ffi::make_object<VerifyVTCMLimitNode>();
-  return Postproc(n);
+  ffi::ObjectPtr<VerifyVTCMLimitObj> n = ffi::make_object<VerifyVTCMLimitObj>();
+  return Postproc(ffi::UnsafeInit{}, n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  VerifyVTCMLimitNode::RegisterReflection();
+  VerifyVTCMLimitObj::RegisterReflection();
   refl::GlobalDef().def("s_tir.meta_schedule.PostprocVerifyVTCMLimit", Postproc::VerifyVTCMLimit);
 }
 

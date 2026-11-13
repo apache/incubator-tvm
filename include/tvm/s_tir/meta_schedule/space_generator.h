@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_SPACE_GENERATOR_H_
 #define TVM_S_TIR_META_SCHEDULE_SPACE_GENERATOR_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
@@ -74,7 +75,7 @@ class SpaceGenerator;
   |                   +----  Runner Future <-------+                    |
   +---------------------------------------------------------------------+
 */
-class SpaceGeneratorNode : public ffi::Object {
+class SpaceGeneratorObj : public ffi::Object {
  public:
   /*! \brief The schedule rules. */
   ffi::Optional<ffi::Array<ScheduleRule>> sch_rules;
@@ -85,14 +86,14 @@ class SpaceGeneratorNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SpaceGeneratorNode>()
-        .def_ro("sch_rules", &SpaceGeneratorNode::sch_rules)
-        .def_ro("postprocs", &SpaceGeneratorNode::postprocs)
-        .def_ro("mutator_probs", &SpaceGeneratorNode::mutator_probs);
+    refl::ObjectDef<SpaceGeneratorObj>()
+        .def_ro("sch_rules", &SpaceGeneratorObj::sch_rules)
+        .def_ro("postprocs", &SpaceGeneratorObj::postprocs)
+        .def_ro("mutator_probs", &SpaceGeneratorObj::mutator_probs);
   }
 
   /*! \brief Default destructor */
-  virtual ~SpaceGeneratorNode() = default;
+  virtual ~SpaceGeneratorObj() = default;
 
   /*!
    * \brief Initialize the design space generator with tuning context.
@@ -115,21 +116,20 @@ class SpaceGeneratorNode : public ffi::Object {
   virtual SpaceGenerator Clone() const = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.SpaceGenerator", SpaceGeneratorNode,
-                              ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.SpaceGenerator", SpaceGeneratorObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to SpaceGeneratorNode.
- * \sa SpaceGeneratorNode
+ * \brief Managed reference to SpaceGeneratorObj.
+ * \sa SpaceGeneratorObj
  */
 class SpaceGenerator : public ffi::ObjectRef {
  public:
   /*!
-   * \brief Constructor from ffi::ObjectPtr<SpaceGeneratorNode>.
+   * \brief Constructor from ffi::ObjectPtr<SpaceGeneratorObj>.
    * \param data The object pointer.
    */
-  explicit SpaceGenerator(ffi::ObjectPtr<SpaceGeneratorNode> data) : ffi::ObjectRef(data) {
+  explicit SpaceGenerator(ffi::ObjectPtr<SpaceGeneratorObj> data) : ffi::ObjectRef(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   /*!
@@ -209,11 +209,11 @@ class SpaceGenerator : public ffi::ObjectRef {
       ffi::Function f_block_filter, ffi::Optional<ffi::Array<ScheduleRule>> sch_rules,
       ffi::Optional<ffi::Array<Postproc>> postprocs,
       ffi::Optional<ffi::Map<Mutator, FloatImm>> mutator_probs);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SpaceGenerator, ffi::ObjectRef, SpaceGeneratorNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SpaceGenerator, ffi::ObjectRef, SpaceGeneratorObj);
 };
 
 /*! \brief The design space generator with customized methods on the python-side. */
-class PySpaceGeneratorNode : public SpaceGeneratorNode {
+class PySpaceGeneratorObj : public SpaceGeneratorObj {
  public:
   using FInitializeWithTuneContext = SpaceGenerator::FInitializeWithTuneContext;
   using FGenerateDesignSpace = SpaceGenerator::FGenerateDesignSpace;
@@ -230,14 +230,14 @@ class PySpaceGeneratorNode : public SpaceGeneratorNode {
     // `f_generate_design_space` is not registered
     // `f_clone` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PySpaceGeneratorNode>();
+    refl::ObjectDef<PySpaceGeneratorObj>();
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final;
   ffi::Array<s_tir::Schedule> GenerateDesignSpace(const IRModule& mod) final;
   SpaceGenerator Clone() const final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PySpaceGenerator", PySpaceGeneratorNode,
-                                    SpaceGeneratorNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PySpaceGenerator", PySpaceGeneratorObj,
+                                    SpaceGeneratorObj);
 };
 
 }  // namespace meta_schedule

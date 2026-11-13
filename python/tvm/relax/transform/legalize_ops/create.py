@@ -20,9 +20,10 @@
 
 import numpy as np
 
-import tvm
-from tvm import te, tirx, topi
-from tvm.ir import Call
+import tvm_tirx
+from tvm import te, topi
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr, ShapeExpr, const
@@ -30,12 +31,10 @@ from ...type import ShapeType
 from .common import LegalizeFunc, _try_convert_to_scalar_const, register_legalize
 
 
-def _full(is_like: bool, fill_value: float | None, primfunc_name: str) -> LegalizeFunc:
+def _full(is_like: bool, fill_value: float | None, function_name: str) -> LegalizeFunc:
     def full_call_te(bb: BlockBuilder, call: Call) -> Expr:
         _fill_value = (
-            _try_convert_to_scalar_const(call.args[1], python_native=True)
-            if fill_value is None
-            else fill_value
+            _try_convert_to_scalar_const(call.args[1]) if fill_value is None else fill_value
         )
         shape = call.args[0].ty.shape if is_like else call.args[0]
 
@@ -54,13 +53,13 @@ def _full(is_like: bool, fill_value: float | None, primfunc_name: str) -> Legali
             output_shape,
             call.ty.dtype,
             _fill_value,
-            primfunc_name_hint=primfunc_name,
+            function_name_hint=function_name,
         )
 
     return full_call_te
 
 
-def _tril_triu(is_upper: bool, primfunc_name: str) -> LegalizeFunc:
+def _tril_triu(is_upper: bool, function_name: str) -> LegalizeFunc:
     def tril_triu_call_te(bb: BlockBuilder, call: Call) -> Expr:
         data, k = call.args
         return bb.call_te(
@@ -68,23 +67,23 @@ def _tril_triu(is_upper: bool, primfunc_name: str) -> LegalizeFunc:
             data,
             k,
             upper=is_upper,
-            primfunc_name_hint=primfunc_name,
+            function_name_hint=function_name,
         )
 
     return tril_triu_call_te
 
 
-register_legalize("relax.full", _full(is_like=False, fill_value=None, primfunc_name="full"))
-register_legalize("relax.full_like", _full(is_like=True, fill_value=None, primfunc_name="full"))
-register_legalize("relax.ones", _full(is_like=False, fill_value=1.0, primfunc_name="ones"))
-register_legalize("relax.ones_like", _full(is_like=True, fill_value=1.0, primfunc_name="ones"))
-register_legalize("relax.zeros", _full(is_like=False, fill_value=0.0, primfunc_name="zeros"))
-register_legalize("relax.zeros_like", _full(is_like=True, fill_value=0.0, primfunc_name="zeros"))
-register_legalize("relax.tril", _tril_triu(is_upper=False, primfunc_name="tril"))
-register_legalize("relax.triu", _tril_triu(is_upper=True, primfunc_name="triu"))
+register_legalize("relax.full", _full(is_like=False, fill_value=None, function_name="full"))
+register_legalize("relax.full_like", _full(is_like=True, fill_value=None, function_name="full"))
+register_legalize("relax.ones", _full(is_like=False, fill_value=1.0, function_name="ones"))
+register_legalize("relax.ones_like", _full(is_like=True, fill_value=1.0, function_name="ones"))
+register_legalize("relax.zeros", _full(is_like=False, fill_value=0.0, function_name="zeros"))
+register_legalize("relax.zeros_like", _full(is_like=True, fill_value=0.0, function_name="zeros"))
+register_legalize("relax.tril", _tril_triu(is_upper=False, function_name="tril"))
+register_legalize("relax.triu", _tril_triu(is_upper=True, function_name="triu"))
 
 
-def _eye(is_like: bool, primfunc_name: str) -> LegalizeFunc:
+def _eye(is_like: bool, function_name: str) -> LegalizeFunc:
     def eye_call_te(bb: BlockBuilder, call: Call) -> Expr:
         _convert_to_scalar_const = lambda x: _try_convert_to_scalar_const(x, python_native=True)
         if is_like:
@@ -104,25 +103,25 @@ def _eye(is_like: bool, primfunc_name: str) -> LegalizeFunc:
             m,
             k,
             dtype,
-            primfunc_name_hint=primfunc_name,
+            function_name_hint=function_name,
         )
 
     return eye_call_te
 
 
-register_legalize("relax.eye", _eye(is_like=False, primfunc_name="eye"))
-register_legalize("relax.eye_like", _eye(is_like=True, primfunc_name="eye_like"))
+register_legalize("relax.eye", _eye(is_like=False, function_name="eye"))
+register_legalize("relax.eye_like", _eye(is_like=True, function_name="eye_like"))
 
 
 @register_legalize("relax.arange")
 def _arange(bb: BlockBuilder, call: Call) -> Expr:
     assert len(call.args) == 3
-    assert all(tvm.ir.is_prim_expr(x) for x in call.args)
+    assert all(tvm_tirx.ir.is_prim_expr(x) for x in call.args)
     start, end, step = call.args
     dtype = call.attrs.dtype
 
     def is_const_scalar(x: tirx.Expr):
-        return isinstance(x, tirx.IntImm | tirx.FloatImm)
+        return isinstance(x, tvm_tirx.ir.IntImm | tvm_tirx.ir.FloatImm)
 
     if all([is_const_scalar(x) for x in call.args]):
         return const(np.arange(start.value, end.value, step.value, dtype=dtype), dtype=dtype)
@@ -138,11 +137,11 @@ def _shape_to_tensor(bb: BlockBuilder, call: Call) -> Expr:
         return call
     values = list(values)
     n = len(values)
-    symbolic = [v for v in values if not isinstance(v, tirx.IntImm)]
+    symbolic = [v for v in values if not isinstance(v, tvm_tirx.ir.IntImm)]
 
     def te_shape_to_tensor(*sym):
         sym = list(sym)
-        resolved = [v if isinstance(v, tirx.IntImm) else sym.pop(0) for v in values]
+        resolved = [v if isinstance(v, tvm_tirx.ir.IntImm) else sym.pop(0) for v in values]
 
         def fcompute(i):
             result = tirx.const(0, "int64")
@@ -152,7 +151,7 @@ def _shape_to_tensor(bb: BlockBuilder, call: Call) -> Expr:
 
         return te.compute((n,), fcompute, name="shape_to_tensor")
 
-    return bb.call_te(te_shape_to_tensor, *symbolic, primfunc_name_hint="shape_to_tensor")
+    return bb.call_te(te_shape_to_tensor, *symbolic, function_name_hint="shape_to_tensor")
 
 
 @register_legalize("relax.hamming_window")

@@ -17,11 +17,11 @@
 # ruff: noqa: E501, F841
 import pytest
 
-import tvm.testing
-from tvm.ir.base import assert_structural_equal
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.training import AppendLoss
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
 
 
 def test_simple():
@@ -326,4 +326,4 @@ def test_loss_return_value():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -22,7 +22,7 @@
 from collections.abc import Callable
 from functools import partial, reduce
 
-import tvm
+import tvm_tirx
 from tvm import relax
 
 from .base_fx_graph_translator import BaseFXGraphImporter
@@ -178,19 +178,19 @@ class TorchFXImporter(BaseFXGraphImporter):
 
             lhs, rhs = self.retrieve_args(node)
 
-            if (isinstance(lhs, tvm.ir.Var) and isinstance(lhs.ty, relax.TensorType)) or (
-                isinstance(rhs, tvm.ir.Var) and isinstance(rhs.ty, relax.TensorType)
+            if (isinstance(lhs, tvm_tirx.ir.Var) and isinstance(lhs.ty, relax.TensorType)) or (
+                isinstance(rhs, tvm_tirx.ir.Var) and isinstance(rhs.ty, relax.TensorType)
             ):
                 output = call_binary_op(relax_op, lhs, rhs)
                 self.env[node.args[0]] = output
                 return output
 
-            elif isinstance(lhs, tvm.ir.GenericConst):
+            elif isinstance(lhs, tvm_tirx.ir.GenericConst):
                 output = call_binary_op(relax_op, lhs, relax.const(rhs, dtype=lhs.ty.dtype))
                 self.env[node.args[0]] = output
                 return output
 
-            elif isinstance(rhs, tvm.ir.GenericConst):
+            elif isinstance(rhs, tvm_tirx.ir.GenericConst):
                 output = call_binary_op(relax_op, relax.const(lhs, dtype=rhs.ty.dtype), rhs)
                 self.env[node.args[0]] = output
                 return output
@@ -1018,6 +1018,7 @@ class TorchFXImporter(BaseFXGraphImporter):
             "squeeze": self._squeeze,
             "stack": self._stack,
             "take": self._take,
+            "t": self._t,
             "tile": self._tile,
             "topk": self._topk,
             "transpose": self._transpose,
@@ -1073,7 +1074,7 @@ class TorchFXImporter(BaseFXGraphImporter):
         unwrap_unit_return_tuple: bool,
         no_bind_return_tuple: bool,
         custom_convert_map: dict | None = None,
-    ) -> tvm.IRModule:
+    ) -> tvm_tirx.IRModule:
         """Convert a PyTorch FX GraphModule to a Relax program."""
         from torch import fx
 
@@ -1100,7 +1101,7 @@ class TorchFXImporter(BaseFXGraphImporter):
                 dtype = self._convert_data_type(str(param.data.dtype))
                 inputs.append(relax.Var(name, relax.TensorType(shape, dtype)))
                 self.params[param] = inputs[-1]
-                params.append(tvm.runtime.tensor(param.data.cpu().numpy()))
+                params.append(tvm_tirx.runtime.tensor(param.data.cpu().numpy()))
         else:
             func_attrs = None
 
@@ -1108,7 +1109,7 @@ class TorchFXImporter(BaseFXGraphImporter):
         self._check_unsupported_func_type(graph.nodes)
 
         sym_vars = {
-            v.name: v for shape, _ in input_info for v in shape if isinstance(v, tvm.ir.Var)
+            v.name: v for shape, _ in input_info for v in shape if isinstance(v, tvm_tirx.ir.Var)
         }
 
         with self.block_builder.function(name=func_name, params=inputs.copy(), attrs=func_attrs):
@@ -1190,7 +1191,7 @@ def from_fx(
     no_bind_return_tuple: bool = False,
     custom_convert_map: dict | None = None,
     default_image_layout: str = "NCHW",
-) -> tvm.IRModule:
+) -> tvm_tirx.IRModule:
     """Convert a PyTorch FX GraphModule to a Relax program
 
     Parameters
@@ -1221,7 +1222,7 @@ def from_fx(
 
     Returns
     -------
-    output : tvm.IRModule
+    output : tvm_tirx.IRModule
         The import result IRModule, with the function "main" containing the
         translated logic.
         If `keep_params_as_input` is true, the "main" function have an attribute
@@ -1269,7 +1270,7 @@ def from_fx(
             raise RuntimeError("Failed to export the PyTorch model to FX.")
 
         # Use the importer to import the PyTorch model to Relax.
-        mod: tvm.IRModule = from_fx(graph_module, input_info)
+        mod: tvm_tirx.IRModule = from_fx(graph_module, input_info)
 
         # Print out the imported model.
         print(mod.script())

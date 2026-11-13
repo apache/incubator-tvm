@@ -22,7 +22,7 @@ import operator
 from collections.abc import Mapping, Sequence
 from functools import reduce
 
-import tvm
+import tvm_tirx
 from tvm.contrib.cutlass.build import is_shape_valid_for_cutlass_matmul
 from tvm.relax import (
     Call,
@@ -83,7 +83,7 @@ def _has_dependency(from_var: Var, to_var: Var, var_usages: Mapping[Var, Sequenc
 
 
 def _is_same_shape(shape1, shape2):
-    analyzer = tvm.sym.Analyzer()
+    analyzer = tvm_tirx.sym.Analyzer()
     return all([analyzer.can_prove_equal(s1, s2) for s1, s2 in zip(shape1, shape2)])
 
 
@@ -136,7 +136,7 @@ def _check_conv2d(context: PatternCheckContext) -> bool:
 
     # Check if any dimensions are symbolic.
     for dim in data.ty.shape.values:
-        if isinstance(dim, tvm.ir.Var):
+        if isinstance(dim, tvm_tirx.ir.Var):
             return False
 
     # pylint: disable=invalid-name
@@ -536,7 +536,7 @@ class WorkspaceAnnotator(PyExprMutator):
     def visit_function_(self, f):
         if "Composite" not in f.attrs:
             body = super().visit_expr(f.body)
-            new_f = Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.span)
+            new_f = Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.loc)
 
             if "global_symbol" in f.attrs and "cutlass" in f.attrs["global_symbol"]:
                 composite_func = body.blocks[0].bindings[0].value
@@ -551,7 +551,7 @@ class WorkspaceAnnotator(PyExprMutator):
             out_size_1d = _shape_1d(f.ret_ty.shape)
             # This needs to be in sync with the actual value that the kernel expects.
             workspace_size_bytes = out_size_1d * {"float16": 2, "float32": 4}[out_dtype]
-            if not isinstance(workspace_size_bytes, int | tvm.tirx.expr.IntImm):
+            if not isinstance(workspace_size_bytes, int | tvm_tirx.ir.IntImm):
                 # Tempororay workaround for dynamic shape workload. Will be removed when
                 # workspace for dynamic shape workload is implemented.
                 workspace_size_bytes = 8
@@ -560,7 +560,7 @@ class WorkspaceAnnotator(PyExprMutator):
         return f
 
 
-@tvm.transform.module_pass(opt_level=0)
+@tvm_tirx.ir.transform.module_pass(opt_level=0)
 def annotate_workspace(mod, _):
     """Pass to annotate a workspace requirement for each CUTLASS-offloaded function."""
     annotator = WorkspaceAnnotator(mod)
@@ -577,7 +577,7 @@ def partition_for_cutlass(mod, annotate_codegen=True, use_flash_mqa=True):
 
     Parameters
     ----------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The IRModule to be partitioned.
 
     annotate_codegen: bool
@@ -591,7 +591,7 @@ def partition_for_cutlass(mod, annotate_codegen=True, use_flash_mqa=True):
 
     Returns
     -------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The resulting IRModule, containing partitioned subgraphs to be
         compiled by the CUTLASS backend.
     """
@@ -609,7 +609,7 @@ def partition_for_cutlass(mod, annotate_codegen=True, use_flash_mqa=True):
         mod[func_name] = func
 
     patterns = get_patterns_with_prefix("cutlass")
-    return tvm.transform.Sequential(
+    return tvm_tirx.ir.transform.Sequential(
         [
             transform.FuseOpsByPattern(
                 patterns, bind_constants=False, annotate_codegen=annotate_codegen

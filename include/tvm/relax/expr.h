@@ -19,17 +19,20 @@
 #ifndef TVM_RELAX_EXPR_H_
 #define TVM_RELAX_EXPR_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/container/map.h>
+#include <tvm/ffi/extra/structural_equal.h>
+#include <tvm/ffi/extra/structural_hash.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/cow.h>
 #include <tvm/ir/expr.h>
 #include <tvm/ir/function.h>
+#include <tvm/ir/location.h>
 #include <tvm/ir/prim/expr.h>
-#include <tvm/ir/source_map.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/relax/type.h>
 #include <tvm/runtime/tensor.h>
-#include <tvm/tirx/op.h>
 
 #include <functional>
 
@@ -39,75 +42,82 @@ namespace relax {
 // Compatibility aliases. Tuple expressions are defined in the common IR.
 using ::tvm::Tuple;
 using ::tvm::TupleGetItem;
-using ::tvm::TupleGetItemNode;
-using ::tvm::TupleNode;
+using ::tvm::TupleGetItemObj;
+using ::tvm::TupleObj;
 
 /*! \brief A shape expression which allows users to construct a shape containing PrimExpr.
  */
-class ShapeExprNode : public ExprNode {
+class ShapeExprObj : public ExprObj {
  public:
   /*! The values of the shape expression. */
   ffi::Array<PrimExpr> values;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ShapeExprNode>().def_ro("values", &ShapeExprNode::values);
+    refl::ObjectDef<ShapeExprObj>().def_ro("values", &ShapeExprObj::values);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.ShapeExpr", ShapeExprNode, ExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.ShapeExpr", ShapeExprObj, ExprObj);
 };
 
 class ShapeExpr : public Expr {
  public:
-  TVM_DLL explicit ShapeExpr(ffi::Array<PrimExpr> values, Span span = Span());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(ShapeExpr, Expr, ShapeExprNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ShapeExprNode);
+  TVM_DLL explicit ShapeExpr(ffi::Array<PrimExpr> values, Location loc = UnknownLoc());
+  explicit ShapeExpr(ffi::ObjectPtr<ShapeExprObj> node) : Expr(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ShapeExpr, Expr, ShapeExprObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ShapeExprObj);
 };
 
 /*! \brief A sub-type of the variable node used to mark dataflow variables from
  * normal visible "function local" bindings.
  */
-class DataflowVarNode : public VarNode {
+class DataflowVarObj : public VarObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DataflowVarNode>();
+    refl::ObjectDef<DataflowVarObj>();
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindFreeVar;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.DataflowVar", DataflowVarNode, VarNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.DataflowVar", DataflowVarObj, VarObj);
 };
 
 class DataflowVar : public Var {
  public:
   TVM_DLL explicit DataflowVar(ffi::String name, ffi::Optional<Type> ty_annotation,
-                               Span span = Span());
+                               Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(DataflowVar, Var, DataflowVarNode);
+  explicit DataflowVar(ffi::ObjectPtr<DataflowVarObj> node) : Var(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataflowVar, Var, DataflowVarObj);
 };
 
 /*! \brief Construct a tensor constant, inferring shape and dtype when type is omitted. */
-TVM_DLL GenericConst MakeTensorConst(runtime::Tensor data,
+TVM_DLL GenericConst MakeTensorConst(ffi::Tensor data,
                                      ffi::Optional<Type> ty_annotation = std::nullopt,
-                                     Span span = Span());
+                                     Location loc = UnknownLoc());
 
 /*! \brief The base class of a variable binding in Relax. */
-class BindingNode : public ffi::Object {
+class BindingObj : public ffi::Object {
  public:
-  mutable Span span;
+  explicit BindingObj(Var var) : var(std::move(var)) {}
+  explicit BindingObj(ffi::UnsafeInit) : var(ffi::UnsafeInit{}) {}
+
+  mutable Location loc = UnknownLoc();
   /*! \brief The return variable to bound to. */
   Var var;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BindingNode>()
-        .def_ro("span", &BindingNode::span, refl::AttachFieldFlag::SEqHashIgnore())
+    refl::ObjectDef<BindingObj>()
+        .def_ro("loc", &BindingObj::loc, refl::AttachFieldFlag::SEqHashIgnore())
         // TODO(tqchen): use SEqHashDefSimple after the next pypi tvm-ffi release
-        .def_ro("var", &BindingNode::var, refl::AttachFieldFlag::SEqHashDefPattern());
+        .def_ro("var", &BindingObj::var, refl::AttachFieldFlag::SEqHashDefPattern());
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
 
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.expr.Binding", BindingNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.expr.Binding", BindingObj, ffi::Object);
 };
 
 class Binding : public ffi::ObjectRef {
@@ -115,15 +125,15 @@ class Binding : public ffi::ObjectRef {
   Binding() = default;
 
  public:
-  explicit Binding(ffi::ObjectPtr<BindingNode> n) : ffi::ObjectRef(n) {}
   explicit Binding(ffi::UnsafeInit tag) : ffi::ObjectRef(tag) {}
   Binding(const Binding&) = default;
   Binding(Binding&&) = default;
   Binding& operator=(const Binding&) = default;
   Binding& operator=(Binding&&) = default;
-  const BindingNode* operator->() const { return static_cast<const BindingNode*>(data_.get()); }
-  const BindingNode* get() const { return operator->(); }
-  using ContainerType = BindingNode;
+  const BindingObj* operator->() const { return static_cast<const BindingObj*>(data_.get()); }
+  const BindingObj* get() const { return operator->(); }
+  static constexpr bool _type_is_nullable = false;
+  using ContainerType = BindingObj;
 };
 
 /*!
@@ -133,8 +143,13 @@ class Binding : public ffi::ObjectRef {
  * and vars in ty in first occurance, and insert equality assertions in
  * other cases.
  */
-class MatchCastNode : public BindingNode {
+class MatchCastObj : public BindingObj {
  public:
+  explicit MatchCastObj(Var var, Expr value)
+      : BindingObj(std::move(var)), value(std::move(value)) {}
+  explicit MatchCastObj(ffi::UnsafeInit)
+      : BindingObj(ffi::UnsafeInit{}), value(ffi::UnsafeInit{}) {}
+
   /*! \brief The input value to match cast. */
   Expr value;
   /*! \brief The type pattern to match to. */
@@ -142,115 +157,130 @@ class MatchCastNode : public BindingNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MatchCastNode>()
-        .def_ro("value", &MatchCastNode::value)
+    refl::ObjectDef<MatchCastObj>()
+        .def_ro("value", &MatchCastObj::value)
         // TODO(tqchen): use SEqHashDefSimple after the next pypi tvm-ffi release
-        .def_ro("ty", &MatchCastNode::ty, refl::AttachFieldFlag::SEqHashDefPattern());
+        .def_ro("ty", &MatchCastObj::ty, refl::AttachFieldFlag::SEqHashDefPattern());
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.MatchCast", MatchCastNode, BindingNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.MatchCast", MatchCastObj, BindingObj);
 };
 
 /*!
- * \brief Managed reference to MatchCastNode.
- * \sa MatchCastNode
+ * \brief Managed reference to MatchCastObj.
+ * \sa MatchCastObj
  */
 class MatchCast : public Binding {
  public:
-  TVM_DLL explicit MatchCast(Var var, Expr value, Type ty, Span span = Span());
+  TVM_DLL explicit MatchCast(Var var, Expr value, Type ty, Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(MatchCast, Binding, MatchCastNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchCastNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(MatchCast, Binding, MatchCastObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(MatchCastObj);
 };
 
-class VarBindingNode : public BindingNode {
+class VarBindingObj : public BindingObj {
  public:
+  explicit VarBindingObj(Var var, Expr value)
+      : BindingObj(std::move(var)), value(std::move(value)) {}
+  explicit VarBindingObj(ffi::UnsafeInit)
+      : BindingObj(ffi::UnsafeInit{}), value(ffi::UnsafeInit{}) {}
+
   /*! \brief The binding value. */
   Expr value;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<VarBindingNode>().def_ro("value", &VarBindingNode::value);
+    refl::ObjectDef<VarBindingObj>().def_ro("value", &VarBindingObj::value);
     // customize the SEqual and SHash methods for better error messages
-    refl::TypeAttrDef<VarBindingNode>()
-        .def("__s_equal__", &VarBindingNode::SEqual)
-        .def("__s_hash__", &VarBindingNode::SHash);
+    refl::TypeAttrDef<VarBindingObj>()
+        .def(tvm::ffi::type_attr::kSEqual.name, &VarBindingObj::SEqual)
+        .def(tvm::ffi::type_attr::kSHash.name, &VarBindingObj::SHash);
   }
 
-  bool SEqual(const VarBindingNode* other,
+  bool SEqual(const VarBindingObj* other,
               ffi::TypedFunction<bool(AnyView, AnyView, bool, AnyView)> equal) const;
   int64_t SHash(int64_t init_hash, ffi::TypedFunction<int64_t(AnyView, int64_t, bool)> hash) const;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.VarBinding", VarBindingNode, BindingNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.VarBinding", VarBindingObj, BindingObj);
 };
 
 class VarBinding : public Binding {
  public:
-  TVM_DLL explicit VarBinding(Var var, Expr value, Span span = Span());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(VarBinding, Binding, VarBindingNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(VarBindingNode);
+  TVM_DLL explicit VarBinding(Var var, Expr value, Location loc = UnknownLoc());
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VarBinding, Binding, VarBindingObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(VarBindingObj);
 };
 
-class BindingBlockNode : public ffi::Object {
+class BindingBlockObj : public ffi::Object {
  public:
   ffi::Array<Binding> bindings;
-  mutable Span span;
+  mutable Location loc = UnknownLoc();
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BindingBlockNode>()
-        .def_ro("bindings", &BindingBlockNode::bindings)
-        .def_ro("span", &BindingBlockNode::span, refl::AttachFieldFlag::SEqHashIgnore(),
-                refl::DefaultValue(Span()));
+    refl::ObjectDef<BindingBlockObj>()
+        .def_ro("bindings", &BindingBlockObj::bindings)
+        .def_ro("loc", &BindingBlockObj::loc, refl::AttachFieldFlag::SEqHashIgnore(),
+                refl::DefaultValue(UnknownLoc()));
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.expr.BindingBlock", BindingBlockNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.expr.BindingBlock", BindingBlockObj, ffi::Object);
 };
 
 class BindingBlock : public ffi::ObjectRef {
  public:
-  TVM_DLL explicit BindingBlock(ffi::Array<Binding> bindings, Span span = Span());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(BindingBlock, ffi::ObjectRef, BindingBlockNode);
+  TVM_DLL explicit BindingBlock(ffi::Array<Binding> bindings, Location loc = UnknownLoc());
+  explicit BindingBlock(ffi::UnsafeInit tag, ffi::ObjectPtr<BindingBlockObj> n)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(n);
+  }
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BindingBlock, ffi::ObjectRef, BindingBlockObj);
 
-  BindingBlockNode* CopyOnWrite();
+  BindingBlockObj* CopyOnWrite();
 };
 
-class DataflowBlockNode : public BindingBlockNode {
+class DataflowBlockObj : public BindingBlockObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DataflowBlockNode>();
+    refl::ObjectDef<DataflowBlockObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.DataflowBlock", DataflowBlockNode,
-                                    BindingBlockNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.DataflowBlock", DataflowBlockObj, BindingBlockObj);
 };
 
 class DataflowBlock : public BindingBlock {
  public:
-  TVM_DLL explicit DataflowBlock(ffi::Array<Binding> bindings, Span span = Span());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(DataflowBlock, BindingBlock, DataflowBlockNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(DataflowBlockNode);
+  TVM_DLL explicit DataflowBlock(ffi::Array<Binding> bindings, Location loc = UnknownLoc());
+  explicit DataflowBlock(ffi::UnsafeInit tag, ffi::ObjectPtr<DataflowBlockObj> n)
+      : BindingBlock(tag) {
+    data_ = std::move(n);
+  }
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataflowBlock, BindingBlock, DataflowBlockObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(DataflowBlockObj);
 };
 
 /*! \brief A sequence of blocks followed by an expression.
  *
  * The order of blocks enforces scoping and ordering.
  */
-class SeqExprNode : public ExprNode {
+class SeqExprObj : public ExprObj {
  public:
+  explicit SeqExprObj(Expr body) : body(std::move(body)) {}
+  explicit SeqExprObj(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
+
   ffi::Array<BindingBlock> blocks;
   Expr body;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SeqExprNode>()
-        .def_ro("blocks", &SeqExprNode::blocks)
-        .def_ro("body", &SeqExprNode::body);
-    refl::TypeAttrDef<SeqExprNode>()
-        .def("__s_equal__", &SeqExprNode::SEqual)
-        .def("__s_hash__", &SeqExprNode::SHash);
+    refl::ObjectDef<SeqExprObj>()
+        .def_ro("blocks", &SeqExprObj::blocks)
+        .def_ro("body", &SeqExprObj::body);
+    refl::TypeAttrDef<SeqExprObj>()
+        .def(tvm::ffi::type_attr::kSEqual.name, &SeqExprObj::SEqual)
+        .def(tvm::ffi::type_attr::kSHash.name, &SeqExprObj::SHash);
   }
 
-  bool SEqual(const SeqExprNode* other,
+  bool SEqual(const SeqExprObj* other,
               ffi::TypedFunction<bool(AnyView, AnyView, bool, AnyView)> equal) const {
     // Establish mappings for symbolic variables defined by bindings before
     // comparing their uses in the SeqExpr result type and body.
@@ -265,7 +295,7 @@ class SeqExprNode : public ExprNode {
     hash_value = hash(body, hash_value, false);
     return hash_value;
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.SeqExpr", SeqExprNode, ExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.SeqExpr", SeqExprObj, ExprObj);
 };
 
 class SeqExpr : public Expr {
@@ -279,13 +309,15 @@ class SeqExpr : public Expr {
    * a transform may use `func.CopyOnWrite()->body = expr;`.
    *
    * If the expression is already a `relax::SeqExpr`, the same
-   * underlying `relax::SeqExprNode` is used, and no copies are made.
+   * underlying `relax::SeqExprObj` is used, and no copies are made.
    */
   TVM_DLL SeqExpr(Expr body);  // NOLINT(*)
 
-  TVM_DLL explicit SeqExpr(ffi::Array<BindingBlock> blocks, Expr body, Span span = Span());
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(SeqExpr, Expr, SeqExprNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(SeqExprNode);
+  TVM_DLL explicit SeqExpr(ffi::Array<BindingBlock> blocks, Expr body, Location loc = UnknownLoc());
+  explicit SeqExpr(ffi::ObjectPtr<SeqExprObj> node) : Expr(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SeqExpr, Expr, SeqExprObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(SeqExprObj);
 };
 
 /*!
@@ -299,8 +331,15 @@ class SeqExpr : public Expr {
  *
  * \note This is similar to C's ternary operator.
  */
-class IfNode : public ExprNode {
+class IfExprObj : public ExprObj {
  public:
+  explicit IfExprObj(Expr cond, SeqExpr true_branch, SeqExpr false_branch)
+      : cond(std::move(cond)),
+        true_branch(std::move(true_branch)),
+        false_branch(std::move(false_branch)) {}
+  explicit IfExprObj(ffi::UnsafeInit)
+      : cond(ffi::UnsafeInit{}), true_branch(ffi::UnsafeInit{}), false_branch(ffi::UnsafeInit{}) {}
+
   /*! \brief The condition. */
   Expr cond;
   /*! \brief The expression evaluated when condition is true. */
@@ -310,17 +349,17 @@ class IfNode : public ExprNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<IfNode>()
-        .def_ro("cond", &IfNode::cond)
-        .def_ro("true_branch", &IfNode::true_branch)
-        .def_ro("false_branch", &IfNode::false_branch);
+    refl::ObjectDef<IfExprObj>()
+        .def_ro("cond", &IfExprObj::cond)
+        .def_ro("true_branch", &IfExprObj::true_branch)
+        .def_ro("false_branch", &IfExprObj::false_branch);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindDAGNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.If", IfNode, ExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.IfExpr", IfExprObj, ExprObj);
 };
 
-class If : public Expr {
+class IfExpr : public Expr {
  public:
   /*!
    * \brief The constructor
@@ -337,17 +376,22 @@ class If : public Expr {
    *     SeqExpr, to satisfy the Relax IR requirement that all scopes
    *     be contained in a SeqExpr.
    *
-   * \param span The source span of the expression.
+   * \param loc The source location of the expression.
    */
-  TVM_DLL If(Expr cond, Expr true_branch, Expr false_branch, Span span = Span());
+  TVM_DLL IfExpr(Expr cond, Expr true_branch, Expr false_branch, Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(If, Expr, IfNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(IfNode);
+  explicit IfExpr(ffi::ObjectPtr<IfExprObj> node) : Expr(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(IfExpr, Expr, IfExprObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(IfExprObj);
 };
 
 /*! \brief A Relax function. */
-class FunctionNode : public BaseFuncNode {
+class FunctionObj : public BaseFuncObj {
  public:
+  explicit FunctionObj(SeqExpr body) : body(std::move(body)) {}
+  explicit FunctionObj(ffi::UnsafeInit) : body(ffi::UnsafeInit{}) {}
+
   /*! \brief The parameters to the function. */
   ffi::Array<Var> params;
   /*! \brief The body of the function. */
@@ -359,15 +403,15 @@ class FunctionNode : public BaseFuncNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FunctionNode>()
-        .def_ro("params", &FunctionNode::params, refl::AttachFieldFlag::SEqHashDefPattern())
-        .def_ro("body", &FunctionNode::body)
-        .def_ro("ret_ty", &FunctionNode::ret_ty)
-        .def_ro("is_pure", &FunctionNode::is_pure);
+    refl::ObjectDef<FunctionObj>()
+        .def_ro("params", &FunctionObj::params, refl::AttachFieldFlag::SEqHashDefPattern())
+        .def_ro("body", &FunctionObj::body)
+        .def_ro("ret_ty", &FunctionObj::ret_ty)
+        .def_ro("is_pure", &FunctionObj::is_pure);
   }
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindDAGNode;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.Function", FunctionNode, BaseFuncNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.Function", FunctionObj, BaseFuncObj);
 };
 
 class Function : public BaseFunc {
@@ -391,73 +435,47 @@ class Function : public BaseFunc {
    * \param attrs Any attributes associated with the function.
    *     Defaults to an empty dictionary.
    *
-   * \param span The source span of the expression.
+   * \param loc The source location of the expression.
    */
   TVM_DLL explicit Function(ffi::Array<Var> params, Expr body, ffi::Optional<Type> ret_ty,
-                            bool is_pure = true, DictAttrs attrs = DictAttrs(), Span span = Span());
+                            bool is_pure = true, DictAttrs attrs = DictAttrs(),
+                            Location loc = UnknownLoc());
 
   /*!
    * \brief Mimics the constructor but without body Expr.
    * \note ret_ty is required, since it can not deduced by the body.
    */
   TVM_DLL static Function CreateEmpty(ffi::Array<Var> params, Type ret_ty, bool is_pure = true,
-                                      DictAttrs attrs = DictAttrs(), Span span = Span());
+                                      DictAttrs attrs = DictAttrs(), Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(Function, BaseFunc, FunctionNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(FunctionNode);
+  explicit Function(ffi::ObjectPtr<FunctionObj> node) : BaseFunc(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Function, BaseFunc, FunctionObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(FunctionObj);
 };
 
-// TODO(@sunggg): Investigate the exact usage of kComposite, kPartitionedFromPattern, and
-// kPrimitive.
-namespace attr {
-/*! \brief Mark the function as a primitive function. */
-constexpr const char* kPrimitive = "Primitive";
-/*!
- * \brief Indicate the codegen that should be used for building this function.
- * When this is unset or set to "default", the default compilation pipeline will be used.
- */
-constexpr const char* kCodegen = "Codegen";
-/*! \brief Treat the function as a composite operator. */
-constexpr const char* kComposite = "Composite";
-/*! \brief Indicate the function was created by the Pattern Partitioning Pass. */
-constexpr const char* kPartitionedFromPattern = "PartitionedFromPattern";
-/*! \brief The required workspace for an external function. */
-constexpr const char* kWorkspaceSize = "WorkspaceSize";
-
-// Note: in the future, we prefer snake_case instead of CamelCase for attributes.
-// Past ones will be kept for backwards compatibility.
-/*! \brief Override checking purity for this function and treat as pure
- * (is_pure must be set to true) */
-constexpr const char* kForcePure = "relax.force_pure";
-
-/*!
- * \brief The number of inputs of a function.
- * If a function has the num_input attribute, the last func->params.size() - num_inputs
- * arguments are assumed to be weights that are fixed across invocations.
- */
-constexpr const char* kNumInput = "num_input";
-}  // namespace attr
-
 /*! \brief The extern function, which can represent packed function. */
-class ExternFuncNode : public BaseFuncNode {
+class ExternFuncObj : public BaseFuncObj {
  public:
   /*! \brief The name of global symbol. */
   ffi::String global_symbol;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExternFuncNode>().def_ro("global_symbol", &ExternFuncNode::global_symbol);
+    refl::ObjectDef<ExternFuncObj>().def_ro("global_symbol", &ExternFuncObj::global_symbol);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.ExternFunc", ExternFuncNode, BaseFuncNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.expr.ExternFunc", ExternFuncObj, BaseFuncObj);
 };
 
 class ExternFunc : public BaseFunc {
  public:
-  TVM_DLL ExternFunc(ffi::String global_symbol, Span span = Span());
-  TVM_DLL ExternFunc(ffi::String global_symbol, Type ty, Span span = Span());
+  TVM_DLL ExternFunc(ffi::String global_symbol, Location loc = UnknownLoc());
+  TVM_DLL ExternFunc(ffi::String global_symbol, Type ty, Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(ExternFunc, BaseFunc, ExternFuncNode);
-  TVM_DEFINE_OBJECT_REF_COW_METHOD(ExternFuncNode);
+  explicit ExternFunc(ffi::ObjectPtr<ExternFuncObj> node) : BaseFunc(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExternFunc, BaseFunc, ExternFuncObj);
+  TVM_DEFINE_OBJECT_REF_COW_METHOD(ExternFuncObj);
 };
 
 /*!
@@ -472,6 +490,76 @@ class ExternFunc : public BaseFunc {
  *       Call(relax.op.shape_of, [expr]).
  */
 TVM_DLL Expr GetShapeOf(const Expr& expr);
+
+// TODO(@sunggg): Investigate the exact usage of kComposite, kPartitionedFromPattern, and
+// kPrimitive.
+namespace attr {
+/*!
+ * \brief All the named Tensors accumulated during compilation by external codegen.
+ * Generally the associated runtime::Module will indicate it requires bindings for these names,
+ * and during module initialization these bindings will be recovered from a ConstLoaderModule.
+ *
+ * Type: ffi::Map<ffi::String, Tensor>
+ */
+inline constexpr ffi::reflection::AttrKey<ffi::Map<ffi::String, ffi::Tensor>> kConstNameToConstant{
+    "const_name_to_constant"};
+
+/*! \brief Mark the function as a primitive function. */
+inline constexpr ffi::reflection::AttrKey<bool> kPrimitive{"Primitive"};
+/*!
+ * \brief Indicate the codegen that should be used for building this function.
+ * When this is unset or set to "default", the default compilation pipeline will be used.
+ */
+inline constexpr ffi::reflection::AttrKey<ffi::String> kCodegen{"Codegen"};
+/*! \brief Treat the function as a composite operator. */
+inline constexpr ffi::reflection::AttrKey<ffi::String> kComposite{"Composite"};
+/*! \brief Indicate the function was created by the Pattern Partitioning Pass. */
+inline constexpr ffi::reflection::AttrKey<ffi::String> kPartitionedFromPattern{
+    "PartitionedFromPattern"};
+/*! \brief The required workspace for an external function. */
+inline constexpr ffi::reflection::AttrKey<int64_t> kWorkspaceSize{"WorkspaceSize"};
+
+// Note: in the future, we prefer snake_case instead of CamelCase for attributes.
+// Past ones will be kept for backwards compatibility.
+/*! \brief Override checking purity for this function and treat as pure
+ * (is_pure must be set to true) */
+inline constexpr ffi::reflection::AttrKey<bool> kForcePure{"relax.force_pure"};
+
+/*!
+ * \brief The number of inputs of a function.
+ * If a function has the num_input attribute, the last func->params.size() - num_inputs
+ * arguments are assumed to be weights that are fixed across invocations.
+ */
+inline constexpr ffi::reflection::AttrKey<int64_t> kNumInput{"num_input"};
+inline constexpr ffi::reflection::AttrKey<int64_t> kOpPattern{"op_pattern"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::ObjectRef> kOpAttrs{"op_attrs"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::String> kOperatorName{"operator_name"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::String> kLibraryKernel{"library_kernel"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::String> kCSource{"c_source"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::String> kCSourceFmt{"c_source_fmt"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::Map<ffi::String, IntImm>> kTirVarUpperBound{
+    "tir_var_upper_bound"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::Map<ffi::String, IntImm>> kTirVarLowerBound{
+    "tir_var_lower_bound"};
+
+inline constexpr ffi::reflection::AttrKey<ffi::Array<ffi::String>> kTirNonNegativeVar{
+    "tir_non_negative_var"};
+
+constexpr const char* kMemoryPlanDynamicFuncOutput = "relax.memory_plan_dynamic_func_output";
+
+inline constexpr ffi::reflection::AttrKey<ffi::Array<ffi::String>> kCaptureSymbolicVars{
+    "relax.rewrite_cuda_graph.capture_symbolic_vars"};
+
+inline constexpr ffi::reflection::AttrKey<int64_t> kScoped{"scoped"};
+
+}  // namespace attr
 
 }  // namespace relax
 }  // namespace tvm

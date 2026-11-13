@@ -15,17 +15,28 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if(USE_CLML)
-    file(GLOB CLML_RELAX_CONTRIB_SRC src/relax/backend/contrib/clml/*.cc)
-    file(GLOB CLML_RUNTIME_MODULE src/runtime/extra/contrib/clml/clml_runtime.cc)
-    include_directories(SYSTEM "3rdparty/OpenCL-Headers")
-    list(APPEND COMPILER_SRCS ${CLML_RELAX_CONTRIB_SRC})
-    if(NOT USE_CLML_GRAPH_EXECUTOR)
-        list(APPEND COMPILER_SRCS ${CLML_RUNTIME_MODULE})
+if(TVM_USE_CLML)
+    file(GLOB CLML_RELAX_CONTRIB_SRC CONFIGURE_DEPENDS src/relax/backend/contrib/clml/*.cc)
+    file(GLOB CLML_RUNTIME_MODULE CONFIGURE_DEPENDS src/runtime/extra/contrib/clml/clml_runtime.cc)
+    if(TARGET tvm_runtime_opencl)
+        get_target_property(_clml_opencl_headers tvm_runtime_opencl INTERFACE_INCLUDE_DIRECTORIES)
     endif()
-    message(STATUS "Build with CLML support : " ${USE_CLML})
-    if(NOT USE_CLML STREQUAL "ON")
-        set(CLML_VERSION_HEADER "${USE_CLML}/CL/cl_qcom_ml_ops.h")
+    if(NOT _clml_opencl_headers)
+        find_path(_clml_opencl_headers CL/cl.h
+            HINTS "${TVM_OPENCL_HEADERS_ROOT}" ENV OPENCL_SDK
+            PATH_SUFFIXES include REQUIRED)
+    endif()
+    list(APPEND COMPILER_SRCS ${CLML_RELAX_CONTRIB_SRC})
+    if(NOT TVM_USE_CLML_GRAPH_EXECUTOR)
+        add_library(tvm_clml_objs OBJECT ${CLML_RUNTIME_MODULE})
+        tvm_configure_target(tvm_clml_objs)
+        target_include_directories(tvm_clml_objs SYSTEM PRIVATE ${_clml_opencl_headers})
+        target_link_libraries(tvm_clml_objs PRIVATE tvm_runtime_extra_defs)
+        target_link_libraries(tvm_runtime_extra PRIVATE tvm_clml_objs)
+    endif()
+    message(STATUS "Build with CLML support : " ${TVM_USE_CLML})
+    if(NOT TVM_USE_CLML STREQUAL "ON")
+        set(CLML_VERSION_HEADER "${TVM_USE_CLML}/CL/cl_qcom_ml_ops.h")
         if(EXISTS ${CLML_VERSION_HEADER})
             file(READ ${CLML_VERSION_HEADER} ver)
             string(REGEX MATCH "CL_QCOM_ML_OPS_H_MAJOR_VERSION ([0-9]*)" _ ${ver})
@@ -36,25 +47,24 @@ if(USE_CLML)
     else()
         set(CLML_VERSION_MAJOR "4")
     endif()
-    add_definitions(-DTVM_CLML_VERSION=${CLML_VERSION_MAJOR})
+    target_compile_definitions(tvm_compiler PRIVATE TVM_CLML_VERSION=${CLML_VERSION_MAJOR})
     message(STATUS "CLML SDK Version :" ${CLML_VERSION_MAJOR})
 else()
     set(CLML_VERSION_MAJOR "4")
 endif()
 
-if(USE_CLML_GRAPH_EXECUTOR)
+if(TVM_USE_CLML_GRAPH_EXECUTOR)
     set(CLML_PATH ${CMAKE_CURRENT_SOURCE_DIR}/clml)
     # Detect custom CLML path.
-    if(NOT USE_CLML_GRAPH_EXECUTOR STREQUAL "ON")
-        set(CLML_PATH ${USE_CLML_GRAPH_EXECUTOR})
+    if(NOT TVM_USE_CLML_GRAPH_EXECUTOR STREQUAL "ON")
+        set(CLML_PATH ${TVM_USE_CLML_GRAPH_EXECUTOR})
     endif()
 
-    file(GLOB CLML_CONTRIB_SRC src/runtime/extra/contrib/clml/*)
+    file(GLOB CLML_CONTRIB_SRC CONFIGURE_DEPENDS src/runtime/extra/contrib/clml/*)
 
     # CMake needs to find clml library, include and support directories
     # in the path specified by CLML_PATH.
     set(CLML_INCLUDE_DIRS ${CLML_PATH}/include ${CLML_PATH})
-    include_directories(${CLML_INCLUDE_DIRS})
     find_library(EXTERN_CLML_COMPUTE_LIB
           NAMES OpenCL libOpenCL
           HINTS "${CLML_PATH}" "${CLML_PATH}/lib64" "${CLML_PATH}/lib"
@@ -69,22 +79,16 @@ if(USE_CLML_GRAPH_EXECUTOR)
         endif()
     endif()
     add_library(tvm_clml_objs OBJECT ${CLML_CONTRIB_SRC})
+    tvm_configure_target(tvm_clml_objs)
     target_link_libraries(tvm_clml_objs PRIVATE tvm_runtime_extra_defs)
-    # CLML depends on OpenCL runtime symbols — link the OpenCL DSO instead of
-    # duplicating sources (which would cause duplicate registrations).
     target_link_libraries(tvm_runtime_extra PRIVATE tvm_clml_objs ${EXTERN_CLML_COMPUTE_LIB})
-    if(TARGET tvm_runtime_opencl)
-      target_link_libraries(tvm_runtime_extra PRIVATE tvm_runtime_opencl)
-    endif()
     message(STATUS "Build with CLML graph runtime support: "
             ${EXTERN_CLML_COMPUTE_LIB})
 
-    # Set flag to detect CLML graph runtime support.
-    add_definitions(-DTVM_GRAPH_EXECUTOR_CLML)
+    target_include_directories(tvm_clml_objs PRIVATE ${CLML_INCLUDE_DIRS})
+    target_compile_definitions(tvm_clml_objs PRIVATE TVM_GRAPH_EXECUTOR_CLML)
+    target_compile_definitions(tvm_compiler PRIVATE TVM_GRAPH_EXECUTOR_CLML)
 
     message(STATUS "Enable OpenCL as fallback to CLML")
-    set(USE_OPENCL ${CLML_PATH})
-    if(USE_OPENCL_ENABLE_HOST_PTR)
-        add_definitions(-DOPENCL_ENABLE_HOST_PTR)
-    endif(USE_OPENCL_ENABLE_HOST_PTR)
+    set(TVM_TIRX_USE_OPENCL ${CLML_PATH})
 endif()

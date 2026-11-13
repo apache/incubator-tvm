@@ -22,25 +22,25 @@ import weakref
 
 import pytest
 
-import tvm
-import tvm.testing
-from tvm.ir.utils import derived_object
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.dummy_object import DummyBuilder, DummyRunner
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir.utils import derived_object
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=invalid-name,no-member,line-too-long,too-many-nested-blocks,missing-docstring
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MatmulModule:
-    @Ts.prim_func
+    @Ts.function
     def main(  # type: ignore
-        A: T.Buffer((1024, 1024), "float32"),
-        B: T.Buffer((1024, 1024), "float32"),
-        C: T.Buffer((1024, 1024), "float32"),
+        A: T.Tensor((1024, 1024), "float32"),
+        B: T.Tensor((1024, 1024), "float32"),
+        C: T.Tensor((1024, 1024), "float32"),
     ) -> None:  # pylint: disable=no-self-argument
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
@@ -52,17 +52,17 @@ class MatmulModule:
                 C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MatmulReluModule:
-    @Ts.prim_func
+    @Ts.function
     def main(  # type: ignore
-        A: T.Buffer((1024, 1024), "float32"),
-        B: T.Buffer((1024, 1024), "float32"),
-        D: T.Buffer((1024, 1024), "float32"),
+        A: T.Tensor((1024, 1024), "float32"),
+        B: T.Tensor((1024, 1024), "float32"),
+        D: T.Tensor((1024, 1024), "float32"),
     ) -> None:  # pylint: disable=no-self-argument
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
-        C = Ts.sblock_alloc_buffer((1024, 1024), "float32")
+        C = Ts.sblock_alloc_tensor((1024, 1024), "float32")
         for i, j, k in T.grid(1024, 1024, 1024):
             with Ts.sblock("matmul"):
                 vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -75,13 +75,13 @@ class MatmulReluModule:
                 D[vi, vj] = T.max(C[vi, vj], 0.0)  # type: ignore
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class BatchMatmulModule:
-    @Ts.prim_func
+    @Ts.function
     def main(  # type: ignore
-        A: T.Buffer([16, 128, 128]),
-        B: T.Buffer([16, 128, 128]),
-        C: T.Buffer([16, 128, 128]),
+        A: T.Tensor([16, 128, 128], "float32"),
+        B: T.Tensor([16, 128, 128], "float32"),
+        C: T.Tensor([16, 128, 128], "float32"),
     ) -> None:  # pylint: disable=no-self-argument
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
@@ -161,7 +161,7 @@ def test_meta_schedule_task_scheduler_single():
             ms.TuneContext(
                 MatmulModule,
                 num_threads=1,
-                target=tvm.target.Target("llvm"),
+                target=tvm_tirx.target.Target("llvm"),
                 space_generator=_schedule_matmul,
                 search_strategy=ms.search_strategy.ReplayTrace(),
                 task_name="Test",
@@ -189,7 +189,7 @@ def test_meta_schedule_task_scheduler_multiple():
         ms.TuneContext(
             MatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="Matmul",
@@ -198,7 +198,7 @@ def test_meta_schedule_task_scheduler_multiple():
         ms.TuneContext(
             MatmulReluModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="MatmulRelu",
@@ -207,7 +207,7 @@ def test_meta_schedule_task_scheduler_multiple():
         ms.TuneContext(
             BatchMatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_batch_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="BatchMatmul",
@@ -264,7 +264,7 @@ def test_meta_schedule_task_scheduler_override_next_task_id_only():  # pylint: d
         ms.TuneContext(
             MatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="Matmul",
@@ -273,7 +273,7 @@ def test_meta_schedule_task_scheduler_override_next_task_id_only():  # pylint: d
         ms.TuneContext(
             MatmulReluModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="MatmulRelu",
@@ -282,7 +282,7 @@ def test_meta_schedule_task_scheduler_override_next_task_id_only():  # pylint: d
         ms.TuneContext(
             BatchMatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_batch_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="BatchMatmul",
@@ -322,7 +322,7 @@ def test_meta_schedule_task_scheduler_multiple_gradient_based():
         ms.TuneContext(
             MatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="Matmul",
@@ -331,7 +331,7 @@ def test_meta_schedule_task_scheduler_multiple_gradient_based():
         ms.TuneContext(
             MatmulReluModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="MatmulRelu",
@@ -340,7 +340,7 @@ def test_meta_schedule_task_scheduler_multiple_gradient_based():
         ms.TuneContext(
             BatchMatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_batch_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="BatchMatmul",
@@ -409,7 +409,7 @@ def test_meta_schedule_task_scheduler_gradient_based_with_null_search_strategy()
         ms.TuneContext(
             MatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=NullSearchStrategy(rounds_with_empty_candidates=5),
             task_name="Matmul",
@@ -418,7 +418,7 @@ def test_meta_schedule_task_scheduler_gradient_based_with_null_search_strategy()
         ms.TuneContext(
             BatchMatmulModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_batch_matmul,
             search_strategy=NullSearchStrategy(rounds_with_empty_candidates=0),
             task_name="BatchMatmul",
@@ -427,7 +427,7 @@ def test_meta_schedule_task_scheduler_gradient_based_with_null_search_strategy()
         ms.TuneContext(
             MatmulReluModule,
             num_threads=1,
-            target=tvm.target.Target("llvm"),
+            target=tvm_tirx.target.Target("llvm"),
             space_generator=_schedule_matmul,
             search_strategy=ms.search_strategy.ReplayTrace(),
             task_name="MatmulRelu",

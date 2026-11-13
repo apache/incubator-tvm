@@ -20,6 +20,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_POSTPROC_H_
 #define TVM_S_TIR_META_SCHEDULE_POSTPROC_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
@@ -36,14 +37,14 @@ class Postproc;
 /*!
  * \brief Rules to apply a postprocessor to a schedule.
  */
-class PostprocNode : public ffi::Object {
+class PostprocObj : public ffi::Object {
  public:
   /*! \brief Virtual destructor. */
-  virtual ~PostprocNode() = default;
+  virtual ~PostprocObj() = default;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PostprocNode>();
+    refl::ObjectDef<PostprocObj>();
   }
 
   /*!
@@ -67,15 +68,19 @@ class PostprocNode : public ffi::Object {
   virtual Postproc Clone() const = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Postproc", PostprocNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Postproc", PostprocObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to PostprocNode
- * \sa PostprocNode
+ * \brief Managed reference to PostprocObj
+ * \sa PostprocObj
  */
 class Postproc : public ffi::ObjectRef {
  public:
+  explicit Postproc(ffi::UnsafeInit tag, ffi::ObjectPtr<PostprocObj> data) : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief The function type of `InitializeWithTuneContext` method.
    * \param context The tuning context for initialization.
@@ -166,16 +171,14 @@ class Postproc : public ffi::ObjectRef {
   TVM_DLL static ffi::Array<Postproc, void> DefaultRISCV();
   /*! \brief Create default postprocessors for CUDA */
   TVM_DLL static ffi::Array<Postproc, void> DefaultCUDA();
-  /*! \brief Create default postprocessors for CUDA with TensorCore */
-  TVM_DLL static ffi::Array<Postproc, void> DefaultCUDATensorCore();
   /*! \brief Create default postprocessors for Hexagon */
   TVM_DLL static ffi::Array<Postproc, void> DefaultHexagon();
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(Postproc, ffi::ObjectRef, PostprocNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Postproc, ffi::ObjectRef, PostprocObj);
 };
 
 /*! \brief The postprocessor with customized methods on the python-side. */
-class PyPostprocNode : public PostprocNode {
+class PyPostprocObj : public PostprocObj {
  public:
   using FInitializeWithTuneContext = Postproc::FInitializeWithTuneContext;
   using FApply = Postproc::FApply;
@@ -192,13 +195,13 @@ class PyPostprocNode : public PostprocNode {
     // `f_apply` is not registered
     // `f_clone` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyPostprocNode>();
+    refl::ObjectDef<PyPostprocObj>();
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final;
   bool Apply(const s_tir::Schedule& sch) final;
   Postproc Clone() const final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyPostproc", PyPostprocNode, PostprocNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyPostproc", PyPostprocObj, PostprocObj);
 };
 
 }  // namespace meta_schedule

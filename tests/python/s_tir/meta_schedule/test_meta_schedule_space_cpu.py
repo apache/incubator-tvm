@@ -18,15 +18,15 @@
 """Tests for MetaSchedule search space on CPU"""
 
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
     print_sketches,
 )
 from tvm.s_tir.meta_schedule.testing.te_workload import create_te_workload
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _target():
@@ -44,15 +44,15 @@ def _design_space(mod):
 
 def test_cpu_c1d():
     # fmt: off
-    @Ts.prim_func
-    def c1d_0(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")):
+    @Ts.function
+    def c1d_0(inputs: T.Tensor((1, 256, 64), "float32"), weight: T.Tensor((3, 64, 128), "float32"), conv1d_nlc: T.Tensor((1, 128, 128), "float32")):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel":288, "meta_schedule.unroll_explicit":512, "meta_schedule.vectorize":64})
-            PadInput = Ts.sblock_alloc_buffer((1, 258, 64), dtype="float32")
-            conv1d_nlc_global = Ts.sblock_alloc_buffer((1, 128, 128), dtype="float32")
+            PadInput = Ts.sblock_alloc_tensor((1, 258, 64), dtype="float32")
+            conv1d_nlc_global = Ts.sblock_alloc_tensor((1, 128, 128), dtype="float32")
             for i0, i1, i2 in T.grid(1, 258, 64):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2 = Ts.axis.remap("SSS", [i0, i1, i2])
@@ -80,15 +80,15 @@ def test_cpu_c1d():
                         Ts.reads(conv1d_nlc_global[v0, v1, v2])
                         Ts.writes(conv1d_nlc[v0, v1, v2])
                         conv1d_nlc[v0, v1, v2] = conv1d_nlc_global[v0, v1, v2]
-    @Ts.prim_func
-    def c1d_1(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def c1d_1(inputs: T.Tensor((1, 256, 64), "float32"), weight: T.Tensor((3, 64, 128), "float32"), conv1d_nlc: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 258, 64))
-            conv1d_nlc_global = Ts.sblock_alloc_buffer((1, 128, 128))
+            PadInput = Ts.sblock_alloc_tensor((1, 258, 64))
+            conv1d_nlc_global = Ts.sblock_alloc_tensor((1, 128, 128))
             for n_0, l_0, co_0 in T.grid(1, 1, 2):
                 for n_1, l_1, co_1 in T.grid(1, 1, 8):
                     for ax0, ax1, ax2 in T.grid(1, 257, 64):
@@ -120,8 +120,8 @@ def test_cpu_c1d():
                         Ts.writes(conv1d_nlc[v0, v1, v2])
                         conv1d_nlc[v0, v1, v2] = conv1d_nlc_global[v0, v1, v2]
 
-    @Ts.prim_func
-    def c1d_2(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def c1d_2(inputs: T.Tensor((1, 256, 64), "float32"), weight: T.Tensor((3, 64, 128), "float32"), conv1d_nlc: T.Tensor((1, 128, 128), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
@@ -183,15 +183,15 @@ def test_cpu_c1d():
 
 def test_cpu_c2d():
     # fmt: off
-    @Ts.prim_func
-    def c2d_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c2d_0(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 112, 112, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 112, 112, 64))
             for n_0, h_0, w_0, co_0, n_1, h_1, w_1 in T.grid(1, 7, 4, 2, 1, 1, 28):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 37, 7, 3):
                     with Ts.sblock("PadInput"):
@@ -227,15 +227,15 @@ def test_cpu_c2d():
                             Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                             Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                             conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def c2d_1(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c2d_1(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 112, 112, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 112, 112, 64))
             for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -267,14 +267,14 @@ def test_cpu_c2d():
                         Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def c2d_2(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c2d_2(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
             for n_0, h_0 in T.grid(1, 7):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 37, 229, 3):
                     with Ts.sblock("PadInput"):
@@ -348,15 +348,15 @@ def test_cpu_c2d():
 
 def test_cpu_c3d():
     # fmt: off
-    @Ts.prim_func
-    def c3d_0(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c3d_0(inputs: T.Tensor((1, 16, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Tensor((1, 8, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 22, 230, 230, 3))
-            conv3d_ndhwc_global = Ts.sblock_alloc_buffer((1, 8, 112, 112, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 22, 230, 230, 3))
+            conv3d_ndhwc_global = Ts.sblock_alloc_tensor((1, 8, 112, 112, 64))
             for n_0, d_0, h_0, w_0, co_0 in T.grid(1, 2, 4, 1, 2):
                 for ax0, ax1, ax2, ax3, ax4 in T.grid(1, 13, 61, 229, 3):
                     with Ts.sblock("PadInput"):
@@ -396,15 +396,15 @@ def test_cpu_c3d():
                             Ts.reads(conv3d_ndhwc_global[v0, v1, v2, v3, v4])
                             Ts.writes(conv3d_ndhwc[v0, v1, v2, v3, v4])
                             conv3d_ndhwc[v0, v1, v2, v3, v4] = conv3d_ndhwc_global[v0, v1, v2, v3, v4]
-    @Ts.prim_func
-    def c3d_1(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c3d_1(inputs: T.Tensor((1, 16, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Tensor((1, 8, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 22, 230, 230, 3))
-            conv3d_ndhwc_global = Ts.sblock_alloc_buffer((1, 8, 112, 112, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 22, 230, 230, 3))
+            conv3d_ndhwc_global = Ts.sblock_alloc_tensor((1, 8, 112, 112, 64))
             for n_0, d_0, h_0, w_0, co_0 in T.grid(1, 2, 4, 1, 2):
                 for n_1, d_1, h_1, w_1 in T.grid(1, 4, 4, 14):
                     for ax0, ax1, ax2, ax3, ax4 in T.grid(1, 7, 19, 21, 3):
@@ -444,14 +444,14 @@ def test_cpu_c3d():
                         Ts.reads(conv3d_ndhwc_global[v0, v1, v2, v3, v4])
                         Ts.writes(conv3d_ndhwc[v0, v1, v2, v3, v4])
                         conv3d_ndhwc[v0, v1, v2, v3, v4] = conv3d_ndhwc_global[v0, v1, v2, v3, v4]
-    @Ts.prim_func
-    def c3d_2(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c3d_2(inputs: T.Tensor((1, 16, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Tensor((1, 8, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 22, 230, 230, 3))
+            PadInput = Ts.sblock_alloc_tensor((1, 22, 230, 230, 3))
             for n_0, d_0, h_0, w_0, co_0, n_1, d_1, h_1, w_1 in T.grid(1, 2, 4, 1, 2, 1, 4, 4, 14):
                 for ax0, ax1, ax2, ax3, ax4 in T.grid(1, 7, 19, 21, 3):
                     with Ts.sblock("PadInput"):
@@ -534,15 +534,15 @@ def test_cpu_c3d():
 
 def test_cpu_cap():
     # fmt: off
-    @Ts.prim_func
-    def cap_0(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
+    @Ts.function
+    def cap_0(inputs: T.Tensor((1, 16, 16, 4, 4, 32), "float32"), weight: T.Tensor((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Tensor((1, 8, 8, 4, 4, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 18, 18, 4, 4, 32))
-            conv2d_capsule_nhwijc_global = Ts.sblock_alloc_buffer((1, 8, 8, 4, 4, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 18, 18, 4, 4, 32))
+            conv2d_capsule_nhwijc_global = Ts.sblock_alloc_tensor((1, 8, 8, 4, 4, 32))
             for n_0, h_0, w_0, cap_i_0, cap_j_0, co_0, n_1, h_1 in T.grid(1, 2, 1, 1, 1, 1, 1, 4):
                 for ax0, ax1, ax2, ax3, ax4, ax5 in T.grid(1, 3, 17, 4, 4, 32):
                     with Ts.sblock("PadInput"):
@@ -583,15 +583,15 @@ def test_cpu_cap():
                             Ts.reads(conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5])
                             Ts.writes(conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5])
                             conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5] = conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5]
-    @Ts.prim_func
-    def cap_1(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
+    @Ts.function
+    def cap_1(inputs: T.Tensor((1, 16, 16, 4, 4, 32), "float32"), weight: T.Tensor((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Tensor((1, 8, 8, 4, 4, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 18, 18, 4, 4, 32))
-            conv2d_capsule_nhwijc_global = Ts.sblock_alloc_buffer((1, 8, 8, 4, 4, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 18, 18, 4, 4, 32))
+            conv2d_capsule_nhwijc_global = Ts.sblock_alloc_tensor((1, 8, 8, 4, 4, 32))
             for n_0, h_0, w_0, cap_i_0, cap_j_0, co_0 in T.grid(1, 2, 1, 1, 1, 1):
                 for n_1, h_1, w_1, cap_i_1, cap_j_1, co_1 in T.grid(1, 4, 4, 1, 4, 2):
                     for ax0, ax1, ax2, ax3, ax4, ax5 in T.grid(1, 3, 5, 4, 4, 32):
@@ -629,14 +629,14 @@ def test_cpu_cap():
                         Ts.reads(conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5])
                         Ts.writes(conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5])
                         conv2d_capsule_nhwijc[v0, v1, v2, v3, v4, v5] = conv2d_capsule_nhwijc_global[v0, v1, v2, v3, v4, v5]
-    @Ts.prim_func
-    def cap_2(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
+    @Ts.function
+    def cap_2(inputs: T.Tensor((1, 16, 16, 4, 4, 32), "float32"), weight: T.Tensor((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Tensor((1, 8, 8, 4, 4, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 18, 18, 4, 4, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 18, 18, 4, 4, 32))
             for i0, i1, i2, i3, i4, i5 in T.grid(1, 18, 18, 4, 4, 32):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3, v_i4, v_i5 = Ts.axis.remap("SSSSSS", [i0, i1, i2, i3, i4, i5])
@@ -716,15 +716,15 @@ def test_cpu_cap():
 
 def test_cpu_dep():
     # fmt: off
-    @Ts.prim_func
-    def dep_0(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
+    @Ts.function
+    def dep_0(placeholder: T.Tensor((1, 112, 112, 32), "float32"), placeholder_1: T.Tensor((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Tensor((1, 112, 112, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 114, 114, 32))
-            depth_conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 112, 112, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 114, 114, 32))
+            depth_conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 112, 112, 32))
             for i0, i1, i2, i3 in T.grid(1, 114, 114, 32):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -755,15 +755,15 @@ def test_cpu_dep():
                         Ts.reads(depth_conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(depth_conv2d_nhwc[v0, v1, v2, v3])
                         depth_conv2d_nhwc[v0, v1, v2, v3] = depth_conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def dep_1(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
+    @Ts.function
+    def dep_1(placeholder: T.Tensor((1, 112, 112, 32), "float32"), placeholder_1: T.Tensor((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Tensor((1, 112, 112, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 114, 114, 32))
-            depth_conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 112, 112, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 114, 114, 32))
+            depth_conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 112, 112, 32))
             for i0, i1, i2, i3 in T.grid(1, 114, 114, 32):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -791,14 +791,14 @@ def test_cpu_dep():
                         Ts.reads(depth_conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(depth_conv2d_nhwc[v0, v1, v2, v3])
                         depth_conv2d_nhwc[v0, v1, v2, v3] = depth_conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def dep_2(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
+    @Ts.function
+    def dep_2(placeholder: T.Tensor((1, 112, 112, 32), "float32"), placeholder_1: T.Tensor((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Tensor((1, 112, 112, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 114, 114, 32))
+            PadInput = Ts.sblock_alloc_tensor((1, 114, 114, 32))
             for n_0, h_0, w_0, c_0, n_1, h_1 in T.grid(1, 1, 1, 1, 1, 4):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 30, 114, 32):
                     with Ts.sblock("PadInput"):
@@ -865,15 +865,15 @@ def test_cpu_dep():
 
 def test_cpu_dil():
     # fmt: off
-    @Ts.prim_func
-    def dil_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
+    @Ts.function
+    def dil_0(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 109, 109, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 109, 109, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 109, 109, 64))
             for n_0, h_0, w_0, co_0, n_1, h_1, w_1, co_1 in T.grid(1, 109, 1, 4, 1, 1, 1, 2):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 13, 229, 3):
                     with Ts.sblock("PadInput"):
@@ -908,15 +908,15 @@ def test_cpu_dil():
                         Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def dil_1(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
+    @Ts.function
+    def dil_1(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 109, 109, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 109, 109, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 109, 109, 64))
             for n_0, h_0, w_0, co_0 in T.grid(1, 109, 1, 4):
                 for n_1, h_1, w_1, co_1, rh_0 in T.grid(1, 1, 1, 2, 7):
                     for ax0, ax1, ax2, ax3 in T.grid(1, 1, 229, 3):
@@ -952,14 +952,14 @@ def test_cpu_dil():
                         Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def dil_2(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
+    @Ts.function
+    def dil_2(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 109, 109, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
+            PadInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
             for n_0, h_0 in T.grid(1, 109):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 13, 229, 3):
                     with Ts.sblock("PadInput"):
@@ -1031,14 +1031,14 @@ def test_cpu_dil():
 
 def test_cpu_gmm():
     # fmt: off
-    @Ts.prim_func
-    def gmm_0(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def gmm_0(X: T.Tensor((1, 128, 128), "float32"), Y: T.Tensor((1, 128, 128), "float32"), Z: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            Z_global = Ts.sblock_alloc_buffer((1, 128, 128))
+            Z_global = Ts.sblock_alloc_tensor((1, 128, 128))
             for b_0, i_0, j_0, b_1, i_1, j_1 in T.grid(1, 4, 2, 1, 1, 8):
                 for k_0, b_2, i_2, j_2, k_1, b_3, i_3, j_3 in T.grid(128, 1, 16, 1, 1, 1, 2, 8):
                     with Ts.sblock("Z"):
@@ -1060,14 +1060,14 @@ def test_cpu_gmm():
                         Ts.reads(Z_global[v0, v1, v2])
                         Ts.writes(Z[v0, v1, v2])
                         Z[v0, v1, v2] = Z_global[v0, v1, v2]
-    @Ts.prim_func
-    def gmm_1(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def gmm_1(X: T.Tensor((1, 128, 128), "float32"), Y: T.Tensor((1, 128, 128), "float32"), Z: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            Z_global = Ts.sblock_alloc_buffer((1, 128, 128))
+            Z_global = Ts.sblock_alloc_tensor((1, 128, 128))
             for b_0, i_0, j_0 in T.grid(1, 4, 2):
                 for b_1, i_1, j_1, k_0, b_2, i_2, j_2, k_1, b_3, i_3, j_3 in T.grid(1, 1, 8, 128, 1, 16, 1, 1, 1, 2, 8):
                     with Ts.sblock("Z"):
@@ -1089,8 +1089,8 @@ def test_cpu_gmm():
                         Ts.reads(Z_global[v0, v1, v2])
                         Ts.writes(Z[v0, v1, v2])
                         Z[v0, v1, v2] = Z_global[v0, v1, v2]
-    @Ts.prim_func
-    def gmm_2(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def gmm_2(X: T.Tensor((1, 128, 128), "float32"), Y: T.Tensor((1, 128, 128), "float32"), Z: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
@@ -1142,15 +1142,15 @@ def test_cpu_gmm():
 
 def test_cpu_grp():
     # fmt: off
-    @Ts.prim_func
-    def grp_0(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
+    @Ts.function
+    def grp_0(inputs: T.Tensor((1, 56, 56, 64), "float32"), weight: T.Tensor((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Tensor((1, 28, 28, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 58, 58, 64))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 28, 28, 128))
+            PadInput = Ts.sblock_alloc_tensor((1, 58, 58, 64))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 28, 28, 128))
             for n_0, h_0, w_0, co_0 in T.grid(1, 7, 1, 2):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 9, 57, 32):
                     with Ts.sblock("PadInput"):
@@ -1186,15 +1186,15 @@ def test_cpu_grp():
                             Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                             Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                             conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def grp_1(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
+    @Ts.function
+    def grp_1(inputs: T.Tensor((1, 56, 56, 64), "float32"), weight: T.Tensor((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Tensor((1, 28, 28, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 58, 58, 64))
-            conv2d_nhwc_global = Ts.sblock_alloc_buffer((1, 28, 28, 128))
+            PadInput = Ts.sblock_alloc_tensor((1, 58, 58, 64))
+            conv2d_nhwc_global = Ts.sblock_alloc_tensor((1, 28, 28, 128))
             for i0, i1, i2, i3 in T.grid(1, 58, 58, 64):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -1226,14 +1226,14 @@ def test_cpu_grp():
                         Ts.reads(conv2d_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_nhwc[v0, v1, v2, v3])
                         conv2d_nhwc[v0, v1, v2, v3] = conv2d_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def grp_2(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
+    @Ts.function
+    def grp_2(inputs: T.Tensor((1, 56, 56, 64), "float32"), weight: T.Tensor((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Tensor((1, 28, 28, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 58, 58, 64))
+            PadInput = Ts.sblock_alloc_tensor((1, 58, 58, 64))
             for n_0, h_0, w_0, co_0, n_1, h_1, w_1, co_1, rh_0, rw_0 in T.grid(1, 7, 1, 2, 1, 4, 1, 1, 1, 3):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 3, 55, 32):
                     with Ts.sblock("PadInput"):
@@ -1305,15 +1305,15 @@ def test_cpu_grp():
 
 def test_cpu_t2d():
     # fmt: off
-    @Ts.prim_func
-    def t2d_0(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
+    @Ts.function
+    def t2d_0(inputs: T.Tensor((1, 4, 4, 512), "float32"), weight: T.Tensor((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Tensor((1, 8, 8, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 6, 6, 512))
-            conv2d_transpose_nhwc_global = Ts.sblock_alloc_buffer((1, 8, 8, 256))
+            PadInput = Ts.sblock_alloc_tensor((1, 6, 6, 512))
+            conv2d_transpose_nhwc_global = Ts.sblock_alloc_tensor((1, 8, 8, 256))
             for i0, i1, i2, i3 in T.grid(1, 6, 6, 512):
                 with Ts.sblock("PadInput"):
                     v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -1345,15 +1345,15 @@ def test_cpu_t2d():
                         Ts.reads(conv2d_transpose_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_transpose_nhwc[v0, v1, v2, v3])
                         conv2d_transpose_nhwc[v0, v1, v2, v3] = conv2d_transpose_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def t2d_1(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
+    @Ts.function
+    def t2d_1(inputs: T.Tensor((1, 4, 4, 512), "float32"), weight: T.Tensor((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Tensor((1, 8, 8, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PadInput = Ts.sblock_alloc_buffer((1, 6, 6, 512))
-            conv2d_transpose_nhwc_global = Ts.sblock_alloc_buffer((1, 8, 8, 256))
+            PadInput = Ts.sblock_alloc_tensor((1, 6, 6, 512))
+            conv2d_transpose_nhwc_global = Ts.sblock_alloc_tensor((1, 8, 8, 256))
             for n_0, h_0, w_0, co_0 in T.grid(1, 1, 2, 8):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 6, 4, 512):
                     with Ts.sblock("PadInput"):
@@ -1386,8 +1386,8 @@ def test_cpu_t2d():
                         Ts.reads(conv2d_transpose_nhwc_global[v0, v1, v2, v3])
                         Ts.writes(conv2d_transpose_nhwc[v0, v1, v2, v3])
                         conv2d_transpose_nhwc[v0, v1, v2, v3] = conv2d_transpose_nhwc_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def t2d_2(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
+    @Ts.function
+    def t2d_2(inputs: T.Tensor((1, 4, 4, 512), "float32"), weight: T.Tensor((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Tensor((1, 8, 8, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
@@ -1455,15 +1455,15 @@ def test_cpu_t2d():
 
 def test_cpu_nrm():
     # fmt: off
-    @Ts.prim_func
-    def nrm_0(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
+    @Ts.function
+    def nrm_0(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor(1, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            C = Ts.sblock_alloc_buffer((1,))
-            C_rf = Ts.sblock_alloc_buffer((1, 32768))
+            C = Ts.sblock_alloc_tensor((1,))
+            C_rf = Ts.sblock_alloc_tensor((1, 32768))
             for b, i_j_fused_0, i_j_fused_1 in T.grid(1, 32768, 2):
                 with Ts.sblock("C_rf"):
                     vi_j_fused_0, v_b, vi_j_fused_1 = Ts.axis.remap("SSR", [i_j_fused_0, b, i_j_fused_1])
@@ -1486,15 +1486,15 @@ def test_cpu_nrm():
                     Ts.reads(C[v_b])
                     Ts.writes(D[v_b])
                     D[v_b] = T.sqrt(C[v_b])
-    @Ts.prim_func
-    def nrm_1(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
+    @Ts.function
+    def nrm_1(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor(1, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            C = Ts.sblock_alloc_buffer((1,))
-            C_rf = Ts.sblock_alloc_buffer((1, 2))
+            C = Ts.sblock_alloc_tensor((1,))
+            C_rf = Ts.sblock_alloc_tensor((1, 2))
             for b, i_j_fused_0, i_j_fused_1 in T.grid(1, 32768, 2):
                 with Ts.sblock("C_rf"):
                     vi_j_fused_1, v_b, vi_j_fused_0 = Ts.axis.remap("SSR", [i_j_fused_1, b, i_j_fused_0])
@@ -1517,14 +1517,14 @@ def test_cpu_nrm():
                     Ts.reads(C[v_b])
                     Ts.writes(D[v_b])
                     D[v_b] = T.sqrt(C[v_b])
-    @Ts.prim_func
-    def nrm_2(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
+    @Ts.function
+    def nrm_2(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor(1, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            C = Ts.sblock_alloc_buffer((1,))
+            C = Ts.sblock_alloc_tensor((1,))
             for b, i, j in T.grid(1, 256, 256):
                 with Ts.sblock("C"):
                     v_b, v_i, v_j = Ts.axis.remap("SRR", [b, i, j])
@@ -1568,17 +1568,17 @@ def test_cpu_nrm():
 
 def test_cpu_sfm():
     # fmt: off
-    @Ts.prim_func
-    def sfm_0(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_0(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 4))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 4))
             for i0, k_0, k_1 in T.grid(256, 4, 64):
                 with Ts.sblock("T_softmax_maxelem_rf"):
                     vk_0, v_i0, vk_1 = Ts.axis.remap("SSR", [k_0, i0, k_1])
@@ -1619,18 +1619,18 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_1(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_1(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 16, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_exp = Ts.sblock_alloc_buffer((256, 256))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 64))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_exp = Ts.sblock_alloc_tensor((256, 256))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 64))
             for i0 in range(256):
                 for ax0, ax1, ax2 in T.grid(64, 1, 4):
                     with Ts.sblock("T_softmax_maxelem_rf"):
@@ -1680,16 +1680,16 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T_softmax_exp[v_i0, v_i1] / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_2(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_2(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
             for i0, k in T.grid(256, 256):
                 with Ts.sblock("T_softmax_maxelem"):
                     v_i0, v_k = Ts.axis.remap("SR", [i0, k])
@@ -1721,18 +1721,18 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_3(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_3(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_exp = Ts.sblock_alloc_buffer((256, 256))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 256))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_exp = Ts.sblock_alloc_tensor((256, 256))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 256))
             for i0, i1 in T.grid(256, 256):
                 for ax0, ax1, ax2 in T.grid(256, 1, 1):
                     with Ts.sblock("T_softmax_maxelem_rf"):
@@ -1786,18 +1786,18 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T_softmax_exp[v_i0, v_i1] / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_4(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_4(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 0, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_exp = Ts.sblock_alloc_buffer((256, 256))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 1))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_exp = Ts.sblock_alloc_tensor((256, 256))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 1))
             for i0 in range(256):
                 for ax0, ax1, ax2 in T.grid(1, 1, 256):
                     with Ts.sblock("T_softmax_maxelem_rf"):
@@ -1846,17 +1846,17 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T_softmax_exp[v_i0, v_i1] / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_5(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_5(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_exp = Ts.sblock_alloc_buffer((256, 256))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_rf = Ts.sblock_alloc_buffer((256, 16))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_exp = Ts.sblock_alloc_tensor((256, 256))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_rf = Ts.sblock_alloc_tensor((256, 16))
             for i0 in range(256):
                 for ax0, ax1 in T.grid(1, 256):
                     with Ts.sblock("T_softmax_maxelem"):
@@ -1901,16 +1901,16 @@ def test_cpu_sfm():
                         Ts.writes(T_softmax_norm[v_i0, v_i1])
                         Ts.sblock_attr({"axis": 1})
                         T_softmax_norm[v_i0, v_i1] = T_softmax_exp[v_i0, v_i1] / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_6(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_6(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 64))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 64))
             for i0 in range(256):
                 for ax0, ax1, ax2 in T.grid(64, 1, 4):
                     with Ts.sblock("T_softmax_maxelem_rf"):
@@ -1945,16 +1945,16 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_7(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_7(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            T_softmax_maxelem_rf = Ts.sblock_alloc_buffer((256, 4))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            T_softmax_maxelem_rf = Ts.sblock_alloc_tensor((256, 4))
             for i0, k_0, k_1 in T.grid(256, 64, 4):
                 with Ts.sblock("T_softmax_maxelem_rf"):
                     vk_1, v_i0, vk_0 = Ts.axis.remap("SSR", [k_1, i0, k_0])
@@ -1987,16 +1987,16 @@ def test_cpu_sfm():
                     Ts.writes(T_softmax_norm[v_i0, v_i1])
                     Ts.sblock_attr({"axis": 1})
                     T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_8(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_8(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_exp = Ts.sblock_alloc_buffer((256, 256))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_exp = Ts.sblock_alloc_tensor((256, 256))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
             for i0 in range(256):
                 for ax0, ax1 in T.grid(1, 256):
                     with Ts.sblock("T_softmax_maxelem"):
@@ -2129,14 +2129,14 @@ def test_cpu_sfm():
 
 def test_cpu_cbr():
     # fmt: off
-    @Ts.prim_func
-    def cbr_0(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def cbr_0(data: T.Tensor((1, 224, 224, 3), "float32"), kernel: T.Tensor((7, 7, 3, 64), "float32"), bias: T.Tensor(64, "float32"), bn_offset: T.Tensor(64, "float32"), bn_scale: T.Tensor(64, "float32"), compute: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            Conv2dOutput = Ts.sblock_alloc_buffer((1, 112, 112, 64))
+            Conv2dOutput = Ts.sblock_alloc_tensor((1, 112, 112, 64))
             for nn_0, yy_0, xx_0, ff_0, nn_1, yy_1, xx_1, ff_1, ry_0, rx_0, rc_0, nn_2, yy_2, xx_2, ff_2, ry_1, rx_1, rc_1, nn_3, yy_3, xx_3, ff_3 in T.grid(1, 2, 7, 1, 1, 2, 2, 32, 7, 7, 1, 1, 1, 4, 1, 1, 1, 3, 1, 28, 2, 2):
                 with Ts.sblock("Conv2dOutput"):
                     v_nn = Ts.axis.spatial(1, nn_0 + nn_1 + nn_2 + nn_3)
@@ -2158,15 +2158,15 @@ def test_cpu_cbr():
                     Ts.reads(Conv2dOutput[v_i0, v_i1, v_i2, v_i3], bias[v_i3], bn_scale[v_i3], bn_offset[v_i3])
                     Ts.writes(compute[v_i0, v_i1, v_i2, v_i3])
                     compute[v_i0, v_i1, v_i2, v_i3] = T.max((Conv2dOutput[v_i0, v_i1, v_i2, v_i3] + bias[v_i3]) * bn_scale[v_i3] + bn_offset[v_i3], T.float32(0))
-    @Ts.prim_func
-    def cbr_1(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def cbr_1(data: T.Tensor((1, 224, 224, 3), "float32"), kernel: T.Tensor((7, 7, 3, 64), "float32"), bias: T.Tensor(64, "float32"), bn_offset: T.Tensor(64, "float32"), bn_scale: T.Tensor(64, "float32"), compute: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            PaddedInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            Conv2dOutput = Ts.sblock_alloc_buffer((1, 112, 112, 64))
+            PaddedInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            Conv2dOutput = Ts.sblock_alloc_tensor((1, 112, 112, 64))
             for nn_0, yy_0 in T.grid(1, 2):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 117, 229, 3):
                     with Ts.sblock("PaddedInput"):
@@ -2202,15 +2202,15 @@ def test_cpu_cbr():
                             Ts.reads(Conv2dOutput[v_i0, v_i1, v_i2, v_i3], bias[v_i3], bn_scale[v_i3], bn_offset[v_i3])
                             Ts.writes(compute[v_i0, v_i1, v_i2, v_i3])
                             compute[v_i0, v_i1, v_i2, v_i3] = T.max((Conv2dOutput[v_i0, v_i1, v_i2, v_i3] + bias[v_i3]) * bn_scale[v_i3] + bn_offset[v_i3], T.float32(0))
-    @Ts.prim_func
-    def cbr_2(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def cbr_2(data: T.Tensor((1, 224, 224, 3), "float32"), kernel: T.Tensor((7, 7, 3, 64), "float32"), bias: T.Tensor(64, "float32"), bn_offset: T.Tensor(64, "float32"), bn_scale: T.Tensor(64, "float32"), compute: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            PaddedInput = Ts.sblock_alloc_buffer((1, 230, 230, 3))
-            Conv2dOutput = Ts.sblock_alloc_buffer((1, 112, 112, 64))
+            PaddedInput = Ts.sblock_alloc_tensor((1, 230, 230, 3))
+            Conv2dOutput = Ts.sblock_alloc_tensor((1, 112, 112, 64))
             for nn_0, yy_0 in T.grid(1, 2):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 117, 229, 3):
                     with Ts.sblock("PaddedInput"):
@@ -2292,16 +2292,16 @@ def test_cpu_cbr():
 
 def test_cpu_tbg():
     # fmt: off
-    @Ts.prim_func
-    def tbg_0(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+    @Ts.function
+    def tbg_0(query: T.Tensor((1, 128, 12, 64), "float32"), value: T.Tensor((1, 128, 12, 64), "float32"), C: T.Tensor((1, 12, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            query_T = Ts.sblock_alloc_buffer((1, 12, 128, 64))
-            value_T = Ts.sblock_alloc_buffer((1, 12, 64, 128))
-            C_global = Ts.sblock_alloc_buffer((1, 12, 128, 128))
+            query_T = Ts.sblock_alloc_tensor((1, 12, 128, 64))
+            value_T = Ts.sblock_alloc_tensor((1, 12, 64, 128))
+            C_global = Ts.sblock_alloc_tensor((1, 12, 128, 128))
             for b_0, h_0, i_0, j_0, b_1, h_1, i_1 in T.grid(1, 1, 1, 2, 1, 6, 2):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 64):
                     with Ts.sblock("value_T"):
@@ -2344,16 +2344,16 @@ def test_cpu_tbg():
                             Ts.reads(C_global[v0, v1, v2, v3])
                             Ts.writes(C[v0, v1, v2, v3])
                             C[v0, v1, v2, v3] = C_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def tbg_1(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+    @Ts.function
+    def tbg_1(query: T.Tensor((1, 128, 12, 64), "float32"), value: T.Tensor((1, 128, 12, 64), "float32"), C: T.Tensor((1, 12, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 64, "meta_schedule.vectorize": 64})
-            query_T = Ts.sblock_alloc_buffer((1, 12, 128, 64))
-            value_T = Ts.sblock_alloc_buffer((1, 12, 64, 128))
-            C_global = Ts.sblock_alloc_buffer((1, 12, 128, 128))
+            query_T = Ts.sblock_alloc_tensor((1, 12, 128, 64))
+            value_T = Ts.sblock_alloc_tensor((1, 12, 64, 128))
+            C_global = Ts.sblock_alloc_tensor((1, 12, 128, 128))
             for b, h, l, d in T.grid(1, 12, 128, 64):
                 with Ts.sblock("query_T"):
                     v_b, v_h, v_l, v_d = Ts.axis.remap("SSSS", [b, h, l, d])
@@ -2391,14 +2391,14 @@ def test_cpu_tbg():
                         Ts.reads(C_global[v0, v1, v2, v3])
                         Ts.writes(C[v0, v1, v2, v3])
                         C[v0, v1, v2, v3] = C_global[v0, v1, v2, v3]
-    @Ts.prim_func
-    def tbg_2(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+    @Ts.function
+    def tbg_2(query: T.Tensor((1, 128, 12, 64), "float32"), value: T.Tensor((1, 128, 12, 64), "float32"), C: T.Tensor((1, 12, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.parallel": 288, "meta_schedule.unroll_explicit": 512, "meta_schedule.vectorize": 64})
-            value_T = Ts.sblock_alloc_buffer((1, 12, 64, 128))
+            value_T = Ts.sblock_alloc_tensor((1, 12, 64, 128))
             for b_0, h_0, i_0, j_0, b_1, h_1, i_1, j_1 in T.grid(1, 1, 1, 2, 1, 6, 2, 8):
                 for ax0, ax1, ax2, ax3 in T.grid(1, 2, 64, 8):
                     with Ts.sblock("value_T"):

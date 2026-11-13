@@ -23,24 +23,27 @@ import pytest
 import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm import IRModule, relax
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax.training.optimizer import SGD, Adam, MomentumSGD
 from tvm.runtime.vm import VirtualMachine
-from tvm.script.parser import relax as R
-from tvm.testing import assert_allclose
+from tvm.testing import device_enabled
+from tvm_tirx import IRModule
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.testing import assert_allclose
 
 
 def _legalize_and_build(mod: IRModule, target):
     ex = tvm.compile(mod, target)
-    vm = VirtualMachine(ex, tvm.device_from_target(target))
+    vm = VirtualMachine(ex, tvm_tirx.device_from_target(target))
     return vm
 
 
 def _numpy_to_tvm(data):
     if isinstance(data, list | tuple):
         return [_numpy_to_tvm(_data) for _data in data]
-    return tvm.runtime.tensor(data)
+    return tvm_tirx.runtime.tensor(data)
 
 
 def _tvm_to_numpy(data):
@@ -86,7 +89,7 @@ def _test_optimizer(target, np_func, opt_type, *args, **kwargs):
         (0.01, 0.02),
     ],
 )
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_sgd(lr, weight_decay):
     target = "llvm"
 
@@ -111,7 +114,7 @@ def test_sgd(lr, weight_decay):
         (0.01, 0.9, 0.85, 0.02, True),
     ],
 )
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_momentum_sgd(lr, momentum, dampening, weight_decay, nesterov):
     target = "llvm"
 
@@ -145,7 +148,7 @@ def test_momentum_sgd(lr, momentum, dampening, weight_decay, nesterov):
         (0.01, (0.8, 0.85), 1e-07, 0.1),
     ],
 )
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_adam(lr, betas, eps, weight_decay):
     target = "llvm"
 
@@ -180,4 +183,4 @@ def test_adam(lr, betas, eps, weight_decay):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

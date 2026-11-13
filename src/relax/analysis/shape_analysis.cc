@@ -41,8 +41,8 @@ bool CanProveShapeEqual(const ffi::Array<PrimExpr>& lhs, const ffi::Array<PrimEx
 
 bool CanProveShapeEqual(const Expr& lhs, const Expr& rhs, const sym::Analyzer& ana) {
   if (lhs.same_as(rhs)) return true;
-  auto* lhs_shape = lhs.as<ShapeExprNode>();
-  auto* rhs_shape = rhs.as<ShapeExprNode>();
+  auto* lhs_shape = lhs.as<ShapeExprObj>();
+  auto* rhs_shape = rhs.as<ShapeExprObj>();
 
   if (lhs_shape && rhs_shape) {
     return CanProveShapeEqual(lhs_shape->values, rhs_shape->values, ana);

@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_STATISTICAL_H_
 #define TVM_RELAX_OP_TENSOR_STATISTICAL_H_
 
-#include <tvm/relax/attrs/statistical.h>
+#include <tvm/relax/op/statistical.h>
 
 #include <algorithm>
 #include <utility>

@@ -17,6 +17,34 @@
 
 tvm.rpc
 -------
+RPC devices and tensors belong to a session. They are distinct from local
+``Device`` and ``Tensor`` values::
+
+    remote = tvm.rpc.connect(host, port)
+    device = remote.cpu()
+    x = device.tensor(numpy_data)
+    y = device.empty(x.shape, x.dtype)
+    module = remote.load_module("kernel.so")
+    module(x, y)
+    result = y.numpy()
+
+Use ``device.empty`` and ``device.tensor`` for remote allocations. Normal
+``tvm.runtime.empty`` and ``tvm.runtime.tensor`` allocate locally. Remote
+functions reject tensors, devices, modules, and objects from other sessions.
+``RemoteTensor.copyto(tvm.cpu())`` explicitly materializes a local tensor;
+remote tensors cannot export a local DLPack pointer. Views retain their remote
+backing storage, and returned tensors retain the remote tensor object.
+
+For a remote VM, use ``tvm.rpc.virtual_machine(module, device)``. This helper
+validates session ownership and passes ordinary endpoint device descriptors
+to VM initialization. ``tvm.runtime.time_evaluator`` similarly validates the
+remote device through its RPC wrapper.
+
+Streams remain owned by the session until ``device.free_stream(stream)`` or
+session teardown. Selecting a temporary stream is safe, and aliases observe
+explicit release. ``remote.close()`` closes the session; existing remote
+values reject further operations while cleanup remains safe.
+
 .. automodule:: tvm.rpc
    :members:
    :imported-members:

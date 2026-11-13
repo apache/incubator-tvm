@@ -35,3 +35,5 @@ from .server import Server
 from .client import connect, connect_tracker
 from .client import RPCSession, LocalSession, PopenSession, TrackerSession
 from .minrpc import with_minrpc
+
+from .remote import RemoteDevice, RemoteTensor, RemoteStream, time_evaluator, virtual_machine

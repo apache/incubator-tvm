@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_UTILS_H_
 #define TVM_RELAX_UTILS_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/error.h>
 #include <tvm/ir/module.h>
 #include <tvm/relax/expr.h>

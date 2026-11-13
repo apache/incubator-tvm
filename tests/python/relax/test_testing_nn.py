@@ -15,13 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 # ruff: noqa: RUF005
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.testing import nn
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_emit():
@@ -44,7 +44,7 @@ def test_emit():
         params = [x] + model.parameters()
         bb.emit_func_output(output, params)
 
-    tvm.ir.assert_structural_equal(bb.get(), Expected)
+    tvm_tirx.ir.assert_structural_equal(bb.get(), Expected)
 
 
 def test_get_param():
@@ -81,9 +81,9 @@ def test_define_subroutine():
             state = relax.op.matmul(input, self.weights)
             return self.activation(state)
 
-    batch_size_main = T.dynamic("batch_size")
-    batch_size_layer = T.dynamic("batch_size")
-    batch_size_activation = T.dynamic("batch_size")
+    batch_size_main = T.dynamic("batch_size", "int64")
+    batch_size_layer = T.dynamic("batch_size", "int64")
+    batch_size_activation = T.dynamic("batch_size", "int64")
 
     @I.ir_module
     class Expected:
@@ -112,7 +112,7 @@ def test_define_subroutine():
             return state
 
     model = Layer(64, 32)
-    batch_size = tvm.tirx.Var("batch_size", "int64")
+    batch_size = tvm_tirx.tirx.Var("batch_size", "int64")
     input = nn.Placeholder((batch_size, 64), dtype="float32", name="input")
 
     bb = relax.BlockBuilder()
@@ -120,8 +120,8 @@ def test_define_subroutine():
         output = model(input)
         bb.emit_func_output(output)
 
-    tvm.ir.assert_structural_equal(Expected, bb.get())
+    tvm_tirx.ir.assert_structural_equal(Expected, bb.get())
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

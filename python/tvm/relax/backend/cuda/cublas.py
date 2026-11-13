@@ -20,11 +20,13 @@
 import operator
 from functools import reduce
 
+import tvm_ffi
+
 import tvm
-from tvm import DataType
+import tvm_tirx
 from tvm.relax import transform
 from tvm.relax.transform import PatternCheckContext
-from tvm.sym import Analyzer
+from tvm_tirx.sym import Analyzer
 
 from ..pattern_registry import get_patterns_with_prefix, register_patterns
 from ..patterns import (
@@ -74,7 +76,7 @@ def _check_matmul(context: PatternCheckContext) -> bool:
     lhs_shape = lhs.ty.shape.values
     rhs_shape = rhs.ty.shape.values
 
-    if not isinstance(lhs_shape[-1], tvm.tirx.expr.IntImm | int):
+    if not isinstance(lhs_shape[-1], tvm_tirx.ir.IntImm | int):
         # Reduction axis must be constant
         return False
 
@@ -82,7 +84,7 @@ def _check_matmul(context: PatternCheckContext) -> bool:
         if lhs_shape[-1] % 4 != 0:
             # Reduction axis must be multiples of 4 for IGEMM
             return False
-        if not isinstance(rhs_shape[-1], tvm.tirx.expr.IntImm | int) or rhs_shape[-1] % 4 != 0:
+        if not isinstance(rhs_shape[-1], tvm_tirx.ir.IntImm | int) or rhs_shape[-1] % 4 != 0:
             # Rows number must be multiples of 4 for IGEMM
             return False
     elif lhs_dtype == "float8_e4m3fn" and rhs_dtype == "float8_e4m3fn":
@@ -102,13 +104,13 @@ def _check_matmul(context: PatternCheckContext) -> bool:
 
         # cuBLAS FP8 operations require all tensors being aligned to 16 bytes.
         if (
-            not isinstance(rhs_shape[-1], tvm.tirx.expr.IntImm | int)
-            or rhs_shape[-1] % (16 // DataType(lhs_dtype).itemsize) != 0
+            not isinstance(rhs_shape[-1], tvm_tirx.ir.IntImm | int)
+            or rhs_shape[-1] % (16 // tvm_ffi.dtype(lhs_dtype).itemsize) != 0
         ):
             return False
         if (
-            not isinstance(rhs_shape[-2], tvm.tirx.expr.IntImm | int)
-            or rhs_shape[-2] % (16 // DataType(out_dtype).itemsize) != 0
+            not isinstance(rhs_shape[-2], tvm_tirx.ir.IntImm | int)
+            or rhs_shape[-2] % (16 // tvm_ffi.dtype(out_dtype).itemsize) != 0
         ):
             return False
 
@@ -122,7 +124,7 @@ def _check_matmul(context: PatternCheckContext) -> bool:
         bias = context.annotated_expr["bias"]
         bias_shape = bias.ty.shape.values
         bias_batches = reduce(operator.mul, bias_shape[:-1], 1)
-        if not isinstance(bias_batches, tvm.tirx.expr.IntImm | int) or int(bias_batches) > 1:
+        if not isinstance(bias_batches, tvm_tirx.ir.IntImm | int) or int(bias_batches) > 1:
             # cuBLAS only supports bias vector
             return False
 
@@ -133,8 +135,8 @@ def _check_matmul(context: PatternCheckContext) -> bool:
     # must be equal. If lhs is batched but rhs is not, we can use the regular GEMM by
     # flattening all batch axes into the M axis.
     return (
-        isinstance(lhs_batches, tvm.ir.Var)
-        or isinstance(rhs_batches, tvm.ir.Var)
+        isinstance(lhs_batches, tvm_tirx.ir.Var)
+        or isinstance(rhs_batches, tvm_tirx.ir.Var)
         or (analyzer.can_prove_equal(lhs_batches, rhs_batches))
         or (analyzer.can_prove(lhs_batches >= 1) and analyzer.can_prove(rhs_batches == 1))
     )
@@ -226,7 +228,7 @@ def partition_for_cublas(mod, bind_constants=False):
 
     Parameters
     ----------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The IRModule to be partitioned.
 
     bind_constants : bool
@@ -234,7 +236,7 @@ def partition_for_cublas(mod, bind_constants=False):
 
     Returns
     -------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The resulting IRModule, containing partitioned subgraphs to be
         offloaded to the cuBLAS backend.
     """

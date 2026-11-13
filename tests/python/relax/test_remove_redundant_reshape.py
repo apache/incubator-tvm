@@ -19,17 +19,18 @@
 Test relax transform - Eliminate redundant reshape operations
 """
 
-import tvm.testing
+import tvm
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.transform import DeadCodeElimination, RemoveRedundantReshape
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm_tirx.script import ir as I
 
 
 def _run_pass_compare_output(Before, Expected):
     fused_mod = RemoveRedundantReshape()(Before)
     fused_mod = DeadCodeElimination()(fused_mod)
-    tvm.ir.assert_structural_equal(Expected, fused_mod)
+    tvm_tirx.ir.assert_structural_equal(Expected, fused_mod)
 
 
 def test_remove_redundant_reshape_pass_one_arg():
@@ -164,4 +165,4 @@ def test_remove_redundant_reshape_pass_still_combines_without_zero_dims():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

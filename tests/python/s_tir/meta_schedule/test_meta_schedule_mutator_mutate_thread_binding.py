@@ -17,16 +17,16 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 # pylint: disable=invalid-name, no-member
 
 
-@Ts.prim_func
+@Ts.function
 def element_wise(
-    A: T.Buffer([512, 512], dtype="float32"), B: T.Buffer([512, 512], dtype="float32")
+    A: T.Tensor([512, 512], dtype="float32"), B: T.Tensor([512, 512], dtype="float32")
 ) -> None:
     for i, j in T.grid(512, 512):
         with Ts.sblock("C"):

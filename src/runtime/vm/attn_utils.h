@@ -26,22 +26,38 @@
 
 #include <tvm/ffi/container/map.h>
 #include <tvm/ffi/container/shape.h>
+#include <tvm/runtime/device_api.h>
 #include <tvm/runtime/logging.h>
 #include <tvm/runtime/tensor.h>
-#include <tvm/support/cuda/nvtx.h>
 
 #include <algorithm>
+#include <cstring>
 #include <limits>
 #include <utility>
 #include <vector>
 
-#if defined(OPENCL_ENABLE_HOST_PTR)
-#include "../../backend/opencl/runtime/opencl_common.h"
-#endif
+#include "nvtx.h"
 
 namespace tvm {
 namespace runtime {
 namespace vm {
+
+/*!
+ * \brief Get the preferred host device from the input device.
+ * - For CUDA and ROCm, CUDAHost and ROCMHost will be returned for pinned memory,
+ * since pinned memory reduces copy overhead.
+ * - For other devices, CPU is returned as a fallback.
+ */
+inline Device GetPreferredHostDevice(Device device) {
+  if (device.device_type == DLDeviceType::kDLCUDA) {
+    return Device{DLDeviceType::kDLCUDAHost, 0};
+  } else if (device.device_type == DLDeviceType::kDLROCM) {
+    return Device{DLDeviceType::kDLROCMHost, 0};
+  } else {
+    // Fallback to CPU.
+    return Device{DLDeviceType::kDLCPU, 0};
+  }
+}
 
 /*!
  * \brief The maximum allowed block depth (a.k.a. number of common
@@ -360,18 +376,20 @@ class HostMemoryVector {
   explicit HostMemoryVector(int64_t reserved_size, DLDataType dtype, Device device)
       : reserved_size_(reserved_size) {
     TVM_FFI_ICHECK((dtype == DLDataType{kDLInt, 32, 1}));
-    data_ = Tensor::Empty({reserved_size}, dtype, device);
+    data_ = tvm::runtime::Empty({reserved_size}, dtype, device);
   }
 
   void push_back(int32_t value) {
     TVM_FFI_ICHECK_LE(current_size_, reserved_size_);
     if (current_size_ == reserved_size_) {
       reserved_size_ *= 2;
-      Tensor new_data = Tensor::Empty({reserved_size_}, data_->dtype, data_->device);
-      std::memcpy(new_data->data, data_->data, current_size_ * (((data_->dtype).bits + 7) / 8));
+      ffi::Tensor new_data =
+          tvm::runtime::Empty({reserved_size_}, data_.value().dtype(), data_.value().device());
+      std::memcpy(new_data.data_ptr(), data_.value().data_ptr(),
+                  current_size_ * (((data_.value().dtype()).bits + 7) / 8));
       data_ = new_data;
     }
-    static_cast<int32_t*>(data_->data)[current_size_++] = value;
+    static_cast<int32_t*>(data_.value().data_ptr())[current_size_++] = value;
   }
 
   void push_back_vec(const std::vector<int32_t>& values) {
@@ -381,11 +399,13 @@ class HostMemoryVector {
       while (current_size_ + num_new_elements > reserved_size_) {
         reserved_size_ *= 2;
       }
-      Tensor new_data = Tensor::Empty({reserved_size_}, data_->dtype, data_->device);
-      std::memcpy(new_data->data, data_->data, current_size_ * (((data_->dtype).bits + 7) / 8));
+      ffi::Tensor new_data =
+          tvm::runtime::Empty({reserved_size_}, data_.value().dtype(), data_.value().device());
+      std::memcpy(new_data.data_ptr(), data_.value().data_ptr(),
+                  current_size_ * (((data_.value().dtype()).bits + 7) / 8));
       data_ = new_data;
     }
-    std::memcpy(static_cast<int32_t*>(data_->data) + current_size_, values.data(),
+    std::memcpy(static_cast<int32_t*>(data_.value().data_ptr()) + current_size_, values.data(),
                 num_new_elements * sizeof(int32_t));
     current_size_ += num_new_elements;
   }
@@ -393,17 +413,17 @@ class HostMemoryVector {
   const int32_t& operator[](int64_t idx) const {
     TVM_FFI_ICHECK_GE(idx, 0) << "Index " << idx << " is negative.";
     TVM_FFI_ICHECK_LT(idx, current_size_) << "Index " << idx << " out of bounds " << current_size_;
-    return static_cast<int32_t*>(data_->data)[idx];
+    return static_cast<int32_t*>(data_.value().data_ptr())[idx];
   }
 
   int32_t back() const {
     TVM_FFI_ICHECK_GT(current_size_, 0) << "Vector is empty";
-    return static_cast<int32_t*>(data_->data)[current_size_ - 1];
+    return static_cast<int32_t*>(data_.value().data_ptr())[current_size_ - 1];
   }
 
   void fill(int32_t value) {
-    std::fill(static_cast<int32_t*>(data_->data),
-              static_cast<int32_t*>(data_->data) + current_size_, value);
+    std::fill(static_cast<int32_t*>(data_.value().data_ptr()),
+              static_cast<int32_t*>(data_.value().data_ptr()) + current_size_, value);
   }
 
   void resize(size_t new_size) {
@@ -414,23 +434,25 @@ class HostMemoryVector {
   void set(int64_t idx, int32_t value) {
     TVM_FFI_ICHECK_GE(idx, 0) << "Index " << idx << " is negative.";
     TVM_FFI_ICHECK_LT(idx, current_size_) << "Index " << idx << " out of bounds " << current_size_;
-    static_cast<int32_t*>(data_->data)[idx] = value;
+    static_cast<int32_t*>(data_.value().data_ptr())[idx] = value;
   }
 
   size_t size() const { return static_cast<size_t>(current_size_); }
 
-  int32_t* data() const { return static_cast<int32_t*>(data_->data); }
+  int32_t* data() const { return static_cast<int32_t*>(data_.value().data_ptr()); }
 
   void clear() { current_size_ = 0; }
 
   /*! \brief Return the vector as an Tensor. */
-  Tensor as_tensor() { return data_.CreateView({current_size_}, data_->dtype); }
+  ffi::Tensor as_tensor() {
+    return tvm::runtime::CreateView(data_.value(), {current_size_}, data_.value().dtype());
+  }
 
   ffi::Shape as_int_tuple() const {
     std::vector<int64_t> values;
     values.reserve(current_size_);
     for (int i = 0; i < current_size_; ++i) {
-      values.push_back(static_cast<int32_t*>(data_->data)[i]);
+      values.push_back(static_cast<int32_t*>(data_.value().data_ptr())[i]);
     }
     return ffi::Shape(values);
   }
@@ -438,7 +460,7 @@ class HostMemoryVector {
  private:
   int64_t reserved_size_ = 0;
   int64_t current_size_ = 0;
-  Tensor data_{nullptr};
+  ffi::Optional<ffi::Tensor> data_;
 };
 
 /*!
@@ -473,13 +495,15 @@ class PagedKVCacheAuxDataManager {
   /*! \brief Reset the attention auxiliary data status of copy manager. */
   virtual void ResetAttnAuxDataCopy() = 0;
   /*! \brief Copy the indptr array of append lengths after coalescing. (see GetChunkedBlockIds) */
-  virtual Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*! \brief Copy the indptr array of page table. */
-  virtual Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                                 bool layer_sliding_window = false) = 0;
   /*! \brief Copy the indices array of page table. */
-  virtual Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                                  bool layer_sliding_window = false) = 0;
   /*! \brief Copy the array of KV slot number used in the last page of the seq. */
-  virtual Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*!
    * \brief Copy the length information of the sequences.
    * Each Tensor is in shape `(3, n)`. "n" is the number of sequences.
@@ -490,51 +514,52 @@ class PagedKVCacheAuxDataManager {
    * \note When sliding window is not enabled, only the
    * "last_page_len" (a.k.a., the first "n" elements) will be effectively used.
    */
-  virtual Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
-                                            HostMemoryVector* sliding_window_offset,
-                                            HostMemoryVector* sink_size, int depth) = 0;
+  virtual ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
+                                                 HostMemoryVector* sliding_window_offset,
+                                                 HostMemoryVector* sink_size, int depth,
+                                                 bool layer_sliding_window = false) = 0;
   /*! \brief Copy the k position offset of applying RoPE for each sequence. */
-  virtual Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*!
    * \brief Copy the append length indptr array on device.
    * \note Since the Q/K/V data may have raggedness in terms of lengths,
    * we represent the append lengths in CSR format.
    */
-  virtual Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the k position offset of applying RoPE for each sequence. */
-  virtual Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the q position mapping of applying RoPE for each sequence. */
-  virtual Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) = 0;
   /*!
    * \brief Copy the corresponding position in global KV cache (pages)
    * for each position along the length dimension of K/V data when
    * appending new K/V data.
    */
-  virtual Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the remote position map for KV transfer. */
-  virtual Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the receiver id for KV transfer. */
-  virtual Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the local position map for KV page-to-page transfer. */
-  virtual Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the remote position map for KV page-to-page transfer. */
-  virtual Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the receiver id for KV page-to-page transfer. */
-  virtual Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the tree attention mask. */
-  virtual Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*! \brief Copy the mn indptr of the tree attention mask. */
-  virtual Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
+  virtual ffi::Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) = 0;
   /*! \brief Commit all the attention auxiliary data copy operations since the last commit. */
   virtual void CommitAttnAuxDataCopy() = 0;
 
   /*! \brief Reset the compact KV auxiliary data status of copy manager. */
   virtual void ResetCompactKVAuxDataCopy() = 0;
   /*! \brief Copy the length indptr array of KV data copy for each sequence. */
-  virtual Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) = 0;
+  virtual ffi::Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) = 0;
   /*! \brief Copy the src/dst position arrays for each sequence. */
-  virtual Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
-                                                     HostMemoryVector* dst_data) = 0;
+  virtual ffi::Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
+                                                          HostMemoryVector* dst_data) = 0;
   /*! \brief Commit all the compact KV auxiliary data copy operations since the last commit. */
   virtual void CommitCompactKVAuxDataCopy() = 0;
 
@@ -558,148 +583,170 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   explicit PlainPagedKVCacheAuxDataManager(int64_t reserved_num_seqs, int64_t num_total_pages,
                                            int64_t prefill_chunk_size, DLDataType dtype_aux,
                                            Device device, Device preferred_host_device,
-                                           TVMStreamHandle copy_stream)
-      : PagedKVCacheAuxDataManager(dtype_aux, device, preferred_host_device, copy_stream) {
+                                           TVMStreamHandle copy_stream,
+                                           bool layer_sliding_window = false)
+      : PagedKVCacheAuxDataManager(dtype_aux, device, preferred_host_device, copy_stream),
+        cur_append_length_indptr_device_(
+            tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device)),
+        k_ragged_rope_pos_offset_device_(
+            tvm::runtime::Empty({reserved_num_seqs}, dtype_aux_, device)),
+        q_rope_position_map_device_(tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        append_position_map_device_(tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        kv_transfer_remote_position_map_device(
+            tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        kv_transfer_recver_id_device(tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        kv_transfer_page_to_page_local_position_map_device(
+            tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        kv_transfer_page_to_page_remote_position_map_device(
+            kv_transfer_page_to_page_local_position_map_device),
+        kv_transfer_page_to_page_recver_id_device(
+            tvm::runtime::Empty({prefill_chunk_size}, dtype_aux_, device)),
+        commit_copy_length_indptr_device_(
+            tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device)),
+        commit_copy_src_dst_pos_in_page_table_device_(tvm::runtime::Empty(
+            {2, std::min(kTreeAttnMaxTreeSize * reserved_num_seqs, prefill_chunk_size)}, dtype_aux_,
+            device)) {
     for (int d = 0; d < kPagedKVCacheMaxBlockDepth; ++d) {
       qo_indptr_on_depths_device_.push_back(
-          Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+          tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
       page_indptr_on_depths_device_.push_back(
-          Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+          tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
       page_indices_on_depths_device_.push_back(
-          Tensor::Empty({num_total_pages}, dtype_aux_, device));
+          tvm::runtime::Empty({num_total_pages}, dtype_aux_, device));
       length_info_on_depths_device_.push_back(
-          Tensor::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+          tvm::runtime::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+      if (layer_sliding_window) {
+        page_indptr_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+        page_indices_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({num_total_pages}, dtype_aux_, device));
+        length_info_sliding_on_depths_device_.push_back(
+            tvm::runtime::Empty({3, reserved_num_seqs}, dtype_aux_, device));
+      }
       k_rope_pos_offset_on_depths_device_.push_back(
-          Tensor::Empty({reserved_num_seqs}, dtype_aux_, device));
-      tree_attn_mask_device_.push_back(Tensor::Empty(
+          tvm::runtime::Empty({reserved_num_seqs}, dtype_aux_, device));
+      tree_attn_mask_device_.push_back(tvm::runtime::Empty(
           {kTreeAttnMaxTreeSize * kTreeAttnMaxTreeSize * reserved_num_seqs}, dtype_aux_, device));
       tree_attn_mn_indptr_device_.push_back(
-          Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
+          tvm::runtime::Empty({reserved_num_seqs + 1}, dtype_aux_, device));
     }
-    cur_append_length_indptr_device_ = Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device);
-    k_ragged_rope_pos_offset_device_ = Tensor::Empty({reserved_num_seqs}, dtype_aux_, device);
-    q_rope_position_map_device_ = Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    append_position_map_device_ = Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    kv_transfer_remote_position_map_device =
-        Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    kv_transfer_recver_id_device = Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    kv_transfer_page_to_page_local_position_map_device =
-        kv_transfer_page_to_page_remote_position_map_device =
-            Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    kv_transfer_page_to_page_recver_id_device =
-        Tensor::Empty({prefill_chunk_size}, dtype_aux_, device);
-    commit_copy_length_indptr_device_ = Tensor::Empty({reserved_num_seqs + 1}, dtype_aux_, device);
-    commit_copy_src_dst_pos_in_page_table_device_ =
-        Tensor::Empty({2, std::min(kTreeAttnMaxTreeSize * reserved_num_seqs, prefill_chunk_size)},
-                      dtype_aux_, device);
   }
 
   // The reset of the plain auxiliary data manager is no-op.
   void ResetAttnAuxDataCopy() final {}
-  Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = qo_indptr_on_depths_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor view = tvm::runtime::CreateView(qo_indptr_on_depths_device_[depth],
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = page_indptr_on_depths_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                         bool layer_sliding_window = false) final {
+    const auto& storage = layer_sliding_window ? page_indptr_sliding_on_depths_device_
+                                               : page_indptr_on_depths_device_;
+    ffi::Tensor view =
+        tvm::runtime::CreateView(storage[depth], {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = page_indices_on_depths_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                          bool layer_sliding_window = false) final {
+    const auto& storage = layer_sliding_window ? page_indices_sliding_on_depths_device_
+                                               : page_indices_on_depths_device_;
+    ffi::Tensor view =
+        tvm::runtime::CreateView(storage[depth], {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = length_info_on_depths_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor view = tvm::runtime::CreateView(length_info_on_depths_device_[depth],
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = k_rope_pos_offset_on_depths_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor view = tvm::runtime::CreateView(k_rope_pos_offset_on_depths_device_[depth],
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) final {
-    Tensor view = cur_append_length_indptr_device_.CreateView({static_cast<int64_t>(data->size())},
-                                                              dtype_aux_);
+  ffi::Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(cur_append_length_indptr_device_,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) final {
-    Tensor view = k_ragged_rope_pos_offset_device_.CreateView({static_cast<int64_t>(data->size())},
-                                                              dtype_aux_);
+  ffi::Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(k_ragged_rope_pos_offset_device_,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) final {
-    Tensor view =
-        q_rope_position_map_device_.CreateView({static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(q_rope_position_map_device_,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) final {
-    Tensor view =
-        append_position_map_device_.CreateView({static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(append_position_map_device_,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) final {
-    Tensor view = kv_transfer_remote_position_map_device.CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(kv_transfer_remote_position_map_device,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) final {
-    Tensor view =
-        kv_transfer_recver_id_device.CreateView({static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(kv_transfer_recver_id_device,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) final {
-    Tensor view = kv_transfer_page_to_page_local_position_map_device.CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(kv_transfer_page_to_page_local_position_map_device,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) final {
-    Tensor view = kv_transfer_page_to_page_remote_position_map_device.CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(kv_transfer_page_to_page_remote_position_map_device,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) final {
-    Tensor view = kv_transfer_page_to_page_recver_id_device.CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
-    CopyVecDataToArray(view, data->data());
-    return view;
-  }
-
-  Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view =
-        tree_attn_mask_device_[depth].CreateView({static_cast<int64_t>(data->size())}, dtype_aux_);
-    CopyVecDataToArray(view, data->data());
-    return view;
-  }
-  Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor view = tree_attn_mn_indptr_device_[depth].CreateView(
-        {static_cast<int64_t>(data->size())}, dtype_aux_);
+  ffi::Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(kv_transfer_page_to_page_recver_id_device,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
 
-  Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
-                                    HostMemoryVector* sliding_window_offset,
-                                    HostMemoryVector* sink_size, int depth) final {
+  ffi::Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor view = tvm::runtime::CreateView(tree_attn_mask_device_[depth],
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
+    CopyVecDataToArray(view, data->data());
+    return view;
+  }
+  ffi::Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor view = tvm::runtime::CreateView(tree_attn_mn_indptr_device_[depth],
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
+    CopyVecDataToArray(view, data->data());
+    return view;
+  }
+
+  ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
+                                         HostMemoryVector* sliding_window_offset,
+                                         HostMemoryVector* sink_size, int depth,
+                                         bool layer_sliding_window = false) final {
     int n_elem = last_page_len->size();
     TVM_FFI_ICHECK_GT(n_elem, 0);
-    Tensor view = length_info_on_depths_device_[depth].CreateView({3, n_elem}, dtype_aux_);
+    const auto& storage = layer_sliding_window ? length_info_sliding_on_depths_device_
+                                               : length_info_on_depths_device_;
+    ffi::Tensor view = tvm::runtime::CreateView(storage[depth], {3, n_elem}, dtype_aux_);
     ffi::Shape copy_shape{n_elem};
     CopyVecDataToArray(view, last_page_len->data(), copy_shape);
     CopyVecDataToArray(view, sliding_window_offset->data(), copy_shape,
@@ -715,17 +762,18 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   // The reset of the plain auxiliary data manager is no-op.
   void ResetCompactKVAuxDataCopy() final {}
 
-  Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) final {
-    Tensor view = commit_copy_length_indptr_device_.CreateView({static_cast<int64_t>(data->size())},
-                                                               dtype_aux_);
+  ffi::Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) final {
+    ffi::Tensor view = tvm::runtime::CreateView(commit_copy_length_indptr_device_,
+                                                {static_cast<int64_t>(data->size())}, dtype_aux_);
     CopyVecDataToArray(view, data->data());
     return view;
   }
-  Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
-                                             HostMemoryVector* dst_data) final {
+  ffi::Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
+                                                  HostMemoryVector* dst_data) final {
     int n_elem = src_data->size();
     TVM_FFI_ICHECK_GT(n_elem, 0);
-    Tensor view = commit_copy_src_dst_pos_in_page_table_device_.CreateView({2, n_elem}, dtype_aux_);
+    ffi::Tensor view = tvm::runtime::CreateView(commit_copy_src_dst_pos_in_page_table_device_,
+                                                {2, n_elem}, dtype_aux_);
     ffi::Shape copy_shape{n_elem};
     CopyVecDataToArray(view, src_data->data(), copy_shape);
     CopyVecDataToArray(view, dst_data->data(), copy_shape,
@@ -742,28 +790,13 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
    * It optionally supports specifying the shape of copy and the element
    * offset to the destination Tensor.
    */
-  void CopyVecDataToArray(Tensor array, int32_t* vec_data,
+  void CopyVecDataToArray(ffi::Tensor array, int32_t* vec_data,
                           ffi::Optional<ffi::Shape> shape = std::nullopt, int dst_elem_offset = 0) {
-    if (array->shape[0] == 0) {
+    TVM_FFI_ICHECK(array.defined());
+    if (array.shape()[0] == 0) {
       return;
     }
-    DLTensor copy_dst = *array.operator->();
-#if defined(OPENCL_ENABLE_HOST_PTR)
-    tvm::runtime::cl::OpenCLWorkspace* workspace = tvm::runtime::cl::OpenCLWorkspace::Global();
-    if (workspace->IsOpenCLDevice(copy_dst.device)) {
-      void* nptr = workspace->GetNativePtr(array);
-      uint64_t copy_size;
-      if (shape.has_value()) {
-        TVM_FFI_ICHECK_EQ(shape.value().size(), 1);
-        copy_size = shape.value()->data[0] * sizeof(int32_t);
-      } else {
-        copy_size = DeviceAPI::Get(array->device)->GetDataSize(*array.operator->());
-      }
-      memcpy(static_cast<char*>(nptr) + dst_elem_offset * sizeof(int32_t), vec_data, copy_size);
-      return;
-    }
-#endif
-
+    DLTensor copy_dst = *array.GetDLTensorPtr();
     if (shape.has_value()) {
       TVM_FFI_ICHECK_EQ(shape.value().size(), 1);
       copy_dst.ndim = 1;
@@ -771,37 +804,48 @@ class PlainPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
       // The strides still describe the multi-row view this copies one row of.
       copy_dst.strides = nullptr;
     }
-    copy_dst.byte_offset = dst_elem_offset * sizeof(int32_t);
+    copy_dst.byte_offset += dst_elem_offset * sizeof(int32_t);
+
+    if (void* host_ptr =
+            DeviceAPI::Get(copy_dst.device)->GetMappedHostPtrIfAvailable(copy_dst.data)) {
+      std::memcpy(static_cast<char*>(host_ptr) + copy_dst.byte_offset, vec_data,
+                  ffi::GetDataSize(copy_dst));
+      return;
+    }
 
     DLTensor copy_src;
     copy_src.data = vec_data;
     copy_src.device = preferred_host_device_;
     copy_src.ndim = 1;
-    copy_src.dtype = array->dtype;
+    copy_src.dtype = array.dtype();
     copy_src.shape = copy_dst.shape;
     copy_src.strides = nullptr;
     copy_src.byte_offset = 0;
-    Tensor::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
+    tvm::runtime::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
   }
 
-  std::vector<Tensor> qo_indptr_on_depths_device_;
-  std::vector<Tensor> page_indptr_on_depths_device_;
-  std::vector<Tensor> page_indices_on_depths_device_;
-  std::vector<Tensor> length_info_on_depths_device_;
-  std::vector<Tensor> k_rope_pos_offset_on_depths_device_;
-  std::vector<Tensor> tree_attn_mask_device_;
-  std::vector<Tensor> tree_attn_mn_indptr_device_;
-  Tensor cur_append_length_indptr_device_;
-  Tensor k_ragged_rope_pos_offset_device_;
-  Tensor q_rope_position_map_device_;
-  Tensor append_position_map_device_;
-  Tensor kv_transfer_remote_position_map_device;
-  Tensor kv_transfer_recver_id_device;
-  Tensor kv_transfer_page_to_page_local_position_map_device;
-  Tensor kv_transfer_page_to_page_remote_position_map_device;
-  Tensor kv_transfer_page_to_page_recver_id_device;
-  Tensor commit_copy_length_indptr_device_;
-  Tensor commit_copy_src_dst_pos_in_page_table_device_;
+  // Both page tables stay live until all global and sliding layers finish.
+  std::vector<ffi::Tensor> page_indptr_sliding_on_depths_device_;
+  std::vector<ffi::Tensor> page_indices_sliding_on_depths_device_;
+  std::vector<ffi::Tensor> length_info_sliding_on_depths_device_;
+  std::vector<ffi::Tensor> qo_indptr_on_depths_device_;
+  std::vector<ffi::Tensor> page_indptr_on_depths_device_;
+  std::vector<ffi::Tensor> page_indices_on_depths_device_;
+  std::vector<ffi::Tensor> length_info_on_depths_device_;
+  std::vector<ffi::Tensor> k_rope_pos_offset_on_depths_device_;
+  std::vector<ffi::Tensor> tree_attn_mask_device_;
+  std::vector<ffi::Tensor> tree_attn_mn_indptr_device_;
+  ffi::Tensor cur_append_length_indptr_device_;
+  ffi::Tensor k_ragged_rope_pos_offset_device_;
+  ffi::Tensor q_rope_position_map_device_;
+  ffi::Tensor append_position_map_device_;
+  ffi::Tensor kv_transfer_remote_position_map_device;
+  ffi::Tensor kv_transfer_recver_id_device;
+  ffi::Tensor kv_transfer_page_to_page_local_position_map_device;
+  ffi::Tensor kv_transfer_page_to_page_remote_position_map_device;
+  ffi::Tensor kv_transfer_page_to_page_recver_id_device;
+  ffi::Tensor commit_copy_length_indptr_device_;
+  ffi::Tensor commit_copy_src_dst_pos_in_page_table_device_;
 };
 
 /*!
@@ -819,7 +863,11 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
                                             TVMStreamHandle copy_stream)
       : PagedKVCacheAuxDataManager(dtype_aux, device, preferred_host_device, copy_stream),
         elem_byte_size_((dtype_aux.bits * dtype_aux.lanes + 7) / 8),
-        offset_alignment_(cuda_byte_alignment_ / elem_byte_size_) {
+        offset_alignment_(cuda_byte_alignment_ / elem_byte_size_),
+        merged_attn_aux_data_device_(tvm::runtime::Empty({32 * 1024 * 1024}, dtype_aux, device)),
+        merged_compact_kv_aux_data_device_(tvm::runtime::Empty(
+            {CalculateCompactKVAuxDataCacheSize(reserved_num_seqs, prefill_chunk_size)}, dtype_aux,
+            device)) {
     // - Calculate cache size of all the attention auxiliary arrays in
     // local cache and the large on-device array.
     // int64_t attn_aux_data_cache_size =
@@ -828,9 +876,6 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     // - Initialize the host auxiliary data buffer.
     merged_attn_aux_data_host_ =
         HostMemoryVector(attn_aux_data_cache_size, dtype_aux, preferred_host_device);
-    // - Initialize the device auxiliary data buffer.
-    merged_attn_aux_data_device_ = Tensor::Empty({attn_aux_data_cache_size}, dtype_aux, device);
-
     // - Calculate cache size of all the compact KV auxiliary arrays in
     // local cache and the large on-device array.
     int64_t compact_kv_aux_data_cache_size =
@@ -838,61 +883,65 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     // - Initialize the host auxiliary data buffer.
     merged_compact_kv_aux_data_host_ =
         HostMemoryVector(compact_kv_aux_data_cache_size, dtype_aux, preferred_host_device);
-    merged_compact_kv_aux_data_device_ =
-        Tensor::Empty({compact_kv_aux_data_cache_size}, dtype_aux, device);
   }
 
   void ResetAttnAuxDataCopy() final { attn_aux_data_copy_offset_ = 0; }
-  Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyQOIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyPageIndptrOnDepthAsync(HostMemoryVector* data, int depth,
+                                         bool layer_sliding_window = false) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyPageIndicesOnDepthAsync(HostMemoryVector* data, int depth,
+                                          bool layer_sliding_window = false) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyLastPageLenOnDepthAsync(HostMemoryVector* data, int depth) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyKRoPEPosOffsetOnDepthAsync(HostMemoryVector* data, int depth) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyCurAppendLengthIndptrAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyKRaggedRoPEPosOffsetAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) final { return CopyAttnAuxVecToCache(data); }
-  Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyQRoPEPosMapAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyAppendPositionMapAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyKVTransferRemotePositionMapAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyKVTransferRecverIDAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyKVTransferPage2PageLocalPositionMapAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyKVTransferPage2PageRemotePositionMapAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) final {
-    Tensor mask_1d = CopyAttnAuxVecToCache(data);
-    return mask_1d.CreateView({static_cast<int64_t>(data->size() / 2), 2}, mask_1d->dtype);
-  }
-  Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+  ffi::Tensor CopyKVTransferPage2PageRecverIDAsync(HostMemoryVector* data) final {
     return CopyAttnAuxVecToCache(data);
   }
-  Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
-                                    HostMemoryVector* sliding_window_offset,
-                                    HostMemoryVector* sink_size, int depth) final {
+  ffi::Tensor CopyTreeAttnMaskOnDepthAsync(HostMemoryVector* data, int depth) final {
+    ffi::Tensor mask_1d = CopyAttnAuxVecToCache(data);
+    return tvm::runtime::CreateView(mask_1d, {static_cast<int64_t>(data->size() / 2), 2},
+                                    mask_1d.dtype());
+  }
+  ffi::Tensor CopyTreeAttnMNIndptrOnDepthAsync(HostMemoryVector* data, int depth) final {
+    return CopyAttnAuxVecToCache(data);
+  }
+  ffi::Tensor CopyLengthInfoOnDepthAsync(HostMemoryVector* last_page_len,
+                                         HostMemoryVector* sliding_window_offset,
+                                         HostMemoryVector* sink_size, int depth,
+                                         bool layer_sliding_window = false) final {
     int64_t n_elem = last_page_len->size();
     std::memcpy(merged_attn_aux_data_host_.data() + attn_aux_data_copy_offset_,
                 last_page_len->data(), n_elem * elem_byte_size_);
@@ -900,8 +949,9 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
                 sliding_window_offset->data(), n_elem * elem_byte_size_);
     std::memcpy(merged_attn_aux_data_host_.data() + attn_aux_data_copy_offset_ + 2 * n_elem,
                 sink_size->data(), n_elem * elem_byte_size_);
-    Tensor view = merged_attn_aux_data_device_.CreateView(
-        {3, n_elem}, dtype_aux_, attn_aux_data_copy_offset_ * elem_byte_size_);
+    ffi::Tensor view =
+        tvm::runtime::CreateView(merged_attn_aux_data_device_, {3, n_elem}, dtype_aux_,
+                                 attn_aux_data_copy_offset_ * elem_byte_size_);
     attn_aux_data_copy_offset_ += CeilDivElemAlignment(3 * n_elem);
     return view;
   }
@@ -909,7 +959,7 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   void CommitAttnAuxDataCopy() final {
     std::vector<int64_t> copy_shape{attn_aux_data_copy_offset_};
     DLTensor copy_dst;
-    copy_dst.data = merged_attn_aux_data_device_->data;
+    copy_dst.data = merged_attn_aux_data_device_.data_ptr();
     copy_dst.device = device_;
     copy_dst.ndim = 1;
     copy_dst.dtype = dtype_aux_;
@@ -920,23 +970,24 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     DLTensor copy_src = copy_dst;
     copy_src.data = merged_attn_aux_data_host_.data();
     copy_src.device = Device{kDLCPU, 0};
-    Tensor::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
+    tvm::runtime::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
   }
 
   void ResetCompactKVAuxDataCopy() final { compact_kv_aux_data_copy_offset_ = 0; }
 
-  Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) final {
+  ffi::Tensor CopyCommitLengthIndptrAsync(HostMemoryVector* data) final {
     return CopyCompactKVAuxVecToCache(data);
   }
-  Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
-                                             HostMemoryVector* dst_data) final {
+  ffi::Tensor CopyCommitSrcDstPosInPageTableAsync(HostMemoryVector* src_data,
+                                                  HostMemoryVector* dst_data) final {
     int64_t n_elem = src_data->size();
     std::memcpy(merged_compact_kv_aux_data_host_.data() + compact_kv_aux_data_copy_offset_,
                 src_data->data(), n_elem * elem_byte_size_);
     std::memcpy(merged_compact_kv_aux_data_host_.data() + compact_kv_aux_data_copy_offset_ + n_elem,
                 dst_data->data(), n_elem * elem_byte_size_);
-    Tensor view = merged_compact_kv_aux_data_device_.CreateView(
-        {2, n_elem}, dtype_aux_, compact_kv_aux_data_copy_offset_ * elem_byte_size_);
+    ffi::Tensor view =
+        tvm::runtime::CreateView(merged_compact_kv_aux_data_device_, {2, n_elem}, dtype_aux_,
+                                 compact_kv_aux_data_copy_offset_ * elem_byte_size_);
     compact_kv_aux_data_copy_offset_ += CeilDivElemAlignment(2 * n_elem);
     return view;
   }
@@ -944,7 +995,7 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   void CommitCompactKVAuxDataCopy() final {
     std::vector<int64_t> copy_shape{compact_kv_aux_data_copy_offset_};
     DLTensor copy_dst;
-    copy_dst.data = merged_compact_kv_aux_data_device_->data;
+    copy_dst.data = merged_compact_kv_aux_data_device_.data_ptr();
     copy_dst.device = device_;
     copy_dst.ndim = 1;
     copy_dst.dtype = dtype_aux_;
@@ -955,7 +1006,7 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
     DLTensor copy_src = copy_dst;
     copy_src.data = merged_compact_kv_aux_data_host_.data();
     copy_src.device = Device{kDLCPU, 0};
-    Tensor::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
+    tvm::runtime::CopyFromTo(&copy_src, &copy_dst, copy_stream_);
   }
 
  private:
@@ -1026,22 +1077,23 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
    * \brief Copy the input data to the cache at the given offset.
    * And return the Tensor view of the cache starting at the offset.
    */
-  Tensor CopyAttnAuxVecToCache(HostMemoryVector* data) {
+  ffi::Tensor CopyAttnAuxVecToCache(HostMemoryVector* data) {
     int64_t n_elem = data->size();
     std::memcpy(merged_attn_aux_data_host_.data() + attn_aux_data_copy_offset_, data->data(),
                 n_elem * elem_byte_size_);
-    Tensor view = merged_attn_aux_data_device_.CreateView(
-        {n_elem}, dtype_aux_, attn_aux_data_copy_offset_ * elem_byte_size_);
+    ffi::Tensor view = tvm::runtime::CreateView(merged_attn_aux_data_device_, {n_elem}, dtype_aux_,
+                                                attn_aux_data_copy_offset_ * elem_byte_size_);
     attn_aux_data_copy_offset_ += CeilDivElemAlignment(n_elem);
     return view;
   }
 
-  Tensor CopyCompactKVAuxVecToCache(HostMemoryVector* data) {
+  ffi::Tensor CopyCompactKVAuxVecToCache(HostMemoryVector* data) {
     int64_t n_elem = data->size();
     std::memcpy(merged_compact_kv_aux_data_host_.data() + compact_kv_aux_data_copy_offset_,
                 data->data(), n_elem * elem_byte_size_);
-    Tensor view = merged_compact_kv_aux_data_device_.CreateView(
-        {n_elem}, dtype_aux_, compact_kv_aux_data_copy_offset_ * elem_byte_size_);
+    ffi::Tensor view =
+        tvm::runtime::CreateView(merged_compact_kv_aux_data_device_, {n_elem}, dtype_aux_,
+                                 compact_kv_aux_data_copy_offset_ * elem_byte_size_);
     compact_kv_aux_data_copy_offset_ += CeilDivElemAlignment(n_elem);
     return view;
   }
@@ -1059,8 +1111,8 @@ class CachedPagedKVCacheAuxDataManager : public PagedKVCacheAuxDataManager {
   int64_t compact_kv_aux_data_copy_offset_ = 0;
   HostMemoryVector merged_attn_aux_data_host_;
   HostMemoryVector merged_compact_kv_aux_data_host_;
-  Tensor merged_attn_aux_data_device_;
-  Tensor merged_compact_kv_aux_data_device_;
+  ffi::Tensor merged_attn_aux_data_device_;
+  ffi::Tensor merged_compact_kv_aux_data_device_;
 };
 
 }  // namespace vm

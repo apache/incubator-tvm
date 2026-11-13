@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_DATATYPE_H_
 #define TVM_RELAX_OP_TENSOR_DATATYPE_H_
 
-#include <tvm/relax/attrs/datatype.h>
+#include <tvm/relax/op/datatype.h>
 
 #include "../op_common.h"
 

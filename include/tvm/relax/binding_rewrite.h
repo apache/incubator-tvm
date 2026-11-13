@@ -24,23 +24,23 @@
 
 #ifndef TVM_RELAX_BINDING_REWRITE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/unique_name_supply.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/expr.h>
 
-#include <map>
-#include <set>
-#include <type_traits>
 #include <utility>
-#include <vector>
 
 namespace tvm {
 namespace relax {
 
 /*! \brief Statement rewriter for relax.DataflowBlock. */
-class DataflowBlockRewriteNode : public ffi::Object {
+class DataflowBlockRewriteObj : public ffi::Object {
  public:
+  explicit DataflowBlockRewriteObj(DataflowBlock value) : dfb_(std::move(value)) {}
+  explicit DataflowBlockRewriteObj(ffi::UnsafeInit) : dfb_(ffi::UnsafeInit{}) {}
+
   /*! \brief Replace all uses of old_var with new_var. */
   void ReplaceAllUses(Var old_var, Var new_var);
   /*! \brief Insert a Binding statement. */
@@ -70,11 +70,11 @@ class DataflowBlockRewriteNode : public ffi::Object {
   /*! \brief Visit attributes. */
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<DataflowBlockRewriteNode>()
-        .def_ro("dfb", &DataflowBlockRewriteNode::dfb_)
-        .def_ro("root_fn", &DataflowBlockRewriteNode::root_fn_);
+    refl::ObjectDef<DataflowBlockRewriteObj>()
+        .def_ro("dfb", &DataflowBlockRewriteObj::dfb_)
+        .def_ro("root_fn", &DataflowBlockRewriteObj::root_fn_);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DataflowBlockRewrite", DataflowBlockRewriteNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.DataflowBlockRewrite", DataflowBlockRewriteObj,
                                     ffi::Object);
 
  protected:
@@ -82,7 +82,7 @@ class DataflowBlockRewriteNode : public ffi::Object {
 
   DataflowBlock dfb_;                        //!< The rewritten dataflow block.
   ffi::Optional<Function> root_fn_;          //!< The rewritten function.
-  const FunctionNode* original_fn_ptr_;      //!< Pointer to the original function.
+  const FunctionObj* original_fn_ptr_;       //!< Pointer to the original function.
   ffi::Map<Var, ffi::Array<Var>> to_users_;  //!< Map from variable to its users.
   ffi::Array<Var> fn_outputs_;               //!< Variables required by function outputs.
 
@@ -92,7 +92,7 @@ class DataflowBlockRewriteNode : public ffi::Object {
 
 /*!
  * \brief A statement rewriter for relax.DataflowBlock.
- * \sa DataflowBlockRewriteNode
+ * \sa DataflowBlockRewriteObj
  */
 class DataflowBlockRewrite : public ffi::ObjectRef {
  public:
@@ -102,13 +102,13 @@ class DataflowBlockRewrite : public ffi::ObjectRef {
    * \brief mutable accessor.
    * \return mutable access pointer.
    */
-  DataflowBlockRewriteNode* operator->() {
+  DataflowBlockRewriteObj* operator->() {
     TVM_FFI_ICHECK(get() != nullptr);
-    return static_cast<DataflowBlockRewriteNode*>(get_mutable());
+    return static_cast<DataflowBlockRewriteObj*>(get_mutable());
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(DataflowBlockRewrite, ffi::ObjectRef,
-                                             DataflowBlockRewriteNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(DataflowBlockRewrite, ffi::ObjectRef,
+                                                DataflowBlockRewriteObj);
 };
 
 }  // namespace relax

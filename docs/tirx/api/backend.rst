@@ -21,37 +21,37 @@ Backend Extension API
 Backend loading
 ---------------
 
-``tvm.backend`` discovers and loads target-owned Python semantics.  Depending
+``tvm_tirx.backend`` discovers and loads target-owned Python semantics.  Depending
 on the target, loading a backend registers its TVMScript namespaces,
 tile-dispatch implementations, target tags, compilation-pipeline entry points,
 and code-generation support.
 
-.. automodule:: tvm.backend
+.. automodule:: tvm_tirx.backend
    :members:
    :no-index:
 
 CUDA registration
 -----------------
 
-.. autofunction:: tvm.backend.cuda.register_backend
+.. autofunction:: tvm_tirx.backend.cuda.register_backend
    :no-index:
 
-.. autofunction:: tvm.backend.cuda.script_namespace
+.. autofunction:: tvm_tirx.backend.cuda.script_namespace
    :no-index:
 
-.. autofunction:: tvm.backend.cuda.script_namespaces
+.. autofunction:: tvm_tirx.backend.cuda.script_namespaces
    :no-index:
 
 Trainium registration
 ---------------------
 
-.. autofunction:: tvm.backend.trn.register_backend
+.. autofunction:: tvm_tirx.backend.trn.register_backend
    :no-index:
 
-.. autofunction:: tvm.backend.trn.script_namespace
+.. autofunction:: tvm_tirx.backend.trn.script_namespace
    :no-index:
 
-.. autofunction:: tvm.backend.trn.script_namespaces
+.. autofunction:: tvm_tirx.backend.trn.script_namespaces
    :no-index:
 
 These functions are backend integration points.  Kernel-facing CUDA APIs are

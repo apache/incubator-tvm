@@ -18,8 +18,8 @@
 
 import random
 
-from tvm.ir.utils import derived_object
 from tvm.s_tir.schedule import Trace
+from tvm.s_tir.utils import derived_object
 
 from ..builder import BuilderInput, BuilderResult, PyBuilder
 from ..mutator import PyMutator

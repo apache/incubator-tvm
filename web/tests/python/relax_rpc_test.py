@@ -19,10 +19,11 @@
 import numpy as np
 
 import tvm
+import tvm_tirx
 from tvm import relax, rpc
-from tvm.contrib import tvmjs
-from tvm.script import relax as R
-from tvm.support import utils
+from tvm.contrib import emcc
+from tvm.relax import script as R
+from tvm_tirx.support import utils
 
 proxy_host = "127.0.0.1"
 proxy_port = 9090
@@ -31,7 +32,7 @@ proxy_port = 9090
 def get_model():
     pipeline = relax.get_pipeline()
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def main(x: R.Tensor([1024], "float32"), y: R.Tensor([1024], "float32")):
@@ -50,19 +51,19 @@ def get_model():
 
 
 def test_rpc():
-    if not tvm.runtime.enabled("rpc"):
+    if not tvm_tirx.runtime.enabled("rpc"):
         return
     n = 1024
     dtype = "float32"
     temp = utils.tempdir()
     wasm_path = temp.relpath("relax.wasm")
-    target = tvm.target.Target(
+    target = tvm_tirx.target.Target(
         "webgpu", host={"kind": "llvm", "mtriple": "wasm32-unknown-unknown-wasm"}
     )
 
     mod = get_model()
     ex = relax.build(mod, target)
-    ex.export_library(wasm_path, fcompile=tvmjs.create_tvmjs_wasm)
+    ex.export_library(wasm_path, fcompile=emcc.create_wasm)
     wasm_binary = open(wasm_path, "rb").read()
 
     remote = rpc.connect(
@@ -75,11 +76,11 @@ def test_rpc():
     def check(remote):
         dev = remote.webgpu(0)
         # invoke the function
-        vm = relax.VirtualMachine(remote.system_lib(), device=dev)
+        vm = rpc.virtual_machine(remote.system_lib(), dev)
         adata = np.random.uniform(size=n).astype(dtype)
         bdata = np.random.uniform(size=n).astype(dtype)
-        a = tvm.runtime.tensor(adata, dev)
-        b = tvm.runtime.tensor(bdata, dev)
+        a = dev.tensor(adata)
+        b = dev.tensor(bdata)
         vm.set_input("main", a, b)
         vm.invoke_stateful("main")
         c = vm.get_outputs("main")

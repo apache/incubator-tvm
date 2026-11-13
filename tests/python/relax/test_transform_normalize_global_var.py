@@ -18,19 +18,21 @@
 import pytest
 
 import tvm
-import tvm.script
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir.base import assert_structural_equal
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
+from tvm import relax
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 @pytest.mark.skip_well_formed_check_before_transform
 def test_normalize_relax_function():
-    @I.ir_module(check_well_formed=False)
+    @I.ir_module
     class Before:
         @R.function(private=True)
         def f():
@@ -57,44 +59,48 @@ def test_normalize_relax_function():
 
     After = relax.transform.NormalizeGlobalVar()(Before)
 
-    assert not relax.analysis.check_well_formed(Before)
-    relax.analysis.well_formed(After)
+    with pytest.raises((ValueError, TypeError)):
+        relax.analysis.check_well_formed(Before)
+    relax.analysis.check_well_formed(After)
     assert_structural_equal(After, Expected)
 
 
 @pytest.mark.skip_well_formed_check_before_transform
 def test_normalize_tir_function():
-    @I.ir_module(check_well_formed=False)
+    @I.ir_module
     class Before:
-        @Ts.prim_func(private=True)
-        def f(x: T.Buffer((1,), "int32")):
+        @Ts.function(private=True)
+        def f(x: T.Tensor((1,), "int32")):
             x[0] = T.int32(0)
 
         @R.function
         def f1():
             R.func_attr({"global_symbol": "f"})
             cls = Before
-            gv: R.Tensor((), dtype="int32") = R.call_tir(cls.f, (), R.Tensor((1,), dtype="int32"))
+            gv: R.Tensor((1,), dtype="int32") = R.call_tir(
+                cls.f, (), ty_args=[R.Tensor((1,), dtype="int32")]
+            )
             return gv
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
-        def f1(x: T.Buffer((1,), "int32")):
+        @Ts.function(private=True)
+        def f1(x: T.Tensor((1,), "int32")):
             x[0] = 0
 
         @R.function
         def f() -> R.Tensor((1,), dtype="int32"):
             cls = Expected
-            gv = R.call_tir(cls.f1, R.tuple(), out_ty=R.Tensor((1,), dtype="int32"))
+            gv = R.call_tir(cls.f1, R.tuple(), ty_args=[R.Tensor((1,), dtype="int32")])
             return gv
 
     After = relax.transform.NormalizeGlobalVar()(Before)
 
-    assert not relax.analysis.check_well_formed(Before)
-    relax.analysis.well_formed(After)
+    with pytest.raises((ValueError, TypeError)):
+        relax.analysis.check_well_formed(Before)
+    relax.analysis.check_well_formed(After)
     assert_structural_equal(After, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

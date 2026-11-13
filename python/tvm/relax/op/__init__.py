@@ -18,11 +18,16 @@
 # pylint: disable= redefined-builtin
 """Relax core operators."""
 
-# Register operator gradient functions
-from . import _op_gradient, builtin, ccl, distributed, grad, image, memory, nn, op_attrs
+# Operator families register their attrs before exposure.
+from . import builtin, ccl, distributed, grad, image, memory, nn
 
 # Operators
 from .base import (
+    CallTIRWithGradAttrs,
+    CallInplacePackedAttrs,
+    CallTIRInplaceAttrs,
+    ToVDeviceAttrs,
+    HintOnDeviceAttrs,
     assert_op,
     call_builtin_with_ctx,
     call_dps_packed,
@@ -31,6 +36,7 @@ from .base import (
     call_py_func,
     call_tir,
     call_tir_inplace,
+    call_tir_packed,
     call_tir_with_grad,
     hint_on_device,
     invoke_closure,
@@ -74,6 +80,8 @@ from .binary import (
     subtract,
 )
 from .create import (
+    InitAttrs,
+    TriluAttrs,
     arange,
     full,
     full_like,
@@ -87,10 +95,47 @@ from .create import (
     zeros,
     zeros_like,
 )
-from .datatype import astype, wrap_param
-from .index import dynamic_strided_slice, strided_slice, take
-from .linear_algebra import einsum, linear, matmul, outer
+from .datatype import (
+    AstypeAttrs,
+    WrapParamAttrs,
+    astype,
+    wrap_param,
+)
+from .index import (
+    TakeAttrs,
+    StridedSliceAttrs,
+    dynamic_strided_slice,
+    strided_slice,
+    take,
+)
+from .linear_algebra import (
+    MatmulAttrs,
+    EinsumAttrs,
+    einsum,
+    linear,
+    matmul,
+    outer,
+)
 from .manipulate import (
+    ConcatAttrs,
+    ExpandDimsAttrs,
+    PermuteDimsAttrs,
+    SplitAttrs,
+    SqueezeAttrs,
+    StackAttrs,
+    IndexPutAttrs,
+    LayoutTransformAttrs,
+    RepeatAttrs,
+    TileAttrs,
+    FlipAttrs,
+    ReverseSequenceAttrs,
+    GatherElementsAttrs,
+    GatherNDAttrs,
+    MeshgridAttrs,
+    ScatterElementsAttrs,
+    ScatterNDAttrs,
+    SliceScatterAttrs,
+    OneHotAttrs,
     broadcast_to,
     collapse_sum_like,
     collapse_sum_to,
@@ -118,12 +163,45 @@ from .manipulate import (
     tile,
 )
 from .mask import masked_fill
-from .qdq import dequantize, quantize
-from .sampling import multinomial_from_uniform
-from .search import argmax, argmin, where, bucketize
+from .qdq import (
+    QuantizeAttrs,
+    dequantize,
+    quantize,
+)
+from .sampling import (
+    MultinomialFromUniformAttrs,
+    multinomial_from_uniform,
+)
+from .search import (
+    ArgmaxArgminAttrs,
+    argmax,
+    argmin,
+    where,
+    bucketize,
+)
 from .set import nonzero, unique
-from .sorting import argsort, sort, topk
-from .statistical import cumprod, cumsum, max, mean, min, prod, std, sum, variance, median
+from .sorting import (
+    SortAttrs,
+    ArgsortAttrs,
+    TopKAttrs,
+    argsort,
+    sort,
+    topk,
+)
+from .statistical import (
+    StatisticalAttrs,
+    ScanopAttrs,
+    cumprod,
+    cumsum,
+    max,
+    mean,
+    min,
+    prod,
+    std,
+    sum,
+    variance,
+    median,
+)
 from .ternary import ewise_fma
 from .unary import (
     abs,
@@ -169,13 +247,15 @@ from .vision import (
 )
 
 
+# Register gradients after the operator families and their attrs are available.
+from . import _op_gradient
+
+
 def _register_op_make():
     # pylint: disable=import-outside-toplevel
     from .. import expr
-    from tvm.ir import _tensor_expr_overload
+    from tvm_tirx.ir import _tensor_expr_overload
     from . import _ffi_api
-
-    expr._op_ffi_api = _ffi_api  # type: ignore
 
     def _add(lhs, rhs):
         if isinstance(lhs.ty, expr.tvm.relax.TupleType) and isinstance(rhs, tuple):
@@ -193,54 +273,44 @@ def _register_op_make():
         return op(lhs)
 
     def _call(func, *args, attrs=None):
-        if not (
-            isinstance(func.ty, expr.tvm.ir.FuncType | expr.tvm.relax.FuncType)
-            or func.ty.is_missing()
+        if not isinstance(
+            func.ty,
+            expr.tvm_tirx.ir.FuncType | expr.tvm.relax.FuncType | expr.tvm_tirx.ir.MissingType,
         ):
             return NotImplemented
-        return expr.tvm.ir.Call(func, args, attrs=attrs)
+        return expr.tvm_tirx.ir.Call(func, args, attrs=attrs)
 
-    _tensor_expr_overload.astype = lambda lhs, dtype, _span=None: (
-        _ffi_api.astype(lhs, dtype) if expr._is_tensor_or_missing_type(lhs.ty) else NotImplemented
+    operators = {}
+    operators["astype"] = (
+        lambda lhs, dtype, _loc=None: _ffi_api.astype(lhs, dtype)
+        if expr._is_tensor_or_missing_type(lhs.ty)
+        else NotImplemented
     )
-    _tensor_expr_overload.__call__ = _call
-    _tensor_expr_overload.__neg__ = lambda lhs: _unary(lhs, _ffi_api.negative)
-    _tensor_expr_overload.__lt__ = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.less)
-    _tensor_expr_overload.__le__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.less_equal
-    )
-    _tensor_expr_overload.__gt__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.greater
-    )
-    _tensor_expr_overload.__ge__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.greater_equal
-    )
-    _tensor_expr_overload.__add__ = _add
-    _tensor_expr_overload.__radd__ = _add
-    _tensor_expr_overload.__sub__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.subtract
-    )
-    _tensor_expr_overload.__rsub__ = _rhs
-    _tensor_expr_overload.__mul__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.multiply
-    )
-    _tensor_expr_overload.__rmul__ = _tensor_expr_overload.__mul__
-    _tensor_expr_overload.__div__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.divide
-    )
-    _tensor_expr_overload.__rdiv__ = _rhs
-    _tensor_expr_overload.__truediv__ = _tensor_expr_overload.__div__
-    _tensor_expr_overload.__rtruediv__ = _rhs
-    _tensor_expr_overload.__floordiv__ = lambda lhs, rhs: expr._binary_op_helper(
+    operators["__call__"] = _call
+    operators["__neg__"] = lambda lhs: _unary(lhs, _ffi_api.negative)
+    operators["__lt__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.less)
+    operators["__le__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.less_equal)
+    operators["__gt__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.greater)
+    operators["__ge__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.greater_equal)
+    operators["__add__"] = _add
+    operators["__radd__"] = _add
+    operators["__sub__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.subtract)
+    operators["__rsub__"] = _rhs
+    operators["__mul__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.multiply)
+    operators["__rmul__"] = operators["__mul__"]
+    operators["__div__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.divide)
+    operators["__rdiv__"] = _rhs
+    operators["__truediv__"] = operators["__div__"]
+    operators["__rtruediv__"] = _rhs
+    operators["__floordiv__"] = lambda lhs, rhs: expr._binary_op_helper(
         lhs, rhs, _ffi_api.floor_divide
     )
-    _tensor_expr_overload.__rfloordiv__ = _rhs
-    _tensor_expr_overload.__mod__ = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.mod)
-    _tensor_expr_overload.__rmod__ = _rhs
-    _tensor_expr_overload.__pow__ = lambda lhs, rhs: expr._binary_op_helper(
-        lhs, rhs, _ffi_api.power
-    )
-    _tensor_expr_overload.__rpow__ = _rhs
+    operators["__rfloordiv__"] = _rhs
+    operators["__mod__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.mod)
+    operators["__rmod__"] = _rhs
+    operators["__pow__"] = lambda lhs, rhs: expr._binary_op_helper(lhs, rhs, _ffi_api.power)
+    operators["__rpow__"] = _rhs
+    _tensor_expr_overload.register_tensor_expr_operators(operators)
 
 
 _register_op_make()

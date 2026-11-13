@@ -23,20 +23,22 @@ import pytest
 from numpy.testing import assert_allclose
 
 import tvm
-import tvm.testing
-from tvm import s_tir, te, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import s_tir, te
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 N_FEATURES = 164
 
 
-@Ts.prim_func
+@Ts.function
 def matmul(
-    A: T.Buffer((512, 512), "float32"),
-    B: T.Buffer((512, 512), "float32"),
-    C: T.Buffer((512, 512), "float32"),
+    A: T.Tensor((512, 512), "float32"),
+    B: T.Tensor((512, 512), "float32"),
+    C: T.Tensor((512, 512), "float32"),
 ) -> None:
     # function attr dict
     T.func_attr({"global_symbol": "main", "tirx.noalias": True})
@@ -56,15 +58,15 @@ def matmul(
 # fmt: off
 
 # from tvm.script import tirx as T
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class LayoutTransform:
-    @Ts.prim_func
-    def main(placeholder: T.Buffer((1, 16, 7, 7, 32), "float32"), placeholder_1: T.Buffer((25088,), "float32"), T_layout_trans: T.Buffer((1, 1, 7, 7, 512), "float32")) -> None:
+    @Ts.function
+    def main(placeholder: T.Tensor((1, 16, 7, 7, 32), "float32"), placeholder_1: T.Tensor((25088,), "float32"), T_layout_trans: T.Tensor((1, 1, 7, 7, 512), "float32")) -> None:
         # function attr dict
         T.func_attr({"tirx.noalias": True, "global_symbol": "main"})
         # body
         # with Ts.sblock("root")
-        for i0_i1_i2_i3_i4_fused in T.parallel(25088, annotations={"pragma_auto_unroll_max_step":64, "pragma_unroll_explicit":1}):
+        for i0_i1_i2_i3_i4_fused in T.parallel(25088, annotations={"tirx.auto_unroll_max_step":64, "tirx.unroll_explicit":1}):
             with Ts.sblock("T_layout_trans_1"):
                 ax0 = Ts.axis.spatial(1, 0)
                 ax1 = Ts.axis.spatial(1, 0)
@@ -73,7 +75,7 @@ class LayoutTransform:
                 ax4 = Ts.axis.spatial(512, i0_i1_i2_i3_i4_fused % 512)
                 Ts.reads(placeholder[0, (ax4 * 49 + ax2 * 7 + ax3) % 25088 // 1568, (ax2 * 7 + ax3) % 49 // 7, ax3 % 7, (ax4 * 49 + ax2 * 7 + ax3) % 1568 // 49], placeholder_1[(ax4 * 49 + ax2 * 7 + ax3) % 25088])
                 Ts.writes(T_layout_trans[ax0, ax1, ax2, ax3, ax4])
-                T_layout_trans[ax0, ax1, ax2, ax3, ax4] = T.if_then_else(ax0 < 1 and ax1 * 512 + ax4 < 512 and ax2 < 7 and ax3 < 7, T.Select(T.float32(0) < T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0), dtype="float32"), T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0), dtype="float32"), T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0), dtype="float32") * placeholder_1[((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088]), T.float32(0), dtype="float32")
+                T_layout_trans[ax0, ax1, ax2, ax3, ax4] = T.if_then_else(ax0 < 1 and ax1 * 512 + ax4 < 512 and ax2 < 7 and ax3 < 7, T.Select(T.float32(0) < T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0)), T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0)), T.if_then_else(T.LT(0, 1) and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 < 512 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7 < 7 and ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7 < 7, placeholder[0, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 // 32, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 49 // 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 7, ((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088 % 25088 // 49 % 32], T.float32(0)) * placeholder_1[((ax1 * 512 + ax4) * 49 + ax2 * 7 + ax3) % 25088]), T.float32(0))
 
 # fmt: on
 # pylint: enable=invalid-name,no-member,line-too-long,too-many-nested-blocks,no-self-argument
@@ -91,7 +93,7 @@ def _make_candidate(f_sch: Callable[[], s_tir.Schedule]) -> ms.MeasureCandidate:
 
 
 def _feature_names(  # pylint: disable=invalid-name
-    buffers_per_store: int = 5,
+    tensors_per_store: int = 5,
     arith_intensity_curve_num_samples: int = 10,
 ) -> list[str]:
     result = [
@@ -153,7 +155,7 @@ def _feature_names(  # pylint: disable=invalid-name
         "threadIdx_z_len",
         "vthread_len",
     ]
-    for i in range(buffers_per_store):
+    for i in range(tensors_per_store):
         result.extend(
             f"B{i}.{s}"
             for s in [
@@ -186,7 +188,7 @@ def _feature_names(  # pylint: disable=invalid-name
             "alloc_inner_prod",
             "outer_prod",
             "num_loops",
-            "auto_unroll_max_step",
+            "tirx.auto_unroll_max_step",
         ]
     )
     # 57 + 18 * 5 + 10 + 4 + 3
@@ -224,7 +226,7 @@ def test_cpu_matmul():
 
     extractor = ms.feature_extractor.PerStoreFeature()
     (feature,) = extractor.extract_from(
-        _make_context(tvm.target.Target("llvm")),
+        _make_context(tvm_tirx.target.Target("llvm")),
         candidates=[_make_candidate(_create_schedule)],
     )
     feature = feature.numpy()
@@ -285,7 +287,7 @@ def test_cpu_matmul():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer A
+    # Group 2.1: Tensor A
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -311,7 +313,7 @@ def test_cpu_matmul():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer C
+    # Group 2.2: Tensor C
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -337,7 +339,7 @@ def test_cpu_matmul():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.3: Buffer B
+    # Group 2.3: Tensor B
     assert_allclose(
         actual=f[93:111],
         desired=[
@@ -417,11 +419,11 @@ def test_cpu_matmul():
 
 def test_cpu_fusion():
     # pylint: disable=all
-    @Ts.prim_func
+    @Ts.function
     def func(
-        A: T.Buffer([64, 32], dtype="float32"),
-        B: T.Buffer([64, 32], dtype="float32"),
-        C: T.Buffer([64, 32], dtype="float32"),
+        A: T.Tensor([64, 32], dtype="float32"),
+        B: T.Tensor([64, 32], dtype="float32"),
+        C: T.Tensor([64, 32], dtype="float32"),
     ) -> None:
         for i, j in T.grid(64, 32):  # type: ignore
             with Ts.sblock():
@@ -443,12 +445,12 @@ def test_cpu_fusion():
 
     extractor = ms.feature_extractor.PerStoreFeature()
     (feature,) = extractor.extract_from(
-        _make_context(tvm.target.Target("llvm")),
+        _make_context(tvm_tirx.target.Target("llvm")),
         candidates=[_make_candidate(_create_schedule)],
     )
     feature = feature.numpy()
     assert feature.shape == (2, N_FEATURES)
-    ## Features for BufferStore(B)
+    ## Features for TensorStore(B)
     f = feature[0]
     # Group 1.1: arith
     assert_allclose(
@@ -485,7 +487,7 @@ def test_cpu_fusion():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer A
+    # Group 2.1: Tensor A
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -511,7 +513,7 @@ def test_cpu_fusion():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer B
+    # Group 2.2: Tensor B
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -580,7 +582,7 @@ def test_cpu_fusion():
         rtol=1e-5,
         atol=1e-5,
     )
-    ## Features for BufferStore(C)
+    ## Features for TensorStore(C)
     f = feature[1]
     # Group 1.1: arith
     assert_allclose(
@@ -617,7 +619,7 @@ def test_cpu_fusion():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer B
+    # Group 2.1: Tensor B
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -643,7 +645,7 @@ def test_cpu_fusion():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer C
+    # Group 2.2: Tensor C
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -715,8 +717,8 @@ def test_cpu_fusion():
 
 
 def test_empty_feature():
-    @Ts.prim_func
-    def full(T_full: T.Buffer((T.int64(2), T.int64(3)), "float32")):
+    @Ts.function
+    def full(T_full: T.Tensor((T.int64(2), T.int64(3)), "float32")):
         for ax0, ax1 in T.grid(T.int64(2), T.int64(3)):
             with Ts.sblock("T_full"):
                 v_ax0, v_ax1 = Ts.axis.remap("SS", [ax0, ax1])
@@ -729,7 +731,7 @@ def test_empty_feature():
 
     extractor = ms.feature_extractor.PerStoreFeature()
     (feature,) = extractor.extract_from(
-        _make_context(tvm.target.Target("llvm")),
+        _make_context(tvm_tirx.target.Target("llvm")),
         candidates=[_make_candidate(_create_schedule)],
     )
     feature = feature.numpy()
@@ -784,18 +786,18 @@ def test_gpu():
         _, b_j = sch.split(b_ij, factors=[None, 16])  # outer: 8
         sch.bind(b_j, "threadIdx.x")
         # auto unroll
-        sch.annotate(i0_j0, "pragma_auto_unroll_max_step", tirx.IntImm("int32", 1024))
-        sch.annotate(i0_j0, "pragma_unroll_explicit", tirx.IntImm("int32", 1))
+        sch.annotate(i0_j0, "tirx.auto_unroll_max_step", tvm_tirx.ir.IntImm("int32", 1024))
+        sch.annotate(i0_j0, "tirx.unroll_explicit", tvm_tirx.ir.IntImm("int32", 1))
         return sch
 
     extractor = ms.feature_extractor.PerStoreFeature()
     (feature,) = extractor.extract_from(
-        _make_context(tvm.target.Target("cuda")),
+        _make_context(tvm_tirx.target.Target("cuda")),
         candidates=[_make_candidate(_create_schedule)],
     )
     feature = feature.numpy()
     assert feature.shape == (4, N_FEATURES)
-    ### Check feature[0]: BufferStore(A_shared) <= A[...]
+    ### Check feature[0]: TensorStore(A_shared) <= A[...]
     f = feature[0]
     # Group 1.1: arith
     assert_allclose(
@@ -849,7 +851,10 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer A
+    # Region estimates replay each loop-range context, without retaining the
+    # temporary constant bindings used while relaxing inner loops.  In particular,
+    # the full 512x512 float32 input contributes 2**20 unique bytes.
+    # Group 2.1: Tensor A
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -857,25 +862,25 @@ def test_gpu():
             0.0,
             0.0,
             25.00000004,
-            19.99718086,
+            20.000001375860553,
             23.00000017,
-            13.99726771,
+            14.000088052430122,
             1.0,
             0.0,
             0.0,
             18.0000055,
-            20.00000138,
+            20.00562591970089,
             2.32192809,
             23.00000017,
-            17.997185,
+            18.00000550343433,
             21.00000069,
-            11.99753235,
+            12.0003521774803,
             12.00035218,
         ],
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer A.shared
+    # Group 2.2: Tensor A.shared
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -883,9 +888,9 @@ def test_gpu():
             1.0,
             0.0,
             25.00000004,
-            11.00070427,
+            12.0003521774803,
             23.00000017,
-            5.04439412,
+            9.002815015607053,
             1.0,
             0.0,
             0.0,
@@ -893,9 +898,9 @@ def test_gpu():
             11.98049664,
             8.00562455,
             17.00001101,
-            3.169925,
+            4.087462841250339,
             15.00004403,
-            0.169925,
+            1.584962500721156,
             4.08746284,
         ],
         rtol=1e-5,
@@ -1001,7 +1006,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    ### Check feature[1]: BufferStore(B_shared) <= B[...]
+    ### Check feature[1]: TensorStore(B_shared) <= B[...]
     f = feature[1]
     # Group 1.1: arith
     assert_allclose(
@@ -1055,7 +1060,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer B
+    # Group 2.1: Tensor B
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -1063,25 +1068,25 @@ def test_gpu():
             0.0,
             0.0,
             22.00000034,
-            19.85798251,
+            20.000001375860553,
             20.00000138,
-            13.85807816,
+            14.000088052430122,
             1.0,
             0.0,
             0.0,
             15.00004403,
-            20.04456622,
+            20.17555076886471,
             2.32192809,
             20.00000138,
-            17.85798707,
+            18.00000550343433,
             18.0000055,
-            11.8583696,
+            12.0003521774803,
             4.08746284,
         ],
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer B.shared
+    # Group 2.2: Tensor B.shared
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -1089,19 +1094,19 @@ def test_gpu():
             1.0,
             0.0,
             22.00000034,
-            7.01122726,
+            9.002815015607053,
             20.00000138,
-            4.08746284,
+            3.169925001442312,
             1.0,
             0.0,
             0.0,
             3.169925001442312,
-            4.08746284,
+            9.61654884377899,
             8.005624549193879,
             14.000088052430122,
-            0.5849625,
+            1.584962500721156,
             12.00035218,
-            0.08746284,
+            0.044394119358453436,
             4.087462841250339,
         ],
         rtol=1e-5,
@@ -1207,7 +1212,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    ### Check feature[2]: BufferStore(C_local) <= C_local[...] + A_shared[...] * B_shared[...]
+    ### Check feature[2]: TensorStore(C_local) <= C_local[...] + A_shared[...] * B_shared[...]
     f = feature[2]
     # Group 1.1: arith
     assert_allclose(
@@ -1261,7 +1266,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer B.shared
+    # Group 2.1: Tensor B.shared
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -1287,7 +1292,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer C.local
+    # Group 2.2: Tensor C.local
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -1313,7 +1318,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.3: Buffer A.shared
+    # Group 2.3: Tensor A.shared
     assert_allclose(
         actual=f[93:111],
         desired=[
@@ -1393,7 +1398,7 @@ def test_gpu():
     )
     # Group 3: Arithmetic intensity
     # Arithmetic intensity is high here because of repeated use of a shared
-    # buffer. Multiple accesses to the same memory location are counted as a
+    # tensor. Multiple accesses to the same memory location are counted as a
     # single byte, skewing these numbers towards higher intensity.
     assert_allclose(
         actual=f[147:157],
@@ -1427,7 +1432,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    ### Check feature[3]: BufferStore(C) <= C_local[...]
+    ### Check feature[3]: TensorStore(C) <= C_local[...]
     f = feature[3]
     # Group 1.1: arith
     assert_allclose(
@@ -1464,7 +1469,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.1: Buffer C
+    # Group 2.1: Tensor C
     assert_allclose(
         actual=f[57:75],
         desired=[
@@ -1490,7 +1495,7 @@ def test_gpu():
         rtol=1e-5,
         atol=1e-5,
     )
-    # Group 2.2: Buffer C.local
+    # Group 2.2: Tensor C.local
     assert_allclose(
         actual=f[75:93],
         desired=[
@@ -1621,13 +1626,13 @@ def test_gpu():
 def test_cpu_layout_transform():
     extractor = ms.feature_extractor.PerStoreFeature()
     (feature,) = extractor.extract_from(
-        _make_context(tvm.target.Target("llvm")),
+        _make_context(tvm_tirx.target.Target("llvm")),
         candidates=[_make_candidate(lambda: s_tir.Schedule(LayoutTransform))],
     )
 
 
-@Ts.prim_func
-def negative_extent(A: T.Buffer((1,), "float32")):
+@Ts.function
+def negative_extent(A: T.Tensor((1,), "float32")):
     for j in range(0, -1):
         A[j] = A[j] + 1.0
 
@@ -1635,7 +1640,7 @@ def negative_extent(A: T.Buffer((1,), "float32")):
 def test_negative_extent():
     extractor = ms.feature_extractor.PerStoreFeature()
     (features,) = extractor.extract_from(
-        _make_context(tvm.target.Target("llvm")),
+        _make_context(tvm_tirx.target.Target("llvm")),
         candidates=[_make_candidate(lambda: s_tir.Schedule(negative_extent))],
     )
     named_features = dict(zip(_feature_names(), list(features.numpy()[0, :])))
@@ -1643,4 +1648,4 @@ def test_negative_extent():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

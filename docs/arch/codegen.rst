@@ -21,7 +21,7 @@ Code Generation
 ===============
 
 Code generation is the final stage of the TVM compilation pipeline — it translates TIR
-``PrimFunc``\ s into executable code for a target device. This document explains how TIR
+``Function``\ s into executable code for a target device. This document explains how TIR
 functions become native CPU instructions, GPU kernels, or source code strings, covering the
 target dispatch mechanism, the two codegen families (LLVM and Source), and the runtime module
 system that wraps the generated code.
@@ -34,23 +34,23 @@ When a user calls ``tvm.compile()``, the compilation proceeds in two phases:
 
 1. **Relax phase**: the Relax pipeline optimizes and fuses the computational graph, then
    ``VMCodeGen`` translates Relax functions into VM bytecode (see :ref:`relax-vm-arch`).
-2. **TIR phase**: TIR ``PrimFunc``\ s (the actual compute kernels) are compiled to native code.
+2. **TIR phase**: TIR ``Function``\ s (the actual compute kernels) are compiled to native code.
 
-The TIR phase is handled internally by ``tirx.build()`` (called from ``relax.build()``).
+The TIR phase is handled internally by ``tirx.compile()`` (called from ``relax.build()``).
 It performs these steps:
 
 .. code-block:: text
 
-   TIR PrimFuncs (in IRModule)
+   TIR Functions (in IRModule)
         │
         ▼  TIR pipeline                   ← lowering passes (flatten buffers, lower intrinsics, etc.)
-   TIR PrimFuncs (lowered)
+   TIR Functions (lowered)
         │
-        ▼  split_host_device_mods()        ← separate host and device functions
+        ▼  _split_host_device_modules()        ← separate host and device functions
    Host IRModule + Device IRModule(s)
         │                    │
         ▼                    ▼
-   codegen_build()      codegen_build()    ← target-specific code generation
+   _build_for_target()      _build_for_target()    ← target-specific code generation
         │                    │
         ▼                    ▼
    Host Module          Device Module(s)
@@ -64,8 +64,13 @@ It performs these steps:
 Target Dispatch
 ---------------
 
-The core dispatch logic lives in ``codegen::Build()`` (``src/target/codegen.cc``), which is
-called from the Python-side ``codegen_build()`` in ``tirx/build.py``. It selects the correct
+Generic target configuration and registration live in ``src/target/``. Shared
+code generation lives in ``src/codegen/``, with installed APIs in
+``include/tvm/codegen/`` and Python helpers in ``tvm.codegen``. Platform-specific
+generators remain under ``src/backend/<platform>/codegen/``.
+
+The core dispatch logic lives in ``codegen::Build()`` (``src/codegen/codegen.cc``), which is
+called from the Python-side ``_build_for_target()`` in ``tirx/_compile.py``. It selects the correct
 backend based on the ``Target`` object:
 
 .. code-block:: cpp
@@ -130,7 +135,7 @@ for producing executable code:
 LLVM family
 ~~~~~~~~~~~
 
-``CodeGenLLVM`` (``src/target/llvm/codegen_llvm.h``) translates TIR directly to LLVM IR using
+``CodeGenLLVM`` (``src/codegen/llvm/codegen_llvm.h``) translates TIR directly to LLVM IR using
 the LLVM C++ API. The generated ``llvm::Module`` is then compiled to native code by LLVM's
 backend (x86, ARM, NVPTX, AMDGPU, etc.).
 
@@ -148,24 +153,24 @@ backend (x86, ARM, NVPTX, AMDGPU, etc.).
 ``StmtFunctor<void(const Stmt&)>``. Each TIR node type has a corresponding visitor:
 
 - **Expressions** (``Dispatch_``) convert TIR expressions to LLVM ``Value``\ s:
-  arithmetic ops → LLVM binary instructions, ``BufferLoad`` → load with pointer arithmetic,
+  arithmetic ops → LLVM binary instructions, ``TensorLoad`` → load with pointer arithmetic,
   ``Cast`` → LLVM type conversions, ``Call`` → intrinsic or extern function calls.
 - **Statements** (``VisitStmt_``) emit LLVM IR side effects:
-  ``BufferStore`` → store instructions, ``For`` → loop basic blocks with branches,
-  ``IfThenElse`` → conditional branches, ``AllocBuffer`` → stack or heap allocation.
+  ``TensorStore`` → store instructions, ``For`` → loop basic blocks with branches,
+  ``If`` → conditional branches, ``tirx.alloc_tensor`` calls → stack or heap allocation.
 
 The key methods on ``CodeGenLLVM`` are:
 
 - ``Create(LLVMTarget*)`` — factory that returns a target-specific subclass.
 - ``Init(...)`` — set up the LLVM context, module, and builder.
 - ``DeclareFunction(gvar, f)`` / ``AddFunction(gvar, f)`` — forward-declare then compile a
-  ``PrimFunc`` to LLVM IR.
+  ``Function`` to LLVM IR.
 - ``Finish()`` — return the completed ``llvm::Module``.
 
 Source family
 ~~~~~~~~~~~~~
 
-``CodeGenC`` (``src/target/source/codegen_c.h``) generates C-like source code as text. Each
+``CodeGenC`` (``src/codegen/c/codegen_c.h``) generates C-like source code as text. Each
 target subclass overrides methods to emit target-specific syntax.
 
 **Inheritance**:
@@ -188,7 +193,7 @@ target subclass overrides methods to emit target-specific syntax.
 - ``PrintType(dtype, os)`` — emit target-specific type names (e.g., ``half`` for float16).
 - ``PrintVecBinaryOp(...)`` — emit vectorized operations in target syntax.
 
-For CUDA, the build flow (``BuildCUDA`` in ``src/target/opt/build_cuda_on.cc``) is:
+For CUDA, the build flow (``BuildCUDA`` in ``src/backend/cuda/codegen/codegen_cuda.cc``) is:
 
 1. ``CodeGenCUDA`` generates CUDA C source.
 2. An optional post-processing callback (``tvm_callback_cuda_postproc``) transforms the source.
@@ -221,7 +226,7 @@ When compiling for GPU targets, TIR functions are split into two categories:
 - **Device functions** — the actual compute kernels that run on the GPU. Compiled with the
   target-specific codegen (``target.build.cuda``, etc.).
 
-``split_host_device_mods()`` (``python/tvm/tirx/build.py``) separates functions by their
+``_split_host_device_modules()`` (``python/tvm/tirx/_compile.py``) separates functions by their
 ``target`` attribute: functions whose target kind is ``"llvm"`` or ``"c"`` go to the host
 module; all others go to device modules grouped by target.
 
@@ -233,7 +238,7 @@ when a device kernel is called.
 Runtime Modules
 ---------------
 
-Each codegen produces a ``runtime.Module`` — the container that holds the generated code and
+Each codegen produces a ``tvm_ffi.Module`` — the container that holds the generated code and
 exposes it as callable ``PackedFunc``\ s.
 
 .. list-table::
@@ -265,7 +270,8 @@ All module types implement the same interface: ``GetFunction(name)`` returns a `
 that can be called from Python or C++. The VM and other runtime components use this interface
 to invoke compiled kernels without knowing which backend produced them.
 
-The module tree is serializable via ``export_library()``, which packs the host module and all
+The module tree is serializable via
+``tvm_tirx.codegen.Executable(module).export_library()``, which packs the host module and all
 imported device modules into a single shared library (``.so`` / ``.dll`` / ``.dylib``) or
 a tar archive for deployment.
 
@@ -279,33 +285,33 @@ Source Code Map
 
    * - Path
      - Contents
-   * - ``python/tvm/tirx/build.py``
-     - ``tirx.build()``: TIR compilation entry, host/device split, module linking
-   * - ``src/target/codegen.cc``
+   * - ``python/tvm/tirx/_compile.py``
+     - ``tirx.compile()``: TIR compilation entry, host/device split, module linking
+   * - ``src/codegen/codegen.cc``
      - ``codegen::Build()``: target dispatch via ``"target.build.<kind>"``
-   * - ``src/target/llvm/codegen_llvm.h``
+   * - ``src/codegen/llvm/codegen_llvm.h``
      - ``CodeGenLLVM``: TIR → LLVM IR base class
-   * - ``src/target/llvm/codegen_cpu.h``
+   * - ``src/codegen/llvm/codegen_cpu.h``
      - ``CodeGenCPU``: CPU-specific LLVM codegen (x86, ARM)
-   * - ``src/target/llvm/codegen_nvptx.cc``
+   * - ``src/backend/cuda/codegen/llvm/codegen_nvptx.cc``
      - ``CodeGenNVPTX``: NVIDIA PTX via LLVM
-   * - ``src/target/llvm/codegen_amdgpu.cc``
+   * - ``src/backend/rocm/codegen/llvm/codegen_amdgpu.cc``
      - ``CodeGenAMDGPU``: AMD GPU via LLVM
-   * - ``src/target/llvm/llvm_module.cc``
-     - ``LLVMModuleNode``: runtime module with JIT compilation
-   * - ``src/target/source/codegen_c.h``
+   * - ``src/codegen/llvm/llvm_module.cc``
+     - ``LLVMModuleObj``: runtime module with JIT compilation
+   * - ``src/codegen/c/codegen_c.h``
      - ``CodeGenC``: TIR → C-like source base class
-   * - ``src/target/source/codegen_cuda.h``
+   * - ``src/backend/cuda/codegen/codegen_cuda.h``
      - ``CodeGenCUDA``: TIR → CUDA C
-   * - ``src/target/source/codegen_opencl.h``
+   * - ``src/backend/opencl/codegen/codegen_opencl.h``
      - ``CodeGenOpenCL``: TIR → OpenCL C
-   * - ``src/target/source/codegen_metal.h``
+   * - ``src/backend/metal/codegen/codegen_metal.h``
      - ``CodeGenMetal``: TIR → Metal Shading Language
-   * - ``src/target/source/codegen_c_host.h``
+   * - ``src/codegen/c/codegen_c_host.h``
      - ``CodeGenCHost``: TIR → C host code
-   * - ``src/target/opt/build_cuda_on.cc``
+   * - ``src/backend/cuda/codegen/codegen_cuda.cc``
      - ``BuildCUDA``: CUDA build flow (codegen → compile → module)
-   * - ``src/target/spirv/codegen_spirv.h``
+   * - ``src/backend/vulkan/codegen/codegen_spirv.h``
      - ``CodeGenSPIRV``: TIR → SPIR-V for Vulkan
-   * - ``src/target/source/codegen_webgpu.h``
+   * - ``src/backend/webgpu/codegen/codegen_webgpu.h``
      - ``CodeGenWebGPU``: TIR → WGSL

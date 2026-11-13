@@ -18,33 +18,32 @@
 
 import tvm_ffi
 
-from tvm.runtime import Object
-from tvm.tirx.buffer import Buffer
-from tvm.tirx.expr import Expr
-from tvm.tirx.function import IndexMap, PrimFunc
-from tvm.tirx.stmt import For
+from tvm_tirx.ir import For, Var
+from tvm_tirx.tirx.expr import Expr
+from tvm_tirx.tirx.function import Function
+from tvm_tirx.tirx.index_map import IndexMap
 
 from . import _ffi_api
 from .schedule import SBlockRV, Schedule
 
 
 def suggest_index_map(
-    buffer: Buffer,
+    tensor: Var,
     indices: list[Expr],
     loops: list[For],
     predicate: Expr,
 ) -> IndexMap | None:
-    """Provided the access pattern to a buffer, suggest one of the possible layout
+    """Provided the access pattern to a tensor, suggest one of the possible layout
     transformation to maximize the locality of the access pattern.
 
     Parameters
     ----------
-    buffer : Buffer
-        The buffer to be transformed.
+    tensor : Var
+        The tensor to be transformed.
     indices : List[Expr]
-        The access pattern to the buffer.
+        The access pattern to the tensor.
     loops : List[For]
-        The loops above the buffer.
+        The loops above the tensor.
     predicate : Expr
         The predicate of the access.
 
@@ -54,7 +53,7 @@ def suggest_index_map(
         The suggested index map. None if no transformation is suggested.
     """
     return _ffi_api.SuggestIndexMap(  # type: ignore # pylint: disable=no-member
-        buffer,
+        tensor,
         indices,
         loops,
         predicate,
@@ -62,12 +61,12 @@ def suggest_index_map(
 
 
 @tvm_ffi.register_object("s_tir.schedule.TensorizeInfo")
-class TensorizeInfo(Object):
+class TensorizeInfo(tvm_ffi.Object):
     """Necessary information used for tensorization."""
 
 
 def get_tensorize_loop_mapping(
-    sch: Schedule, block: SBlockRV, desc_func: PrimFunc, allow_padding: bool = False
+    sch: Schedule, block: SBlockRV, desc_func: Function, allow_padding: bool = False
 ) -> TensorizeInfo | None:
     """Establish a mapping between loops in a target block and an intrinsic description
 
@@ -77,8 +76,8 @@ def get_tensorize_loop_mapping(
         The schedule to be tensorized
     block : SBlockRV
         The target block to match against
-    desc_func : PrimFunc
-        The prim func describing the computation to be tensorized
+    desc_func : Function
+        The function describing the computation to be tensorized
     allow_padding : bool
         Whether to allow padding the block iters to match the intrinsic description
     Returns
@@ -90,12 +89,12 @@ def get_tensorize_loop_mapping(
 
 
 @tvm_ffi.register_object("s_tir.schedule.AutoTensorizeMappingInfo")
-class AutoTensorizeMappingInfo(Object):
+class AutoTensorizeMappingInfo(tvm_ffi.Object):
     """Necessary information used to perform transformations for tensorization."""
 
 
 def get_auto_tensorize_mapping_info(
-    sch: Schedule, block: SBlockRV, desc_func: PrimFunc
+    sch: Schedule, block: SBlockRV, desc_func: Function
 ) -> AutoTensorizeMappingInfo | None:
     """Get mapping info between a target block and an intrinsic description including layout
     transformations to apply.
@@ -106,8 +105,8 @@ def get_auto_tensorize_mapping_info(
         The schedule to be tensorized
     block : SBlockRV
         The compute block for auto tensorization
-    desc_func : PrimFunc
-        The prim func describing the computation to be tensorized
+    desc_func : Function
+        The function describing the computation to be tensorized
 
     Returns
     -------

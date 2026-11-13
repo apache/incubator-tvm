@@ -25,7 +25,7 @@ from collections.abc import Sequence
 
 import numpy as np
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 from ..utils import get_const_int, get_const_tuple, simplify, tag
@@ -320,7 +320,6 @@ def conv2d_NCHWc(data, kernel, stride, padding, dilation, layout, out_layout, ou
 
     n, ic_chunk, ih, iw, ic_bn = get_const_tuple(data.shape)
     in_channel = ic_chunk * ic_bn
-    target = tvm.target.Target.current(allow_none=False)
     oc_chunk, ic_chunk_group, kernel_height, kernel_width, kernel_ic_bn, oc_bn = get_const_tuple(
         kernel.shape
     )
@@ -353,8 +352,8 @@ def conv2d_NCHWc(data, kernel, stride, padding, dilation, layout, out_layout, ou
     kh = te.reduce_axis((0, kernel_height), name="kh")
     kw = te.reduce_axis((0, kernel_width), name="kw")
 
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
 
     if groups == 1:
         ic = te.reduce_axis((0, in_channel), name="ic")
@@ -479,8 +478,8 @@ def conv2d_NCHWc_OIHWo(
     kh = te.reduce_axis((0, kernel_height), name="kh")
     kw = te.reduce_axis((0, kernel_width), name="kw")
 
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
 
     def compute_conv2d(*args):
         n, occ, oh, ow, ocb = args
@@ -986,8 +985,8 @@ def unpack_NCHWc_to_nchw(packed_out, out_dtype):
     """
     n, oc_chunk, oh, ow, oc_bn = get_const_tuple(packed_out.shape)
 
-    idxmod = tvm.tirx.indexmod
-    idxdiv = tvm.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
 
     oshape = (n, oc_chunk * oc_bn, oh, ow)
     unpacked_out = te.compute(

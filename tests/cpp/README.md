@@ -21,3 +21,7 @@ This folder contains some unit tests for C++ utilities in the codebase.
 In principle we aim to do most compiler related tests in the python to
 bring more development velocity, and only use this folder for low-level unit-tests.
 All tests should finish fast and not dependent on a presence of an accelerator device.
+
+Tests are grouped by subsystem in `ir/`, `runtime/`, `support/`, `sym/`,
+`target/`, and `tirx/`. CMake discovers `.cc` files in these folders recursively.
+Configure and build out of source in `build/`, then run `build/cpptest`.

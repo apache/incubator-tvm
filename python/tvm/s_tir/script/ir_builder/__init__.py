@@ -17,13 +17,12 @@
 # pylint: disable=redefined-builtin, wrong-import-order, no-member, invalid-name
 """S-TIR construction reuses common TIRx operations with its own frames."""
 
-from tvm.tirx.script.ir_builder import *
-from tvm.tirx.script.ir_builder import __all__ as _shared_exports
+from tvm_tirx.tirx.script.ir_builder import *
+from tvm_tirx.tirx.script.ir_builder import __all__ as _shared_exports
 
 from . import ir as _ir
 from . import parser_protocol as _protocol
 from .ir import *
 from .parser_protocol import *
-from .parser_protocol import _check_module_well_formed
 
 __all__ = [*_shared_exports, *_ir.__all__, *_protocol.__all__]

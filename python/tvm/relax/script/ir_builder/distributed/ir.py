@@ -21,22 +21,23 @@
 from numbers import Number
 
 import numpy as _np  # type: ignore
+import tvm_ffi
 
-import tvm
-from tvm.ir import GenericConst
+import tvm_tirx
 from tvm.relax.distributed import DeviceMesh, DTensorType
-from tvm.runtime import _tensor
+from tvm_tirx.ir import GenericConst
+from tvm_tirx.runtime import _tensor
 
 
 def const(
-    value: bool | int | float | _np.ndarray | tvm.runtime.Tensor,
+    value: bool | int | float | _np.ndarray | tvm_tirx.runtime.Tensor,
     ty: DTensorType,
 ) -> GenericConst:
     """Create a distributed constant value with the specified tensor type.
 
     Parameters
     ----------
-    value : bool, int, float, numpy.ndarray or tvm.runtime.Tensor
+    value : bool, int, float, numpy.ndarray or tvm_tirx.runtime.Tensor
         The constant value.
 
     ty : DTensorType
@@ -53,7 +54,7 @@ def const(
     Python scalars and NumPy values are converted to the dtype specified by
     ``ty.tensor_ty``. The dtype is not inferred from the Python value.
     """
-    ty = tvm.runtime.convert(ty)
+    ty = tvm_ffi.convert(ty)
     if not isinstance(ty, DTensorType):
         raise TypeError("ty needs to be an instance of DTensorType. ")
     dtype = str(ty.tensor_ty.dtype)
@@ -68,7 +69,7 @@ def const(
     if not isinstance(value, _tensor.Tensor):
         raise ValueError("value has to be scalar or Tensor")
 
-    return GenericConst(value, ty)
+    return GenericConst(ty, value)
 
 
 def _lookup_device_mesh(device_mesh_str: str) -> DeviceMesh:

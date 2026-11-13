@@ -24,41 +24,41 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-void PyCostModelNode::Load(const ffi::String& path) {
+void PyCostModelObj::Load(const ffi::String& path) {
   TVM_FFI_ICHECK(f_load != nullptr) << "PyCostModel's Load method not implemented!";
   f_load(path);
 }
 
-void PyCostModelNode::Save(const ffi::String& path) {
+void PyCostModelObj::Save(const ffi::String& path) {
   TVM_FFI_ICHECK(f_save != nullptr) << "PyCostModel's Save method not implemented!";
   f_save(path);
 }
 
-void PyCostModelNode::Update(const TuneContext& context,
-                             const ffi::Array<MeasureCandidate>& candidates,
-                             const ffi::Array<RunnerResult>& results) {
+void PyCostModelObj::Update(const TuneContext& context,
+                            const ffi::Array<MeasureCandidate>& candidates,
+                            const ffi::Array<RunnerResult>& results) {
   TVM_FFI_ICHECK(f_update != nullptr) << "PyCostModel's Update method not implemented!";
   f_update(context, candidates, results);
 }
 
-std::vector<double> PyCostModelNode::Predict(const TuneContext& context,
-                                             const ffi::Array<MeasureCandidate>& candidates) {
+std::vector<double> PyCostModelObj::Predict(const TuneContext& context,
+                                            const ffi::Array<MeasureCandidate>& candidates) {
   TVM_FFI_ICHECK(f_predict != nullptr) << "PyCostModel's Predict method not implemented!";
   std::vector<double> result(candidates.size(), 0.0);
   f_predict(context, candidates, result.data());
   return result;
 }
 
-CostModel CostModel::PyCostModel(PyCostModelNode::FLoad f_load,      //
-                                 PyCostModelNode::FSave f_save,      //
-                                 PyCostModelNode::FUpdate f_update,  //
-                                 PyCostModelNode::FPredict f_predict) {
-  ffi::ObjectPtr<PyCostModelNode> n = ffi::make_object<PyCostModelNode>();
+CostModel CostModel::PyCostModel(PyCostModelObj::FLoad f_load,      //
+                                 PyCostModelObj::FSave f_save,      //
+                                 PyCostModelObj::FUpdate f_update,  //
+                                 PyCostModelObj::FPredict f_predict) {
+  ffi::ObjectPtr<PyCostModelObj> n = ffi::make_object<PyCostModelObj>();
   n->f_load = std::move(f_load);
   n->f_save = std::move(f_save);
   n->f_update = std::move(f_update);
   n->f_predict = std::move(f_predict);
-  return CostModel(n);
+  return CostModel(ffi::UnsafeInit{}, n);
 }
 
 // Pattern A (RM): auto-default repr from reflection.
@@ -67,12 +67,12 @@ CostModel CostModel::PyCostModel(PyCostModelNode::FLoad f_load,      //
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   // Trigger type index allocation for types that Python @register_object needs to find.
-  refl::ObjectDef<CostModelNode>();
-  refl::ObjectDef<PyCostModelNode>();
+  refl::ObjectDef<CostModelObj>();
+  refl::ObjectDef<PyCostModelObj>();
   refl::GlobalDef()
-      .def_method("s_tir.meta_schedule.CostModelLoad", &CostModelNode::Load)
-      .def_method("s_tir.meta_schedule.CostModelSave", &CostModelNode::Save)
-      .def_method("s_tir.meta_schedule.CostModelUpdate", &CostModelNode::Update)
+      .def_method("s_tir.meta_schedule.CostModelLoad", &CostModelObj::Load)
+      .def_method("s_tir.meta_schedule.CostModelSave", &CostModelObj::Save)
+      .def_method("s_tir.meta_schedule.CostModelUpdate", &CostModelObj::Update)
       .def("s_tir.meta_schedule.CostModelPredict",
            [](CostModel model,                          //
               const TuneContext& context,               //

@@ -21,15 +21,15 @@ import argparse
 import csv
 import os
 import pickle
+import re
 import sys
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.append(str(REPO_ROOT / "ci" / "scripts" / "jenkins"))
+sys.path.append(str(REPO_ROOT / "ci" / "github"))
 
-from cmd_utils import tags_from_title
 from git_utils import GitHubRepo, git
 
 GITHUB_TOKEN = os.environ["GITHUB_TOKEN"]
@@ -161,7 +161,7 @@ def write_csv(
             if len(nodes) == 0:
                 continue
             pr = nodes[0]
-            tags = tags_from_title(pr["title"])
+            tags = [tag.strip() for tag in re.findall(r"\[(.*?)\]", pr["title"])]
             actual_tags = []
             for t in tags:
                 items = [x.strip() for x in t.split(",")]

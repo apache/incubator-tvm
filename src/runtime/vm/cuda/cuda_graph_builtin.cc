@@ -22,6 +22,8 @@
  * \brief The CUDA graph related builtin functions for Relax virtual machine.
  */
 
+#include <tvm/ffi/base_detail.h>
+#include <tvm/ffi/cast.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/extra/c_env_api.h>
 #include <tvm/ffi/extra/cuda/base.h>
@@ -29,7 +31,6 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/vm/vm.h>
 
-#include "../../../support/utils.h"
 namespace tvm {
 namespace runtime {
 namespace vm {
@@ -56,7 +57,7 @@ struct CUDAGraphCaptureKeyHash {
     std::hash<int64_t> hash_fn;
     size_t hash = hash_fn(key.index);
     for (const auto& shape : key.shape_expr) {
-      support::HashCombine(hash, hash_fn(shape));
+      ffi::detail::StableHashCombine(hash, hash_fn(shape));
     }
     return hash;
   }
@@ -145,7 +146,7 @@ class CUDACaptureStream {
 }  // namespace
 
 /*! \brief The VM extension of CUDA graph. */
-class CUDAGraphExtensionNode : public VMExtensionNode {
+class CUDAGraphExtensionObj : public VMExtensionObj {
  public:
   /*!
    * \brief Launch the cuda graph if it has been cached, otherwise execute it in capture mode.
@@ -227,8 +228,7 @@ class CUDAGraphExtensionNode : public VMExtensionNode {
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("vm.CUDAGraphExtension", CUDAGraphExtensionNode,
-                                    VMExtensionNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("vm.CUDAGraphExtension", CUDAGraphExtensionObj, VMExtensionObj);
 
  private:
   /*!
@@ -245,14 +245,14 @@ class CUDAGraphExtensionNode : public VMExtensionNode {
   std::unordered_map<int64_t, ffi::ObjectRef> alloc_cache_;
 };
 
-/*! Managed reference to CUDAGraphExtensionNode */
+/*! Managed reference to CUDAGraphExtensionObj */
 class CUDAGraphExtension : public VMExtension {
  public:
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(CUDAGraphExtension, VMExtension,
-                                             CUDAGraphExtensionNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CUDAGraphExtension, VMExtension,
+                                                CUDAGraphExtensionObj);
   static CUDAGraphExtension Create() {
-    auto data_ = ffi::make_object<CUDAGraphExtensionNode>();
-    return CUDAGraphExtension(std::move(data_));
+    auto data_ = ffi::make_object<CUDAGraphExtensionObj>();
+    return ffi::GetRef<CUDAGraphExtension>(data_.get());
   }
 };
 

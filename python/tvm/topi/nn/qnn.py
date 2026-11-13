@@ -17,7 +17,9 @@
 """Quantized Neural Network (QNN) Operators"""
 
 import tvm
-from tvm import te, tirx, topi
+import tvm_tirx
+from tvm import te, topi
+from tvm_tirx import tirx
 
 SQNN_DISABLE = 0
 SQNN_INT8 = 1
@@ -74,8 +76,8 @@ def simulated_quantize(data, out_dtype, output_scale=None, output_zero_point=Non
     #                 out_dtype::max)
     def _compute_intn(dtype, value, *indices):
         assert output_scale is not None and output_zero_point is not None
-        const_min = tvm.tirx.min_value(dtype)
-        const_max = tvm.tirx.max_value(dtype)
+        const_min = tvm_tirx.tirx.min_value(ty=dtype)
+        const_max = tvm_tirx.tirx.max_value(ty=dtype)
         # Use indexmod to handle both scalar and per-channel QNN parameters.
         scale_idx = tirx.indexmod(indices[axis], topi.shape(output_scale)[0])
         zp_idx = tirx.indexmod(indices[axis], topi.shape(output_zero_point)[0])

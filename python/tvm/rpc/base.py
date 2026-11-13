@@ -53,9 +53,6 @@ class TrackerCode:
     GET_PENDING_MATCHKEYS = 7
 
 
-RPC_SESS_MASK = 128
-
-
 # Use "127.0.0.1" or "::1" if there is a need to force ip4 or ip6
 # connection for "localhost".
 def get_addr_family(addr):

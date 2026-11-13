@@ -23,7 +23,7 @@ from . import cpu
 from .analysis import (
     SBlockInfo,
     IterInfo,
-    normalize_prim_func,
+    normalize_function,
 )
 from .base import (
     ApplyDefaultSchedule,

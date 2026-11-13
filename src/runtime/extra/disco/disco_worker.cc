@@ -20,6 +20,7 @@
 #include <tvm/runtime/disco/builtin.h>
 #include <tvm/runtime/disco/disco_worker.h>
 #include <tvm/runtime/disco/session.h>
+#include <tvm/runtime/extra_base.h>
 
 #include "../../../support/process_id.h"
 #include "./protocol.h"
@@ -27,7 +28,7 @@
 namespace tvm {
 namespace runtime {
 
-TVM_RUNTIME_DLL DiscoWorker* DiscoWorker::ThreadLocal() {
+TVM_RUNTIME_EXTRA_DLL DiscoWorker* DiscoWorker::ThreadLocal() {
   DiscoWorker* ret = ThreadLocalDiscoWorker::Get()->worker;
   TVM_FFI_CHECK(ret, ValueError) << "The current thread is not a DiscoWorker thread";
   return ret;
@@ -38,9 +39,11 @@ void DiscoWorker::SetRegister(int reg_id, ffi::AnyView value) {
   ffi::Any& rv = register_file.at(reg_id);
   if (rv.type_index() == ffi::TypeIndex::kTVMFFITensor &&
       value.type_index() == ffi::TypeIndex::kTVMFFITensor) {
-    Tensor dst = rv.cast<Tensor>();
-    Tensor src = value.cast<Tensor>();
-    dst.CopyFrom(src);
+    ffi::Tensor dst = rv.cast<ffi::Tensor>();
+    TVM_FFI_ICHECK(dst.defined());
+    ffi::Tensor src = value.cast<ffi::Tensor>();
+    TVM_FFI_ICHECK(src.defined());
+    tvm::runtime::CopyFromTo(src, dst);
   } else {
     rv = value;
   }
@@ -112,26 +115,28 @@ struct DiscoWorker::Impl {
     }
   }
 
-  static Tensor GetTensorFromHost(DiscoWorker* self) {
+  static ffi::Tensor GetTensorFromHost(DiscoWorker* self) {
     std::lock_guard<std::mutex> lock(self->worker_zero_data->queue_mutex_);
-    Tensor array = self->worker_zero_data->host_arrays.front();
+    ffi::Tensor array = self->worker_zero_data->host_arrays.front();
     self->worker_zero_data->host_arrays.pop();
     return array;
   }
 
   static void CopyFromWorker0(DiscoWorker* self, int reg_id) {
     if (self->worker_id == 0) {
-      Tensor tgt = GetTensorFromHost(self);
-      Tensor src = GetReg(self, reg_id).cast<Tensor>();
-      tgt.CopyFrom(src);
+      ffi::Tensor tgt = GetTensorFromHost(self);
+      ffi::Tensor src = GetReg(self, reg_id).cast<ffi::Tensor>();
+      TVM_FFI_ICHECK(src.defined());
+      tvm::runtime::CopyFromTo(src, tgt);
     }
   }
 
   static void CopyToWorker0(DiscoWorker* self, int reg_id) {
     if (self->worker_id == 0) {
-      Tensor src = GetTensorFromHost(self);
-      Tensor tgt = GetReg(self, reg_id).cast<Tensor>();
-      tgt.CopyFrom(src);
+      ffi::Tensor src = GetTensorFromHost(self);
+      ffi::Tensor tgt = GetReg(self, reg_id).cast<ffi::Tensor>();
+      TVM_FFI_ICHECK(tgt.defined());
+      tvm::runtime::CopyFromTo(src, tgt);
     }
   }
 

@@ -19,9 +19,9 @@
 
 import math
 
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.tirx import PrimFunc
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.tirx import Function
 
 
 def _is_power_of_two(n: int):
@@ -45,7 +45,7 @@ def gpu_2d_continuous_cumsum(
     in_dtype: str = "int32",
     out_dtype: str | None = None,
     index_bits: int = 64,
-) -> PrimFunc:
+) -> Function:
     """Generate GPU kernel for 2D continuous cumsum, i.e. The cumsum axis is -1
 
     Parameters
@@ -70,7 +70,7 @@ def gpu_2d_continuous_cumsum(
 
     Returns
     -------
-    cumsum : PrimFunc
+    cumsum : Function
         The generated cumsum kernel
     """
 
@@ -101,19 +101,19 @@ def gpu_2d_continuous_cumsum(
         batch: T.int64,
         cur_len: T.int64,
         num_blocks: T.int64,
-        source: T.Buffer,
-        output: T.Buffer,
-        tmp_buf: T.Buffer,
+        source: T.Tensor,
+        output: T.Tensor,
+        tmp_buf: T.Tensor,
         src_offset: T.int64,
         tmp_offset: T.int64,
     ):
-        for by in T.thread_binding(batch, thread="blockIdx.y"):
-            for bx in T.thread_binding(num_blocks, thread="blockIdx.x"):
+        for by in T.parallel(batch, annotations={"thread_binding": "blockIdx.y"}):
+            for bx in T.parallel(num_blocks, annotations={"thread_binding": "blockIdx.x"}):
                 with Ts.sblock():
-                    local_buf = Ts.sblock_alloc_buffer((thread_elem,), out_dtype, scope="local")
-                    shared_buf = Ts.sblock_alloc_buffer((block_elem,), out_dtype, scope="shared")
-                    for ty in T.thread_binding(TY, thread="threadIdx.y"):
-                        for tx in T.thread_binding(TX, thread="threadIdx.x"):
+                    local_buf = Ts.sblock_alloc_tensor((thread_elem,), out_dtype, scope="local")
+                    shared_buf = Ts.sblock_alloc_tensor((block_elem,), out_dtype, scope="shared")
+                    for ty in T.parallel(TY, annotations={"thread_binding": "threadIdx.y"}):
+                        for tx in T.parallel(TX, annotations={"thread_binding": "threadIdx.x"}):
                             tx_idx: T.let[T.int64] = (
                                 bx * block_elem + ty * warp_elem + tx * thread_elem
                             )
@@ -158,15 +158,15 @@ def gpu_2d_continuous_cumsum(
         batch: T.int64,
         cur_len: T.int64,
         num_blocks: T.int64,
-        source: T.Buffer,
-        output: T.Buffer,
+        source: T.Tensor,
+        output: T.Tensor,
         src_offset: T.int64,
         out_offset: T.int64,
     ):
-        for by in T.thread_binding(batch, thread="blockIdx.y"):
-            for bx in T.thread_binding(num_blocks, thread="blockIdx.x"):
-                for ty in T.thread_binding(TY, thread="threadIdx.y"):
-                    for tx in T.thread_binding(TX, thread="threadIdx.x"):
+        for by in T.parallel(batch, annotations={"thread_binding": "blockIdx.y"}):
+            for bx in T.parallel(num_blocks, annotations={"thread_binding": "blockIdx.x"}):
+                for ty in T.parallel(TY, annotations={"thread_binding": "threadIdx.y"}):
+                    for tx in T.parallel(TX, annotations={"thread_binding": "threadIdx.x"}):
                         for i in T.serial(N):
                             idx: T.let[T.int64] = bx * block_elem + ty * warp_elem + i * TX + tx
                             if idx < cur_len:
@@ -174,14 +174,14 @@ def gpu_2d_continuous_cumsum(
                                     bx > 0, source[by, src_offset + bx - 1], 0
                                 )
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
-    @Ts.prim_func(private=True)
-    def cumsum(A: T.Buffer([m, n], dtype=in_dtype), Out: T.Buffer([m, n], dtype=out_dtype)):
+    @Ts.function(private=True)
+    def cumsum(A: T.Tensor([m, n], dtype=in_dtype), Out: T.Tensor([m, n], dtype=out_dtype)):
         T.func_attr({"tirx.is_scheduled": True})  # prevent further scheduling
 
-        Tmp = T.alloc_buffer([m, n], dtype=out_dtype)
+        Tmp = T.alloc_tensor(ty_args=[T.Tensor([m, n], out_dtype)])
         # LowerIntrin may implement signed FloorDiv using a sign-bit shift.  Keep
         # hierarchy counting division-free so WebGPU can narrow indices to int32.
         total_rounds: T.let[T.int64] = _get_total_rounds(n, log_block_n, index_bits)
@@ -241,7 +241,7 @@ def gpu_3d_axis_1_cumsum(
     tx_len: int = 128,
     in_dtype: str = "int32",
     out_dtype: str | None = None,
-) -> PrimFunc:
+) -> Function:
     """Generate a correctness fallback that scans axis 1 of a contiguous 3D tensor.
 
     Each thread handles one pair of outer and inner indices and scans the
@@ -254,22 +254,24 @@ def gpu_3d_axis_1_cumsum(
     out_dtype = out_dtype or in_dtype
     TX = T.int64(tx_len)
 
-    outer = T.dynamic("outer")
-    scan = T.dynamic("scan")
-    inner = T.dynamic("inner")
+    outer = T.dynamic("outer", "int64")
+    scan = T.dynamic("scan", "int64")
+    inner = T.dynamic("inner", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def cumsum(
-        A: T.Buffer([outer, scan, inner], dtype=in_dtype),
-        Out: T.Buffer([outer, scan, inner], dtype=out_dtype),
+        A: T.Tensor([outer, scan, inner], dtype=in_dtype),
+        Out: T.Tensor([outer, scan, inner], dtype=out_dtype),
     ):
         T.func_attr({"tirx.is_scheduled": True})
 
-        for bx in T.thread_binding(T.ceildiv(outer * inner, TX), thread="blockIdx.x"):
-            for tx in T.thread_binding(TX, thread="threadIdx.x"):
+        for bx in T.parallel(
+            T.ceildiv(outer * inner, TX), annotations={"thread_binding": "blockIdx.x"}
+        ):
+            for tx in T.parallel(TX, annotations={"thread_binding": "threadIdx.x"}):
                 row: T.let[T.int64] = bx * TX + tx
                 with Ts.sblock():
-                    accumulator = Ts.sblock_alloc_buffer((), out_dtype, scope="local")
+                    accumulator = Ts.sblock_alloc_tensor((), out_dtype, scope="local")
                     if row < outer * inner:
                         outer_idx: T.let[T.int64] = row // inner
                         inner_idx: T.let[T.int64] = row % inner

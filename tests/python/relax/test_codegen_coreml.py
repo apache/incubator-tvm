@@ -20,17 +20,18 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 
-target, dev = "llvm", tvm.cpu()
+target, dev = "llvm", tvm_tirx.cpu()
 
 
 def _has_xcode():
     try:
-        import tvm.support.xcode
+        import tvm_tirx.support.xcode
 
-        tvm.support.xcode.xcrun([])
+        tvm_tirx.support.xcode.xcrun([])
         return True
     except FileNotFoundError:
         pass
@@ -57,7 +58,7 @@ def test_partition_for_coreml_uses_current_relax_passes():
 
     partitioned = partition_for_coreml(bb.get())
 
-    relax.analysis.well_formed(partitioned)
+    relax.analysis.check_well_formed(partitioned)
     assert any(
         getattr(func, "attrs", None) is not None
         and "Codegen" in func.attrs
@@ -71,11 +72,11 @@ def verify(mod, inputs):
 
     mod1 = partition_for_coreml(mod)
     mod1 = relax.transform.RunCodegen()(mod1)
-    relax.analysis.well_formed(mod1)
+    relax.analysis.check_well_formed(mod1)
     assert mod1.attrs, "Should exist if offloaded successfully."
     assert "external_mods" in mod1.attrs, "Should exist if offloaded successfully."
     mod1 = relax.transform.LegalizeOps()(mod1)
-    relax.analysis.well_formed(mod1)
+    relax.analysis.check_well_formed(mod1)
 
     ex1 = tvm.compile(mod1, target=target)
     vm1 = relax.VirtualMachine(ex1, dev)
@@ -86,7 +87,7 @@ def verify(mod, inputs):
     vm2 = relax.VirtualMachine(ex2, dev)
     out2 = vm2["main"](*inputs)
 
-    tvm.testing.assert_allclose(out1.numpy(), out2.numpy(), rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out1.numpy(), out2.numpy(), rtol=1e-3, atol=1e-3)
 
 
 @requires_coreml_runtime
@@ -100,8 +101,8 @@ def test_add():
             gv = bb.emit_output(lv0)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
-    y_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    y_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data, y_data])
 
 
@@ -116,7 +117,7 @@ def test_add_const():
             gv = bb.emit_output(lv0)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -132,15 +133,15 @@ def test_multiply():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
-    y_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    y_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data, y_data])
 
 
 @requires_coreml_runtime
 def test_matmul():
     x = relax.Var("x", relax.TensorType([8, 10], "float32"))
-    y = relax.const(tvm.runtime.tensor(np.random.rand(10, 8).astype("float32"), dev))
+    y = relax.const(tvm_tirx.runtime.tensor(np.random.rand(10, 8).astype("float32"), dev))
     bb = relax.BlockBuilder()
     with bb.function("main", [x]):
         with bb.dataflow():
@@ -149,7 +150,7 @@ def test_matmul():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(8, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(8, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
     x = relax.Var("x", relax.TensorType([8, 10], "float32"))
@@ -162,8 +163,8 @@ def test_matmul():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(8, 10).astype("float32"), dev)
-    y_data = tvm.runtime.tensor(np.random.rand(10, 8).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(8, 10).astype("float32"), dev)
+    y_data = tvm_tirx.runtime.tensor(np.random.rand(10, 8).astype("float32"), dev)
     verify(mod, [x_data, y_data])
 
 
@@ -179,7 +180,7 @@ def test_clip():
         bb.emit_func_output(gv0)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
     x = relax.Var("x", relax.TensorType([10, 10], "float32"))
@@ -193,7 +194,7 @@ def test_clip():
             gv1 = bb.emit_output(lv1)
         bb.emit_func_output([gv0, gv1])
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -209,7 +210,7 @@ def test_expand_dims():
             bb.emit_func_output(gv)
         return bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(get_mod(axis=0), [x_data])
     verify(get_mod(axis=1), [x_data])
 
@@ -225,7 +226,7 @@ def test_relu():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -240,7 +241,7 @@ def test_batch_flatten():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -255,7 +256,7 @@ def test_softmax():
         bb.emit_func_output(gv)
     mod = bb.get()
 
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -270,7 +271,7 @@ def test_conv2d():
             gv = bb.emit_output(lv0)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(1, 3, 224, 224).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(1, 3, 224, 224).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -284,7 +285,7 @@ def test_global_avg_pool2d():
             gv = bb.emit_output(lv0)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(1, 1, 10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(1, 1, 10, 10).astype("float32"), dev)
     verify(mod, [x_data])
 
 
@@ -300,8 +301,8 @@ def test_subgraph1():
             gv = bb.emit_output(lv1)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
-    y_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    y_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data, y_data])
 
 
@@ -322,8 +323,8 @@ def test_subgraph2():
             gv = bb.emit_output(lv3)
         bb.emit_func_output(gv)
     mod = bb.get()
-    x_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
-    y_data = tvm.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    x_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
+    y_data = tvm_tirx.runtime.tensor(np.random.rand(10, 10).astype("float32"), dev)
     verify(mod, [x_data, y_data])
 
 

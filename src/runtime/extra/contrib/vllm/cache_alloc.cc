@@ -25,9 +25,9 @@ namespace tvm {
 namespace runtime {
 namespace vllm {
 
-ffi::Array<Tensor> AllocateKVCache(int head_size, int num_layers, int num_heads, int block_size,
-                                   int num_blocks) {
-  ffi::Array<Tensor> cache;
+ffi::Array<ffi::Tensor> AllocateKVCache(int head_size, int num_layers, int num_heads,
+                                        int block_size, int num_blocks) {
+  ffi::Array<ffi::Tensor> cache;
   int element_size = 2;
   int vec_size = 16 / element_size;
 
@@ -37,11 +37,11 @@ ffi::Array<Tensor> AllocateKVCache(int head_size, int num_layers, int num_heads,
   DLDevice dev{DLDeviceType::kDLCUDA, device_id};
 
   for (int i = 0; i < num_layers; ++i) {
-    Tensor key_blocks =
-        Tensor::Empty({num_blocks, num_heads, head_size / vec_size, block_size, vec_size},
-                      DLDataType{kDLFloat, 16, 1}, dev);
-    Tensor value_blocks = Tensor::Empty({num_blocks, num_heads, head_size, block_size},
-                                        DLDataType{kDLFloat, 16, 1}, dev);
+    ffi::Tensor key_blocks =
+        tvm::runtime::Empty({num_blocks, num_heads, head_size / vec_size, block_size, vec_size},
+                            DLDataType{kDLFloat, 16, 1}, dev);
+    ffi::Tensor value_blocks = tvm::runtime::Empty({num_blocks, num_heads, head_size, block_size},
+                                                   DLDataType{kDLFloat, 16, 1}, dev);
     cache.push_back(key_blocks);
     cache.push_back(value_blocks);
   }

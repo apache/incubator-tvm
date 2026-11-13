@@ -30,20 +30,24 @@ class SRefTreeVerifier : public StmtExprVisitor {
   using StmtExprVisitor::Visit_;
 
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) override {
-    if (value.as<ExprNode>()) return std::nullopt;
+    if (value.as<ExprObj>()) return std::nullopt;
     return StmtExprVisitor::Visit(value);
   }
 
-  static void Verify(const ScheduleStateNode* self) {
+  static void Verify(const ScheduleStateObj* self) {
     ffi::make_object<SRefTreeVerifier>(self)->Verify();
   }
 
   /*! \brief Constructor */
-  explicit SRefTreeVerifier(const ScheduleStateNode* self) : self_(self) {}
+  explicit SRefTreeVerifier(const ScheduleStateObj* self) : self_(self) {}
 
  private:
   void Verify() {
-    VisitPrimFuncs(self_->mod, [this](const PrimFuncNode* func) { this->Visit(func->body); });
+    for (const auto& [_, base_func] : self_->mod->functions) {
+      if (const auto* func = base_func.as<FunctionObj>()) {
+        this->Visit(func->body);
+      }
+    }
     TVM_FFI_ICHECK_EQ(n_sref_visited_, static_cast<int>(self_->stmt2ref.size()));
     for (const auto& kv : self_->block_info) {
       const StmtSRef& sref = kv.first;
@@ -60,7 +64,7 @@ class SRefTreeVerifier : public StmtExprVisitor {
     TVM_FFI_ICHECK_EQ(n_block_sref_visited_, static_cast<int>(self_->block_info.size()));
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* block) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* block) final {
     if (init_block_depth_) {
       TVM_FFI_CHECK(!self_->stmt2ref.count(block), InternalError)
           << "A block inside init block has its "
@@ -94,7 +98,7 @@ class SRefTreeVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* loop) final {
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* loop) final {
     if (init_block_depth_) {
       TVM_FFI_CHECK(!self_->stmt2ref.count(loop), InternalError)
           << "A loop inside init block has its "
@@ -102,13 +106,13 @@ class SRefTreeVerifier : public StmtExprVisitor {
       return StmtExprVisitor::Visit_(loop);
     }
     TVM_FFI_CHECK(self_->stmt2ref.count(loop), InternalError)
-        << "A ForNode should appear in sref map, but it didn't\n"
+        << "A ForObj should appear in sref map, but it didn't\n"
         << ffi::GetRef<Stmt>(loop);
     ++n_sref_visited_;
     const StmtSRef& sref = self_->stmt2ref.at(loop);
     ffi::Optional<Stmt> stmt = std::nullopt;
     TVM_FFI_CHECK(sref->parent == ancestors_.back(), InternalError)
-        << "Parent information mismatch for ForNode:\n"
+        << "Parent information mismatch for ForObj:\n"
         << ffi::GetRef<Stmt>(loop) << "\nIts parent is supposed to be:\n"
         << ffi::GetRef<Stmt>(ancestors_.back()->stmt)
         << "\nHowever, its parent is incorrect and is:\n"
@@ -120,7 +124,7 @@ class SRefTreeVerifier : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtNode* seq_stmt) final {
+  ffi::Optional<VisitInterrupt> Visit_(const SeqStmtObj* seq_stmt) final {
     // Verify seq_index
     if (init_block_depth_) {
       return StmtExprVisitor::Visit_(seq_stmt);
@@ -128,12 +132,12 @@ class SRefTreeVerifier : public StmtExprVisitor {
     int n = static_cast<int>(seq_stmt->seq.size());
     for (int i = 0; i < n; ++i) {
       const Stmt& child = seq_stmt->seq[i];
-      StmtSRef sref{nullptr};
-      if (const auto* realize = child.as<SBlockRealizeNode>()) {
+      StmtSRef sref{ffi::UnsafeInit{}};
+      if (const auto* realize = child.as<SBlockRealizeObj>()) {
         const auto* block = realize->block.get();
         TVM_FFI_ICHECK(self_->stmt2ref.count(block));
         sref = self_->stmt2ref.at(block);
-      } else if (child->IsInstance<ForNode>()) {
+      } else if (child->IsInstance<ForObj>()) {
         TVM_FFI_ICHECK(self_->stmt2ref.count(child.get()));
         sref = self_->stmt2ref.at(child.get());
       } else {
@@ -145,9 +149,9 @@ class SRefTreeVerifier : public StmtExprVisitor {
   }
 
   /*! \brief The schedule it belongs to */
-  const ScheduleStateNode* self_;
+  const ScheduleStateObj* self_;
   /*! \brief Parent information during the visit */
-  std::vector<const StmtSRefNode*> ancestors_ = {nullptr};
+  std::vector<const StmtSRefObj*> ancestors_ = {nullptr};
   /*! \brief If the visitor is currently in the init block */
   int init_block_depth_ = 0;
   /*! \brief Number of srefs that are visited */
@@ -166,9 +170,9 @@ void VerifyCachedFlags(const ScheduleState& self) {
 
   ScheduleState new_state(self->mod);
   for (const auto& kv : new_state->stmt2ref) {
-    const StmtNode* stmt = kv.first;
+    const StmtObj* stmt = kv.first;
     const StmtSRef& new_sref = kv.second;
-    if (stmt->IsInstance<ForNode>() || !self->stmt2ref.count(stmt)) {
+    if (stmt->IsInstance<ForObj>() || !self->stmt2ref.count(stmt)) {
       continue;
     }
     const SBlockInfo& new_block_info = new_state->block_info.at(new_sref);
@@ -207,7 +211,7 @@ void VerifyCachedFlags(const ScheduleState& self) {
   if (has_not_found) {
     os << "- SBlockInfo not found:";
     for (const StmtSRef& block_sref : block_info_not_found) {
-      const auto* block = block_sref->StmtAs<SBlockNode>();
+      const auto* block = block_sref->StmtAs<SBlockObj>();
       TVM_FFI_ICHECK(block);
       os << " " << block->name_hint;
     }
@@ -219,7 +223,7 @@ void VerifyCachedFlags(const ScheduleState& self) {
       const StmtSRef& block_sref = std::get<0>(record);
       bool expected = std::get<1>(record);
       bool actual = std::get<2>(record);
-      const auto* block = block_sref->StmtAs<SBlockNode>();
+      const auto* block = block_sref->StmtAs<SBlockObj>();
       TVM_FFI_ICHECK(block);
       os << " (" << block->name_hint << ", expected=" << expected << ", actual=" << actual << ")";
     }
@@ -231,7 +235,7 @@ void VerifyCachedFlags(const ScheduleState& self) {
       const StmtSRef& block_sref = std::get<0>(record);
       bool expected = std::get<1>(record);
       bool actual = std::get<2>(record);
-      const auto* block = block_sref->StmtAs<SBlockNode>();
+      const auto* block = block_sref->StmtAs<SBlockObj>();
       TVM_FFI_ICHECK(block);
       os << " (" << block->name_hint << ", expected=" << expected << ", actual=" << actual << ")";
     }
@@ -243,7 +247,7 @@ void VerifyCachedFlags(const ScheduleState& self) {
       const StmtSRef& block_sref = std::get<0>(record);
       bool expected = std::get<1>(record);
       bool actual = std::get<2>(record);
-      const auto* block = block_sref->StmtAs<SBlockNode>();
+      const auto* block = block_sref->StmtAs<SBlockObj>();
       TVM_FFI_ICHECK(block);
       os << " (" << block->name_hint << ", expected=" << expected << ", actual=" << actual << ")";
     }

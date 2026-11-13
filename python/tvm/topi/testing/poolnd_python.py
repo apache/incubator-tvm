@@ -163,7 +163,7 @@ def poolnd_python(
     # Create a padded array, and a boolean mask showing which values are padded values
     pad_value = 0
     if pool_type == "max" and not count_include_pad:
-        pad_value = tvm.te.min_value(dtype).value
+        pad_value = tvm.te.min_value(ty=dtype).value
     pad_data = pad_tensor(np_data, pad_value, padding_before, padding_after, dtype)
     pad_map = pad_tensor(np.ones_like(np_data), 0, padding_before, padding_after, "bool")
 

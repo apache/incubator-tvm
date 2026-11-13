@@ -16,8 +16,20 @@
 # under the License.
 """ROI Pool operator"""
 
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC as _UNKNOWN_LOC
+from tvm_tirx.ir.location import Location as _Location
+
 from ..base import Expr
-from . import _ffi_api
+
+
+@tvm_ffi.register_object("relax.attrs.ROIPoolAttrs")
+class ROIPoolAttrs(Attrs):
+    """Attributes for vision.roi_pool"""
 
 
 def roi_pool(
@@ -26,6 +38,9 @@ def roi_pool(
     pooled_size: int | tuple[int, int] | list[int],
     spatial_scale: float,
     layout: str = "NCHW",
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ):
     """ROI Pool operator.
 
@@ -54,4 +69,15 @@ def roi_pool(
     """
     if isinstance(pooled_size, int):
         pooled_size = (pooled_size, pooled_size)
-    return _ffi_api.roi_pool(data, rois, pooled_size, spatial_scale, layout)
+    return _Call(
+        "relax.vision.roi_pool",
+        [data, rois],
+        attrs=_make_attrs(
+            "relax.attrs.ROIPoolAttrs",
+            pooled_size=pooled_size,
+            spatial_scale=spatial_scale,
+            layout=layout,
+        ),
+        loc=loc,
+        ty=ty,
+    )

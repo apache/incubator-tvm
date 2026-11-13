@@ -58,7 +58,6 @@
 
 #include "errno_handling.h"
 #include "ssize.h"
-#include "utils.h"
 
 #if defined(_WIN32)
 static inline int poll(struct pollfd* pfd, int nfds, int timeout) {

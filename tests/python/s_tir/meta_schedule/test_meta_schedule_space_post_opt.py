@@ -23,20 +23,25 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.runner.config import EvaluatorConfig
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
-from tvm.testing import env
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
+from tvm_tirx.testing import env
 
 logging.basicConfig()
 logging.getLogger("tvm.s_tir.meta_schedule").setLevel(logging.DEBUG)
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
+) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("update"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])

@@ -53,9 +53,9 @@ ReadGraph CreateReadGraph(const ffi::Array<Operation>& roots) {
     ffi::Array<Tensor> deps = op->InputTensors();
     rmap.Set(op, deps);
     for (Tensor t : deps) {
-      if (t->op.defined() && visited.count(t->op.get()) == 0) {
-        visited.insert(t->op.get());
-        stack.push_back(t->op);
+      if (t->op.has_value() && visited.count(t->op.value().get()) == 0) {
+        visited.insert(t->op.value().get());
+        stack.push_back(t->op.value());
       }
     }
   }
@@ -67,7 +67,7 @@ void PostDFSOrder(const Operation& op, const ReadGraph& g, std::unordered_set<Op
   if (visited->count(op)) return;
   visited->insert(op);
   for (const auto& t : g.at(op)) {
-    PostDFSOrder(t->op, g, visited, post_order);
+    PostDFSOrder(t->op.value(), g, visited, post_order);
   }
   post_order->push_back(op);
 }

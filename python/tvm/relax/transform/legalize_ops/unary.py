@@ -18,14 +18,14 @@
 """Default legalization function for unary operators."""
 
 from tvm import te, topi
-from tvm.ir import Call
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
 from .common import _call_topi_without_attr, register_legalize
 
 # To avoid conflict of IRModule function name and libc function name, we add
-# "tir_" as the prefix of the generated PrimFunc name.
+# "tir_" as the prefix of the generated Function name.
 register_legalize("relax.abs", _call_topi_without_attr(topi.abs, "tir_abs"))
 register_legalize("relax.acos", _call_topi_without_attr(topi.acos, "tir_acos"))
 register_legalize("relax.acosh", _call_topi_without_attr(topi.acosh, "tir_acosh"))
@@ -69,4 +69,4 @@ def _erf(bb: BlockBuilder, call: Call) -> Expr:
             erf = topi.erf(x)
         return erf
 
-    return bb.call_te(te_erf, call.args[0], primfunc_name_hint="erf")
+    return bb.call_te(te_erf, call.args[0], function_name_hint="erf")

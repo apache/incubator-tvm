@@ -24,50 +24,53 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
-#include <tvm/sym/analyzer.h>
 #include <tvm/te/operation.h>
+#include <tvm/tirx/type.h>
 
 namespace tvm {
 namespace te {
 using namespace tirx;
 
-TVM_FFI_STATIC_INIT_BLOCK() { ExternOpNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ExternOpObj::RegisterReflection(); }
 
 // Pattern A (RM): auto-default repr from reflection.
 
-int ExternOpNode::num_outputs() const { return static_cast<int>(output_placeholders.size()); }
+int ExternOpObj::num_outputs() const { return static_cast<int>(output_placeholders.size()); }
 
-PrimType ExternOpNode::output_dtype(size_t i) const {
-  return output_placeholders[i]->ElementType();
-}
+PrimType ExternOpObj::output_dtype(size_t i) const { return output_placeholders[i].dtype(); }
 
-ffi::Array<PrimExpr> ExternOpNode::output_shape(size_t i) const {
-  return output_placeholders[i]->shape;
+ffi::Array<PrimExpr> ExternOpObj::output_shape(size_t i) const {
+  return output_placeholders[i].shape();
 }
 
 ExternOp::ExternOp(std::string name, std::string tag, ffi::Map<ffi::String, ffi::Any> attrs,
-                   ffi::Array<Tensor> inputs, ffi::Array<BufferVar> input_placeholders,
-                   ffi::Array<BufferVar> output_placeholders, Stmt body) {
+                   ffi::Array<Tensor> inputs, ffi::Array<TensorVar> input_placeholders,
+                   ffi::Array<TensorVar> output_placeholders, SeqStmt body)
+    : Operation(ffi::UnsafeInit{}) {
   if (!attrs.defined()) {
     attrs = ffi::Map<ffi::String, ffi::Any>();
   }
-  auto n = ffi::make_object<ExternOpNode>();
+  auto n = ffi::make_object<ExternOpObj>(std::move(body));
   n->name = std::move(name);
   n->tag = std::move(tag);
   n->attrs = std::move(attrs);
   TVM_FFI_ICHECK_EQ(inputs.size(), input_placeholders.size());
   for (size_t i = 0; i < inputs.size(); ++i) {
-    TVM_FFI_ICHECK_EQ(inputs[i]->dtype, input_placeholders[i]->dtype);
-    TVM_FFI_ICHECK_EQ(inputs[i]->shape.size(), input_placeholders[i]->shape.size());
+    TVM_FFI_ICHECK_EQ(inputs[i]->dtype, input_placeholders[i].dtype());
+    TVM_FFI_ICHECK_EQ(inputs[i]->shape.size(), input_placeholders[i].shape().size());
     for (size_t dim = 0; dim < inputs[i]->shape.size(); ++dim) {
-      TVM_FFI_ICHECK(inputs[i]->shape[dim].same_as(input_placeholders[i]->shape[dim]));
+      TVM_FFI_ICHECK(inputs[i]->shape[dim].same_as(input_placeholders[i].shape()[dim]));
     }
-    TVM_FFI_ICHECK_EQ(input_placeholders[i]->strides.size(), 0U);
+    const auto& layout = input_placeholders[i].ty()->layout;
+    if (layout.has_value()) {
+      const auto* tile = layout.as<tirx::TileLayoutObj>();
+      TVM_FFI_ICHECK(tile && ffi::GetRef<tirx::TileLayout>(tile).IsContiguous())
+          << "External inputs require contiguous strides";
+    }
   }
   n->inputs = std::move(inputs);
   n->input_placeholders = std::move(input_placeholders);
   n->output_placeholders = std::move(output_placeholders);
-  n->body = std::move(body);
   data_ = std::move(n);
 }
 
@@ -76,14 +79,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def(
       "te.ExternOp",
       [](std::string name, std::string tag, ffi::Optional<ffi::Map<ffi::String, ffi::Any>> attrs,
-         ffi::Array<Tensor> inputs, ffi::Array<BufferVar> input_placeholders,
-         ffi::Array<BufferVar> output_placeholders, Stmt body) {
+         ffi::Array<Tensor> inputs, ffi::Array<TensorVar> input_placeholders,
+         ffi::Array<TensorVar> output_placeholders, SeqStmt body) {
         return ExternOp(name, tag, attrs.value_or({}), inputs, input_placeholders,
                         output_placeholders, body);
       });
 }
 
-ffi::Array<Tensor> ExternOpNode::InputTensors() const { return inputs; }
+ffi::Array<Tensor> ExternOpObj::InputTensors() const { return inputs; }
 
 }  // namespace te
 }  // namespace tvm

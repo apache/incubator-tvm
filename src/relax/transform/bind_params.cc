@@ -37,7 +37,7 @@ ffi::Map<Var, Expr> NormalizeBindings(const Function& func,
 
   // Map from string to the variable(s) with that name.
   std::unordered_map<std::string, ffi::Array<tvm::Var>> string_lookup;
-  std::unordered_set<const tvm::VarNode*> var_set;
+  std::unordered_set<const tvm::VarObj*> var_set;
   for (const auto& param : func->params) {
     string_lookup[param->name].push_back(param);
     var_set.insert(param.get());
@@ -79,8 +79,8 @@ ffi::Map<Var, Expr> NormalizeBindings(const Function& func,
   auto normalize_value = [&](ffi::Any obj) -> relax::Expr {
     if (auto opt = obj.as<relax::Expr>()) {
       return opt.value();
-    } else if (auto opt = obj.as<runtime::Tensor>()) {
-      return MakeTensorConst(opt.value());
+    } else if (auto tensor = obj.as<ffi::Tensor>(); tensor && tensor->defined()) {
+      return MakeTensorConst(tensor.value());
     } else {
       TVM_FFI_THROW(InternalError)
           << "Cannot coerce object of type " << obj.GetTypeKey() << " into relax expression";
@@ -115,14 +115,13 @@ Function FunctionBindParams(Function func, const ffi::Map<Any, ffi::ObjectRef>& 
  * \return The module after binding params.
  */
 IRModule BindParam(IRModule m, ffi::String func_name, ffi::Map<Any, ffi::ObjectRef> bind_params) {
-  IRModuleNode* new_module = m.CopyOnWrite();
+  IRModuleObj* new_module = m.CopyOnWrite();
   ffi::Map<GlobalVar, BaseFunc> functions = m->functions;
   for (const auto& func_pr : functions) {
-    if (const auto* relax_f = func_pr.second.as<FunctionNode>()) {
+    if (const auto* relax_f = func_pr.second.as<FunctionObj>()) {
       if (relax_f->GetLinkageType() == LinkageType::kExternal) {
         // Use global_symbol if it's external linkage
-        ffi::Optional<ffi::String> gsymbol =
-            relax_f->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
+        ffi::Optional<ffi::String> gsymbol = relax_f->GetAttr(tvm::attr::kGlobalSymbol);
         if (gsymbol.has_value() && gsymbol.value() == func_name) {
           Function f_after_bind = FunctionBindParams(ffi::GetRef<Function>(relax_f), bind_params);
           new_module->Update(func_pr.first, f_after_bind);
@@ -150,7 +149,7 @@ Pass BindParams(ffi::String func_name, ffi::Map<Any, ffi::ObjectRef> params) {
   auto pass_func = [=](IRModule mod, PassContext pc) {
     return BindParam(std::move(mod), func_name, params);
   };
-  return CreateModulePass(pass_func, 0, "BindParams", {});
+  return CreateModulePass(pass_func, 0, "BindParams");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

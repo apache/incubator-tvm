@@ -19,24 +19,25 @@
 import pytest
 
 import tvm
-from tvm import tirx
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,no-self-argument,line-too-long,chained-comparison,not-callable,too-many-nested-blocks
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Module:
-    @Ts.prim_func
-    def scale_by_two(a: T.Buffer((128,), "int8"), c: T.Buffer((128,), "int8")):
+    @Ts.function
+    def scale_by_two(a: T.Tensor((128,), "int8"), c: T.Tensor((128,), "int8")):
         for i in T.serial(128):
             with Ts.sblock("C"):
                 c[i] = a[i] * T.int8(2)
 
-    @Ts.prim_func
-    def scale_by_two_three(a: T.Buffer((128,), "int8"), c: T.Buffer((128,), "int8")):
-        B = Ts.sblock_alloc_buffer([128], dtype="int8", scope="global.vtcm")
+    @Ts.function
+    def scale_by_two_three(a: T.Tensor((128,), "int8"), c: T.Tensor((128,), "int8")):
+        B = Ts.sblock_alloc_tensor([128], dtype="int8", scope="global.vtcm")
         for i in T.serial(128):
             with Ts.sblock("B"):
                 B[i] = a[i] * T.int8(2)
@@ -49,11 +50,11 @@ class Module:
 
 
 @pytest.mark.parametrize(
-    "primFunc,size", [(Module["scale_by_two"], 128), (Module["scale_by_two_three"], 256)]
+    "function,size", [(Module["scale_by_two"], 128), (Module["scale_by_two_three"], 256)]
 )
-def test_scale_by(primFunc, size):
+def test_scale_by(function, size):
     """Test calculate allocated bytes per scope"""
-    mod = tvm.IRModule.from_expr(primFunc.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(function.with_attr("global_symbol", "main"))
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     block_c = sch.get_sblock("C")
     (flat,) = sch.get_loops(block_c)
@@ -64,20 +65,20 @@ def test_scale_by(primFunc, size):
     mod = tvm.s_tir.transform.ConvertBlocksToOpaque()(mod)
     mod = tvm.s_tir.transform.LowerOpaqueBlock()(mod)
     sizes = tvm.s_tir.analysis.calculate_allocated_bytes(mod["main"])
-    assert "main" in sizes, 'Calls with PrimFunc is expected to return with function key as "main"'
+    assert "main" in sizes, 'Calls with Function is expected to return with function key as "main"'
     sizes = sizes["main"]
     assert sizes.get("global.vtcm", 0) == size
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_mix_scope(
-    A: T.Buffer([128, 128], scope="global"),
-    B: T.Buffer([128, 128], scope="global"),
-    C: T.Buffer([128, 128], scope="global"),
+    A: T.Tensor([128, 128], "float32", scope="global"),
+    B: T.Tensor([128, 128], "float32", scope="global"),
+    C: T.Tensor([128, 128], "float32", scope="global"),
 ) -> None:
-    A_allocated = Ts.sblock_alloc_buffer([128, 128], dtype="float32", scope="global.texture")
-    B_allocated = Ts.sblock_alloc_buffer([128, 128], dtype="float32", scope="global.texture")
-    C_allocated = Ts.sblock_alloc_buffer([128, 128], dtype="float32", scope="global")
+    A_allocated = Ts.sblock_alloc_tensor([128, 128], dtype="float32", scope="global.texture")
+    B_allocated = Ts.sblock_alloc_tensor([128, 128], dtype="float32", scope="global.texture")
+    C_allocated = Ts.sblock_alloc_tensor([128, 128], dtype="float32", scope="global")
 
     for i, j in T.grid(128, 128):
         with Ts.sblock("A.allocated"):
@@ -103,12 +104,12 @@ def matmul_mix_scope(
 )
 def test_matmul_mix_scope(scope, size):
     """Test calculate allocated bytes per scope"""
-    mod = tvm.IRModule({"main": matmul_mix_scope})
+    mod = tvm_tirx.IRModule({"main": matmul_mix_scope})
     mod = tvm.s_tir.transform.LowerInitBlock()(mod)
     mod = tvm.s_tir.transform.ConvertBlocksToOpaque()(mod)
     mod = tvm.s_tir.transform.LowerOpaqueBlock()(mod)
     sizes = tvm.s_tir.analysis.calculate_allocated_bytes(mod["main"])
-    assert "main" in sizes, 'Calls with PrimFunc is expected to return with function key as "main"'
+    assert "main" in sizes, 'Calls with Function is expected to return with function key as "main"'
     sizes = sizes["main"]
     assert sizes.get(scope, 0) == size
 
@@ -139,4 +140,4 @@ def test_full_mod_calculator():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

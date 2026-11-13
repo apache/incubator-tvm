@@ -99,7 +99,7 @@ public class TVMType {
     }
     String str = typeCodeStr + bits;
     if (lanes != 1) {
-      str += lanes;
+      str += "x" + lanes;
     }
     return str;
   }

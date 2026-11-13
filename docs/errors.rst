@@ -36,7 +36,7 @@ What to Check First
 - Make sure the TVM Python package and native libraries come from the
   same build.  A common symptom of a mismatched environment is importing
   Python files from one checkout while loading ``libtvm`` from another.
-- Check that the required runtime is enabled in ``config.cmake``.  For
+- Check that the required runtime is enabled in the CMake configuration.  For
   example, CUDA tests and CUDA compilation require a TVM build with
   CUDA support enabled.
 - Check that the target hardware is available to the process.  GPU
@@ -58,7 +58,7 @@ filing an issue:
 - The TVM version or git commit hash.
 - The Python version, operating system, and hardware.
 - The target and runtime being used, such as LLVM, CUDA, Vulkan, or RPC.
-- The relevant build configuration from ``config.cmake``.
+- The relevant build configuration from ``build/CMakeCache.txt``.
 - A minimal script, model, input shape, or IR module that reproduces the
   failure.
 - The full error message, including both Python and C++ stack traces

@@ -24,6 +24,7 @@
 #ifndef TVM_S_TIR_TENSOR_INTRIN_H_
 #define TVM_S_TIR_TENSOR_INTRIN_H_
 
+#include <tvm/base.h>
 #include <tvm/tirx/function.h>
 
 namespace tvm {
@@ -32,24 +33,29 @@ namespace s_tir {
 /*!
  * \brief Tensor intrinsics for tensorization
  */
-class TensorIntrinNode : public ffi::Object {
+class TensorIntrinObj : public ffi::Object {
  public:
+  explicit TensorIntrinObj(ffi::UnsafeInit tag) : desc(tag), impl(tag) {}
+
+  TensorIntrinObj(tirx::Function desc, tirx::Function impl)
+      : desc(std::move(desc)), impl(std::move(impl)) {}
+
   /*! \brief The function to describe the computation. */
-  tirx::PrimFunc desc;
+  tirx::Function desc;
   /*! \brief The function of the implementation for the execution. */
-  tirx::PrimFunc impl;
+  tirx::Function impl;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TensorIntrinNode>()
-        .def_ro("desc", &TensorIntrinNode::desc)
-        .def_ro("impl", &TensorIntrinNode::impl);
+    refl::ObjectDef<TensorIntrinObj>()
+        .def_ro("desc", &TensorIntrinObj::desc)
+        .def_ro("impl", &TensorIntrinObj::impl);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.TensorIntrin", TensorIntrinNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.TensorIntrin", TensorIntrinObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to TensorIntrinNode.
+ * \brief Managed reference to TensorIntrinObj.
  */
 class TensorIntrin : public ffi::ObjectRef {
  public:
@@ -58,7 +64,7 @@ class TensorIntrin : public ffi::ObjectRef {
    * \param desc The function to describe the computation.
    * \param impl The function of the implementation for the execution.
    */
-  TVM_DLL explicit TensorIntrin(tirx::PrimFunc desc, tirx::PrimFunc impl);
+  TVM_DLL explicit TensorIntrin(tirx::Function desc, tirx::Function impl);
 
   /*!
    * \brief Create and register a TensorIntrin. After registration, the TensorIntrin can be looked
@@ -82,7 +88,7 @@ class TensorIntrin : public ffi::ObjectRef {
    */
   TVM_DLL static ffi::Optional<TensorIntrin> Get(ffi::String name, bool allow_missing = false);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(TensorIntrin, ffi::ObjectRef, TensorIntrinNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorIntrin, ffi::ObjectRef, TensorIntrinObj);
 };
 
 }  // namespace s_tir

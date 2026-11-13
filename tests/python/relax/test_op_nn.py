@@ -17,12 +17,13 @@
 # ruff: noqa: F841
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax import VDevice
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
@@ -60,7 +61,7 @@ def test_op_correctness():
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_linear_unit_infer_ty():
@@ -1770,7 +1771,7 @@ def test_nll_loss_infer_ty_wrong_reduction():
     y = relax.Var("x", R.Tensor((3, 10, 10), "int64"))
     w = relax.Var("w", R.Tensor((5,), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         bb.normalize(relax.op.nn.nll_loss(x, y, w, reduction="foo"))
 
 
@@ -1862,4 +1863,4 @@ def test_batch_flatten_infer_ty_wrong_ndim():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -45,6 +45,5 @@ from .analysis import (
     suggest_layout_transforms,
     tir_vars_in_type,
     udchain,
-    well_formed,
 )
 from .estimate_memory_usage import estimate_memory_usage

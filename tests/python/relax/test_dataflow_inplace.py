@@ -21,8 +21,8 @@ import pytest
 import torch
 
 import tvm
-from tvm import relax, testing
-from tvm.relax import VMInstrumentReturnKind
+import tvm_tirx
+from tvm import relax
 from tvm.relax.testing.transform import (
     dataflow_alias_analysis,
     dataflow_inplace_analysis,
@@ -30,10 +30,12 @@ from tvm.relax.testing.transform import (
     dataflow_single_inplace_call,
 )
 from tvm.relax.transform import DataflowUseInplaceCalls
-from tvm.script import s_tir as Ts
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import testing
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 def test_liveness_analysis():
@@ -178,9 +180,9 @@ def test_alias_call_tir():
 
     @I.ir_module
     class AliasCallTir:
-        @Ts.prim_func
+        @Ts.function
         def tir_id(
-            A: T.Buffer((m_tir_id, n_tir_id), "int32"), B: T.Buffer((m_tir_id, n_tir_id), "int32")
+            A: T.Tensor((m_tir_id, n_tir_id), "int32"), B: T.Tensor((m_tir_id, n_tir_id), "int32")
         ) -> None:
             T.func_attr({"global_symbol": "tir_id"})
 
@@ -189,11 +191,11 @@ def test_alias_call_tir():
                     vi, vj = Ts.axis.remap("SS", [i, j])
                     B[vi, vj] = A[vi, vj]
 
-        @Ts.prim_func
+        @Ts.function
         def tir_id2(
-            A: T.Buffer((m_tir_id2, n_tir_id2), "int32"),
-            B: T.Buffer((m_tir_id2, n_tir_id2), "int32"),
-            C: T.Buffer((m_tir_id2, n_tir_id2), "int32"),
+            A: T.Tensor((m_tir_id2, n_tir_id2), "int32"),
+            B: T.Tensor((m_tir_id2, n_tir_id2), "int32"),
+            C: T.Tensor((m_tir_id2, n_tir_id2), "int32"),
         ) -> None:
             T.func_attr({"global_symbol": "tir_id"})
 
@@ -207,11 +209,13 @@ def test_alias_call_tir():
         def main(x: R.Tensor((10, 10), "int32")) -> R.Tensor((10, 10), "int32"):
             with R.dataflow():
                 cls = AliasCallTir
-                y = R.call_tir(cls.tir_id, (x,), out_ty=R.Tensor((10, 10), "int32"))
+                y = R.call_tir(cls.tir_id, (x,), ty_args=[R.Tensor((10, 10), "int32")])
                 t = R.call_tir(
                     cls.tir_id2,
                     (y,),
-                    out_ty=[R.Tensor((10, 10), "int32"), R.Tensor((10, 10), "int32")],
+                    ty_args=[
+                        _TupleType([R.Tensor((10, 10), "int32"), R.Tensor((10, 10), "int32")])
+                    ],
                 )
                 z = y
                 p = t[0]
@@ -380,10 +384,10 @@ def test_inplace_single_call():
     add_call = TestModule["main"].body.blocks[0].bindings[0].value
     new_add, new_mod = dataflow_single_inplace_call(TestModule, add_call, [0])
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def expected_add(
-        A: T.Buffer((T.int64(2), T.int64(3)), "float32"),
-        B: T.Buffer((T.int64(2), T.int64(3)), "float32"),
+        A: T.Tensor((T.int64(2), T.int64(3)), "float32"),
+        B: T.Tensor((T.int64(2), T.int64(3)), "float32"),
     ):
         T.func_attr({"tirx.noalias": True})
         for ax0, ax1 in T.grid(T.int64(2), T.int64(3)):
@@ -393,17 +397,17 @@ def test_inplace_single_call():
                 Ts.writes(A[v_ax0, v_ax1])
                 A[v_ax0, v_ax1] = A[v_ax0, v_ax1] + B[v_ax0, v_ax1]
 
-    tvm.ir.assert_structural_equal(new_mod["add_inplace"], expected_add)
+    tvm_tirx.ir.assert_structural_equal(new_mod["add_inplace"], expected_add)
     assert new_add.op.name == "relax.call_tir_inplace"
     assert new_add.args[0].name_hint == "add_inplace"
     for i, arg in enumerate(new_add.args[1].fields):
         arg == add_call.args[i]
     new_add.attrs.inplace_indices == [0]
 
-    @Ts.prim_func(private=True)
-    def expected_silu(A: T.Buffer((T.int64(2), T.int64(3)), "float32")):
+    @Ts.function(private=True)
+    def expected_silu(A: T.Tensor((T.int64(2), T.int64(3)), "float32")):
         T.func_attr({"tirx.noalias": True})
-        compute = Ts.sblock_alloc_buffer((T.int64(2), T.int64(3)))
+        compute = Ts.sblock_alloc_tensor((T.int64(2), T.int64(3)))
         for i0, i1 in T.grid(T.int64(2), T.int64(3)):
             with Ts.sblock("compute"):
                 v_i0, v_i1 = Ts.axis.remap("SS", [i0, i1])
@@ -420,7 +424,7 @@ def test_inplace_single_call():
     silu_call = TestModule["main"].body.blocks[0].bindings[1].value
     new_silu, new_mod = dataflow_single_inplace_call(TestModule, silu_call, [0])
 
-    tvm.ir.assert_structural_equal(new_mod["silu_inplace"], expected_silu)
+    tvm_tirx.ir.assert_structural_equal(new_mod["silu_inplace"], expected_silu)
     assert new_silu.op.name == "relax.call_tir_inplace"
     assert new_silu.args[0].name_hint == "silu_inplace"
     for i, arg in enumerate(new_silu.args[1].fields):
@@ -448,10 +452,10 @@ def test_insert_inplace_calls():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def add_inplace(
-            A: T.Buffer((T.int64(2), T.int64(3)), "float32"),
-            B: T.Buffer((T.int64(1), T.int64(3)), "float32"),
+            A: T.Tensor((T.int64(2), T.int64(3)), "float32"),
+            B: T.Tensor((T.int64(1), T.int64(3)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for ax0, ax1 in T.grid(T.int64(2), T.int64(3)):
@@ -461,10 +465,10 @@ def test_insert_inplace_calls():
                     Ts.writes(A[v_ax0, v_ax1])
                     A[v_ax0, v_ax1] = A[v_ax0, v_ax1] + B[T.int64(0), v_ax1]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def multiply_inplace(
-            A: T.Buffer((T.int64(2), T.int64(3)), "float32"),
-            B: T.Buffer((T.int64(1), T.int64(3)), "float32"),
+            A: T.Tensor((T.int64(2), T.int64(3)), "float32"),
+            B: T.Tensor((T.int64(1), T.int64(3)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for ax0, ax1 in T.grid(T.int64(2), T.int64(3)):
@@ -474,10 +478,10 @@ def test_insert_inplace_calls():
                     Ts.writes(A[v_ax0, v_ax1])
                     A[v_ax0, v_ax1] = A[v_ax0, v_ax1] * B[T.int64(0), v_ax1]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def subtract_inplace(
-            A: T.Buffer((T.int64(1), T.int64(3)), "float32"),
-            B: T.Buffer((T.int64(1), T.int64(3)), "float32"),
+            A: T.Tensor((T.int64(1), T.int64(3)), "float32"),
+            B: T.Tensor((T.int64(1), T.int64(3)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for ax0, ax1 in T.grid(T.int64(1), T.int64(3)):
@@ -498,56 +502,48 @@ def test_insert_inplace_calls():
                     cls.add_inplace,
                     (z, y),
                     inplace_indices=[0],
-                    out_ty=[
-                        R.Tensor((2, 3), dtype="float32"),
-                    ],
+                    ty_args=[R.Tensor((2, 3), dtype="float32")],
                 )
                 q: R.Tensor((2, 3), dtype="float32") = R.call_tir_inplace(
                     cls.multiply_inplace,
                     (a, y),
                     inplace_indices=[0],
-                    out_ty=[
-                        R.Tensor((2, 3), dtype="float32"),
-                    ],
+                    ty_args=[R.Tensor((2, 3), dtype="float32")],
                 )
                 r: R.Tensor((1, 3), dtype="float32") = R.subtract(y, y)
                 s: R.Tensor((1, 3), dtype="float32") = R.call_tir_inplace(
                     cls.subtract_inplace,
                     (r, r),
                     inplace_indices=[1],
-                    out_ty=[
-                        R.Tensor((1, 3), dtype="float32"),
-                    ],
+                    ty_args=[R.Tensor((1, 3), dtype="float32")],
                 )
                 m: R.Tensor((2, 3), dtype="float32") = R.call_tir_inplace(
                     cls.multiply_inplace,
                     (q, s),
                     inplace_indices=[0],
-                    out_ty=[
-                        R.Tensor((2, 3), dtype="float32"),
-                    ],
+                    ty_args=[R.Tensor((2, 3), dtype="float32")],
                 )
                 R.output(m)
             return m
 
     transform_pass = DataflowUseInplaceCalls()
     new_mod = transform_pass(EndToEndTest)
-    tvm.ir.assert_structural_equal(new_mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(new_mod, Expected)
 
-    x = tvm.runtime.tensor(np.random.rand(2, 3).astype("float32"))
-    y = tvm.runtime.tensor(np.random.rand(1, 3).astype("float32"))
+    x = tvm_tirx.runtime.tensor(np.random.rand(2, 3).astype("float32"))
+    y = tvm_tirx.runtime.tensor(np.random.rand(1, 3).astype("float32"))
     expected = np.zeros((2, 3), dtype="float32")
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     ex = tvm.compile(new_mod, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     res = vm["main"](x, y)
     assert (expected == res.numpy()).all()
 
 
 def test_dynamic():
-    a_dim = T.dynamic("a")
-    b = T.dynamic("b")
+    a_dim = T.dynamic("a", "int64")
+    b = T.dynamic("b", "int64")
 
     @I.ir_module
     class DynamicTestCase:
@@ -567,18 +563,19 @@ def test_dynamic():
     transform_pass = DataflowUseInplaceCalls()
     new_mod = transform_pass(DynamicTestCase)
 
-    a_add_inplace = T.dynamic("a")
-    b_add_inplace = T.dynamic("b")
-    a_subtract_inplace = T.dynamic("a")
-    b_subtract_inplace = T.dynamic("b")
-    a_main = T.dynamic("a")
-    b_main = T.dynamic("b")
+    a_add_inplace = T.dynamic("a", "int64")
+    b_add_inplace = T.dynamic("b", "int64")
+    a_subtract_inplace = T.dynamic("a", "int64")
+    b_subtract_inplace = T.dynamic("b", "int64")
+    a_main = T.dynamic("a", "int64")
+    b_main = T.dynamic("b", "int64")
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def add_inplace(
-            A: T.Buffer((a_add_inplace, b_add_inplace)), B: T.Buffer((a_add_inplace, b_add_inplace))
+            A: T.Tensor((a_add_inplace, b_add_inplace), "float32"),
+            B: T.Tensor((a_add_inplace, b_add_inplace), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
 
@@ -589,10 +586,10 @@ def test_dynamic():
                     Ts.writes(A[v_ax0, v_ax1])
                     A[v_ax0, v_ax1] = A[v_ax0, v_ax1] + B[v_ax0, v_ax1]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def subtract_inplace(
-            A: T.Buffer((a_subtract_inplace, b_subtract_inplace)),
-            B: T.Buffer((a_subtract_inplace, b_subtract_inplace)),
+            A: T.Tensor((a_subtract_inplace, b_subtract_inplace), "float32"),
+            B: T.Tensor((a_subtract_inplace, b_subtract_inplace), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
 
@@ -614,36 +611,36 @@ def test_dynamic():
                 a_1 = R.call_tir_inplace(
                     cls.add_inplace,
                     (z, y),
-                    out_ty=R.Tensor((a_main, b_main), dtype="float32"),
+                    ty_args=[R.Tensor((a_main, b_main), dtype="float32")],
                     inplace_indices=[0],
                 )
                 s = R.call_tir_inplace(
                     cls.subtract_inplace,
                     (a_1, a_1),
-                    out_ty=R.Tensor((a_main, b_main), dtype="float32"),
+                    ty_args=[R.Tensor((a_main, b_main), dtype="float32")],
                     inplace_indices=[1],
                 )
                 R.output(s)
             return s
 
-    tvm.ir.assert_structural_equal(new_mod, Expected, map_free_vars=True)
-    x = tvm.runtime.tensor(np.random.rand(2, 3).astype("float32"))
-    y = tvm.runtime.tensor(np.random.rand(2, 3).astype("float32"))
+    tvm_tirx.ir.assert_structural_equal(new_mod, Expected, map_free_vars=True)
+    x = tvm_tirx.runtime.tensor(np.random.rand(2, 3).astype("float32"))
+    y = tvm_tirx.runtime.tensor(np.random.rand(2, 3).astype("float32"))
     expected = np.zeros((2, 3), dtype="float32")
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     ex = tvm.compile(new_mod, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     res = vm["main"](x, y)
     assert (expected == res.numpy()).all()
 
 
 def test_dynamic_mismatch():
     # cannot statically prove the shapes to be equal so the module should be unchanged
-    a_dim = T.dynamic("a")
-    b = T.dynamic("b")
-    c = T.dynamic("c")
-    d = T.dynamic("d")
+    a_dim = T.dynamic("a", "int64")
+    b = T.dynamic("b", "int64")
+    c = T.dynamic("c", "int64")
+    d = T.dynamic("d", "int64")
 
     @I.ir_module
     class DynamicMistmatchTestCase:
@@ -658,7 +655,7 @@ def test_dynamic_mismatch():
 
     transform_pass = DataflowUseInplaceCalls()
     new_mod = transform_pass(DynamicMistmatchTestCase)
-    tvm.ir.assert_structural_equal(new_mod, DynamicMistmatchTestCase)
+    tvm_tirx.ir.assert_structural_equal(new_mod, DynamicMistmatchTestCase)
 
 
 class TestViewOpSharedStorageAndNoInplace:
@@ -666,226 +663,6 @@ class TestViewOpSharedStorageAndNoInplace:
     storage_ptr_x_2d = np.array([[1.0, 2.0, 3.0, 4.0]], dtype=np.float32)
     storage_ptr_x_squeeze = np.array([[[1.0], [2.0], [3.0], [4.0]]], dtype=np.float32)
     storage_ptr_x_ensure_zero_offset = np.array([[1.0], [2.0], [3.0], [4.0]], dtype=np.float32)
-
-    @I.ir_module
-    class _SharedStorageExpandDimsModule:
-        @R.function
-        def main(x: R.Tensor((4,), dtype="float32")) -> R.Tensor((4, 1), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4, 1), dtype="float32") = R.expand_dims(x, axis=[1])
-                lv1: R.Tensor((4, 1), dtype="float32") = R.expand_dims(x, axis=[1])
-                gv: R.Tensor((4, 1), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageSqueezeModule:
-        @R.function
-        def main(x: R.Tensor((1, 4, 1), dtype="float32")) -> R.Tensor((4, 1), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4, 1), dtype="float32") = R.squeeze(x, axis=[0])
-                lv1: R.Tensor((4, 1), dtype="float32") = R.squeeze(x, axis=[0])
-                gv: R.Tensor((4, 1), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageReshapeModule:
-        @R.function
-        def main(x: R.Tensor((4,), dtype="float32")) -> R.Tensor((4, 1), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4, 1), dtype="float32") = R.reshape(x, (4, 1))
-                lv1: R.Tensor((4, 1), dtype="float32") = R.reshape(x, (4, 1))
-                gv: R.Tensor((4, 1), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStoragePermuteDimsModule:
-        @R.function
-        def main(x: R.Tensor((1, 4), dtype="float32")) -> R.Tensor((4, 1), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4, 1), dtype="float32") = R.permute_dims(x, axes=[1, 0])
-                lv1: R.Tensor((4, 1), dtype="float32") = R.permute_dims(x, axes=[1, 0])
-                gv: R.Tensor((4, 1), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageViewModule:
-        @R.function
-        def main(x: R.Tensor((4,), dtype="float32")) -> R.Tensor((1, 4), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((1, 4), dtype="float32") = R.memory.view(
-                    x, R.shape([1, 4]), R.tuple(), R.tuple()
-                )
-                lv1: R.Tensor((1, 4), dtype="float32") = R.memory.view(
-                    x, R.shape([1, 4]), R.tuple(), R.tuple()
-                )
-                gv: R.Tensor((1, 4), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageBatchFlattenModule:
-        @R.function
-        def main(x: R.Tensor((1, 4), dtype="float32")) -> R.Tensor((1, 4), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((1, 4), dtype="float32") = R.nn.batch_flatten(x)
-                lv1: R.Tensor((1, 4), dtype="float32") = R.nn.batch_flatten(x)
-                gv: R.Tensor((1, 4), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageFlattenModule:
-        @R.function
-        def main(x: R.Tensor((1, 4), dtype="float32")) -> R.Tensor((4,), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4,), dtype="float32") = R.flatten(x)
-                lv1: R.Tensor((4,), dtype="float32") = R.flatten(x)
-                gv: R.Tensor((4,), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _SharedStorageEnsureZeroOffsetModule:
-        @R.function
-        def main(x: R.Tensor((4, 1), dtype="float32")) -> R.Tensor((4, 1), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4, 1), dtype="float32") = R.memory.ensure_zero_offset(x)
-                lv1: R.Tensor((4, 1), dtype="float32") = R.memory.ensure_zero_offset(x)
-                gv: R.Tensor((4, 1), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @I.ir_module
-    class _IndependentReluModule:
-        """Just a testcase to verify that non-view ops do not share storage."""
-
-        @R.function
-        def main(x: R.Tensor((4,), dtype="float32")) -> R.Tensor((4,), dtype="float32"):
-            with R.dataflow():
-                lv: R.Tensor((4,), dtype="float32") = R.nn.relu(x)
-                lv1: R.Tensor((4,), dtype="float32") = R.nn.relu(x)
-                gv: R.Tensor((4,), dtype="float32") = R.add(lv, lv1)
-                R.output(gv)
-            return gv
-
-    @classmethod
-    def _capture_op_tensors(cls, mod, input_nps, op_substr):
-        """Capture TVM tensors passed to VM calls whose name contains op_substr."""
-        captures = []
-
-        def instrument(func, name, before_run, ret_value, *args):
-            del func, ret_value
-            if not before_run:
-                return VMInstrumentReturnKind.NO_OP
-            if op_substr not in name.lower():
-                return VMInstrumentReturnKind.NO_OP
-            tensor_args = [arg for arg in args if isinstance(arg, tvm.runtime.Tensor)]
-            if not tensor_args:
-                return VMInstrumentReturnKind.NO_OP
-            captures.append({"call_name": name, "tensors": tensor_args})
-            return VMInstrumentReturnKind.NO_OP
-
-        if isinstance(input_nps, np.ndarray):
-            input_nps = [input_nps]
-
-        ex = relax.build(mod, tvm.target.Target("llvm"))
-        vm = relax.VirtualMachine(ex, tvm.cpu())
-        vm.set_instrument(instrument)
-        vm["main"](*(tvm.runtime.tensor(arr, tvm.cpu()) for arr in input_nps))
-        return captures
-
-    @pytest.mark.parametrize(
-        "mod,input_nps,op_substr,expect_same_storage",
-        [
-            pytest.param(
-                _SharedStorageExpandDimsModule,
-                [storage_ptr_x_1d],
-                "add",
-                True,
-                id="shared_storage_expand_dims",
-            ),
-            pytest.param(
-                _SharedStorageSqueezeModule,
-                [storage_ptr_x_squeeze],
-                "add",
-                True,
-                id="shared_storage_squeeze",
-            ),
-            pytest.param(
-                _SharedStorageReshapeModule,
-                [storage_ptr_x_1d],
-                "add",
-                True,
-                id="shared_storage_reshape",
-            ),
-            pytest.param(
-                _SharedStoragePermuteDimsModule,
-                [storage_ptr_x_2d],
-                "add",
-                True,
-                id="shared_storage_permute_dims",
-            ),
-            pytest.param(
-                _SharedStorageFlattenModule,
-                [storage_ptr_x_2d],
-                "add",
-                True,
-                id="shared_storage_flatten",
-            ),
-            pytest.param(
-                _SharedStorageBatchFlattenModule,
-                [storage_ptr_x_2d],
-                "add",
-                True,
-                id="shared_storage_batch_flatten",
-            ),
-            pytest.param(
-                _SharedStorageViewModule,
-                [storage_ptr_x_1d],
-                "add",
-                True,
-                id="shared_storage_memory_view",
-            ),
-            pytest.param(
-                _SharedStorageEnsureZeroOffsetModule,
-                [storage_ptr_x_ensure_zero_offset],
-                "add",
-                True,
-                id="shared_storage_ensure_zero_offset",
-            ),
-            pytest.param(
-                _IndependentReluModule,
-                [storage_ptr_x_1d],
-                "add",
-                False,
-                id="independent_storage_relu",
-            ),
-        ],
-    )
-    def test_tensor_storage_ptr_extraction(self, mod, input_nps, op_substr, expect_same_storage):
-        """Validate runtime storage overlap/sharing via VM instrumentation."""
-        storage_shared = tvm.get_global_func("runtime.TVMTensorIsStorageShared")
-        captures = self._capture_op_tensors(mod, input_nps, op_substr)
-        assert len(captures), f"VM instrumentation did not see a {op_substr} call."
-        assert len(captures) == 1, f"VM instrumentation should see exactly one {op_substr} call."
-        cap = captures[0]
-        assert len(cap["tensors"]) == 3, (
-            f"VM instrumentation should see three {op_substr} tensor operands."
-        )
-        tensor_a, tensor_b = cap["tensors"][0], cap["tensors"][1]
-        call_name = cap["call_name"]
-        if expect_same_storage:
-            assert storage_shared(tensor_a, tensor_b), (
-                f"{mod.__name__}: operands should share the same storage (call {call_name!r})"
-            )
-        else:
-            assert not storage_shared(tensor_a, tensor_b), (
-                f"{mod.__name__}: operands must not share storage (call {call_name!r})"
-            )
 
     @staticmethod
     def _emit_duplicate_view(op, x):
@@ -1023,7 +800,7 @@ class TestViewOpSharedStorageAndNoInplace:
             for binding in block.bindings
             if (
                 isinstance(binding.value, relax.Call)
-                and isinstance(binding.value.op, tvm.ir.Op)
+                and isinstance(binding.value.op, tvm_tirx.ir.Op)
                 and binding.value.op.name == view_op
             )
         ]
@@ -1038,21 +815,11 @@ class TestViewOpSharedStorageAndNoInplace:
 
         x_np = self._input_for_view_op(view_op).copy()
         mod_inplace = DataflowUseInplaceCalls()(mod)
-        tvm.ir.assert_structural_equal(mod_inplace, mod)
+        tvm_tirx.ir.assert_structural_equal(mod_inplace, mod)
 
-        storage_shared = tvm.get_global_func("runtime.TVMTensorIsStorageShared")
-        captures = self._capture_op_tensors(mod_inplace, x_np, "multiply")
-        assert captures, f"{view_op}: VM instrumentation did not see a multiply call."
-        cap = next(c for c in captures if len(c["tensors"]) >= 2)
-        tensor_a, tensor_b = cap["tensors"][0], cap["tensors"][1]
-        assert storage_shared(tensor_a, tensor_b), (
-            f"{view_op}: multiply operands should share the same storage at runtime "
-            f"(call {cap['call_name']!r})"
-        )
-
-        ex = relax.build(mod_inplace, tvm.target.Target("llvm"))
-        vm = relax.VirtualMachine(ex, tvm.cpu())
-        out = vm["main"](tvm.runtime.tensor(x_np, tvm.cpu()))
+        ex = relax.build(mod_inplace, tvm_tirx.target.Target("llvm"))
+        vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
+        out = vm["main"](tvm_tirx.runtime.tensor(x_np, tvm_tirx.cpu()))
         np.testing.assert_allclose(out.numpy(), self._expected_for_view_op(view_op))
 
 

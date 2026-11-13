@@ -24,9 +24,10 @@
 #ifndef TVM_RELAX_ANALYSIS_H_
 #define TVM_RELAX_ANALYSIS_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/module.h>
 #include <tvm/relax/expr.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/relax/type.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/sym/analyzer.h>
@@ -330,7 +331,7 @@ TVM_DLL Type TypeLCA(const Type& lhs, const Type& rhs, const sym::Analyzer& ana)
  * \param ty The type object to be analyzed.
  * \return The list of TIR variables that appear in the input type.
  */
-TVM_DLL ffi::Array<tirx::Var> TIRVarsInType(const Type& ty);
+TVM_DLL ffi::Array<tvm::Var> TIRVarsInType(const Type& ty);
 
 /*!
  * \brief Get the TIR variables that appear in the input type.
@@ -344,7 +345,7 @@ TVM_DLL ffi::Array<tirx::Var> TIRVarsInType(const Type& ty);
  *   deduplicated, each TIR variable will appear at most once, and in
  *   order of occurrence.
  */
-TVM_DLL ffi::Array<tirx::Var> DefinableTIRVarsInType(const Type& ty);
+TVM_DLL ffi::Array<tvm::Var> DefinableTIRVarsInType(const Type& ty);
 
 /*! \brief Collect expressions whose usage requires them to be non-negative
  *
@@ -365,7 +366,7 @@ TVM_DLL ffi::Array<PrimExpr> CollectNonNegativeExpressions(const Type& ty);
  * \param expr The relax expression (e.g. a Function) to be analyzed.
  * \return The list of TIR variables that are defined in the input function.
  */
-TVM_DLL ffi::Array<tirx::Var> DefinedSymbolicVars(const Expr& expr);
+TVM_DLL ffi::Array<tvm::Var> DefinedSymbolicVars(const Expr& expr);
 
 /*!
  * \brief Get the TIR variables that are used but not defined in the input function.
@@ -373,7 +374,7 @@ TVM_DLL ffi::Array<tirx::Var> DefinedSymbolicVars(const Expr& expr);
  * \param expr The relax expression (e.g. a Function) to be analyzed.
  * \return The list of TIR variables that are used but not defined in the input function.
  */
-TVM_DLL ffi::Array<tirx::Var> FreeSymbolicVars(const Expr& expr);
+TVM_DLL ffi::Array<tvm::Var> FreeSymbolicVars(const Expr& expr);
 //-----------------------------------
 // General IR analysis
 //-----------------------------------
@@ -543,7 +544,7 @@ VarUsageInfo CollectVarUsage(const Expr& expr);
  *
  * \return A set of variable nodes that are used in the expression
  */
-TVM_DLL std::set<const VarNode*> GetUsedVars(const Expr& expr);
+TVM_DLL std::set<const VarObj*> GetUsedVars(const Expr& expr);
 
 /*!
  * \brief Remove unused statements inside DataflowBlocks.
@@ -556,30 +557,30 @@ TVM_DLL std::set<const VarNode*> GetUsedVars(const Expr& expr);
 TVM_DLL Expr RemoveAllUnused(Expr expr);
 
 /*!
- * \brief Annotate Op Pattern Kind for PrimFunc, which is used in relax FuseOps.
+ * \brief Annotate Op Pattern Kind for tirx::Function, which is used in relax FuseOps.
  *
- * \param func The PrimFunc to be analyzed.
+ * \param func The tirx::Function to be analyzed.
  * \return The Op Pattern Kind.
  *
  * \note This analysis applies on TIR function but is primarily used by relax passes.
  *       As a result we place it under the relax namespace.
  */
-TVM_DLL OpPatternKind AnalyzeOpPatternKind(const tirx::PrimFunc& func);
+TVM_DLL OpPatternKind AnalyzeOpPatternKind(const tirx::Function& func);
 
 /*!
- * \brief Check if the given PrimFunc is essentially doing a reshape operation.
+ * \brief Check if the given tirx::Function is essentially doing a reshape operation.
  * The reshape operation also includes expand_dims, squeeze, flatten, etc.
  * \details Here the allowed reshape pattern is: for example, assume the operation is
  *  `B[l_0, l_1, ..., l_b] = A[r_0, r_1, ..., r_a]`, we check if we can prove that the flattened
- * index of l_0, ..., l_b under buffer B equals to the flattened index of r_0, ..., r_a under
- * buffer A.
+ * index of l_0, ..., l_b under tensor B equals to the flattened index of r_0, ..., r_a under
+ * tensor A.
  * \param func The function to be examined.
- * \return A boolean indicating if the given PrimFunc is doing a reshape.
+ * \return A boolean indicating if the given tirx::Function is doing a reshape.
  * \note According to the description above, the returned result can only be false-negative and
  * cannot be false-positive, since whenever we cannot prove the equality, we return false. This
  * property guarantees the safety of this function.
  */
-TVM_DLL bool HasReshapePattern(const tirx::PrimFunc& func);
+TVM_DLL bool HasReshapePattern(const tirx::Function& func);
 
 /*!
  * \brief Check if the given expression (likely a function body) contains any impure calls.
@@ -615,7 +616,7 @@ TVM_DLL bool ContainsImpureCall(
  *
  * Throws an ffi::Error on the first well-formedness violation. The error is
  * seeded with the offending node so a pass runner can resolve a precise access
- * path. Use \ref CheckWellFormed for a boolean answer.
+ * path.
  *
  * \param obj The IRModule or relax::Function to check.
  * \param check_ty If true, verify that every Expr has ty populated.
@@ -623,32 +624,20 @@ TVM_DLL bool ContainsImpureCall(
  * where `check_ty` might be false, so that other well-formed requirements
  * will be well tested and will not be blocked by not having type information.
  */
-TVM_DLL void WellFormed(ffi::Variant<IRModule, Function> obj, bool check_ty = true);
-
-/*!
- * \brief Return whether an IRModule or Function is well-formed.
- *
- * Wraps \ref WellFormed, returning false instead of throwing on the first
- * violation.
- *
- * \param obj The IRModule or relax::Function to check.
- * \param check_ty If true, verify that every Expr has ty populated.
- * \return true if the object is well-formed, false otherwise.
- */
-TVM_DLL bool CheckWellFormed(ffi::Variant<IRModule, Function> obj, bool check_ty = true);
+TVM_DLL void CheckWellFormed(ffi::Variant<IRModule, Function> obj, bool check_ty = true);
 
 /*!
  * \brief Using the layout transforms on the outputs, suggest layout transformation on the blocks
- * and buffers for the PrimFunc.
+ * and tensors for the tirx::Function.
  *
- * \param fn The PrimFunc to be analyzed.
- * \param write_buffer_transformations Array of IndexMap transformations on PrimFunc outputs.
+ * \param fn The tirx::Function to be analyzed.
+ * \param write_tensor_transformations Array of IndexMap transformations on tirx::Function outputs.
  * \return Suggested transforms per block in `fn`. For each block the returned value is a map
- * from the object (block or buffer) to it's index map transformation.
+ * from the object (block or tensor) to it's index map transformation.
  */
 
 TVM_DLL ffi::Map<s_tir::SBlock, ffi::Map<ffi::ObjectRef, tirx::IndexMap>> SuggestLayoutTransforms(
-    const Function& fn, ffi::Array<tirx::IndexMap> write_buffer_transformations);
+    const Function& fn, ffi::Array<tirx::IndexMap> write_tensor_transformations);
 
 /* \brief Collect variables whose value can be computed at compile-time
  *

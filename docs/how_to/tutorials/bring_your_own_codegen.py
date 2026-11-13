@@ -41,9 +41,9 @@ visible with nothing hidden.  TensorRT then runs the identical flow for real, so
 we cross-check its result against a reference.
 
 **Prerequisites**: the example NPU sections need TVM built with
-``USE_EXAMPLE_NPU_CODEGEN=ON`` and ``USE_EXAMPLE_NPU_RUNTIME=ON``; the TensorRT
-sections need ``USE_TENSORRT_CODEGEN=ON``, ``USE_TENSORRT_RUNTIME=ON`` and
-``USE_CUDA=ON`` plus a CUDA GPU and a matching TensorRT install (from NVIDIA's
+``TVM_USE_EXAMPLE_NPU_CODEGEN=ON`` and ``TVM_USE_EXAMPLE_NPU_RUNTIME=ON``; the TensorRT
+sections need ``TVM_USE_TENSORRT_CODEGEN=ON``, ``TVM_USE_TENSORRT_RUNTIME=ON`` and
+``TVM_TIRX_USE_CUDA=ON`` plus a CUDA GPU and a matching TensorRT install (from NVIDIA's
 ``pip install tensorrt`` packages or the TensorRT archive); the final deployment
 section also needs PyTorch.  Each section degrades gracefully when its backend is
 unavailable.
@@ -65,8 +65,7 @@ unavailable.
 # Steps 1 and 2 are pure Python and run anywhere; steps 3 and 4 need the
 # backend's codegen and runtime compiled into TVM, which is why the
 # build-and-run cells below are guarded.
-
-######################################################################
+#
 # Step 1: Import the backends to register their patterns
 # ------------------------------------------------------
 #
@@ -74,30 +73,30 @@ unavailable.
 # Pattern registration is independent of the C++ build -- only codegen and the
 # runtime require the backend to be compiled in -- so we probe each backend and
 # guard the build-and-run cells accordingly.
-
 import os
 import tempfile
 
 import numpy as np
+import tvm_ffi
 
-import tvm
-import tvm.relax.backend.contrib.example_npu
+import tvm.relax.backend.contrib.example_npu  # noqa: F401
+import tvm_tirx
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.backend.contrib.tensorrt import partition_for_tensorrt
 from tvm.relax.backend.pattern_registry import get_patterns_with_prefix
 from tvm.relax.transform import FuseOpsByPattern, MergeCompositeFunctions, RunCodegen
-from tvm.script import relax as R
 
-has_example_npu_codegen = tvm.get_global_func("relax.ext.example_npu", True)
-has_example_npu_runtime = tvm.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
+has_example_npu_codegen = tvm_ffi.get_global_func("relax.ext.example_npu", True)
+has_example_npu_runtime = tvm_ffi.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
 has_example_npu = has_example_npu_codegen and has_example_npu_runtime
 
-has_tensorrt_codegen = tvm.get_global_func("relax.ext.tensorrt", True) is not None
-_is_trt_runtime_enabled = tvm.get_global_func("relax.is_tensorrt_runtime_enabled", True)
+has_tensorrt_codegen = tvm_ffi.get_global_func("relax.ext.tensorrt", True) is not None
+_is_trt_runtime_enabled = tvm_ffi.get_global_func("relax.is_tensorrt_runtime_enabled", True)
 has_tensorrt = (
     has_tensorrt_codegen and _is_trt_runtime_enabled is not None and _is_trt_runtime_enabled()
 )
-has_cuda = tvm.cuda(0).exist
+has_cuda = tvm_tirx.cuda(0).exist
 
 ######################################################################
 # Step 2: Define the model
@@ -107,7 +106,7 @@ has_cuda = tvm.cuda(0).exist
 # backends.
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class ConvReLU:
     @R.function
     def main(
@@ -166,12 +165,13 @@ weight_np = np.random.randn(16, 3, 3, 3).astype("float32")
 if has_example_npu:
     npu_mod = RunCodegen()(npu_mod)
 
-    with tvm.transform.PassContext(opt_level=3):
-        npu_exec = relax.build(npu_mod, tvm.target.Target("llvm"))
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        npu_exec = relax.build(npu_mod, tvm_tirx.target.Target("llvm"))
 
-    npu_vm = relax.VirtualMachine(npu_exec, tvm.cpu())
+    npu_vm = relax.VirtualMachine(npu_exec, tvm_tirx.cpu())
     npu_out = npu_vm["main"](
-        tvm.runtime.tensor(data_np, tvm.cpu()), tvm.runtime.tensor(weight_np, tvm.cpu())
+        tvm_tirx.runtime.tensor(data_np, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(weight_np, tvm_tirx.cpu()),
     )
     assert npu_out.numpy().shape == (1, 16, 30, 30)
     print("Example NPU run completed. Output shape:", npu_out.numpy().shape)
@@ -206,17 +206,19 @@ print(trt_mod)
 # Build for CUDA, run on the GPU, and compare against the CPU reference.
 
 if has_tensorrt and has_cuda:
-    dev = tvm.cuda(0)
-    with tvm.transform.PassContext(opt_level=3):
+    dev = tvm_tirx.cuda(0)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
         trt_exec = relax.build(RunCodegen()(trt_mod), "cuda")
-    trt_out = relax.VirtualMachine(trt_exec, dev)["main"](tvm.runtime.tensor(data_np, dev)).numpy()
+    trt_out = relax.VirtualMachine(trt_exec, dev)["main"](
+        tvm_tirx.runtime.tensor(data_np, dev)
+    ).numpy()
 
     cpu_mod = relax.transform.LegalizeOps()(
         relax.transform.BindParams("main", {"weight": weight_np})(ConvReLU)
     )
     cpu_exec = relax.build(cpu_mod, "llvm")
-    cpu_out = relax.VirtualMachine(cpu_exec, tvm.cpu())["main"](
-        tvm.runtime.tensor(data_np, tvm.cpu())
+    cpu_out = relax.VirtualMachine(cpu_exec, tvm_tirx.cpu())["main"](
+        tvm_tirx.runtime.tensor(data_np, tvm_tirx.cpu())
     ).numpy()
 
     np.testing.assert_allclose(trt_out, cpu_out, rtol=1e-2, atol=1e-2)
@@ -235,12 +237,12 @@ if has_tensorrt and has_cuda:
     fp16_mod = partition_for_tensorrt(
         relax.transform.BindParams("main", {"weight": weight_np})(ConvReLU)
     )
-    with tvm.transform.PassContext(
+    with tvm_tirx.ir.transform.PassContext(
         opt_level=3, config={"relax.ext.tensorrt.options": {"use_fp16": True}}
     ):
         fp16_exec = relax.build(RunCodegen()(fp16_mod), "cuda")
-    fp16_out = relax.VirtualMachine(fp16_exec, tvm.cuda(0))["main"](
-        tvm.runtime.tensor(data_np, tvm.cuda(0))
+    fp16_out = relax.VirtualMachine(fp16_exec, tvm_tirx.cuda(0))["main"](
+        tvm_tirx.runtime.tensor(data_np, tvm_tirx.cuda(0))
     ).numpy()
 
     np.testing.assert_allclose(fp16_out, cpu_out, rtol=5e-2, atol=5e-2)
@@ -312,11 +314,11 @@ if has_torch and has_tensorrt and has_cuda:
     print("After importing and partitioning the PyTorch model:")
     print(torch_mod)
 
-    torch_dev = tvm.cuda(0)
-    with tvm.transform.PassContext(opt_level=3):
+    torch_dev = tvm_tirx.cuda(0)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
         torch_exec = relax.build(RunCodegen()(torch_mod), "cuda")
     deployed = relax.VirtualMachine(torch_exec, torch_dev)["main"](
-        tvm.runtime.tensor(example_input.numpy(), torch_dev)
+        tvm_tirx.runtime.tensor(example_input.numpy(), torch_dev)
     )[0].numpy()
 
     np.testing.assert_allclose(deployed, torch_ref, rtol=1e-2, atol=1e-2)
@@ -331,9 +333,9 @@ if has_torch and has_tensorrt and has_cuda:
     with tempfile.TemporaryDirectory() as tmpdir:
         lib_path = os.path.join(tmpdir, "deployed_trt.so")
         torch_exec.export_library(lib_path)
-        loaded = tvm.runtime.load_module(lib_path)
+        loaded = tvm_tirx.runtime.load_module(lib_path)
         reran = relax.VirtualMachine(loaded, torch_dev)["main"](
-            tvm.runtime.tensor(example_input.numpy(), torch_dev)
+            tvm_tirx.runtime.tensor(example_input.numpy(), torch_dev)
         )[0].numpy()
         np.testing.assert_allclose(reran, torch_ref, rtol=1e-2, atol=1e-2)
         print("Reloaded the exported library and reran; output", reran.shape, "still matches.")

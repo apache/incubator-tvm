@@ -104,7 +104,7 @@ under the License.
           <threadCount>1</threadCount>
           <argLine>
             -Djava.library.path=${project.parent.basedir}/native/${platform}/target
-            -Dlibtvm.so.path=${project.parent.basedir}/../build/lib/${libtvm.so.filename}
+            -Dlibtvm.so.path=${tvm.lib.dir}/${libtvm.so.filename}
             -Dlog4j.configuration=file://${project.parent.basedir}/conf/log4j.properties
           </argLine>
         </configuration>

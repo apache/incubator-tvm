@@ -43,7 +43,7 @@ using namespace tvm::te;
 inline bool is_empty_shape(const ffi::Array<PrimExpr>& x) {
   bool is_empty = false;
   for (const auto& dim : x) {
-    if (auto int_dim = dim.as<IntImmNode>()) {
+    if (auto int_dim = dim.as<IntImmObj>()) {
       if (int_dim->value == 0) {
         is_empty = true;
         break;
@@ -70,10 +70,10 @@ inline PrimExpr bilinear_sample_nchw(const Tensor& input, const ffi::Array<PrimE
   auto in_y = indices[2];
   auto in_x = indices[3];
 
-  auto y_low = tvm::prim::cast(PrimType::Int(32), tvm::prim::floor(in_y));
+  auto y_low = tvm::prim::cast(tvm::prim::floor(in_y), PrimType::Int(32));
   auto y_high = y_low + 1;
 
-  auto x_low = tvm::prim::cast(PrimType::Int(32), tvm::prim::floor(in_x));
+  auto x_low = tvm::prim::cast(tvm::prim::floor(in_x), PrimType::Int(32));
   auto x_high = x_low + 1;
 
   auto wy_h = in_y - y_low;
@@ -114,10 +114,10 @@ inline PrimExpr bilinear_sample_nhwc(const Tensor& input, const ffi::Array<PrimE
   auto in_y = indices[1];
   auto in_x = indices[2];
 
-  auto y_low = tvm::prim::cast(PrimType::Int(32), tvm::prim::floor(in_y));
+  auto y_low = tvm::prim::cast(tvm::prim::floor(in_y), PrimType::Int(32));
   auto y_high = y_low + 1;
 
-  auto x_low = tvm::prim::cast(PrimType::Int(32), tvm::prim::floor(in_x));
+  auto x_low = tvm::prim::cast(tvm::prim::floor(in_x), PrimType::Int(32));
   auto x_high = x_low + 1;
 
   auto wy_h = in_y - y_low;

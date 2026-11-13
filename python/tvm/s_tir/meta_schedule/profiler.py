@@ -20,15 +20,14 @@
 from contextlib import contextmanager
 from typing import Optional
 
+import tvm_ffi
 from tvm_ffi import register_object
-
-from tvm.runtime import Object
 
 from . import _ffi_api
 
 
 @register_object("s_tir.meta_schedule.Profiler")
-class Profiler(Object):
+class Profiler(tvm_ffi.Object):
     """Tuning time profiler."""
 
     def __init__(self) -> None:
@@ -38,7 +37,8 @@ class Profiler(Object):
 
     def get(self) -> dict[str, float]:
         """Get the profiling results in seconds"""
-        return _ffi_api.ProfilerGet(self)  # type: ignore # pylint: disable=no-member
+        results = _ffi_api.ProfilerGet(self)  # type: ignore # pylint: disable=no-member
+        return {str(name): float(value.value) for name, value in results.items()}
 
     def table(self) -> str:
         """Get the profiling results in a table format"""

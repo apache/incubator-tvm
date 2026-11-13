@@ -22,7 +22,7 @@ from collections import namedtuple
 
 import numpy as np
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 from ..utils import get_const_tuple, simplify
@@ -179,8 +179,8 @@ def depthwise_conv2d_nchw(Input, Filter, stride, padding, dilation, out_dtype=No
     pad_after = [0, 0, pad_down, pad_right]
     PaddedInput = pad(Input, pad_before, pad_after, name="PaddedInput")
     # depthconv stage
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
     di = te.reduce_axis((0, filter_height), name="di")
     dj = te.reduce_axis((0, filter_width), name="dj")
     Output = te.compute(
@@ -271,8 +271,8 @@ def depthwise_conv2d_nhwc(
     pad_after = [0, pad_down, pad_right, 0]
     PaddedInput = pad(Input, pad_before, pad_after, name="PaddedInput")
     # depthconv stage
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
 
     di = te.reduce_axis((0, filter_height), name="di")
     dj = te.reduce_axis((0, filter_width), name="dj")
@@ -405,8 +405,8 @@ def depthwise_conv2d_backward_weight_nhwc(Input, Out_grad, oshape, fshape, strid
     dh = te.reduce_axis((0, Out_grad.shape[1].value), name="dh")
     dw = te.reduce_axis((0, Out_grad.shape[2].value), name="dw")
     db = te.reduce_axis((0, batch), name="db")
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
 
     Weight_grad = te.compute(
         (filter_h, filter_w, in_c, channel_multiplier),

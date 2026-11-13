@@ -16,129 +16,45 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <tvm/ffi/cast.h>
-#include <tvm/ir/expr.h>
+#include <tvm/ir/prim/op.h>
 
-#include "../../../tirx/script/printer/utils.h"
-#include "./utils.h"
+#include <optional>
+
+#include "utils.h"
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-/*! \brief Find the innermost Relax function frame, or the innermost Relax frame. */
-RelaxFrameNode* GetRelaxFrame(IRDocsifier d) {
-  RelaxFrameNode* f = nullptr;
-  for (auto it = d->frames.rbegin(); it != d->frames.rend(); ++it) {
-    if (const auto* relax_frame = (*it).as<RelaxFrameNode>()) {
-      if (relax_frame->is_func) {
-        return const_cast<RelaxFrameNode*>(relax_frame);
-      } else if (f == nullptr) {
-        f = const_cast<RelaxFrameNode*>(relax_frame);
-      }
-    }
+namespace {
+
+ExprDoc RelaxShapeDim(DocTranslatorObj* d, const PrimExpr& dim, const ExprDoc& translated) {
+  auto operation = translated.as<OperationDoc>();
+  if (auto mul = dim.as<prim::MulObj>();
+      mul && operation && operation.value()->kind == OperationDocObj::Kind::kMult) {
+    ExprDoc compact = OperationDoc(OperationDocObj::Kind::kMult,
+                                   {RelaxShapeDim(d, mul->a, operation.value()->operands[0]),
+                                    RelaxShapeDim(d, mul->b, operation.value()->operands[1])});
+    d->RecordOrigin(compact, dim);
+    return compact;
   }
-  return f;
-}
-
-Doc PrintCanonicalVar(Var n, AccessPath n_p, IRDocsifier d) {
-  if (!n->ty.as<PrimTypeNode>()) {
-    return PrintRelaxVar(n, n_p, d);
+  if (auto integer = dim.as<IntImmObj>();
+      integer && integer->ty.as_or_throw<PrimType>()->dtype == (DLDataType{kDLInt, 64, 1})) {
+    ExprDoc compact = LiteralDoc::Int(ffi::GetRef<IntImm>(integer), std::nullopt);
+    d->RecordOrigin(compact, dim);
+    return compact;
   }
-  PrimVar prim_var = n.as_or_throw<PrimVar>();
-  if (!d->IsVarDefined(n)) {
-    PrimType n_ty = n->ty.as_or_throw<PrimType>();
-    TVM_FFI_CHECK(!n_ty.IsScalableVector() && !n_ty.IsFixedLengthVector(), TypeError)
-        << "Relax only uses scalar TIR variables,"
-        << "but received TIR variable " << n << " with dtype " << n_ty->dtype;
-    RelaxFrameNode* f = GetRelaxFrame(d);
-    // There should be at least one Relax frame
-    if (f == nullptr) {
-      TVM_FFI_THROW(IndexError) << "No relax environment is found when printing a TIR var under "
-                                   "relax's dispatch token";
-    }
-    // If the Relax function frame is collecting func vars
-    if (f->func_vars) {
-      TVM_FFI_ICHECK(f->is_func);
-      f->func_vars->insert(n.get());
-      if (!f->prim_params->count(n.get())) {
-        f->type_vars->insert(n.get());
-      }
-    }
-    Frame frame = d->frames.front();
-    IdDoc var = d->Define(n, frame, n->name.empty() ? "v" : n->name);
-    var->source_paths.push_back(n_p);
-    if (!f->func_vars || f->prim_params->count(n.get()) || !f->type_vars->count(n.get())) {
-      frame->stmts.push_back(AssignDoc(var, PrintVarCreation(prim_var, n_p, d), std::nullopt));
-    }
-  }
-  if (ffi::Optional<ExprDoc> doc = d->GetVarDoc(n)) {
-    return doc.value();
-  }
-  TVM_FFI_THROW(IndexError) << "Variable is not defined in the environment: " << n;
-  TVM_FFI_UNREACHABLE();
+  return translated;
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { IRDocsifier::vtable().set_dispatch<Var>("relax", PrintCanonicalVar); }
+}  // namespace
 
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<tvm::IntImm>(                        //
-      "relax", [](tvm::IntImm n, AccessPath n_p, IRDocsifier d) -> Doc {  //
-        // TODO(@junrushao): support non-int64 cases
-        if (n->ty.as_or_throw<PrimType>().MatchesElementType(DLDataTypeCode::kDLBool, 8)) {
-          return LiteralDoc::Boolean(static_cast<bool>(n->value), n_p);
-        } else {
-          return LiteralDoc::Int(n, n_p);
-        }
-      });
+ExprDoc RelaxShapeDim(DocTranslatorObj* d, const PrimExpr& dim) {
+  return RelaxShapeDim(d, dim, d->Translate(dim).value());
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<tvm::GlobalVar>(                        //
-      "relax", [](tvm::GlobalVar n, AccessPath n_p, IRDocsifier d) -> Doc {  //
-        if (ffi::Optional<ExprDoc> doc = d->GetVarDoc(n)) {
-          return doc.value();
-        } else {
-          IdDoc ret(n->name_hint);
-          ret->source_paths.push_back(n_p);
-          return ret;
-        }
-      });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<tvm::IRModule>(                          //
-      "relax", [](tvm::IRModule mod, AccessPath n_p, IRDocsifier d) -> Doc {  //
-        ffi::Optional<ExprDoc> doc = d->GetVarDoc(mod);
-        TVM_FFI_ICHECK(doc) << "Unable to print IRModule before definition in Relax.";
-        if (d->cfg->module_alias.empty()) {
-          // Use Module Name directly
-          return doc.value();
-        }
-        RelaxFrameNode* f = GetRelaxFrame(d);
-        TVM_FFI_CHECK(f != nullptr && f->is_func, IndexError)
-            << "No relax environment is found when printing a module alias var "
-               "under relax's dispatch token";
-        if (!f->module_alias_printed) {
-          // If the module_alias is not defined before, define it.
-          f->stmts.push_back(AssignDoc(IdDoc(d->cfg->module_alias), doc.value(), std::nullopt));
-          f->module_alias_printed = true;
-        }
-        return IdDoc(d->cfg->module_alias);
-      });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<Range>(
-      "relax", [](Range range, AccessPath p, IRDocsifier d) -> Doc {
-        return Relax(d, "Range")
-            ->Call({
-                d->AsDoc<ExprDoc>(range->min, p->Attr("min")),
-                d->AsDoc<ExprDoc>(range->extent + range->min, p->Attr("extent")),
-            });
-      });
-}
-
+}  // namespace details
 }  // namespace printer
 }  // namespace script
 }  // namespace tvm

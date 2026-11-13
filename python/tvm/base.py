@@ -16,46 +16,30 @@
 # under the License.
 # coding: utf-8
 # pylint: disable=invalid-name, import-outside-toplevel
-"""Base library for TVM."""
+"""Load parent TVM extensions after their standalone TIRx dependency."""
 
-import os
+from pathlib import Path
 
+from tvm_ffi import libinfo as tvm_ffi_libinfo
 from tvm_ffi.libinfo import load_lib_ctypes
+
+from tvm_tirx.base import _RUNTIME_ONLY as _CORE_RUNTIME_ONLY
 
 from . import libinfo
 
-# ----------------------------
-# library loading
-# ----------------------------
-
-# Whether only the runtime library is loaded (runtime-only wheel, or
-# ``TVM_USE_RUNTIME_LIB=1``). Set during library loading below.
-_RUNTIME_ONLY = os.environ.get("TVM_USE_RUNTIME_LIB") == "1"
-
-# Handles of the core libraries actually loaded, keyed by basename
-# (e.g. ``{"tvm_runtime": <CDLL>, "tvm_compiler": <CDLL>}``). Downstream /
-# autoloaded extensions can inspect this to skip duplicate libraries
-# (``"tvm_runtime" in _LOADED_LIBS``) and obtain the loaded handle.
-_LOADED_LIBS = {}
-
-
-# runtime is loaded RTLD_GLOBAL to expose its symbols to subsequent loads;
-# compiler is loaded RTLD_LOCAL.
-_LOADED_LIBS["tvm_runtime"] = load_lib_ctypes(
-    "tvm", "tvm_runtime", "RTLD_GLOBAL", extra_lib_paths=libinfo.package_lib_paths()
-)
-
+_RUNTIME_ONLY = _CORE_RUNTIME_ONLY
+_LOADED_LIBS = {
+    "tvm_runtime_extra": load_lib_ctypes(
+        "tvm", "tvm_runtime_extra", "RTLD_GLOBAL", extra_lib_paths=libinfo.package_lib_paths()
+    )
+}
 if not _RUNTIME_ONLY:
+    _lib_paths = [Path(_LOADED_LIBS["tvm_runtime_extra"]._name).resolve().parent]
     try:
-        _LOADED_LIBS["tvm_compiler"] = load_lib_ctypes(
-            "tvm", "tvm_compiler", "RTLD_LOCAL", extra_lib_paths=libinfo.package_lib_paths()
-        )
-    except (RuntimeError, OSError):
-        # Compiler lib not present, or present but unloadable (missing LLVM
-        # deps / linker issues) — fall back to runtime-only mode.
+        tvm_ffi_libinfo._find_library_by_basename("tvm", "tvm_compiler", extra_lib_paths=_lib_paths)
+    except RuntimeError:
         _RUNTIME_ONLY = True
-
-if _RUNTIME_ONLY:
-    from tvm_ffi import registry as _tvm_ffi_registry
-
-    _tvm_ffi_registry._SKIP_UNKNOWN_OBJECTS = True
+    else:
+        _LOADED_LIBS["tvm_compiler"] = load_lib_ctypes(
+            "tvm", "tvm_compiler", "RTLD_LOCAL", extra_lib_paths=_lib_paths
+        )

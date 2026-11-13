@@ -20,22 +20,55 @@
 from __future__ import annotations
 
 import builtins
-import functools
-import inspect
 import numbers as _numbers
+from types import SimpleNamespace as _Namespace
 from typing import Any
 
-import tvm_ffi as _ffi
-
-import tvm
-from tvm import ir as _ir
+import tvm_tirx
 from tvm import relax as _relax
-from tvm import tirx as _tir
-from tvm.ir import StringImm
-from tvm.ir.prim import _ffi_api as _prim_ffi
 from tvm.relax import Call, Expr, ExternFunc
 from tvm.relax.global_info import VDevice
 from tvm.relax.op import (
+    ArgmaxArgminAttrs,
+    ArgsortAttrs,
+    AstypeAttrs,
+    CallInplacePackedAttrs,
+    CallTIRInplaceAttrs,
+    CallTIRWithGradAttrs,
+    ConcatAttrs,
+    EinsumAttrs,
+    ExpandDimsAttrs,
+    FlipAttrs,
+    GatherElementsAttrs,
+    GatherNDAttrs,
+    HintOnDeviceAttrs,
+    IndexPutAttrs,
+    InitAttrs,
+    LayoutTransformAttrs,
+    MatmulAttrs,
+    MeshgridAttrs,
+    MultinomialFromUniformAttrs,
+    OneHotAttrs,
+    PermuteDimsAttrs,
+    QuantizeAttrs,
+    RepeatAttrs,
+    ReverseSequenceAttrs,
+    ScanopAttrs,
+    ScatterElementsAttrs,
+    ScatterNDAttrs,
+    SliceScatterAttrs,
+    SortAttrs,
+    SplitAttrs,
+    SqueezeAttrs,
+    StackAttrs,
+    StatisticalAttrs,
+    StridedSliceAttrs,
+    TakeAttrs,
+    TileAttrs,
+    TopKAttrs,
+    ToVDeviceAttrs,
+    TriluAttrs,
+    WrapParamAttrs,
     abs,
     acos,
     acosh,
@@ -64,6 +97,7 @@ from tvm.relax.op import (
     call_pure_packed,
     call_tir,
     call_tir_inplace,
+    call_tir_packed,
     call_tir_with_grad,
     ccl,
     ceil,
@@ -187,24 +221,36 @@ from tvm.relax.op import (
     zeros,
     zeros_like,
 )
-from tvm.relax.op import (
-    call_py_func as _call_py_func,
-)
+from tvm.relax.op import call_py_func as call_py_func
+from tvm.relax.op import logical_and as _logical_and
+from tvm.relax.op import logical_not as _logical_not
+from tvm.relax.op import logical_or as _logical_or
+from tvm.relax.op import to_vdevice as _to_vdevice
 from tvm.relax.op.builtin import stop_lift_params
 from tvm.relax.type import Type
 from tvm.relax.utils import convert_to_expr
-from tvm.runtime import ObjectConvertible
-from tvm.script.ir_builder import base as _base
+from tvm_tirx import ir as _ir
+from tvm_tirx import tirx as _tir
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+from tvm_tirx.ir.prim import _ffi_api as _prim_ffi
+from tvm_tirx.script.ir_builder import base as _base
 
+from . import distributed as dist  # noqa: F401
 from .ir import _value, lookup_vdevice
 
 py_print = builtins.print
 py_tuple = tuple
 py_str = str
-_Span = _base.SpanEntry | _ir.Span | None
+_Loc = _base.LocationEntry | _ir.Location | None
 
 
-def to_vdevice(data: Expr, dst_vdevice: py_str | VDevice) -> Expr:
+def to_vdevice(
+    data: Expr,
+    dst_vdevice: py_str | VDevice = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     """Copy data to the destination device.
 
     Parameters
@@ -227,7 +273,7 @@ def to_vdevice(data: Expr, dst_vdevice: py_str | VDevice) -> Expr:
         else:
             dst_vdevice = lookup_vdevice(dst_vdevice, 0)
 
-    return tvm.relax.op.to_vdevice(data, dst_vdevice)
+    return _to_vdevice(data, dst_vdevice, ty=ty, loc=loc)
 
 
 def call_packed(
@@ -262,10 +308,7 @@ def call_packed(
     elif not isinstance(ty_args, list):
         ty_args = [ty_args]
 
-    ty_args = [
-        (ty() if callable(ty) else ty.asobject() if isinstance(ty, ObjectConvertible) else ty)
-        for ty in ty_args
-    ]
+    ty_args = [ty() if callable(ty) and not isinstance(ty, _ir.Type) else ty for ty in ty_args]
 
     is_default = False
     if "attrs_type_key" in kwargs:
@@ -276,76 +319,9 @@ def call_packed(
         is_default = True
     attrs = None
     if kwargs or not is_default:
-        attrs = tvm.ir.attrs.make_node(attrs_type_key, **kwargs)
+        attrs = tvm_tirx.ir.attrs.make_node(attrs_type_key, **kwargs)
 
-    return Call.unchecked(op, args, attrs=attrs, ty_args=ty_args)
-
-
-def call_py_func(
-    py_func_name: py_str,
-    *args: Expr,
-    out_ty: Type | list[Type],
-) -> Call:
-    """Create a relax Call, which calls a Python function.
-
-    Parameters
-    ----------
-    py_func_name: str
-        The name of the Python function to call. This should correspond to a function
-        in the IRModule's pyfuncs attribute.
-    *args : Expr
-        The arguments.
-    out_ty: Union[Type, List[Type]]
-        The type information of the call_py_func output.
-        It should be a single or a list of TensorType. Each one denotes the
-        type information of a returned tensor.
-
-    Returns
-    -------
-    call: Call
-        The created Relax Call for call_py_func operator.
-    """
-    args = py_tuple(convert_to_expr(a) for a in args)
-    if isinstance(out_ty, py_tuple):  # type: ignore
-        out_ty = list(out_ty)
-    elif not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    out_ty = [
-        (ty() if callable(ty) else ty.asobject() if isinstance(ty, ObjectConvertible) else ty)
-        for ty in out_ty
-    ]
-
-    # Convert string to StringImm
-    try:
-        func_name_imm = (
-            StringImm(py_func_name) if isinstance(py_func_name, py_str) else py_func_name
-        )
-    except (TypeError, ValueError, AttributeError):
-        func_name_imm = StringImm(py_func_name)
-    return _call_py_func(func_name_imm, args, out_ty)
-
-
-def _ty_arg_wrapper(func):
-    """Normalize callable and object-convertible type arguments for operators."""
-
-    def _convert_tensor_type(args):
-        if isinstance(args, list | py_tuple):  # type: ignore
-            new_args = [_convert_tensor_type(x) for x in args]
-            return type(args)(new_args)
-        if isinstance(args, dict):
-            return {_convert_tensor_type(k): _convert_tensor_type(v) for k, v in args.items()}
-        if inspect.isfunction(args):
-            args = args()
-        if isinstance(args, ObjectConvertible):
-            args = args.asobject()
-        return args
-
-    @functools.wraps(func)
-    def wrapped(*args, **kwargs):
-        return func(*_convert_tensor_type(args), **_convert_tensor_type(kwargs))
-
-    return wrapped  # type: ignore
+    return Call(op, args, attrs=attrs, ty_args=ty_args)
 
 
 def emit_with_type(
@@ -368,8 +344,7 @@ def emit_with_type(
     call: Call
         The created Relax Call
     """
-    builtin_call = tvm.ir.Op.get(op)
-    return Call.unchecked(builtin_call, args, attrs=None, ty_args=ty_args)
+    return Call(op, args, ty_args=ty_args)
 
 
 def _logical_pair(lhs, rhs, operation, primitive, python_operation):
@@ -380,7 +355,7 @@ def _logical_pair(lhs, rhs, operation, primitive, python_operation):
     return operation(_value(lhs), _value(rhs))
 
 
-def logical_and(*values):
+def logical_and(*values, ty_args=None, ty=None, loc=None):
     """Construct conjunction of host, primitive, or tensor values.
 
     Parameters
@@ -400,15 +375,20 @@ def logical_and(*values):
     All arguments are evaluated before this call; it does not provide Python
     short-circuit evaluation of the argument expressions.
     """
+    # Omitted metadata retains host/primitive dispatch; explicit metadata selects Relax.
+    if any(field is not None for field in (ty_args, ty, loc)):
+        return _logical_and(
+            *values, ty_args=ty_args, ty=ty, loc=UNKNOWN_LOC if loc is None else loc
+        )
     if not values:
         raise TypeError("logical_and requires at least one operand")
     result = values[0]
     for value in values[1:]:
-        result = _logical_pair(result, value, _relax.op.logical_and, _tir.And, lambda a, b: a and b)
+        result = _logical_pair(result, value, _logical_and, _tir.And, lambda a, b: a and b)
     return result
 
 
-def logical_or(*values):
+def logical_or(*values, ty_args=None, ty=None, loc=None):
     """Construct disjunction of host, primitive, or tensor values.
 
     Parameters
@@ -428,15 +408,18 @@ def logical_or(*values):
     All arguments are evaluated before this call; it does not provide Python
     short-circuit evaluation of the argument expressions.
     """
+    # Omitted metadata retains host/primitive dispatch; explicit metadata selects Relax.
+    if any(field is not None for field in (ty_args, ty, loc)):
+        return _logical_or(*values, ty_args=ty_args, ty=ty, loc=UNKNOWN_LOC if loc is None else loc)
     if not values:
         raise TypeError("logical_or requires at least one operand")
     result = values[0]
     for value in values[1:]:
-        result = _logical_pair(result, value, _relax.op.logical_or, _tir.Or, lambda a, b: a or b)
+        result = _logical_pair(result, value, _logical_or, _tir.Or, lambda a, b: a or b)
     return result
 
 
-def logical_not(value):
+def logical_not(value, *, ty_args=None, ty=None, loc=None):
     """Negate a host, primitive, or tensor condition.
 
     Parameters
@@ -450,10 +433,13 @@ def logical_not(value):
     result : Expr or bool
         The logical negation without testing an IR expression as a Python bool.
     """
+    # Omitted metadata retains host/primitive dispatch; explicit metadata selects Relax.
+    if any(field is not None for field in (ty_args, ty, loc)):
+        return _logical_not(value, ty_args=ty_args, ty=ty, loc=UNKNOWN_LOC if loc is None else loc)
     if _ir.is_prim_expr(value):
         return _tir.Not(value)
     if isinstance(value, _ir.Expr):
-        return _relax.op.logical_not(value)
+        return _logical_not(value)
     return not value
 
 
@@ -487,16 +473,18 @@ def select(condition, true_value, false_value):
 
 
 def if_then_else_(condition: Any, true_value: Any, false_value: Any) -> Any:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.if_then_else_`."""
-    if isinstance(condition, _ffi.ObjectConvertible):
-        condition = condition.asobject()
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.if_then_else_`."""
+    if hasattr(condition, "__tvm_ffi_object__"):
+        condition = condition.__tvm_ffi_object__()
     if not isinstance(condition, _ir.Expr):
         return true_value if condition else false_value
     true_value = (
-        true_value.asobject() if isinstance(true_value, _ffi.ObjectConvertible) else true_value
+        true_value.__tvm_ffi_object__() if hasattr(true_value, "__tvm_ffi_object__") else true_value
     )
     false_value = (
-        false_value.asobject() if isinstance(false_value, _ffi.ObjectConvertible) else false_value
+        false_value.__tvm_ffi_object__()
+        if hasattr(false_value, "__tvm_ffi_object__")
+        else false_value
     )
     if _ir.is_prim_expr(condition) and all(
         _ir.is_prim_expr(value)
@@ -505,82 +493,127 @@ def if_then_else_(condition: Any, true_value: Any, false_value: Any) -> Any:
         for value in (true_value, false_value)
     ):
         return _tir.if_then_else(condition, true_value, false_value)
-    return _relax.If(condition, _value(true_value), _value(false_value))
+    return _relax.IfExpr(condition, _value(true_value), _value(false_value))
 
 
 def and_(*values: Any) -> Any:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.and_`."""
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.and_`."""
     return logical_and(*values)
 
 
 def or_(*values: Any) -> Any:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.or_`."""
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.or_`."""
     return logical_or(*values)
 
 
 def not_(value: Any) -> Any:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.not_`."""
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.not_`."""
     return logical_not(value)
 
 
-def lt_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.lt_`."""
+def lt_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.lt_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.less(lhs, rhs))
-    return _prim_ffi._OpLT(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.less(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpLT(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-def le_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.le_`."""
+def le_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.le_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.less_equal(lhs, rhs))
-    return _prim_ffi._OpLE(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.less_equal(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpLE(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-def gt_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.gt_`."""
+def gt_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.gt_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.greater(lhs, rhs))
-    return _prim_ffi._OpGT(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.greater(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpGT(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-def ge_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.ge_`."""
+def ge_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.ge_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.greater_equal(lhs, rhs))
-    return _prim_ffi._OpGE(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.greater_equal(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpGE(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-def eq_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.eq_`."""
+def eq_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.eq_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.equal(lhs, rhs))
-    return _prim_ffi._OpEQ(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.equal(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpEQ(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-def ne_(lhs: Any, rhs: Any, *, span: _Span = None) -> _ir.Expr:
-    """Implements :func:`tvm.script.ir_builder.parser_protocol.ne_`."""
+def ne_(lhs: Any, rhs: Any, *, loc: _Loc = None) -> _ir.Expr:
+    """Implements :func:`tvm_tirx.script.ir_builder.parser_protocol.ne_`."""
     if any(isinstance(value, _ir.Expr) and not _ir.is_prim_expr(value) for value in (lhs, rhs)):
         lhs = _relax.const(lhs) if isinstance(lhs, _numbers.Number) else lhs
         rhs = _relax.const(rhs) if isinstance(rhs, _numbers.Number) else rhs
-        return _base.at_(span, _relax.op.not_equal(lhs, rhs))
-    return _prim_ffi._OpNE(lhs, rhs, span.span if isinstance(span, _base.SpanEntry) else span)
+        return _base.at_(loc, _relax.op.not_equal(lhs, rhs))
+    loc = UNKNOWN_LOC if loc is None else loc
+    return _prim_ffi._OpNE(lhs, rhs, loc.loc if isinstance(loc, _base.LocationEntry) else loc)
 
 
-invoke_closure = _ty_arg_wrapper(invoke_closure)
-call_builtin_with_ctx = _ty_arg_wrapper(call_builtin_with_ctx)
+inspect = _Namespace()
 
 __all__ = [
+    "ArgmaxArgminAttrs",
+    "ArgsortAttrs",
+    "AstypeAttrs",
+    "CallInplacePackedAttrs",
+    "CallTIRInplaceAttrs",
+    "CallTIRWithGradAttrs",
+    "ConcatAttrs",
+    "EinsumAttrs",
+    "ExpandDimsAttrs",
+    "FlipAttrs",
+    "GatherElementsAttrs",
+    "GatherNDAttrs",
+    "HintOnDeviceAttrs",
+    "IndexPutAttrs",
+    "InitAttrs",
+    "LayoutTransformAttrs",
+    "MatmulAttrs",
+    "MeshgridAttrs",
+    "MultinomialFromUniformAttrs",
+    "OneHotAttrs",
+    "PermuteDimsAttrs",
+    "QuantizeAttrs",
+    "RepeatAttrs",
+    "ReverseSequenceAttrs",
+    "ScanopAttrs",
+    "ScatterElementsAttrs",
+    "ScatterNDAttrs",
+    "SliceScatterAttrs",
+    "SortAttrs",
+    "SplitAttrs",
+    "SqueezeAttrs",
+    "StackAttrs",
+    "StatisticalAttrs",
+    "StridedSliceAttrs",
+    "TakeAttrs",
+    "TileAttrs",
+    "ToVDeviceAttrs",
+    "TopKAttrs",
+    "TriluAttrs",
+    "WrapParamAttrs",
     "abs",
     "acos",
     "acosh",
@@ -612,6 +645,7 @@ __all__ = [
     "call_py_func",
     "call_tir",
     "call_tir_inplace",
+    "call_tir_packed",
     "call_tir_with_grad",
     "ccl",
     "ceil",
@@ -656,6 +690,7 @@ __all__ = [
     "image",
     "index_put",
     "index_tensor",
+    "inspect",
     "invoke_closure",
     "invoke_pure_closure",
     "isfinite",

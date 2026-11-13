@@ -18,11 +18,11 @@
 
 import pytest
 
-import tvm.testing
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx.testing
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_rewrite_defined_by_ir_module():
@@ -59,7 +59,7 @@ def test_rewrite_defined_by_ir_module():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_missing_pattern_raises_error():
@@ -71,7 +71,7 @@ def test_missing_pattern_raises_error():
         class Rewriter:
             @R.function
             def replacement():
-                return R.tuple()
+                return ()
 
 
 def test_incorrect_function_type_of_pattern_raises_error():
@@ -81,13 +81,13 @@ def test_incorrect_function_type_of_pattern_raises_error():
 
         @R.rewriter
         class Rewriter:
-            @Ts.prim_func
+            @Ts.function
             def pattern():
                 pass
 
             @R.function
             def replacement():
-                return R.tuple()
+                return ()
 
 
 def test_missing_replacement_raises_error():
@@ -99,7 +99,7 @@ def test_missing_replacement_raises_error():
         class Rewriter:
             @R.function
             def pattern():
-                return R.tuple()
+                return ()
 
 
 def test_incorrect_function_type_of_replacement_raises_error():
@@ -111,9 +111,9 @@ def test_incorrect_function_type_of_replacement_raises_error():
         class Rewriter:
             @R.function
             def pattern():
-                return R.tuple()
+                return ()
 
-            @Ts.prim_func
+            @Ts.function
             def replacement():
                 pass
 
@@ -191,11 +191,11 @@ def test_rewriter_may_be_applied_to_ir_module():
             return out
 
     After = Rewriter(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_rewriter_may_be_used_as_ir_transform():
-    """A rewriter may be used as a tvm.ir.transform.Pass"""
+    """A rewriter may be used as a tvm_tirx.ir.transform.Pass"""
 
     @R.rewriter
     class Rewriter:
@@ -225,8 +225,8 @@ def test_rewriter_may_be_used_as_ir_transform():
             )
             return out
 
-    After = tvm.ir.transform.Sequential([Rewriter])(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    After = tvm_tirx.ir.transform.Sequential([Rewriter])(Before)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_same_pattern_applied_multiple_times():
@@ -257,7 +257,7 @@ def test_same_pattern_applied_multiple_times():
         return z
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_composition_of_rewrite_rules():
@@ -310,7 +310,7 @@ def test_composition_of_rewrite_rules():
     rewriter = RewriteAdd | RewriteMultiply
 
     after = rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_recursive_rewrite_rules():
@@ -363,7 +363,7 @@ def test_recursive_rewrite_rules():
     rewriter = RewriteAdd | RewriteMultiply
 
     after = rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_may_introduce_private_relax_subroutines():
@@ -404,7 +404,7 @@ def test_rewrite_may_introduce_private_relax_subroutines():
             return A * R.const(2.0, "float32")
 
     After = Rewriter(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_rewrite_only_introduces_private_subroutines_when_required():
@@ -438,10 +438,10 @@ def test_rewrite_only_introduces_private_subroutines_when_required():
 
         @R.function
         def replacement(A: R.Tensor([16], "float32")):
-            return R.call_tir(RewriteMul.subroutine_mul, [A], out_ty=R.Tensor([16], "float32"))
+            return R.call_tir(RewriteMul.subroutine_mul, [A], ty_args=[R.Tensor([16], "float32")])
 
-        @Ts.prim_func(private=True)
-        def subroutine_mul(A: T.Buffer(16, "float32"), B: T.Buffer(16, "float32")):
+        @Ts.function(private=True)
+        def subroutine_mul(A: T.Tensor(16, "float32"), B: T.Tensor(16, "float32")):
             for i in range(16):
                 B[i] = A[i] * A[i]
 
@@ -468,7 +468,7 @@ def test_rewrite_only_introduces_private_subroutines_when_required():
     rewriter = RewriteAdd | RewriteMul
 
     After = rewriter(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_rewriter_may_not_introduce_public_subroutines():
@@ -516,10 +516,10 @@ def test_rewrite_branches_may_reuse_subroutine_name():
 
         @R.function
         def replacement(A: R.Tensor([16], "float32")):
-            return R.call_tir(RewriteMul.subroutine, [A], out_ty=R.Tensor([16], "float32"))
+            return R.call_tir(RewriteMul.subroutine, [A], ty_args=[R.Tensor([16], "float32")])
 
-        @Ts.prim_func(private=True)
-        def subroutine(A: T.Buffer(16, "float32"), B: T.Buffer(16, "float32")):
+        @Ts.function(private=True)
+        def subroutine(A: T.Tensor(16, "float32"), B: T.Tensor(16, "float32")):
             for i in range(16):
                 B[i] = A[i] * A[i]
 
@@ -536,22 +536,22 @@ def test_rewrite_branches_may_reuse_subroutine_name():
         @R.function
         def main(A: R.Tensor([16], "float32")):
             B = Expected.subroutine(A)
-            C = R.call_tir(Expected.subroutine_1, [B], out_ty=R.Tensor([16], "float32"))
+            C = R.call_tir(Expected.subroutine_1, [B], ty_args=[R.Tensor([16], "float32")])
             return C
 
         @R.function(private=True)
         def subroutine(A: R.Tensor([16], "float32")) -> R.Tensor([16], "float32"):
             return A * R.const(2.0, "float32")
 
-        @Ts.prim_func(private=True)
-        def subroutine_1(A: T.Buffer(16, "float32"), B: T.Buffer(16, "float32")):
+        @Ts.function(private=True)
+        def subroutine_1(A: T.Tensor(16, "float32"), B: T.Tensor(16, "float32")):
             for i in range(16):
                 B[i] = A[i] * A[i]
 
     rewriter = RewriteAdd | RewriteMul
 
     After = rewriter(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_rewrite_of_explicit_relax_tuple():
@@ -612,7 +612,7 @@ def test_rewrite_of_explicit_relax_tuple():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_of_output_relax_tuple():
@@ -672,7 +672,7 @@ def test_rewrite_of_output_relax_tuple():
         return proj_tuple
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_of_implicit_tuple():
@@ -740,7 +740,7 @@ def test_rewrite_of_implicit_tuple():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_of_implicit_tuple_with_shared_wildcard():
@@ -814,7 +814,7 @@ def test_rewrite_of_implicit_tuple_with_shared_wildcard():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_no_rewrite_of_implicit_tuple_when_shared_wildcard_is_mismatched():
@@ -873,7 +873,7 @@ def test_no_rewrite_of_implicit_tuple_when_shared_wildcard_is_mismatched():
     expected = before
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_implicit_tuple_may_not_introduce_extra_compute():
@@ -938,7 +938,7 @@ def test_implicit_tuple_may_not_introduce_extra_compute():
     expected = before
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_of_implicit_tuple_with_three_elements():
@@ -1025,7 +1025,7 @@ def test_rewrite_of_implicit_tuple_with_three_elements():
         return attention
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_pattern_matching_may_not_reorder_across_impure_functions():
@@ -1075,17 +1075,17 @@ def test_pattern_matching_may_not_reorder_across_impure_functions():
         weights: R.Tensor([16, 16], "float32"),
         bias: R.Tensor([16], "float32"),
     ):
-        R.print(format="Start of function")
+        R.print("Start of function")
         state = R.matmul(weights, state)
-        R.print(format="After matmul, before add")
+        R.print("After matmul, before add")
         state = R.add(bias, state)
-        R.print(format="End of function")
+        R.print("End of function")
         return state
 
     expected = before
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_pattern_matching_may_occur_between_impure_functions():
@@ -1135,10 +1135,10 @@ def test_pattern_matching_may_occur_between_impure_functions():
         weights: R.Tensor([16, 16], "float32"),
         bias: R.Tensor([16], "float32"),
     ):
-        R.print(format="Start of function")
+        R.print("Start of function")
         state = R.matmul(weights, state)
         state = R.add(bias, state)
-        R.print(format="End of function")
+        R.print("End of function")
         return state
 
     @R.function(private=True, pure=False)
@@ -1147,7 +1147,7 @@ def test_pattern_matching_may_occur_between_impure_functions():
         weights: R.Tensor([16, 16], "float32"),
         bias: R.Tensor([16], "float32"),
     ):
-        R.print(format="Start of function")
+        R.print("Start of function")
         state = R.call_pure_packed(
             "my_optimized_fma_impl",
             state,
@@ -1155,11 +1155,11 @@ def test_pattern_matching_may_occur_between_impure_functions():
             bias,
             ty_args=R.Tensor([16], "float32"),
         )
-        R.print(format="End of function")
+        R.print("End of function")
         return state
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_rewrite_may_apply_within_conditional():
@@ -1205,7 +1205,7 @@ def test_rewrite_may_apply_within_conditional():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_match_dynamic_shape():
@@ -1225,12 +1225,12 @@ def test_match_dynamic_shape():
 
     """
 
-    N1_pattern = T.dynamic("N1")
-    M_pattern = T.dynamic("M")
-    N2_pattern = T.dynamic("N2")
-    N1_replacement = T.dynamic("N1")
-    N2_replacement = T.dynamic("N2")
-    M_replacement = T.dynamic("M")
+    N1_pattern = T.dynamic("N1", "int64")
+    M_pattern = T.dynamic("M", "int64")
+    N2_pattern = T.dynamic("N2", "int64")
+    N1_replacement = T.dynamic("N1", "int64")
+    N2_replacement = T.dynamic("N2", "int64")
+    M_replacement = T.dynamic("M", "int64")
 
     @R.rewriter
     class Rewriter:
@@ -1271,9 +1271,9 @@ def test_match_dynamic_shape():
         out = proj_A + proj_B
         return out
 
-    N1 = T.dynamic("N1")
-    M = T.dynamic("M")
-    N2 = T.dynamic("N2")
+    N1 = T.dynamic("N1", "int64")
+    M = T.dynamic("M", "int64")
+    N2 = T.dynamic("N2", "int64")
 
     @R.function(private=True)
     def expected(
@@ -1297,16 +1297,16 @@ def test_match_dynamic_shape():
         return out
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_match_dynamic_pattern_against_dynamic_shape():
     """A dynamic pattern may match a static shape"""
 
-    M_pattern = T.dynamic("M")
-    N_pattern = T.dynamic("N")
-    M_replacement = T.dynamic("M")
-    N_replacement = T.dynamic("N")
+    M_pattern = T.dynamic("M", "int64")
+    N_pattern = T.dynamic("N", "int64")
+    M_replacement = T.dynamic("M", "int64")
+    N_replacement = T.dynamic("N", "int64")
 
     @R.rewriter
     class Rewriter:
@@ -1329,7 +1329,7 @@ def test_match_dynamic_pattern_against_dynamic_shape():
                 ty_args=R.Tensor([M_replacement, N_replacement], "float32"),
             )
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def before(
@@ -1342,7 +1342,7 @@ def test_match_dynamic_pattern_against_dynamic_shape():
         F: R.Tensor([N * 2, N], "float32") = R.matmul(E, C)
         return F
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def expected(
@@ -1366,8 +1366,8 @@ def test_match_dynamic_pattern_against_dynamic_shape():
         return F
 
     after = Rewriter(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

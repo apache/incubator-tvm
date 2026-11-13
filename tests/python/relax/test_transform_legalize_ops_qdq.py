@@ -15,16 +15,16 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.transform import LegalizeOps
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 
 def test_quantize_fp32_to_int8():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(
@@ -35,14 +35,14 @@ def test_quantize_fp32_to_int8():
             out = R.quantize(data, scale, zp, axis=0, out_dtype="int8")
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "float32"),
-            B: T.Buffer((T.int64(2),), "float32"),
-            C: T.Buffer((T.int64(2),), "int8"),
-            quantized: T.Buffer((T.int64(2), T.int64(4)), "int8"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+            B: T.Tensor((T.int64(2),), "float32"),
+            C: T.Tensor((T.int64(2),), "int8"),
+            quantized: T.Tensor((T.int64(2), T.int64(4)), "int8"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -69,16 +69,16 @@ def test_quantize_fp32_to_int8():
             zp: R.Tensor((2,), dtype="int8"),
         ) -> R.Tensor((2, 4), dtype="int8"):
             out = R.call_tir(
-                Expected.quantize, (data, scale, zp), out_ty=R.Tensor((2, 4), dtype="int8")
+                Expected.quantize, (data, scale, zp), ty_args=[R.Tensor((2, 4), dtype="int8")]
             )
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_quantize_fp16_to_uint8():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(
@@ -89,14 +89,14 @@ def test_quantize_fp16_to_uint8():
             out = R.quantize(data, scale, zp, axis=0, out_dtype="uint8")
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "float16"),
-            B: T.Buffer((T.int64(2),), "float16"),
-            C: T.Buffer((T.int64(2),), "int8"),
-            quantized: T.Buffer((T.int64(2), T.int64(4)), "uint8"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "float16"),
+            B: T.Tensor((T.int64(2),), "float16"),
+            C: T.Tensor((T.int64(2),), "int8"),
+            quantized: T.Tensor((T.int64(2), T.int64(4)), "uint8"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -123,18 +123,18 @@ def test_quantize_fp16_to_uint8():
             zp: R.Tensor((2,), dtype="int8"),
         ) -> R.Tensor((2, 4), dtype="uint8"):
             out = R.call_tir(
-                Expected.quantize, (data, scale, zp), out_ty=R.Tensor((2, 4), dtype="uint8")
+                Expected.quantize, (data, scale, zp), ty_args=[R.Tensor((2, 4), dtype="uint8")]
             )
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_quantize_fp32_to_int8_symbolic():
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(
@@ -145,17 +145,17 @@ def test_quantize_fp32_to_int8_symbolic():
             out = R.quantize(data, scale, zp, axis=-1, out_dtype="int8")
             return out
 
-    n_quantize = T.dynamic("n")
-    n_main = T.dynamic("n")
+    n_quantize = T.dynamic("n", "int64")
+    n_main = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(4), n_quantize)),
-            B: T.Buffer((n_quantize,)),
-            C: T.Buffer((n_quantize,), "int8"),
-            quantized: T.Buffer((T.int64(4), n_quantize), "int8"),
+            A: T.Tensor((T.int64(4), n_quantize), "float32"),
+            B: T.Tensor((n_quantize,), "float32"),
+            C: T.Tensor((n_quantize,), "int8"),
+            quantized: T.Tensor((T.int64(4), n_quantize), "int8"),
         ):
             T.func_attr({"tirx.noalias": True})
 
@@ -183,16 +183,16 @@ def test_quantize_fp32_to_int8_symbolic():
             zp: R.Tensor((n_main,), dtype="int8"),
         ) -> R.Tensor((4, n_main), dtype="int8"):
             out = R.call_tir(
-                Expected.quantize, (data, scale, zp), out_ty=R.Tensor((4, n_main), "int8")
+                Expected.quantize, (data, scale, zp), ty_args=[R.Tensor((4, n_main), "int8")]
             )
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_quantize_fp32_to_int8_scalar_param():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(data: R.Tensor((2, 4), "float32")) -> R.Tensor((2, 4), "int8"):
@@ -201,12 +201,12 @@ def test_quantize_fp32_to_int8_scalar_param():
             )
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "float32"),
-            quantized: T.Buffer((T.int64(2), T.int64(4)), "int8"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+            quantized: T.Tensor((T.int64(2), T.int64(4)), "int8"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -228,15 +228,15 @@ def test_quantize_fp32_to_int8_scalar_param():
 
         @R.function
         def main(data: R.Tensor((2, 4), dtype="float32")) -> R.Tensor((2, 4), dtype="int8"):
-            out = R.call_tir(Expected.quantize, (data,), out_ty=R.Tensor((2, 4), dtype="int8"))
+            out = R.call_tir(Expected.quantize, (data,), ty_args=[R.Tensor((2, 4), dtype="int8")])
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_quantize_fp32_to_int8_scalar_1d_param():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(data: R.Tensor((2, 4), "float32")) -> R.Tensor((2, 4), "int8"):
@@ -249,14 +249,14 @@ def test_quantize_fp32_to_int8_scalar_1d_param():
             )
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "float32"),
-            B: T.Buffer((T.int64(2),), "float32"),
-            C: T.Buffer((T.int64(2),), "int8"),
-            quantized: T.Buffer((T.int64(2), T.int64(4)), "int8"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+            B: T.Tensor((T.int64(2),), "float32"),
+            C: T.Tensor((T.int64(2),), "int8"),
+            quantized: T.Tensor((T.int64(2), T.int64(4)), "int8"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -282,16 +282,16 @@ def test_quantize_fp32_to_int8_scalar_1d_param():
             out = R.call_tir(
                 cls.quantize,
                 (data, R.const([2.0, 1.0], "float32"), R.const([4, 5], "int8")),
-                out_ty=R.Tensor((2, 4), dtype="int8"),
+                ty_args=[R.Tensor((2, 4), dtype="int8")],
             )
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_quantize_fp16_to_int8_scalar_param():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Quantize:
         @R.function
         def main(data: R.Tensor((2, 4), "float16")) -> R.Tensor((2, 4), "int8"):
@@ -300,12 +300,12 @@ def test_quantize_fp16_to_int8_scalar_param():
             )
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def quantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "float16"),
-            quantized: T.Buffer((T.int64(2), T.int64(4)), "int8"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "float16"),
+            quantized: T.Tensor((T.int64(2), T.int64(4)), "int8"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -327,15 +327,15 @@ def test_quantize_fp16_to_int8_scalar_param():
 
         @R.function
         def main(data: R.Tensor((2, 4), dtype="float16")) -> R.Tensor((2, 4), dtype="int8"):
-            out = R.call_tir(Expected.quantize, (data,), out_ty=R.Tensor((2, 4), dtype="int8"))
+            out = R.call_tir(Expected.quantize, (data,), ty_args=[R.Tensor((2, 4), dtype="int8")])
             return out
 
     mod = LegalizeOps()(Quantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_dequantize_int8_to_fp32():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Dequantize:
         @R.function
         def main(
@@ -346,14 +346,14 @@ def test_dequantize_int8_to_fp32():
             out = R.dequantize(data, scale, zp, axis=0, out_dtype="float32")
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def dequantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "int8"),
-            B: T.Buffer((T.int64(2),), "float32"),
-            C: T.Buffer((T.int64(2),), "int8"),
-            dequantized: T.Buffer((T.int64(2), T.int64(4)), "float32"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "int8"),
+            B: T.Tensor((T.int64(2),), "float32"),
+            C: T.Tensor((T.int64(2),), "int8"),
+            dequantized: T.Tensor((T.int64(2), T.int64(4)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -374,16 +374,16 @@ def test_dequantize_int8_to_fp32():
             zp: R.Tensor((2,), dtype="int8"),
         ) -> R.Tensor((2, 4), dtype="float32"):
             out = R.call_tir(
-                Expected.dequantize, (data, scale, zp), out_ty=R.Tensor((2, 4), dtype="float32")
+                Expected.dequantize, (data, scale, zp), ty_args=[R.Tensor((2, 4), dtype="float32")]
             )
             return out
 
     mod = LegalizeOps()(Dequantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_dequantize_int8_to_fp32_scalar_param():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Dequantize:
         @R.function
         def main(data: R.Tensor((2, 4), "int8")) -> R.Tensor((2, 4), "float32"):
@@ -392,12 +392,12 @@ def test_dequantize_int8_to_fp32_scalar_param():
             )
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def dequantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "int8"),
-            dequantized: T.Buffer((T.int64(2), T.int64(4)), "float32"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "int8"),
+            dequantized: T.Tensor((T.int64(2), T.int64(4)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -413,17 +413,17 @@ def test_dequantize_int8_to_fp32_scalar_param():
         @R.function
         def main(data: R.Tensor((2, 4), dtype="int8")) -> R.Tensor((2, 4), dtype="float32"):
             cls = Expected
-            out = R.call_tir(cls.dequantize, (data,), out_ty=R.Tensor((2, 4), dtype="float32"))
+            out = R.call_tir(cls.dequantize, (data,), ty_args=[R.Tensor((2, 4), dtype="float32")])
             return out
 
     mod = LegalizeOps()(Dequantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_dequantize_int8_to_fp32_symbolic():
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Dequantize:
         @R.function
         def main(
@@ -434,17 +434,17 @@ def test_dequantize_int8_to_fp32_symbolic():
             out = R.dequantize(data, scale, zp, axis=-1, out_dtype="float32")
             return out
 
-    n_dequantize = T.dynamic("n")
-    n_main = T.dynamic("n")
+    n_dequantize = T.dynamic("n", "int64")
+    n_main = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def dequantize(
-            A: T.Buffer((T.int64(2), n_dequantize), "int8"),
-            B: T.Buffer((n_dequantize,)),
-            C: T.Buffer((n_dequantize,), "int8"),
-            dequantized: T.Buffer((T.int64(2), n_dequantize)),
+            A: T.Tensor((T.int64(2), n_dequantize), "int8"),
+            B: T.Tensor((n_dequantize,), "float32"),
+            C: T.Tensor((n_dequantize,), "int8"),
+            dequantized: T.Tensor((T.int64(2), n_dequantize), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
 
@@ -468,16 +468,16 @@ def test_dequantize_int8_to_fp32_symbolic():
             out = R.call_tir(
                 Expected.dequantize,
                 (data, scale, zp),
-                out_ty=R.Tensor((2, n_main), dtype="float32"),
+                ty_args=[R.Tensor((2, n_main), dtype="float32")],
             )
             return out
 
     mod = LegalizeOps()(Dequantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_dequantize_int8_to_fp16():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Dequantize:
         @R.function
         def main(
@@ -488,14 +488,14 @@ def test_dequantize_int8_to_fp16():
             out = R.dequantize(data, scale, zp, axis=0, out_dtype="float16")
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def dequantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "int8"),
-            B: T.Buffer((T.int64(2),), "float16"),
-            C: T.Buffer((T.int64(2),), "int8"),
-            dequantized: T.Buffer((T.int64(2), T.int64(4)), "float16"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "int8"),
+            B: T.Tensor((T.int64(2),), "float16"),
+            C: T.Tensor((T.int64(2),), "int8"),
+            dequantized: T.Tensor((T.int64(2), T.int64(4)), "float16"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -526,16 +526,16 @@ def test_dequantize_int8_to_fp16():
             zp: R.Tensor((2,), dtype="int8"),
         ) -> R.Tensor((2, 4), dtype="float16"):
             out = R.call_tir(
-                Expected.dequantize, (data, scale, zp), out_ty=R.Tensor((2, 4), dtype="float16")
+                Expected.dequantize, (data, scale, zp), ty_args=[R.Tensor((2, 4), dtype="float16")]
             )
             return out
 
     mod = LegalizeOps()(Dequantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_dequantize_int8_to_fp16_scalar_param():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Dequantize:
         @R.function
         def main(data: R.Tensor((2, 4), "int8")) -> R.Tensor((2, 4), "float16"):
@@ -544,12 +544,12 @@ def test_dequantize_int8_to_fp16_scalar_param():
             )
             return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def dequantize(
-            A: T.Buffer((T.int64(2), T.int64(4)), "int8"),
-            dequantized: T.Buffer((T.int64(2), T.int64(4)), "float16"),
+            A: T.Tensor((T.int64(2), T.int64(4)), "int8"),
+            dequantized: T.Tensor((T.int64(2), T.int64(4)), "float16"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -573,12 +573,12 @@ def test_dequantize_int8_to_fp16_scalar_param():
         @R.function
         def main(data: R.Tensor((2, 4), dtype="int8")) -> R.Tensor((2, 4), dtype="float16"):
             cls = Expected
-            out = R.call_tir(cls.dequantize, (data,), out_ty=R.Tensor((2, 4), dtype="float16"))
+            out = R.call_tir(cls.dequantize, (data,), ty_args=[R.Tensor((2, 4), dtype="float16")])
             return out
 
     mod = LegalizeOps()(Dequantize)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

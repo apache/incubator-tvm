@@ -37,12 +37,13 @@ and relax NNModule API.
 # high-level Relax operators using TVMScript.
 
 from tvm import relax, topi
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
-n = T.dynamic("n")
+n = T.dynamic("n", "int64")
 
 
 @I.ir_module
@@ -76,8 +77,8 @@ m = T.dynamic("m", "int64")
 
 @I.ir_module
 class RelaxModuleWithTIR:
-    @Ts.prim_func
-    def relu(X: T.Buffer((n, m), "float32"), Y: T.Buffer((n, m), "float32")):
+    @Ts.function
+    def relu(X: T.Tensor((n, m), "float32"), Y: T.Tensor((n, m), "float32")):
         for i, j in T.grid(n, m):
             with Ts.sblock("relu"):
                 vi, vj = Ts.axis.remap("SS", [i, j])
@@ -94,7 +95,7 @@ class RelaxModuleWithTIR:
         cls = RelaxModuleWithTIR
         with R.dataflow():
             lv0 = R.matmul(data, R.permute_dims(w0)) + b0
-            lv1 = R.call_tir(cls.relu, lv0, R.Tensor((n, 128), dtype="float32"))
+            lv1 = R.call_tir(cls.relu, lv0, ty_args=[R.Tensor((n, 128), dtype="float32")])
             lv2 = R.matmul(lv1, R.permute_dims(w1)) + b1
             R.output(lv2)
         return lv2
@@ -168,12 +169,12 @@ N = T.dynamic("N", "int64")
 K = T.dynamic("K", "int64")
 
 
-@Ts.prim_func
+@Ts.function
 def tir_linear(
-    X: T.Buffer((M, K), "float32"),
-    W: T.Buffer((N, K), "float32"),
-    B: T.Buffer((N,), "float32"),
-    Z: T.Buffer((M, N), "float32"),
+    X: T.Tensor((M, K), "float32"),
+    W: T.Tensor((N, K), "float32"),
+    B: T.Tensor((N,), "float32"),
+    Z: T.Tensor((M, N), "float32"),
 ):
     for i, j, k in T.grid(M, N, K):
         with Ts.sblock("linear"):
@@ -253,9 +254,9 @@ with bb.function("forward", [x, fc1_weight, fc1_bias, fc2_weight, fc2_bias]):
     with bb.dataflow():
         lv0 = bb.emit(
             relax.call_dps_packed(
-                "env.linear",
+                _ExternFunc("env.linear"),
                 [x, fc1_weight, fc1_bias],
-                out_ty=relax.TensorType((n, 128), "float32"),
+                ty_args=[relax.TensorType((n, 128), "float32")],
             )
         )
         lv1 = bb.emit_te(topi.nn.relu, lv0)
@@ -264,7 +265,7 @@ with bb.function("forward", [x, fc1_weight, fc1_bias, fc2_weight, fc2_bias]):
             relax.call_tir(
                 tir_gv,
                 [lv1, fc2_weight, fc2_bias],
-                out_ty=relax.TensorType((n, 10), "float32"),
+                ty_args=[relax.TensorType((n, 10), "float32")],
             )
         )
         bb.emit_output(gv)

@@ -19,17 +19,17 @@
 from enum import IntEnum
 from typing import Optional
 
+import tvm_ffi
 from tvm_ffi import register_object
 
-from tvm.runtime import Object
 from tvm.s_tir import SBlock
-from tvm.tirx import For
+from tvm_tirx.ir import For
 
 from . import _ffi_api
 
 
 @register_object("s_tir.StmtSRef")
-class StmtSRef(Object):
+class StmtSRef(tvm_ffi.Object):
     """An object that refers to schedulable elements in the TensorIR, aka "sref".
 
     Glossary
@@ -90,7 +90,7 @@ class DepKind(IntEnum):
 
 
 @register_object("s_tir.Dependency")
-class Dependency(Object):
+class Dependency(tvm_ffi.Object):
     """A tuple (src, dst, kind) representing certain types of dependency.
     For example, (A, B, kRAW) means block B depends on block A, and the dependency kind is
     read-after-write, which means block B reads the result written by block A.
@@ -111,7 +111,7 @@ class Dependency(Object):
 
 
 @register_object("s_tir.SBlockScope")
-class SBlockScope(Object):
+class SBlockScope(tvm_ffi.Object):
     """An object corresponds to each block sref in the sref tree, which
     tracks the producer-consumer dependency between blocks.
 

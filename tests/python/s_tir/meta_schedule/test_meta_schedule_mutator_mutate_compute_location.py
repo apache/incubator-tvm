@@ -17,22 +17,22 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 # pylint: disable=invalid-name, no-member
 
 
-@Ts.prim_func
+@Ts.function
 def add(
-    A: T.Buffer([2048, 2048, 2048], dtype="float32"),
-    B: T.Buffer([2048, 2048, 2048], dtype="float32"),
+    A: T.Tensor([2048, 2048, 2048], dtype="float32"),
+    B: T.Tensor([2048, 2048, 2048], dtype="float32"),
 ) -> None:
     # function attr dict
     T.func_attr({"global_symbol": "main"})
 
-    A_cached = Ts.sblock_alloc_buffer([2048, 2048, 2048], dtype="float32")
+    A_cached = Ts.sblock_alloc_tensor([2048, 2048, 2048], dtype="float32")
     # body
     for i, j, k in T.grid(2048, 2048, 2048):
         with Ts.sblock("move"):

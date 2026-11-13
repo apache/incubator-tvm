@@ -22,11 +22,16 @@
 #import <Foundation/Foundation.h>
 
 #import "../../../src/support/socket.h"
-#import "../../../src/support/utils.h"
 
 #import <string>
 
 using std::string;
+
+namespace {
+bool IsNumber(const std::string& str) {
+  return !str.empty() && str.find_first_not_of("0123456789") == std::string::npos;
+}
+}  // namespace
 
 const char* kUsage =
     "\n"
@@ -126,7 +131,6 @@ void update_rpc_args(int argc, char* argv[]) {
   restore_from_cache();
   RPCArgs_cpp& args = g_rpc_args;
 
-  using tvm::support::IsNumber;
   using tvm::support::ValidateIP;
   constexpr int MAX_PORT_NUM = 65535;
 

@@ -47,8 +47,9 @@ This tutorial walks through the full workflow step by step.
 ######################################################################
 # Preparation
 # -----------
-
 import os
+
+import tvm_ffi
 
 try:
     import torch
@@ -56,13 +57,13 @@ try:
 except ImportError:
     torch = None
 
-import tvm
+import tvm_tirx
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.base_py_module import BasePyModule
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 IS_IN_CI = os.getenv("CI", "").lower() == "true"
 HAS_TORCH = torch is not None
@@ -74,7 +75,7 @@ RUN_EXAMPLE = HAS_TORCH and not IS_IN_CI
 # The core idea: decorate a class with ``@R.py_module``, inherit from ``BasePyModule``, and use
 # three decorators for three kinds of functions:
 #
-# - ``@T.prim_func`` — low-level TIR kernel (JIT-compiled on instantiation)
+# - ``@T.function`` — low-level TIR kernel (JIT-compiled on instantiation)
 # - ``@R.function`` — high-level Relax graph (JIT-compiled on instantiation)
 # - ``@I.pyfunc`` — plain Python (runs as-is, can use any Python library)
 #
@@ -85,11 +86,11 @@ if RUN_EXAMPLE:
 
     @R.py_module
     class MyFirstModule(BasePyModule):
-        @Ts.prim_func
+        @Ts.function
         def add_tir(
-            A: T.Buffer((4,), "float32"),
-            B: T.Buffer((4,), "float32"),
-            C: T.Buffer((4,), "float32"),
+            A: T.Tensor((4,), "float32"),
+            B: T.Tensor((4,), "float32"),
+            C: T.Tensor((4,), "float32"),
         ):
             for i in range(4):
                 C[i] = A[i] + B[i]
@@ -103,7 +104,7 @@ if RUN_EXAMPLE:
             return self._convert_tvm_to_pytorch(result)
 
     # TIR functions are JIT-compiled at instantiation
-    mod = MyFirstModule(device=tvm.cpu(0))
+    mod = MyFirstModule(device=tvm_tirx.cpu(0))
 
     x = torch.tensor([1.0, 2.0, 3.0, 4.0])
     y = torch.tensor([10.0, 20.0, 30.0, 40.0])
@@ -131,11 +132,11 @@ if RUN_EXAMPLE:
 
     @R.py_module
     class DebugModule(BasePyModule):
-        @Ts.prim_func
+        @Ts.function
         def matmul_tir(
-            A: T.Buffer((n, 4), "float32"),
-            B: T.Buffer((4, 3), "float32"),
-            C: T.Buffer((n, 3), "float32"),
+            A: T.Tensor((n, 4), "float32"),
+            B: T.Tensor((4, 3), "float32"),
+            C: T.Tensor((n, 3), "float32"),
         ):
             for i, j, k in T.grid(n, 3, 4):
                 with Ts.sblock("matmul"):
@@ -171,7 +172,7 @@ if RUN_EXAMPLE:
             print(f"  [DEBUG] probs sum: {result.sum(dim=-1)}")
             return result
 
-    mod = DebugModule(device=tvm.cpu(0))
+    mod = DebugModule(device=tvm_tirx.cpu(0))
 
     print("Running with debug prints:")
     probs = mod.forward(torch.randn(2, 4), torch.randn(4, 3))
@@ -192,12 +193,13 @@ if RUN_EXAMPLE:
 # - ``call_dps_packed``: call a TVM packed function (e.g., a third-party library binding)
 # - Direct Python: call any PyTorch function
 #
-# ``call_dps_packed`` is useful for calling functions registered via ``tvm.register_global_func``
+# ``call_dps_packed`` can call functions registered via
+# ``tvm_ffi.register_global_func``
 # — for example, CUBLAS or cuDNN bindings that TVM wraps as packed functions.
 
 if RUN_EXAMPLE:
     # Register a packed function (simulating an external library binding)
-    @tvm.register_global_func("my_bias_add", override=True)
+    @tvm_ffi.register_global_func("my_bias_add", override=True)
     def my_bias_add(x, bias, out):
         """Packed function: adds bias to each row of x."""
 
@@ -208,11 +210,11 @@ if RUN_EXAMPLE:
 
     @R.py_module
     class PipelineModule(BasePyModule):
-        @Ts.prim_func
+        @Ts.function
         def matmul_tir(
-            A: T.Buffer((2, 4), "float32"),
-            B: T.Buffer((4, 3), "float32"),
-            C: T.Buffer((2, 3), "float32"),
+            A: T.Tensor((2, 4), "float32"),
+            B: T.Tensor((4, 3), "float32"),
+            C: T.Tensor((2, 3), "float32"),
         ):
             for i, j, k in T.grid(2, 3, 4):
                 with Ts.sblock("matmul"):
@@ -243,7 +245,7 @@ if RUN_EXAMPLE:
             # 3. Python/PyTorch activation
             return F.relu(h_biased)
 
-    mod = PipelineModule(device=tvm.cpu(0))
+    mod = PipelineModule(device=tvm_tirx.cpu(0))
 
     x = torch.randn(2, 4)
     w = torch.randn(4, 3)
@@ -272,11 +274,11 @@ if RUN_EXAMPLE:
     # A simple Relax module: matmul + bias + relu (a dense layer)
     @I.ir_module
     class DenseLayer:
-        @Ts.prim_func
+        @Ts.function
         def bias_add_tir(
-            x: T.Buffer((2, 4), "float32"),
-            b: T.Buffer((4,), "float32"),
-            out: T.Buffer((2, 4), "float32"),
+            x: T.Tensor((2, 4), "float32"),
+            b: T.Tensor((4,), "float32"),
+            out: T.Tensor((2, 4), "float32"),
         ):
             for i, j in T.grid(2, 4):
                 out[i, j] = x[i, j] + b[j]
@@ -292,7 +294,7 @@ if RUN_EXAMPLE:
             h_bias = R.call_tir(
                 cls.bias_add_tir,
                 (h, b),
-                out_ty=R.Tensor((2, 4), "float32"),
+                ty_args=[R.Tensor((2, 4), "float32")],
             )
             return R.nn.relu(h_bias)
 
@@ -361,11 +363,11 @@ if RUN_EXAMPLE:
             x: R.Tensor((4, 8), "float32"),
         ) -> R.Tensor((4, 8), "float32"):
             # The VM calls back into Python for these two ops
-            h = R.call_py_func("layer_norm", (x,), out_ty=R.Tensor((4, 8), "float32"))
-            out = R.call_py_func("silu", (h,), out_ty=R.Tensor((4, 8), "float32"))
+            h = R.call_py_func("layer_norm", (x,), ty_args=[R.Tensor((4, 8), "float32")])
+            out = R.call_py_func("silu", (h,), ty_args=[R.Tensor((4, 8), "float32")])
             return out
 
-    mod = HybridVMModule(device=tvm.cpu(0))
+    mod = HybridVMModule(device=tvm_tirx.cpu(0))
     x = torch.randn(4, 8)
 
     # call_py_func is also callable from Python directly
@@ -400,8 +402,8 @@ if RUN_EXAMPLE:
 
     @R.py_module
     class DynamicModule(BasePyModule):
-        @Ts.prim_func
-        def scale_tir(x: T.Buffer((n,), "float32"), out: T.Buffer((n,), "float32")):
+        @Ts.function
+        def scale_tir(x: T.Tensor((n,), "float32"), out: T.Tensor((n,), "float32")):
             for i in T.serial(n):
                 out[i] = x[i] * T.float32(2.0)
 
@@ -412,7 +414,7 @@ if RUN_EXAMPLE:
         ) -> R.Tensor((n,), "float32"):
             return R.add(x, y)
 
-    mod = DynamicModule(device=tvm.cpu(0), target="llvm")
+    mod = DynamicModule(device=tvm_tirx.cpu(0), target="llvm")
 
     # Inspect what the module contains
     print("Functions:", mod.list_functions())

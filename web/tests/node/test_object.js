@@ -43,3 +43,21 @@ test("object", () => {
     assert(t1.getHandle() == t.getHandle());
   });
 });
+
+test("shape cache does not invalidate caller-owned tuples", () => {
+  tvm.beginScope();
+  const disposedTuple = tvm.makeShapeTuple([987654321, -1]);
+  disposedTuple.dispose();
+  const cachedTuple = tvm.makeShapeTuple([987654321, -1]);
+  assert.doesNotThrow(() => cachedTuple.typeKey());
+
+  const evictedTuple = tvm.makeShapeTuple([987654321, 0]);
+  for (let i = 1; i <= 256; ++i) {
+    tvm.makeShapeTuple([987654321, i]);
+  }
+  assert.doesNotThrow(() => evictedTuple.typeKey());
+
+  tvm.endScope();
+  assert.throws(() => cachedTuple.getHandle(), /already been disposed/);
+  assert.throws(() => evictedTuple.getHandle(), /already been disposed/);
+});

@@ -24,7 +24,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/logging.h>
 
-#include "../../../../support/bytes_io.h"
+#include <tvm/support/bytes_io.h>
 #include "coreml_runtime.h"
 
 namespace tvm {
@@ -69,7 +69,7 @@ void CoreMLModel::SetInput(const std::string& key, DLTensor* data_in) {
   [input_dict_ setObject:dest forKey:nsKey];
 }
 
-Tensor CoreMLModel::GetOutput(int index) const {
+ffi::Tensor CoreMLModel::GetOutput(int index) const {
   MLModelDescription* model_desc = model_.modelDescription;
   NSString* metadata = [model_desc metadata][MLModelDescriptionKey];
   NSData* data = [metadata dataUsingEncoding:NSUTF8StringEncoding];
@@ -105,8 +105,8 @@ Tensor CoreMLModel::GetOutput(int index) const {
       .device_type = kDLCPU,
       .device_id = 0,
   };
-  Tensor ret = Tensor::Empty(shape, dtype, cpu_dev);
-  ret.CopyFromBytes(src.dataPointer, size);
+  ffi::Tensor ret = tvm::runtime::Empty(shape, dtype, cpu_dev);
+  tvm::runtime::CopyFromBytes(ret, src.dataPointer, size);
 
   return ret;
 }
@@ -166,8 +166,8 @@ ffi::Optional<ffi::Function> CoreMLRuntime::GetFunction(const ffi::String& name)
       model_->Invoke();
 
       // TODO: Support multiple outputs.
-      Tensor out = model_->GetOutput(0);
-      out.CopyTo(args[args.size() - 1].cast<DLTensor*>());
+      ffi::Tensor out = model_->GetOutput(0);
+      tvm::runtime::CopyFromTo(out, args[args.size() - 1].cast<DLTensor*>());
       *rv = out;
     });
   } else {

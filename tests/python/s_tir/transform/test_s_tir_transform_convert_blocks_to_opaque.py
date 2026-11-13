@@ -18,28 +18,30 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import s_tir, te, tirx
-from tvm.script import ir as I
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import s_tir, te
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def _check(original, transformed):
     func = original
-    mod = tvm.IRModule.from_expr(func.with_attr("global_symbol", "main"))
+    mod = tvm_tirx.IRModule.from_expr(func.with_attr("global_symbol", "main"))
     mod = tvm.s_tir.transform.ConvertBlocksToOpaque()(mod)
     mod = tvm.s_tir.transform.StmtSimplify()(mod)
-    tvm.ir.assert_structural_equal(mod["main"], transformed.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(mod["main"], transformed.with_attr("global_symbol", "main"))
 
 
-@Ts.prim_func
-def elementwise_func(A: T.Buffer((16, 16), "float32"), C: T.Buffer((16, 16), "float32")) -> None:
+@Ts.function
+def elementwise_func(A: T.Tensor((16, 16), "float32"), C: T.Tensor((16, 16), "float32")) -> None:
     for i in range(0, 16):
         with Ts.sblock():
             Ts.reads(A[i, 0:16])
             Ts.writes(C[i, 0:16])
-            B = Ts.sblock_alloc_buffer((16, 16), "float32")
+            B = Ts.sblock_alloc_tensor((16, 16), "float32")
             for j in range(0, 16):
                 with Ts.sblock():
                     vi = Ts.axis.S(16, i)
@@ -52,15 +54,15 @@ def elementwise_func(A: T.Buffer((16, 16), "float32"), C: T.Buffer((16, 16), "fl
                     C[vi, vj] = B[vi, vj] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def substituted_elementwise_func(
-    A: T.Buffer((16, 16), "float32"), C: T.Buffer((16, 16), "float32")
+    A: T.Tensor((16, 16), "float32"), C: T.Tensor((16, 16), "float32")
 ) -> None:
     for i in range(0, 16):
         with Ts.sblock():
             Ts.reads(A[i, 0:16])
             Ts.writes(C[i, 0:16])
-            B = Ts.sblock_alloc_buffer([16, 16], "float32")
+            B = Ts.sblock_alloc_tensor([16, 16], "float32")
             for j in range(0, 16):
                 with Ts.sblock():
                     Ts.reads([A[i, j]])
@@ -80,8 +82,8 @@ def test_elementwise():
 def test_error_if_predicate_uses_block_variables():
     @I.ir_module(check_well_formed=False)
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(8, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(8, "int32")):
             for i in T.serial(8):
                 with Ts.sblock():
                     vi = Ts.axis.remap("S", [i])
@@ -93,4 +95,4 @@ def test_error_if_predicate_uses_block_variables():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

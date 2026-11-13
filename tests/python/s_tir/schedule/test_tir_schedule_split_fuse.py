@@ -21,29 +21,35 @@ from __future__ import annotations
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import te, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import te
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.tirx.expr import IntImm
+from tvm_tirx import tirx
+from tvm_tirx.ir import IntImm
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable
 
 
-@Ts.prim_func
-def elementwise(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))) -> None:
+@Ts.function
+def elementwise(
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
+) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("B"):
             vi, vj, vk = Ts.axis.remap("SSS", [i, j, k])
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_dependent_loops(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))) -> None:
+@Ts.function
+def elementwise_dependent_loops(
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
+) -> None:
     for i in T.serial(0, 128):
         for j, k in T.grid(i, 128):
             with Ts.sblock("B"):
@@ -53,10 +59,10 @@ def elementwise_dependent_loops(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_symbolic(
-    A: T.Buffer((128, 128, n)),  # noqa: F821
-    B: T.Buffer((128, 128, n)),  # noqa: F821
+    A: T.Tensor((128, 128, n), "float32"),  # noqa: F821
+    B: T.Tensor((128, 128, n), "float32"),  # noqa: F821
     n: T.int32,
 ) -> None:
     for i, j, k in T.grid(128, 128, n):
@@ -65,10 +71,10 @@ def elementwise_symbolic(
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_symbolic_fused(
-    A: T.Buffer((128, 128, n)),  # noqa: F821
-    B: T.Buffer((128, 128, n)),  # noqa: F821
+    A: T.Tensor((128, 128, n), "float32"),  # noqa: F821
+    B: T.Tensor((128, 128, n), "float32"),  # noqa: F821
     n: T.int32,
 ) -> None:
     for i_j_k_fused in T.serial(0, (n * 16384)):
@@ -81,10 +87,10 @@ def elementwise_symbolic_fused(
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_symbolic_split(
-    A: T.Buffer((128, 128, n)),  # noqa: F821
-    B: T.Buffer((128, 128, n)),  # noqa: F821
+    A: T.Tensor((128, 128, n), "float32"),  # noqa: F821
+    B: T.Tensor((128, 128, n), "float32"),  # noqa: F821
     n: T.int32,
 ) -> None:
     for i, j, k0, k1 in T.grid(128, 128, 10, T.floordiv((n + 9), 10)):
@@ -97,9 +103,11 @@ def elementwise_symbolic_split(
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_with_seq(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))) -> None:
-    C = Ts.sblock_alloc_buffer((128, 128, 128))
+@Ts.function
+def elementwise_with_seq(
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
+) -> None:
+    C = Ts.sblock_alloc_tensor((128, 128, 128))
     for i, j in T.grid(128, 128):
         for k in T.serial(0, 128):
             with Ts.sblock("C"):
@@ -111,8 +119,10 @@ def elementwise_with_seq(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 12
                 B[vi, vj, vk] = C[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_with_anno(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))) -> None:
+@Ts.function
+def elementwise_with_anno(
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
+) -> None:
     for i, j in T.grid(128, 128):
         for k in T.serial(0, 128, annotations={"useless_annotation": True}):
             with Ts.sblock("B"):
@@ -122,12 +132,12 @@ def elementwise_with_anno(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 1
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_with_thread_binding(
-    A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
 ) -> None:
     for i, j in T.grid(128, 128):
-        for k in T.thread_binding(0, 128, thread="threadIdx.x"):
+        for k in T.parallel(0, 128, annotations={"thread_binding": "threadIdx.x"}):
             with Ts.sblock("B"):
                 vi, vj, vk = Ts.axis.remap("SSS", [i, j, k])
                 Ts.reads([A[vi, vj, vk]])
@@ -135,9 +145,9 @@ def elementwise_with_thread_binding(
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_with_starting_point(
-    A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
 ) -> None:
     for i, j in T.grid(128, 128):
         for k in T.serial(10, 128):
@@ -148,9 +158,9 @@ def elementwise_with_starting_point(
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_with_opaque_block(
-    A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
 ) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("opaque"):
@@ -163,8 +173,10 @@ def elementwise_with_opaque_block(
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_fused(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))) -> None:
+@Ts.function
+def elementwise_fused(
+    A: T.Tensor((128, 128, 128), "float32"), B: T.Tensor((128, 128, 128), "float32")
+) -> None:
     for fused in T.serial(0, 2097152):
         with Ts.sblock("B"):
             vi = Ts.axis.S(128, T.floordiv(fused, 16384))
@@ -175,8 +187,10 @@ def elementwise_fused(A: T.Buffer((128, 128, 128)), B: T.Buffer((128, 128, 128))
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_split_case0(A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128, 128])) -> None:
+@Ts.function
+def elementwise_split_case0(
+    A: T.Tensor([128, 128, 128], "float32"), B: T.Tensor([128, 128, 128], "float32")
+) -> None:
     for i1, i2, i3, j1, j2, k1, k2 in T.grid(2, 1, 64, 4, 32, 16, 8):
         with Ts.sblock("B"):
             vi = Ts.axis.S(128, i1 * 64 + i2 * 64 + i3)
@@ -187,8 +201,10 @@ def elementwise_split_case0(A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128,
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def elementwise_split_case1(A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128, 128])) -> None:
+@Ts.function
+def elementwise_split_case1(
+    A: T.Tensor([128, 128, 128], "float32"), B: T.Tensor([128, 128, 128], "float32")
+) -> None:
     for i1, i2, i3, j1, j2, j3, k1, k2, k3 in T.grid(2, 1, 64, 2, 1, 64, 2, 1, 64):
         with Ts.sblock("B"):
             vi = Ts.axis.S(128, i1 * 64 + i2 * 64 + i3)
@@ -199,9 +215,9 @@ def elementwise_split_case1(A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128,
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_split_with_predicate(
-    A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128, 128])
+    A: T.Tensor([128, 128, 128], "float32"), B: T.Tensor([128, 128, 128], "float32")
 ) -> None:
     for i0, i1, i2, j0, j1, k0, k1 in T.grid(1000, 2, 3, 1, 129, 3, 43):
         with Ts.sblock("B"):
@@ -214,9 +230,9 @@ def elementwise_split_with_predicate(
             B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_fuse_with_opaque_block(
-    A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128, 128])
+    A: T.Tensor([128, 128, 128], "float32"), B: T.Tensor([128, 128, 128], "float32")
 ) -> None:
     for i_j_k_fused in T.serial(0, 2097152):
         with Ts.sblock("opaque"):
@@ -247,9 +263,9 @@ def elementwise_fuse_with_opaque_block(
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_split_with_opaque_block(
-    A: T.Buffer([128, 128, 128]), B: T.Buffer([128, 128, 128])
+    A: T.Tensor([128, 128, 128], "float32"), B: T.Tensor([128, 128, 128], "float32")
 ) -> None:
     for i0, i1, j, k in T.grid(8, 16, 128, 128):
         with Ts.sblock("opaque"):
@@ -263,8 +279,8 @@ def elementwise_split_with_opaque_block(
                 B[vi, vj, vk] = A[vi, vj, vk] * 2.0
 
 
-@Ts.prim_func
-def opaque_access(A: T.Buffer([16, 16], "float32"), B: T.Buffer([16, 16], "float32")) -> None:
+@Ts.function
+def opaque_access(A: T.Tensor([16, 16], "float32"), B: T.Tensor([16, 16], "float32")) -> None:
     for i, j in T.grid(16, 16):
         with Ts.sblock("A"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -276,11 +292,11 @@ def opaque_access(A: T.Buffer([16, 16], "float32"), B: T.Buffer([16, 16], "float
             vi, vj = Ts.axis.remap("SS", [i, j])
             Ts.reads([])
             Ts.writes([B[0:16, 0:16]])
-            T.evaluate(T.tvm_fill_fragment(B.data, 16, 16, 16, 0, vi * 16 + vj, dtype="handle"))
+            T.evaluate(T.gpu_fill_fragment(B.data, 16, 16, 16, 0, vi * 16 + vj))
 
 
-@Ts.prim_func
-def opaque_access_fused(A: T.Buffer([16, 16]), B: T.Buffer([16, 16])) -> None:
+@Ts.function
+def opaque_access_fused(A: T.Tensor([16, 16], "float32"), B: T.Tensor([16, 16], "float32")) -> None:
     for i_j_fused in T.serial(0, 256):
         with Ts.sblock("A"):
             vi = Ts.axis.S(16, T.floordiv(i_j_fused, 16))
@@ -294,11 +310,11 @@ def opaque_access_fused(A: T.Buffer([16, 16]), B: T.Buffer([16, 16])) -> None:
             vj = Ts.axis.S(16, T.floormod(i_j_fused, 16))
             Ts.reads([])
             Ts.writes([B[0:16, 0:16]])
-            T.evaluate(T.tvm_fill_fragment(B.data, 16, 16, 16, 0, ((vi * 16) + vj), dtype="handle"))
+            T.evaluate(T.gpu_fill_fragment(B.data, 16, 16, 16, 0, ((vi * 16) + vj)))
 
 
-@Ts.prim_func
-def opaque_access_split(A: T.Buffer((16, 16)), B: T.Buffer((16, 16))) -> None:
+@Ts.function
+def opaque_access_split(A: T.Tensor((16, 16), "float32"), B: T.Tensor((16, 16), "float32")) -> None:
     for i, j0, j1 in T.grid(16, 4, 4):
         with Ts.sblock("A"):
             vi = Ts.axis.S(16, i)
@@ -312,11 +328,13 @@ def opaque_access_split(A: T.Buffer((16, 16)), B: T.Buffer((16, 16))) -> None:
             vj = Ts.axis.S(16, j0 * 4 + j1)
             Ts.reads([])
             Ts.writes([B[0:16, 0:16]])
-            T.evaluate(T.tvm_fill_fragment(B.data, 16, 16, 16, 0, ((vi * 16) + vj), dtype="handle"))
+            T.evaluate(T.gpu_fill_fragment(B.data, 16, 16, 16, 0, ((vi * 16) + vj)))
 
 
-@Ts.prim_func
-def elementwise_not_affine(A: T.Buffer((127, 128)), B: T.Buffer((127, 128))) -> None:
+@Ts.function
+def elementwise_not_affine(
+    A: T.Tensor((127, 128), "float32"), B: T.Tensor((127, 128), "float32")
+) -> None:
     for i in T.serial(0, 4):
         for j, k in T.grid(T.min(31, 126 - i * 32) + 1, 128):
             with Ts.sblock("B"):
@@ -325,8 +343,10 @@ def elementwise_not_affine(A: T.Buffer((127, 128)), B: T.Buffer((127, 128))) -> 
                 B[vi, vj] = A[vi, vj]
 
 
-@Ts.prim_func
-def elementwise_not_affine_fused(A: T.Buffer([127, 128]), B: T.Buffer([127, 128])) -> None:
+@Ts.function
+def elementwise_not_affine_fused(
+    A: T.Tensor([127, 128], "float32"), B: T.Tensor([127, 128], "float32")
+) -> None:
     for i in T.grid(4):
         for j_k_fused in T.serial(0, T.min(31, 126 - i * 32) * 128 + 128):
             with Ts.sblock("B"):
@@ -379,8 +399,8 @@ def test_split_with_dynamic_inferred_factor():
     N = T.dynamic("N", "int32")
     M = T.dynamic("M", "int32")
 
-    @Ts.prim_func
-    def before(A: T.Buffer((N, 128, M)), B: T.Buffer((N, 128, M))) -> None:
+    @Ts.function
+    def before(A: T.Tensor((N, 128, M), "float32"), B: T.Tensor((N, 128, M), "float32")) -> None:
         for i, j, k in T.grid(N, 128, M):
             with Ts.sblock("B"):
                 vi, vj, vk = Ts.axis.remap("SSS", [i, j, k])
@@ -389,8 +409,8 @@ def test_split_with_dynamic_inferred_factor():
     N = T.dynamic("N", "int32")
     M = T.dynamic("M", "int32")
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((N, 128, M)), B: T.Buffer((N, 128, M))) -> None:
+    @Ts.function
+    def expected(A: T.Tensor((N, 128, M), "float32"), B: T.Tensor((N, 128, M), "float32")) -> None:
         for i_0, i_1, j_0, j_1, k_0, k_1 in T.grid((N + 15) // 16, 16, 4, 32, 16, (M + 15) // 16):
             with Ts.sblock("B"):
                 vi = Ts.axis.spatial(N, i_0 * 16 + i_1)
@@ -552,21 +572,21 @@ def test_fuse_not_affine():
 
 
 def test_add_unit_loop_above_block():
-    @Ts.prim_func
+    @Ts.function
     def zero_dim(
-        A: T.Buffer((), "int32"),
-        B: T.Buffer((), "int32"),
-        C: T.Buffer((), "int32"),
+        A: T.Tensor((), "int32"),
+        B: T.Tensor((), "int32"),
+        C: T.Tensor((), "int32"),
     ) -> None:
         with Ts.sblock("C"):
             vi = Ts.axis.spatial(1, 0)
             C[()] = A[()] + B[()]
 
-    @Ts.prim_func
+    @Ts.function
     def zero_dim_added(
-        A: T.Buffer((), "int32"),
-        B: T.Buffer((), "int32"),
-        C: T.Buffer((), "int32"),
+        A: T.Tensor((), "int32"),
+        B: T.Tensor((), "int32"),
+        C: T.Tensor((), "int32"),
     ) -> None:
         for u in range(1):
             with Ts.sblock("C"):
@@ -580,22 +600,22 @@ def test_add_unit_loop_above_block():
 
 
 def test_add_unit_loop_above_loop():
-    @Ts.prim_func
+    @Ts.function
     def zero_dim(
-        A: T.Buffer((), "int32"),
-        B: T.Buffer((), "int32"),
-        C: T.Buffer((), "int32"),
+        A: T.Tensor((), "int32"),
+        B: T.Tensor((), "int32"),
+        C: T.Tensor((), "int32"),
     ) -> None:
         for u in range(1):
             with Ts.sblock("C"):
                 vi = Ts.axis.spatial(1, 0)
                 C[()] = A[()] + B[()]
 
-    @Ts.prim_func
+    @Ts.function
     def zero_dim_added(
-        A: T.Buffer((), "int32"),
-        B: T.Buffer((), "int32"),
-        C: T.Buffer((), "int32"),
+        A: T.Tensor((), "int32"),
+        B: T.Tensor((), "int32"),
+        C: T.Tensor((), "int32"),
     ) -> None:
         for u1, u2 in T.grid(1, 1):
             with Ts.sblock("C"):
@@ -611,14 +631,14 @@ def test_add_unit_loop_above_loop():
 
 @pytest.mark.skip("Pending fix in affine analysis")
 def test_fuse_int64():
-    def _create_prim_func():
+    def _create_function():
         n = te.const(16, "int32")
         m = te.const(32, "int64")
         A = te.placeholder((n, m), name="A", dtype="int32")
         B = te.compute((n, m), lambda i, j: A[i, j] + 1, name="B")
-        return te.create_prim_func([A, B])
+        return te.create_function([A, B])
 
-    mod = _create_prim_func()
+    mod = _create_function()
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     i, j = sch.get_loops(sch.get_sblock("B"))
     sch.fuse(i, j)
@@ -626,13 +646,13 @@ def test_fuse_int64():
 
 
 def test_split_int64_extent_with_mixed_factors():
-    def _create_prim_func():
+    def _create_function():
         m = te.const(384, "int64")
         A = te.placeholder((m,), name="A", dtype="float32")
         B = te.compute((m,), lambda i: A[i] + 1, name="B")
-        return te.create_prim_func([A, B])
+        return te.create_function([A, B])
 
-    mod = _create_prim_func()
+    mod = _create_function()
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     (i,) = sch.get_loops(sch.get_sblock("B"))
     sch.split(
@@ -645,13 +665,13 @@ def test_split_int64_extent_with_mixed_factors():
 
 
 def test_split_int64_extent_with_int32_factors():
-    def _create_prim_func():
+    def _create_function():
         m = te.const(12, "int64")
         A = te.placeholder((m,), name="A", dtype="float32")
         B = te.compute((m,), lambda i: A[i] + 1, name="B")
-        return te.create_prim_func([A, B])
+        return te.create_function([A, B])
 
-    mod = _create_prim_func()
+    mod = _create_function()
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     (i,) = sch.get_loops(sch.get_sblock("B"))
     sch.split(
@@ -670,13 +690,13 @@ def test_split_int64_factors():
     sch = tvm.s_tir.Schedule(elementwise_symbolic, debug_mask="all")
     block_b = sch.get_sblock("B")
     _, _, k = sch.get_loops(block_b)
-    sch.split(k, factors=[IntImm(dtype="int64", value=10), None])
+    sch.split(k, factors=[IntImm(ty="int64", value=10), None])
     assert_structural_equal_ignore_global_symbol(elementwise_symbolic_split, sch.mod["main"])
 
 
 def test_unsupported_target_scalable_split():
-    @Ts.prim_func
-    def before(A: T.Buffer((128,), "float32")):
+    @Ts.function
+    def before(A: T.Tensor((128,), "float32")):
         T.func_attr({"global_symbol": "my_module", "tirx.noalias": True})
         for i in T.serial(128):
             with Ts.sblock("A"):
@@ -686,21 +706,31 @@ def test_unsupported_target_scalable_split():
     sch = tvm.s_tir.Schedule(before)
     (a,) = sch.get_loops("A")
 
-    err_msg = "The product of factors is not larger than or equal to the extent of loop tirx.For#0"
+    err_msg = "The product of factors is not larger than or equal to the extent of loop ir.For#0"
     with pytest.raises(tvm.s_tir.schedule.ScheduleError, match=err_msg):
         sch.split(a, factors=[T.ceildiv(128, 4 * T.vscale()), 4 * T.vscale()])
 
 
 def test_fused_symbolic_2D_tiling():
-    @Ts.prim_func
-    def before(A: T.Buffer((M, N)), B: T.Buffer((M, N)), M: T.int32, N: T.int32) -> None:  # noqa: F821
+    @Ts.function
+    def before(
+        A: T.Tensor((M, N), "float32"),  # noqa: F821
+        B: T.Tensor((M, N), "float32"),  # noqa: F821
+        M: T.int32,
+        N: T.int32,
+    ) -> None:
         for i, j in T.grid(M, N):
             with Ts.sblock("B"):
                 vi, vj = Ts.axis.remap("SS", [i, j])
                 B[vi, vj] = A[vi, vj] * 2.0
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((M, N)), B: T.Buffer((M, N)), M: T.int32, N: T.int32) -> None:  # noqa: F821
+    @Ts.function
+    def expected(
+        A: T.Tensor((M, N), "float32"),  # noqa: F821
+        B: T.Tensor((M, N), "float32"),  # noqa: F821
+        M: T.int32,
+        N: T.int32,
+    ) -> None:
         for i_0_j_0_fused, i_1, j_1 in T.grid(((M + 63) // 64) * ((N + 15) // 16), 64, 16):
             with Ts.sblock("B"):
                 vi = Ts.axis.spatial(M, i_0_j_0_fused // ((N + 15) // 16) * 64 + i_1)
@@ -723,4 +753,4 @@ def test_fused_symbolic_2D_tiling():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

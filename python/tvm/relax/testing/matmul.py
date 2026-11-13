@@ -17,10 +17,10 @@
 # ruff: noqa: RUF005
 """Utilities to construct matmul workloads."""
 
-import tvm
+import tvm_tirx
+from tvm.relax import script as R
 from tvm.relax.script import ir_builder as relax_builder
-from tvm.script import relax as R
-from tvm.script.ir_builder import IRBuilder
+from tvm_tirx.script.ir_builder import IRBuilder
 
 
 def get_relax_matmul_module(
@@ -62,4 +62,4 @@ def get_relax_matmul_module(
             R.func_ret_value(frame.output_vars[0])
 
     func = builder.get()
-    return tvm.IRModule({"main": func})
+    return tvm_tirx.IRModule({"main": func})

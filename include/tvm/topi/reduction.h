@@ -43,7 +43,7 @@ using namespace tvm::te;
 
 /*! \brief The operation to use for CommReduce */
 using FReduce = std::function<PrimExpr(PrimExpr source, const ffi::Array<IterVar>& axis,
-                                       ffi::Array<PrimExpr> init, Span span)>;
+                                       ffi::Array<PrimExpr> init, Location loc)>;
 
 /*! \brief The operation to use for CommReduceIdx */
 using FCommReduce = std::function<ffi::Array<PrimExpr>(
@@ -132,14 +132,14 @@ inline ffi::Array<PrimExpr> MakeReduceTargetShape(const std::vector<int>& real_a
  * \param reduce_axes The real axes along which the reduction is performed.
  * \param squeeze_axes The real axes to squeeze. Unsqueezed, reduced axes will
  *                     have shape 1 in the output tensor.
- * \param span The location of this reducer in the source.
+ * \param loc The location of this reducer in the source.
  *
  * \return The result tensor.
  */
 inline Tensor DoCommReduce(const Tensor& data, FReduce func,
                            const ffi::Array<PrimExpr>& target_shape,
                            const std::vector<int>& reduce_axes,
-                           const std::vector<int>& squeeze_axes, Span span = Span()) {
+                           const std::vector<int>& squeeze_axes, Location loc = UnknownLoc()) {
   auto r_axes = MakeReduceAxes(reduce_axes, data);
   auto compute = [&](const ffi::Array<PrimVar>& indices) {
     ffi::Array<PrimExpr> eval_range;
@@ -161,10 +161,10 @@ inline Tensor DoCommReduce(const Tensor& data, FReduce func,
       arg_counter++;
     }
 
-    return func(data(eval_range), r_axes, {}, span);
+    return func(data(eval_range), r_axes, {}, loc);
   };
 
-  return tvm::te::compute(target_shape, compute, data->op->name + "_red", kCommReduce);
+  return tvm::te::compute(target_shape, compute, data->op.value()->name + "_red", kCommReduce);
 }
 
 /*!
@@ -184,7 +184,7 @@ inline Tensor CommReduce(const Tensor& data, const ffi::Optional<ffi::Array<int6
                          FReduce func, bool keepdims, bool atleast1d) {
   auto ndim = data->shape.size();
   if (ndim == 0) {
-    auto identity = topi::identity(data, data->op->name + "_red", kCommReduce);
+    auto identity = topi::identity(data, data->op.value()->name + "_red", kCommReduce);
     return atleast1d ? topi::expand_dims(identity, 0, 1) : identity;
   }
   auto real_axis = GetRealAxis(static_cast<int>(ndim), axis);
@@ -246,12 +246,12 @@ inline Tensor CommReduceIdx(const Tensor& data, const ffi::Optional<ffi::Array<i
   };
 
   auto temp_idx_val =
-      tvm::te::compute(target_shape, compute, data->op->name + "_red_temp", kCommReduceIdx);
+      tvm::te::compute(target_shape, compute, data->op.value()->name + "_red_temp", kCommReduceIdx);
   auto temp_idx = temp_idx_val[0];
   auto temp_val = temp_idx_val[1];
   return tvm::te::compute(
       target_shape, [&temp_idx](const ffi::Array<PrimVar>& indices) { return temp_idx(indices); },
-      data->op->name + "_red", kCommReduceIdx);
+      data->op.value()->name + "_red", kCommReduceIdx);
 }
 
 /*! \brief A combiner function for a reduction */
@@ -304,20 +304,20 @@ inline FCommReduce MakeCommReducer(FCombine fcombine, FIdentity fidentity,
 
 /*! \brief Wrap tvm::min to ensure we get the correct overload */
 inline PrimExpr MinOp(PrimExpr source, ffi::Array<IterVar> axis, ffi::Array<PrimExpr> init = {},
-                      Span span = Span()) {
-  return tvm::min(source, axis, init, span);
+                      Location loc = UnknownLoc()) {
+  return tvm::min(source, axis, init, loc);
 }
 
 /*! \brief Wrap tvm::max to ensure we get the correct overload */
 inline PrimExpr MaxOp(PrimExpr source, ffi::Array<IterVar> axis, ffi::Array<PrimExpr> init = {},
-                      Span span = Span()) {
-  return tvm::max(source, axis, init, span);  // NOLINT(*)
+                      Location loc = UnknownLoc()) {
+  return tvm::max(source, axis, init, loc);  // NOLINT(*)
 }
 
 /*! \brief Wrap tvm::prim::prod to ensure we get the correct overload */
 inline PrimExpr ProdOp(PrimExpr source, ffi::Array<IterVar> axis, ffi::Array<PrimExpr> init = {},
-                       Span span = Span()) {
-  return tvm::prim::prod(source, axis, init, span);  // NOLINT(*)
+                       Location loc = UnknownLoc()) {
+  return tvm::prim::prod(source, axis, init, loc);  // NOLINT(*)
 }
 
 /*!
@@ -471,12 +471,7 @@ inline FCommReduce MakeArgminReducer(bool select_last_index = false) {
     // This checks if the indices are correct for the reduction. E.g. for select_last_index
     // it gives precedence for later indices of the same element and precedence for sooner
     // indices if not select_last_index;
-    PrimExpr proper_index;
-    if (select_last_index) {
-      proper_index = lhs_idx > rhs_idx;
-    } else {
-      proper_index = lhs_idx < rhs_idx;
-    }
+    PrimExpr proper_index = select_last_index ? lhs_idx > rhs_idx : lhs_idx < rhs_idx;
 
     PrimExpr update_index = is_smaller || (is_same && proper_index);
     result.push_back(tvm::prim::Select(update_index, lhs[0], rhs[0]));  // idx
@@ -533,12 +528,7 @@ inline FCommReduce MakeArgmaxReducer(bool select_last_index = false) {
     // This checks if the indices are correct for the reduction. E.g. for select_last_index
     // it gives precedence for later indices of the same element and precedence for sooner
     // indices if not select_last_index;
-    PrimExpr proper_index;
-    if (select_last_index) {
-      proper_index = lhs_idx > rhs_idx;
-    } else {
-      proper_index = lhs_idx < rhs_idx;
-    }
+    PrimExpr proper_index = select_last_index ? lhs_idx > rhs_idx : lhs_idx < rhs_idx;
 
     PrimExpr update_index = is_bigger || (is_same && proper_index);
     result.push_back(tvm::prim::Select(update_index, lhs[0], rhs[0]));  // idx

@@ -47,8 +47,8 @@ The end-to-end flow from model to execution is:
         ▼  VMCodeGen
    ExecBuilder (bytecode) + IRModule (TIR only)
         │                        │
-        │                        ▼  tirx.build()
-        │                   runtime.Module (native kernels)
+        │                        ▼  tirx.compile()
+        │                   tvm_ffi.Module (native kernels)
         │                        │
         ▼  VMLink               ▼
    VMExecutable ◄───────── linked together
@@ -87,7 +87,7 @@ Internally, ``relax.build()`` performs these steps:
 2. Create an ``ExecBuilder`` and run **VMCodeGen** (``src/relax/backend/vm/codegen_vm.cc``),
    which walks each ``relax.Function`` and emits bytecode instructions. The Relax functions are
    removed from the IRModule; only TIR functions remain.
-3. Compile the remaining TIR functions to native code via ``tirx.build()``.
+3. Compile the remaining TIR functions to native code via ``tirx.compile()``.
 4. **Link** the bytecode executable with the compiled native module using ``VMLink``, producing
    a ``VMExecutable``.
 
@@ -104,7 +104,7 @@ each Relax expression and emits instructions through the ``ExecBuilder``:
 - Each binding in a ``SeqExpr`` generates one or more instructions; the result is stored in a
   new register.
 - Function calls (``R.call_tir``, ``R.call_packed``, operator calls) become ``Call`` instructions.
-- Conditional expressions (``relax.If``, written as Python ``if`` in TVMScript) become an ``If``
+- Conditional expressions (``relax.IfExpr``, written as Python ``if`` in TVMScript) become an ``If``
   instruction followed by ``Goto`` to skip branches.
 - The function body ends with a ``Ret`` instruction.
 
@@ -225,9 +225,9 @@ At runtime, a ``VirtualMachine`` is created and initialized:
 Under the hood:
 
 1. **LoadExecutable**: the bytecode and metadata are loaded from the ``VMExecutable``.
-2. **Init**: devices and memory allocators are set up. Each device gets an ``Allocator``
-   (either ``NAIVE_ALLOCATOR`` or ``POOLED_ALLOCATOR``, defaulting to pooled). A CPU device
-   is always added for shape computations.
+2. **Init**: devices and owning tensor pools are set up. Each device gets a
+   ``TensorMemoryPool`` from the shared device factory. A CPU device is always
+   added for shape computations.
 3. **InitFuncPool**: the function pool is populated — ``kPackedFunc`` entries are resolved from
    imports or the global registry; ``kVMFunc`` entries are wrapped in
    ``VMClosure`` objects.
@@ -343,7 +343,7 @@ Key methods:
 - ``vm.save_function(func_name, saved_name, *args)`` — pre-bind arguments for repeated calls,
   reducing dictionary lookup overhead during benchmarking.
 - ``vm.time_evaluator(func_name, dev)`` — returns a timing function following the same convention
-  as ``tvm.runtime.Module.time_evaluator``.
+  as ``tvm.runtime.time_evaluator``.
 - ``vm.set_instrument(func)`` — register an instrumentation callback that is invoked before/after
   every ``Call`` instruction. The callback can return ``VMInstrumentReturnKind.SKIP_RUN`` to
   skip the call.
@@ -409,7 +409,9 @@ Source Code Map
      - Built-in operations (shape matching, allocation)
    * - ``src/relax/backend/vm/codegen_vm.cc``
      - CodeGenVM: Relax IR → bytecode
-   * - ``python/tvm/runtime/vm.py``
+   * - ``python/tvm/runtime/vm/vm.py``
      - Python VirtualMachine wrapper
+   * - ``python/tvm/runtime/vm/param.py``
+     - Parameter dictionary serialization
    * - ``python/tvm/relax/vm_build.py``
      - ``relax.build()`` and VMExecutable Python class

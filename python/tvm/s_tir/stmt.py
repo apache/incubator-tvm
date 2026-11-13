@@ -16,39 +16,39 @@
 # under the License.
 """Schedulable TensorIR statement nodes."""
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
+from typing import NamedTuple
 
 import tvm_ffi
 
-from tvm.ir import Expr, Span, TensorRegion
-from tvm.runtime import Object, Scriptable, const
-from tvm.tirx.buffer import Buffer
-from tvm.tirx.expr import IterVar
-from tvm.tirx.stmt import Stmt
+from tvm.s_tir import IterVar
+from tvm_tirx.ir import Expr, Location, Scriptable, SeqStmt, Stmt, TensorRegion, Var, const
+from tvm_tirx.ir.location import UNKNOWN_LOC
+from tvm_tirx.tirx import TensorType
 
 from . import _ffi_api
 
 
-@tvm_ffi.register_object("s_tir.MatchBufferRegion")
-class MatchBufferRegion(Object, Scriptable):
-    """MatchBufferRegion node.
+@tvm_ffi.register_object("s_tir.MatchTensorRegion")
+class MatchTensorRegion(tvm_ffi.Object, Scriptable):
+    """MatchTensorRegion node.
 
     Parameters
     ----------
-    buffer : Buffer
-        The target buffer
+    tensor : Var
+        The target tensor
 
     source : TensorRegion
-        The region of source buffer
+        The region of source tensor
     """
 
-    buffer: Buffer
+    tensor: Var
     source: TensorRegion
 
-    def __init__(self, buffer: Buffer, source: TensorRegion) -> None:
+    def __init__(self, tensor: Var, source: TensorRegion) -> None:
         self.__init_handle_by_constructor__(
-            _ffi_api.MatchBufferRegion,
-            buffer,
+            _ffi_api.MatchTensorRegion,
+            tensor,
             source,  # type: ignore
         )
 
@@ -63,30 +63,30 @@ class SBlock(Stmt):
         The block Variable.
 
     reads : List[TensorRegion]
-        The read buffer regions of the block.
+        The read tensor regions of the block.
 
     writes: List[TensorRegion]
-        The write buffer regions of the block.
+        The write tensor regions of the block.
 
     name_hint: str
         the name_hint of the block.
 
-    body: Stmt
+    body: Stmt | Sequence[Stmt]
         The body of the block.
 
-    init: Optional[Stmt]
+    init: Stmt | Sequence[Stmt] | None
         The init block of the reduction block
 
-    alloc_buffers: Optional[list[Buffer]]
-        The buffer allocations
+    alloc_tensors: Optional[list[Var]]
+        The tensor allocations
 
-    match_buffers: Optional[List[MatchBufferRegion]]
-        The subregion buffer match
+    match_tensors: Optional[List[MatchTensorRegion]]
+        The subregion tensor match
 
-    annotations: Optional[Mapping[str, Object]]
+    annotations: Optional[Mapping[str, tvm_ffi.Object]]
         Additional annotation hints.
 
-    span : Optional[Span]
+    loc : Location, optional
         The location of this block in the source code.
     """
 
@@ -94,12 +94,12 @@ class SBlock(Stmt):
     reads: list[TensorRegion]
     writes: list[TensorRegion]
     name_hint: str
-    body: Stmt
-    init: Stmt | None
-    alloc_buffers: list[Buffer]
-    match_buffers: list[MatchBufferRegion]
-    annotations: Mapping[str, Object]
-    span: Span | None
+    body: SeqStmt
+    init: SeqStmt | None
+    alloc_tensors: list[Var]
+    match_tensors: list[MatchTensorRegion]
+    annotations: Mapping[str, tvm_ffi.Object]
+    loc: Location
 
     def __init__(
         self,
@@ -107,17 +107,17 @@ class SBlock(Stmt):
         reads: list[TensorRegion],
         writes: list[TensorRegion],
         name_hint: str,
-        body: Stmt,
-        init: Stmt | None = None,
-        alloc_buffers: list[Buffer] | None = None,
-        match_buffers: list[MatchBufferRegion] | None = None,
-        annotations: Mapping[str, Object] | None = None,
-        span: Span | None = None,
+        body: Stmt | Sequence[Stmt],
+        init: Stmt | Sequence[Stmt] | None = None,
+        alloc_tensors: list[Var] | None = None,
+        match_tensors: list[MatchTensorRegion] | None = None,
+        annotations: Mapping[str, tvm_ffi.Object] | None = None,
+        loc: Location = UNKNOWN_LOC,
     ) -> None:
-        if alloc_buffers is None:
-            alloc_buffers = []
-        if match_buffers is None:
-            match_buffers = []
+        if alloc_tensors is None:
+            alloc_tensors = []
+        if match_tensors is None:
+            match_tensors = []
         if annotations is None:
             annotations = {}
         self.__init_handle_by_constructor__(
@@ -128,10 +128,10 @@ class SBlock(Stmt):
             name_hint,
             body,
             init,
-            alloc_buffers,
-            match_buffers,
+            alloc_tensors,
+            match_tensors,
             annotations,
-            span,
+            loc,
         )  # type: ignore
 
 
@@ -150,21 +150,21 @@ class SBlockRealize(Stmt):
     block : SBlock
         The block to realize
 
-    span : Optional[Span]
+    loc : Location, optional
         The location of this block_realize in the source code.
     """
 
     iter_values: list[Expr]
     predicate: Expr
     block: SBlock
-    span: Span | None
+    loc: Location
 
     def __init__(
         self,
         iter_values: list[Expr],
         predicate: Expr | bool,
         block: SBlock,
-        span: Span | None = None,
+        loc: Location = UNKNOWN_LOC,
     ) -> None:
         if isinstance(predicate, bool):
             predicate = const(predicate, "bool")
@@ -173,5 +173,19 @@ class SBlockRealize(Stmt):
             iter_values,
             predicate,
             block,
-            span,
+            loc,
         )  # type: ignore
+
+
+class ShapeStridePattern(NamedTuple):
+    """Shape, actual strides, and element offset of a regular memory layout."""
+
+    shape: Sequence[Expr]
+    strides: Sequence[Expr]
+    elem_offset: Expr
+
+
+def match_shape_stride_pattern(tensor_type: TensorType) -> ShapeStridePattern | None:
+    """Match absent or shape-aligned memory-only TileLayouts, without symbolic proofs."""
+    result = _ffi_api.MatchShapeStridePattern(tensor_type)
+    return None if result is None else ShapeStridePattern(*result)

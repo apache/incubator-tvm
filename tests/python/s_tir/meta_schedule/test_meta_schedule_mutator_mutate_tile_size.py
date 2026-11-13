@@ -20,15 +20,19 @@ from functools import reduce
 
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 # pylint: disable=invalid-name, no-member
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([512, 512]), B: T.Buffer([512, 512]), C: T.Buffer([512, 512])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([512, 512], "float32"),
+    B: T.Tensor([512, 512], "float32"),
+    C: T.Tensor([512, 512], "float32"),
+) -> None:
     for i, j, k in T.grid(512, 512, 512):  # type: ignore
         with Ts.sblock("C"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])  # type: ignore
@@ -46,7 +50,7 @@ def _sch(decisions: list[list[int]]) -> Schedule:
     (d0,) = decisions
     b0 = sch.get_sblock(name="C", func_name="main")
     sch.get_consumers(block=b0)
-    b1 = sch.cache_write(block=b0, write_buffer_index=0, storage_scope="global")
+    b1 = sch.cache_write(block=b0, write_tensor_index=0, storage_scope="global")
     l2, l3, l4 = sch.get_loops(block=b0)
     v5, v6, v7, v8 = sch.sample_perfect_tile(
         loop=l2,

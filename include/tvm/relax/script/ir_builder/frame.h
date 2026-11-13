@@ -34,32 +34,32 @@ namespace ir_builder {
 namespace relax {
 
 /*! \brief The base ir_builder frame for the relax dialect. */
-class RelaxFrameNode : public IRBuilderFrameNode {
+class RelaxFrameObj : public IRBuilderFrameObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<RelaxFrameNode>();
+    refl::ObjectDef<RelaxFrameObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("script.ir_builder.relax.RelaxFrame", RelaxFrameNode,
-                              IRBuilderFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("script.ir_builder.relax.RelaxFrame", RelaxFrameObj,
+                              IRBuilderFrameObj);
 };
 
 class RelaxFrame : public IRBuilderFrame {
  public:
-  explicit RelaxFrame(ffi::ObjectPtr<RelaxFrameNode> data) : IRBuilderFrame(ffi::UnsafeInit{}) {
+  explicit RelaxFrame(ffi::ObjectPtr<RelaxFrameObj> data) : IRBuilderFrame(ffi::UnsafeInit{}) {
     TVM_FFI_ICHECK(data != nullptr);
     data_ = std::move(data);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(RelaxFrame, IRBuilderFrame, RelaxFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(RelaxFrame, IRBuilderFrame, RelaxFrameObj);
 
  protected:
   RelaxFrame() = default;
 };
 
 /*! \brief The base ir_builder frame for frames with SeqExpr
-           i.e. Functions, If branches
+           i.e. Functions, IfExpr branches
   */
-class SeqExprFrameNode : public RelaxFrameNode {
+class SeqExprFrameObj : public RelaxFrameObj {
  public:
   /*! \brief The binding blocks inside the frame. */
   ffi::Array<tvm::relax::BindingBlock> binding_blocks;
@@ -68,12 +68,12 @@ class SeqExprFrameNode : public RelaxFrameNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SeqExprFrameNode>()
-        .def_ro("binding_blocks", &SeqExprFrameNode::binding_blocks)
-        .def_ro("output", &SeqExprFrameNode::output);
+    refl::ObjectDef<SeqExprFrameObj>()
+        .def_ro("binding_blocks", &SeqExprFrameObj::binding_blocks)
+        .def_ro("output", &SeqExprFrameObj::output);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO("script.ir_builder.relax.SeqExprFrame", SeqExprFrameNode,
-                              RelaxFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO("script.ir_builder.relax.SeqExprFrame", SeqExprFrameObj,
+                              RelaxFrameObj);
 
  public:
   void EnterWithScope() override;
@@ -82,15 +82,17 @@ class SeqExprFrameNode : public RelaxFrameNode {
 
 class SeqExprFrame : public RelaxFrame {
  public:
-  explicit SeqExprFrame(ffi::ObjectPtr<SeqExprFrameNode> data) : RelaxFrame(data) {
+  explicit SeqExprFrame(ffi::ObjectPtr<SeqExprFrameObj> data) : RelaxFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SeqExprFrame, RelaxFrame, SeqExprFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SeqExprFrame, RelaxFrame, SeqExprFrameObj);
 };
 
 /*! \brief The ir_builder frame for the relax function. */
-class FunctionFrameNode : public SeqExprFrameNode {
+class FunctionFrameObj : public SeqExprFrameObj {
  public:
+  explicit FunctionFrameObj(tvm::relax::BlockBuilder builder) : block_builder(std::move(builder)) {}
+  explicit FunctionFrameObj(ffi::UnsafeInit) : block_builder(ffi::UnsafeInit{}) {}
   /*!
    * \brief The function name.
    * \note The name will not be specified in constructor, so it is "Optional",
@@ -127,20 +129,20 @@ class FunctionFrameNode : public SeqExprFrameNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FunctionFrameNode>()
-        .def_ro("name", &FunctionFrameNode::name)
-        .def_ro("params", &FunctionFrameNode::params)
-        .def_ro("ret_ty", &FunctionFrameNode::ret_ty)
-        .def_ro("is_pure", &FunctionFrameNode::is_pure)
-        .def_ro("attrs", &FunctionFrameNode::attrs)
-        .def_ro("function", &FunctionFrameNode::function)
-        .def_ro("global_var", &FunctionFrameNode::global_var)
-        .def_ro("local_var", &FunctionFrameNode::local_var);
-    // `binding_blocks` and `output` are inherited from SeqExprFrameNode.
+    refl::ObjectDef<FunctionFrameObj>()
+        .def_ro("name", &FunctionFrameObj::name)
+        .def_ro("params", &FunctionFrameObj::params)
+        .def_ro("ret_ty", &FunctionFrameObj::ret_ty)
+        .def_ro("is_pure", &FunctionFrameObj::is_pure)
+        .def_ro("attrs", &FunctionFrameObj::attrs)
+        .def_ro("function", &FunctionFrameObj::function)
+        .def_ro("global_var", &FunctionFrameObj::global_var)
+        .def_ro("local_var", &FunctionFrameObj::local_var);
+    // `binding_blocks` and `output` are inherited from SeqExprFrameObj.
     // `block_builder` is not registered as it's not visited.
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.FunctionFrame", FunctionFrameNode,
-                                    SeqExprFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.FunctionFrame", FunctionFrameObj,
+                                    SeqExprFrameObj);
 
  public:
   void EnterWithScope() final;
@@ -149,14 +151,14 @@ class FunctionFrameNode : public SeqExprFrameNode {
 
 class FunctionFrame : public SeqExprFrame {
  public:
-  explicit FunctionFrame(ffi::ObjectPtr<FunctionFrameNode> data) : SeqExprFrame(data) {
+  explicit FunctionFrame(ffi::ObjectPtr<FunctionFrameObj> data) : SeqExprFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FunctionFrame, SeqExprFrame, FunctionFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FunctionFrame, SeqExprFrame, FunctionFrameObj);
 };
 
 /*! \brief The ir_builder frame for relax binding blocks. */
-class BindingBlockFrameNode : public RelaxFrameNode {
+class BindingBlockFrameObj : public RelaxFrameObj {
  public:
   /*! \brief The flag that indicates whether the block is a dataflow block. */
   bool is_dataflow;
@@ -174,18 +176,18 @@ class BindingBlockFrameNode : public RelaxFrameNode {
    */
   ffi::Array<tvm::Var> output_vars;
   /*! \brief Statement ranges for explicitly emitted bindings. */
-  ffi::Map<tvm::Var, Span> binding_spans;
+  ffi::Map<tvm::Var, Location> binding_locs;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BindingBlockFrameNode>()
-        .def_ro("is_dataflow", &BindingBlockFrameNode::is_dataflow)
-        .def_ro("emitted_vars", &BindingBlockFrameNode::emitted_vars)
-        .def_ro("output_vars", &BindingBlockFrameNode::output_vars);
+    refl::ObjectDef<BindingBlockFrameObj>()
+        .def_ro("is_dataflow", &BindingBlockFrameObj::is_dataflow)
+        .def_ro("emitted_vars", &BindingBlockFrameObj::emitted_vars)
+        .def_ro("output_vars", &BindingBlockFrameObj::output_vars);
     // `block_ended` is not registered as it's not visited.
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.BindingBlockFrame",
-                                    BindingBlockFrameNode, RelaxFrameNode);
+                                    BindingBlockFrameObj, RelaxFrameObj);
 
  public:
   void EnterWithScope() final;
@@ -194,11 +196,11 @@ class BindingBlockFrameNode : public RelaxFrameNode {
 
 class BindingBlockFrame : public RelaxFrame {
  public:
-  explicit BindingBlockFrame(ffi::ObjectPtr<BindingBlockFrameNode> data) : RelaxFrame(data) {
+  explicit BindingBlockFrame(ffi::ObjectPtr<BindingBlockFrameObj> data) : RelaxFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BindingBlockFrame, RelaxFrame,
-                                                BindingBlockFrameNode);
+                                                BindingBlockFrameObj);
 };
 
 /*!
@@ -206,8 +208,11 @@ class BindingBlockFrame : public RelaxFrame {
  *
  * \sa IfFrame
  */
-class IfFrameNode : public RelaxFrameNode {
+class IfFrameObj : public RelaxFrameObj {
  public:
+  explicit IfFrameObj(tvm::relax::Expr condition) : condition(std::move(condition)) {}
+  explicit IfFrameObj(ffi::UnsafeInit) : condition(ffi::UnsafeInit{}) {}
+
   /*! \brief The condition of the if statement. */
   tvm::relax::Expr condition;
   /*! \brief The Bindings in the true branch. */
@@ -215,20 +220,20 @@ class IfFrameNode : public RelaxFrameNode {
   /*! \brief The Bindings in the false branch. */
   ffi::Optional<tvm::relax::Expr> else_expr;
   /*! \brief The Binding var. */
-  tvm::Var var;
+  ffi::Optional<tvm::Var> var;
   /*! \brief The binding var name. */
   ffi::String var_name;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<IfFrameNode>()
-        .def_ro("condition", &IfFrameNode::condition)
-        .def_ro("then_expr", &IfFrameNode::then_expr)
-        .def_ro("else_expr", &IfFrameNode::else_expr)
-        .def_ro("var", &IfFrameNode::var)
-        .def_ro("var_name", &IfFrameNode::var_name);
+    refl::ObjectDef<IfFrameObj>()
+        .def_ro("condition", &IfFrameObj::condition)
+        .def_ro("then_expr", &IfFrameObj::then_expr)
+        .def_ro("else_expr", &IfFrameObj::else_expr)
+        .def_ro("var", &IfFrameObj::var)
+        .def_ro("var_name", &IfFrameObj::var_name);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.IfFrame", IfFrameNode, RelaxFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.IfFrame", IfFrameObj, RelaxFrameObj);
 
  public:
   /*!
@@ -244,16 +249,16 @@ class IfFrameNode : public RelaxFrameNode {
 };
 
 /*!
- * \brief Managed reference to IfFrameNode.
+ * \brief Managed reference to IfFrameObj.
  *
- * \sa IfFrameNode
+ * \sa IfFrameObj
  */
 class IfFrame : public RelaxFrame {
  public:
-  explicit IfFrame(ffi::ObjectPtr<IfFrameNode> data) : RelaxFrame(data) {
+  explicit IfFrame(ffi::ObjectPtr<IfFrameObj> data) : RelaxFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(IfFrame, RelaxFrame, IfFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(IfFrame, RelaxFrame, IfFrameObj);
 };
 
 /*!
@@ -261,14 +266,14 @@ class IfFrame : public RelaxFrame {
  *
  * \sa ThenFrame
  */
-class ThenFrameNode : public SeqExprFrameNode {
+class ThenFrameObj : public SeqExprFrameObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ThenFrameNode>();
+    refl::ObjectDef<ThenFrameObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.ThenFrame", ThenFrameNode,
-                                    SeqExprFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.ThenFrame", ThenFrameObj,
+                                    SeqExprFrameObj);
 
  public:
   /*!
@@ -284,16 +289,16 @@ class ThenFrameNode : public SeqExprFrameNode {
 };
 
 /*!
- * \brief Managed reference to ThenFrameNode.
+ * \brief Managed reference to ThenFrameObj.
  *
- * \sa ThenFrameNode
+ * \sa ThenFrameObj
  */
 class ThenFrame : public SeqExprFrame {
  public:
-  explicit ThenFrame(ffi::ObjectPtr<ThenFrameNode> data) : SeqExprFrame(data) {
+  explicit ThenFrame(ffi::ObjectPtr<ThenFrameObj> data) : SeqExprFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ThenFrame, SeqExprFrame, ThenFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ThenFrame, SeqExprFrame, ThenFrameObj);
 };
 
 /*!
@@ -301,14 +306,14 @@ class ThenFrame : public SeqExprFrame {
  *
  * \sa ElseFrame
  */
-class ElseFrameNode : public SeqExprFrameNode {
+class ElseFrameObj : public SeqExprFrameObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ElseFrameNode>();
+    refl::ObjectDef<ElseFrameObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.ElseFrame", ElseFrameNode,
-                                    SeqExprFrameNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.ir_builder.relax.ElseFrame", ElseFrameObj,
+                                    SeqExprFrameObj);
 
  public:
   /*!
@@ -324,16 +329,16 @@ class ElseFrameNode : public SeqExprFrameNode {
 };
 
 /*!
- * \brief Managed reference to ElseFrameNode.
+ * \brief Managed reference to ElseFrameObj.
  *
- * \sa ElseFrameNode
+ * \sa ElseFrameObj
  */
 class ElseFrame : public SeqExprFrame {
  public:
-  explicit ElseFrame(ffi::ObjectPtr<ElseFrameNode> data) : SeqExprFrame(data) {
+  explicit ElseFrame(ffi::ObjectPtr<ElseFrameObj> data) : SeqExprFrame(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ElseFrame, SeqExprFrame, ElseFrameNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ElseFrame, SeqExprFrame, ElseFrameObj);
 };
 
 }  // namespace relax

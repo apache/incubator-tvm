@@ -27,10 +27,10 @@ from typing import TYPE_CHECKING
 from typing import Any as _Any
 
 if TYPE_CHECKING:
-    from tvm.ir import IRModule
     from tvm.relax.base_py_module import BasePyModule
-    from tvm.runtime import Device
-    from tvm.target import Target
+    from tvm_tirx.ir import IRModule
+    from tvm_tirx.runtime import Device
+    from tvm_tirx.target import Target
 
 
 _initialized = False
@@ -43,7 +43,7 @@ def _initialize() -> None:
         return
     _initializing = True
     try:
-        from tvm.script.parser import entry, register_namespace
+        from tvm_tirx.script.parser import entry, register_namespace
 
         from . import ir_builder as builder
 
@@ -83,8 +83,8 @@ class _PyModuleFactory:
         self.__name__ = original_class.__name__
 
     def __call__(self, device: Device | None = None, target: Target | None = None) -> BasePyModule:
-        from tvm import cpu, ir
         from tvm.relax.base_py_module import BasePyModule
+        from tvm_tirx import cpu, ir
 
         source = self.ir_module
         instance_module = ir.IRModule(
@@ -112,7 +112,7 @@ def py_module(
         their original callables and are not executed during construction.
     **options : _Any
         Options forwarded once to shared ``parse``, including
-        ``check_well_formed`` (True by default) and ``track_span`` (True).
+        ``check_well_formed`` (True by default) and ``track_loc`` (True).
 
     Returns
     -------
@@ -138,7 +138,7 @@ def py_module(
     The decorator captures the original class-definition scope and passes it
     explicitly to shared parsing. It retains no Python frame or scope snapshot.
     ExternFunc metadata uses each original function's source coordinates when
-    span tracking is enabled. Runtime compilation/registration is deferred to
+    loc tracking is enabled. Runtime compilation/registration is deferred to
     BasePyModule construction; plain IRModule construction registers no runtime
     functions. Ordinary shared ``I.ir_module`` never performs these Relax steps.
 
@@ -157,10 +157,11 @@ def py_module(
     """
 
     def apply(source_class: type) -> IRModule | _PyModuleFactory:
-        from tvm import ir, relax
+        from tvm import relax
         from tvm.relax.base_py_module import BasePyModule
-        from tvm.script.parser.entry import parse
-        from tvm.script.parser.inspect_source import acquire_source, capture_definition_scope
+        from tvm_tirx import ir
+        from tvm_tirx.script.parser.entry import parse
+        from tvm_tirx.script.parser.inspect_source import acquire_source, capture_definition_scope
 
         if not _inspect.isclass(source_class):
             raise TypeError(f"Expect a class, but got: {source_class}")
@@ -182,16 +183,16 @@ def py_module(
         for name, function in result.__pyfuncs__.items():
             tree, filename, _ = acquire_source(function)
             node = tree.body[-1]
-            span = None
-            if options.get("track_span", True):
-                span = ir.Span(
+            loc = ir.UnknownLoc()
+            if options.get("track_loc", True):
+                loc = ir.SourceLoc(
                     ir.SourceName(filename),
                     node.lineno,
-                    node.end_lineno,
                     node.col_offset + 1,
+                    node.end_lineno,
                     node.end_col_offset + 1,
                 )
-            result[name] = relax.ExternFunc(name, span=span).with_attrs(
+            result[name] = relax.ExternFunc(name, loc=loc).with_attrs(
                 {
                     "is_pyfunc": True,
                     "function_type": "python",

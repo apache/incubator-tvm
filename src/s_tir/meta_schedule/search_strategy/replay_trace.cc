@@ -25,12 +25,12 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief A search strategy that generates measure candidates using trace and random decisions. */
-class ReplayTraceNode : public SearchStrategyNode {
+class ReplayTraceObj : public SearchStrategyObj {
  public:
   /*! \brief The state of the search strategy. */
   struct State {
     /*! \brief The search strategy itself */
-    ReplayTraceNode* self;
+    ReplayTraceObj* self;
     /*! \brief The design spaces. */
     ffi::Array<s_tir::Trace> design_spaces;
     /*! \brief The number of total trials. */
@@ -43,9 +43,9 @@ class ReplayTraceNode : public SearchStrategyNode {
     int ed;
 
     /*! \brief The module to be tuned. */
-    ffi::Array<IRModule> per_thread_mod_{nullptr};
+    ffi::Array<IRModule> per_thread_mod_;
 
-    explicit State(ReplayTraceNode* self, ffi::Array<s_tir::Trace> design_spaces, int max_trials,
+    explicit State(ReplayTraceObj* self, ffi::Array<s_tir::Trace> design_spaces, int max_trials,
                    int num_trials_per_iter)
         : self(self),
           design_spaces(design_spaces),
@@ -80,10 +80,10 @@ class ReplayTraceNode : public SearchStrategyNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ReplayTraceNode>().def_ro("max_fail_count", &ReplayTraceNode::max_fail_count);
+    refl::ObjectDef<ReplayTraceObj>().def_ro("max_fail_count", &ReplayTraceObj::max_fail_count);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ReplayTrace", ReplayTraceNode,
-                                    SearchStrategyNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ReplayTrace", ReplayTraceObj,
+                                    SearchStrategyObj);
 
   void InitializeWithTuneContext(const TuneContext& ctx) final {
     TVM_FFI_CHECK(ctx->mod.has_value(), ValueError) << "TuneContext.mod is not defined";
@@ -135,16 +135,16 @@ class ReplayTraceNode : public SearchStrategyNode {
   }
 
   SearchStrategy Clone() const final {
-    ffi::ObjectPtr<ReplayTraceNode> n = ffi::make_object<ReplayTraceNode>();
+    ffi::ObjectPtr<ReplayTraceObj> n = ffi::make_object<ReplayTraceObj>();
     n->max_fail_count = this->max_fail_count;
     n->rand_state_ = this->rand_state_;
     n->state_ = nullptr;  // cleared the state
-    return SearchStrategy(n);
+    return SearchStrategy(ffi::UnsafeInit{}, n);
   }
 };
 
 inline ffi::Optional<ffi::Array<MeasureCandidate>>
-ReplayTraceNode::State::GenerateMeasureCandidates() {
+ReplayTraceObj::State::GenerateMeasureCandidates() {
   if (st >= max_trials) {
     return std::nullopt;
   }
@@ -180,18 +180,18 @@ ReplayTraceNode::State::GenerateMeasureCandidates() {
   return filtered;
 }
 
-inline void ReplayTraceNode::State::NotifyRunnerResults(const ffi::Array<RunnerResult>& results) {
+inline void ReplayTraceObj::State::NotifyRunnerResults(const ffi::Array<RunnerResult>& results) {
   st += num_trials_per_iter;
   ed += num_trials_per_iter;
 }
 
 SearchStrategy SearchStrategy::ReplayTrace(int max_fail_count) {
-  ffi::ObjectPtr<ReplayTraceNode> n = ffi::make_object<ReplayTraceNode>();
+  ffi::ObjectPtr<ReplayTraceObj> n = ffi::make_object<ReplayTraceObj>();
   n->max_fail_count = max_fail_count;
-  return SearchStrategy(n);
+  return SearchStrategy(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { ReplayTraceNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ReplayTraceObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

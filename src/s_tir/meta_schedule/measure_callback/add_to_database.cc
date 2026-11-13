@@ -24,7 +24,7 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class AddToDatabaseNode : public MeasureCallbackNode {
+class AddToDatabaseObj : public MeasureCallbackObj {
  public:
   void Apply(const TaskScheduler& task_scheduler, int task_id,
              const ffi::Array<MeasureCandidate>& measure_candidates,
@@ -43,7 +43,7 @@ class AddToDatabaseNode : public MeasureCallbackNode {
     for (int i = 0; i < n; ++i) {
       RunnerResult result = runner_results[i];
       MeasureCandidate candidate = measure_candidates[i];
-      ffi::Array<FloatImm> run_secs{nullptr};
+      ffi::Array<FloatImm> run_secs;
       if (result->run_secs.has_value()) {
         run_secs = result->run_secs.value();
       } else {
@@ -60,21 +60,21 @@ class AddToDatabaseNode : public MeasureCallbackNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AddToDatabaseNode>();
+    refl::ObjectDef<AddToDatabaseObj>();
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AddToDatabase", AddToDatabaseNode,
-                                    MeasureCallbackNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AddToDatabase", AddToDatabaseObj,
+                                    MeasureCallbackObj);
 };
 
 MeasureCallback MeasureCallback::AddToDatabase() {
-  ffi::ObjectPtr<AddToDatabaseNode> n = ffi::make_object<AddToDatabaseNode>();
-  return MeasureCallback(n);
+  ffi::ObjectPtr<AddToDatabaseObj> n = ffi::make_object<AddToDatabaseObj>();
+  return MeasureCallback(ffi::UnsafeInit{}, n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::ObjectDef<AddToDatabaseNode>();
+  refl::ObjectDef<AddToDatabaseObj>();
   refl::GlobalDef().def("s_tir.meta_schedule.MeasureCallbackAddToDatabase",
                         MeasureCallback::AddToDatabase);
 }

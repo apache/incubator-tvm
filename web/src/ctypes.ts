@@ -177,6 +177,11 @@ export type FTVMFFIWasmFunctionCreate = (
 export type FTVMFFIWasmFunctionDeleter = (self: Pointer) => void;
 
 /**
+ * int TVMFFIObjectIncRef(TVMFFIObjectHandle obj);
+ */
+export type FTVMFFIObjectIncRef = (obj: Pointer) => number;
+
+/**
  * int TVMFFIObjectDecRef(TVMFFIObjectHandle obj);
  */
 export type FTVMFFIObjectDecRef = (obj: Pointer) => number;

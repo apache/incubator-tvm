@@ -20,15 +20,15 @@
 #define TVM_S_TIR_SCHEDULE_TRANSFORM_H_
 
 #include <tvm/ir/prim/expr.h>
+#include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/schedule/schedule.h>
 #include <tvm/s_tir/schedule/state.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 
 #include <unordered_map>
 #include <utility>
-
-#include "../../s_tir/ir/ir_mutator_with_analyzer.h"
 
 namespace tvm {
 namespace s_tir {
@@ -43,110 +43,110 @@ using namespace tvm::tirx;
  * \param attr_value The annotation value to be added
  * \return A new block with the given annotation as its last annotation
  */
-SBlock WithAnnotation(const SBlockNode* block, const ffi::String& attr_key,
+SBlock WithAnnotation(const SBlockObj* block, const ffi::String& attr_key,
                       const ffi::ObjectRef& attr_value);
 
-/******** Buffer Related ********/
+/******** Tensor Related ********/
 
 /*!
- * \brief Create a new buffer by changing the storage scope.
- * \param buffer The given buffer.
+ * \brief Create a new tensor by changing the storage scope.
+ * \param tensor The given tensor.
  * \param scope The target storage scope.
- * \return The new buffer with target storage scope.
+ * \return The new tensor with target storage scope.
  */
-BufferVar WithScope(const BufferVar& buffer, const ffi::String& scope);
+TensorVar WithScope(const TensorVar& tensor, runtime::MemoryScope scope);
 
 /*!
- * \brief Create a new buffer by changint the data type.
- * \param buffer The given buffer.
+ * \brief Create a new tensor by changint the data type.
+ * \param tensor The given tensor.
  * \param scope The target data type.
- * \return The new buffer with target data type.
+ * \return The new tensor with target data type.
  */
-BufferVar WithDType(const BufferVar& buffer, PrimType dtype);
+TensorVar WithDType(const TensorVar& tensor, PrimType dtype);
 
 /*!
- * \brief Replaces the buffer within the specific sequence of regions
- * \param regions The regions whose buffers are to be replaced
- * \param source The buffer to be replaced
- * \param target The buffer to be replaced to
+ * \brief Replaces the tensor within the specific sequence of regions
+ * \param regions The regions whose tensors are to be replaced
+ * \param source The tensor to be replaced
+ * \param target The tensor to be replaced to
  * \return The new sequence of regions after replacement
  */
-ffi::Array<TensorRegion> ReplaceBuffer(ffi::Array<TensorRegion> regions, const BufferVar& source,
-                                       const BufferVar& target);
+ffi::Array<TensorRegion> ReplaceTensor(ffi::Array<TensorRegion> regions, const TensorVar& source,
+                                       const TensorVar& target);
 
 /*!
- * \brief Replaces the buffer within the specific sequence of regions
- * \param regions The regions whose buffers are to be replaced
- * \param buffer_map The mapping from old buffers to new buffers
+ * \brief Replaces the tensor within the specific sequence of regions
+ * \param regions The regions whose tensors are to be replaced
+ * \param tensor_map The mapping from old tensors to new tensors
  * \return The new sequence of regions after replacement
  */
-ffi::Array<TensorRegion> ReplaceBuffer(ffi::Array<TensorRegion> regions,
-                                       const ffi::Map<BufferVar, BufferVar>& buffer_map);
+ffi::Array<TensorRegion> ReplaceTensor(ffi::Array<TensorRegion> regions,
+                                       const ffi::Map<TensorVar, TensorVar>& tensor_map);
 
 /*!
- * \brief Replaces the buffer within the specific sequence of match_buffers
- * \param match_buffers The match_buffers whose buffers are to be replaced
- * \param source The buffer to be replaced
- * \param target The buffer to be replaced to
- * \return The new sequence of match_buffers after replacement
+ * \brief Replaces the tensor within the specific sequence of match_tensors
+ * \param match_tensors The match_tensors whose tensors are to be replaced
+ * \param source The tensor to be replaced
+ * \param target The tensor to be replaced to
+ * \return The new sequence of match_tensors after replacement
  */
-ffi::Array<MatchBufferRegion> ReplaceBuffer(ffi::Array<MatchBufferRegion> match_buffers,
-                                            const BufferVar& source, const BufferVar& target);
+ffi::Array<MatchTensorRegion> ReplaceTensor(ffi::Array<MatchTensorRegion> match_tensors,
+                                            const TensorVar& source, const TensorVar& target);
 
 /*!
- * \brief Replaces the buffer region within the specific sequence of regions
+ * \brief Replaces the tensor region within the specific sequence of regions
  * \param regions The regions to be replaced
- * \param source_buffer The buffer to whose region is to be replaced
- * \param target The buffer region to be replaced to
+ * \param source_tensor The tensor to whose region is to be replaced
+ * \param target The tensor region to be replaced to
  * \return The new sequence of regions after replacement
  */
-ffi::Array<TensorRegion> ReplaceBufferRegion(ffi::Array<TensorRegion> regions,
-                                             const BufferVar& source_buffer,
+ffi::Array<TensorRegion> ReplaceTensorRegion(ffi::Array<TensorRegion> regions,
+                                             const TensorVar& source_tensor,
                                              const TensorRegion& target);
 
 /*!
- * \brief Replaces the buffer region within the specific sequence of match_buffers
- * \param regions The match_buffers to be replaced
- * \param source_buffer The buffer to whose region is to be replaced
- * \param target The buffer region to be replaced to
- * \return The new sequence of match_buffers after replacement
+ * \brief Replaces the tensor region within the specific sequence of match_tensors
+ * \param regions The match_tensors to be replaced
+ * \param source_tensor The tensor to whose region is to be replaced
+ * \param target The tensor region to be replaced to
+ * \return The new sequence of match_tensors after replacement
  */
-ffi::Array<MatchBufferRegion> ReplaceBufferRegion(ffi::Array<MatchBufferRegion> match_buffers,
-                                                  const BufferVar& source_buffer,
+ffi::Array<MatchTensorRegion> ReplaceTensorRegion(ffi::Array<MatchTensorRegion> match_tensors,
+                                                  const TensorVar& source_tensor,
                                                   const TensorRegion& target);
 
 /*!
- * \brief A helper mutator which recursively replaces the old buffer with the new buffer and
+ * \brief A helper mutator which recursively replaces the old tensor with the new tensor and
  * collects the block sref reuse information for the following replacement.
  *
- * If the buffer to be replaced in used as the source in `match_buffers`, depending the specific
- * use cases, the target buffers in `match_buffers` may also need to be mutated. In this
- * case, this class should be subclassed to explicitly handle `match_buffers`.
+ * If the tensor to be replaced in used as the source in `match_tensors`, depending the specific
+ * use cases, the target tensors in `match_tensors` may also need to be mutated. In this
+ * case, this class should be subclassed to explicitly handle `match_tensors`.
  */
-class ReplaceBufferMutator : public StmtExprMutator {
+class ReplaceTensorMutator : public StmtExprMutator {
  public:
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
   /*!
    * \brief The constructor
-   * \param old_buffer The old buffer
-   * \param new_buffer The new buffer
+   * \param old_tensor The old tensor
+   * \param new_tensor The new tensor
    * \param block_sref_reuse Optional map to record mapping between old and new blocks that reuse
    *        sref.
    */
-  ReplaceBufferMutator(const BufferVar& old_buffer, BufferVar new_buffer,
+  ReplaceTensorMutator(const TensorVar& old_tensor, TensorVar new_tensor,
                        ffi::Map<SBlock, SBlock>* block_sref_reuse);
 
-  ReplaceBufferMutator(const ffi::Map<BufferVar, BufferVar>& buffer_map,
+  ReplaceTensorMutator(const ffi::Map<TensorVar, TensorVar>& tensor_map,
                        ffi::Map<SBlock, SBlock>* block_sref_reuse);
 
  protected:
-  UnchangedOr<Expr> Mutate_(const CallNode* op, InplaceMode inplace_mode) override;
+  UnchangedOr<Expr> Mutate_(const CallObj* op, InplaceMode inplace_mode) override;
 
-  virtual MatchBufferRegion VisitMatchBufferRegion(const MatchBufferRegion& match_buffer);
+  virtual MatchTensorRegion VisitMatchTensorRegion(const MatchTensorRegion& match_tensor);
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* block, InplaceMode inplace_mode) override;
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* block, InplaceMode inplace_mode) override;
 
   /*! \brief The block sref reuse map for the following replacement */
   ffi::Map<SBlock, SBlock>* block_sref_reuse_;
@@ -209,34 +209,34 @@ ffi::Optional<s_tir::LoopRV> TileWithTensorIntrin(const s_tir::Schedule& sch,
 /******** SBlock mutation ********/
 
 /*!
- * \brief Simplifier for indices of buffer access and block buffer access regions.
+ * \brief Simplifier for indices of tensor access and block tensor access regions.
  */
-class BlockBufferAccessSimplifier : public s_tir::IRMutatorWithAnalyzer {
+class BlockTensorAccessSimplifier : public s_tir::StmtExprMutatorWithConstraintContext {
  public:
-  using s_tir::IRMutatorWithAnalyzer::Mutate;
-  using s_tir::IRMutatorWithAnalyzer::Mutate_;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate;
+  using s_tir::StmtExprMutatorWithConstraintContext::Mutate_;
 
   /*!
-   * \brief Simplify indices of buffer access and block buffer access regions in the statement
+   * \brief Simplify indices of tensor access and block tensor access regions in the statement
    * \param stmt The statement to be simplified
    * \param analyzer The arithmetic analyzer
    * \return The simplified statement
    */
   static Stmt Simplify(const Stmt& stmt, const sym::Analyzer& analyzer) {
-    auto simplifier = ffi::make_object<BlockBufferAccessSimplifier>(analyzer);
+    auto simplifier = ffi::make_object<BlockTensorAccessSimplifier>(analyzer);
     return simplifier->Mutate(stmt).ValueOrUnchanged(stmt);
   }
 
-  explicit BlockBufferAccessSimplifier(const sym::Analyzer& analyzer)
-      : IRMutatorWithAnalyzer(analyzer) {}
+  explicit BlockTensorAccessSimplifier(const sym::Analyzer& analyzer)
+      : StmtExprMutatorWithConstraintContext(analyzer->GetConstraintContext()) {}
 
  private:
   void SimplifyAccessRegion(ffi::Array<TensorRegion>* old_access_regions);
-  void SimplifyBufferIndices(ffi::Array<PrimExpr>* indices);
+  void SimplifyTensorIndices(ffi::Array<PrimExpr>* indices);
 
-  UnchangedOr<Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<Stmt> Mutate_(const BufferStoreNode* op, InplaceMode inplace_mode) final;
-  UnchangedOr<PrimExpr> Mutate_(const TensorLoadNode* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final;
+  UnchangedOr<PrimExpr> Mutate_(const TensorLoadObj* op, InplaceMode inplace_mode) final;
 };
 
 }  // namespace s_tir

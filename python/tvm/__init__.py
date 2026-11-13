@@ -16,120 +16,30 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=redefined-builtin, wildcard-import
-"""TVM: Open Deep Learning Compiler Stack."""
+"""TVM compiler dialects and runtime extensions built on TIRx."""
 
-import multiprocessing
 import os
 import sys
 
-# ffi module must load first
-from tvm_ffi import register_object, register_global_func, get_global_func
-
-# top-level alias
-from .libinfo import __version__
-from .base import _RUNTIME_ONLY
-
-# tvm.runtime
-from .runtime import Object
-from .runtime._tensor import device, device_from_target, cpu, cuda, opencl, vulkan, metal
-from .runtime._tensor import vpi, rocm, ext_dev, hexagon
-from .runtime import DataType, DataTypeCode
-
-# tvm.error
-from . import error
-
-# tvm.ir
-from .ir import IRModule
-from .ir import transform
-from .ir import instrument
-from . import ir
-
-# tvm.script — must be imported before any dialect package so that
-# tvm.script.register_dialect is reachable when dialect __init__.py files run.
-from . import script
-
-# tvm.tirx — registers itself via tvm.script.register_dialect in its __init__
-from . import tirx
-from .ir import prim
-
-# tvm.backend — owns backend Python load hooks
-from . import backend
-
-# tvm.target
-from . import target
-
-# tvm.te
-from . import te
-
-# tvm.driver
-from .driver import compile
-
-# others
-from . import sym
-
-# support infra
-from . import support
-
-# Side-effect imports: register CUDA/ROCm FFI callbacks at TVM startup
-from .support import rocm as _rocm, nvcc as _nvcc
-
-# Relax contain modules that are only available in compiler package
-# Do not import them if TVM is built with runtime only
-if not _RUNTIME_ONLY:
-    # tvm.relax — registers itself via tvm.script.register_dialect in its __init__
-    from . import relax
-
-# NOTE: This file should be python2 compatible so we can
-# raise proper error message when user run the package using
-# an older version of the python
+from typing import TYPE_CHECKING
 
 
-def _should_print_backtrace():
-    in_pytest = "PYTEST_CURRENT_TEST" in os.environ
-    tvm_backtrace = os.environ.get("TVM_BACKTRACE", "0")
-
-    try:
-        tvm_backtrace = bool(int(tvm_backtrace))
-    except ValueError:
-        raise ValueError(f"invalid value for TVM_BACKTRACE {tvm_backtrace}, please set to 0 or 1.")
-
-    return in_pytest or tvm_backtrace
+def _is_config_mode() -> bool:
+    """Recognize the config CLI before loading Python or native TVM components."""
+    if os.path.basename(sys.argv[0]) in ("tvm-config", "tvm-config.exe"):
+        return True
+    argv = getattr(sys, "orig_argv", [])
+    return any(arg == "-m" and argv[i + 1 : i + 2] == ["tvm.config"] for i, arg in enumerate(argv))
 
 
-def tvm_wrap_excepthook(exception_hook):
-    """Wrap given excepthook with TVM additional work."""
+if TYPE_CHECKING or not _is_config_mode():
+    from .libinfo import __version__
+    from .base import _RUNTIME_ONLY
+    from . import runtime
+    from . import rpc
 
-    def wrapper(exctype, value, trbk):
-        """Clean subprocesses when TVM is interrupted."""
-        if exctype is error.DiagnosticError and not _should_print_backtrace():
-            # TODO(@jroesch): consider moving to C++?
-            print("note: run with `TVM_BACKTRACE=1` environment variable to display a backtrace.")
-        else:
-            exception_hook(exctype, value, trbk)
-
-        if hasattr(multiprocessing, "active_children"):
-            # pylint: disable=not-callable
-            for p in multiprocessing.active_children():
-                p.terminate()
-
-    return wrapper
-
-
-sys.excepthook = tvm_wrap_excepthook(sys.excepthook)
-
-# Autoload loads built-in and out-of-tree backends. Out-of-tree extensions opt
-# into being loaded automatically at ``import tvm`` time by declaring an entry
-# point in the ``tvm.backends`` group:
-# [project.entry-points."tvm.backends"] tvm_foo = "tvm_foo:_autoload".
-# Autoload can be disabled via ``TVM_DEVICE_BACKEND_AUTOLOAD=0``.
-from .backend._autoload_backends import _autoload_backends
-
-_autoload_backends()
-
-# Load the optional ORC JIT extension for its global FFI registrations.  LLVM
-# function lookup reports a targeted installation error if this import fails;
-# importing TVM itself remains silent for AOT-only workflows.
-try:
-    import tvm_ffi_orcjit as _tvm_ffi_orcjit
-except Exception:  # pylint: disable=broad-exception-caught
-    pass
+    if not _RUNTIME_ONLY:
+        from . import te
+        from . import s_tir
+        from .driver import compile
+        from . import relax

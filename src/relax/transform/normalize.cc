@@ -26,6 +26,7 @@
 
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
@@ -37,13 +38,13 @@ namespace relax {
 // TODO(@altanh): LCA binding lifting
 class NormalizeMutator : public ExprMutatorBase {
  public:
-  NormalizeMutator() { builder_ = BlockBuilder::Create(std::nullopt); }
+  NormalizeMutator() : builder_(BlockBuilder::Create(std::nullopt)) {}
 
   Expr VisitExpr(const Expr& expr) override {
     return builder_->Normalize(ExprMutatorBase::VisitExpr(expr));
   }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     Expr body = this->VisitWithNewScope(op->body, op->params);
 
     if (body.same_as(op->body)) {
@@ -53,7 +54,7 @@ class NormalizeMutator : public ExprMutatorBase {
     }
   }
 
-  Expr VisitExpr_(const IfNode* op) final {
+  Expr VisitExpr_(const IfExprObj* op) final {
     Expr guard = this->VisitExpr(op->cond);
     Expr true_b = this->VisitWithNewScope(op->true_branch);
     Expr false_b = this->VisitWithNewScope(op->false_branch);
@@ -61,7 +62,7 @@ class NormalizeMutator : public ExprMutatorBase {
         op->false_branch.same_as(false_b)) {
       return ffi::GetRef<Expr>(op);
     } else {
-      return If(guard, true_b, false_b, op->span);
+      return IfExpr(guard, true_b, false_b, op->loc);
     }
   }
 
@@ -81,7 +82,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return ret;
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) final {
+  Expr VisitExpr_(const SeqExprObj* op) final {
     bool all_blocks_unchanged = true;
     ffi::Array<BindingBlock> blocks;
     for (auto block : op->blocks) {
@@ -108,10 +109,10 @@ class NormalizeMutator : public ExprMutatorBase {
   }
 
   BindingBlock VisitBindingBlock(const BindingBlock& block) final {
-    BindingBlock ret;
-    if (const auto* node = block.as<DataflowBlockNode>()) {
+    BindingBlock ret(ffi::UnsafeInit{});
+    if (const auto* node = block.as<DataflowBlockObj>()) {
       ret = VisitBindingBlock_(node);
-    } else if (const auto* node = block.as<BindingBlockNode>()) {
+    } else if (const auto* node = block.as<BindingBlockObj>()) {
       ret = VisitBindingBlock_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << block->GetTypeKey();
@@ -119,7 +120,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return ret;
   }
 
-  BindingBlock VisitBindingBlock_(const BindingBlockNode* block) {
+  BindingBlock VisitBindingBlock_(const BindingBlockObj* block) {
     builder_->BeginBindingBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
@@ -127,7 +128,7 @@ class NormalizeMutator : public ExprMutatorBase {
     return builder_->EndBlock();
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) {
     builder_->BeginDataflowBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
@@ -136,18 +137,18 @@ class NormalizeMutator : public ExprMutatorBase {
   }
 
   void VisitBinding(const Binding& binding) {
-    if (const auto* node = binding.as<VarBindingNode>()) {
+    if (const auto* node = binding.as<VarBindingObj>()) {
       VisitBinding_(node);
-    } else if (const auto* node = binding.as<MatchCastNode>()) {
+    } else if (const auto* node = binding.as<MatchCastObj>()) {
       VisitBinding_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << binding->GetTypeKey();
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding) {
+  void VisitBinding_(const VarBindingObj* binding) {
     Expr new_value = this->VisitExpr(binding->value);
-    if (binding->var->ty.IsMissing()) {
+    if (binding->var->ty.as<MissingType>().has_value()) {
       UpdateType(binding->var, GetType(new_value));
     }
 
@@ -158,7 +159,7 @@ class NormalizeMutator : public ExprMutatorBase {
     }
   }
 
-  void VisitBinding_(const MatchCastNode* binding) {
+  void VisitBinding_(const MatchCastObj* binding) {
     Expr new_value = this->VisitExpr(binding->value);
 
     if (new_value.same_as(binding->value)) {
@@ -201,7 +202,7 @@ class GlobalVarNormalizer : private ExprMutator {
 
     // Step 3. Substitute global vars in functions
     for (auto [gvar, func] : module_->functions) {
-      if (!func->IsInstance<FunctionNode>()) {
+      if (!func->IsInstance<FunctionObj>()) {
         continue;
       }
       auto new_func = this->VisitExpr(func).as_or_throw<BaseFunc>();
@@ -220,7 +221,7 @@ class GlobalVarNormalizer : private ExprMutator {
   /*! \brief Check if any function needs to be renamed. */
   bool NeedRename() {
     for (const auto& [gvar, func] : module_->functions) {
-      auto global_symbol = func->GetAttr<ffi::String>("global_symbol");
+      auto global_symbol = func->GetAttr(tvm::attr::kGlobalSymbol);
       if (global_symbol && global_symbol.value() != gvar->name_hint) {
         return true;
       }
@@ -231,7 +232,7 @@ class GlobalVarNormalizer : private ExprMutator {
   /*! \brief Add public functions to the builder, and update the name supplier. */
   void AddPublicFunctions() {
     for (const auto& [gvar, func] : module_->functions) {
-      auto global_symbol = func->GetAttr<ffi::String>("global_symbol");
+      auto global_symbol = func->GetAttr(tvm::attr::kGlobalSymbol);
       if (!global_symbol) {
         continue;
       }
@@ -251,7 +252,7 @@ class GlobalVarNormalizer : private ExprMutator {
    */
   void AddPrivateFunctions() {
     for (auto [gvar, func] : module_->functions) {
-      auto global_symbol = func->GetAttr<ffi::String>("global_symbol");
+      auto global_symbol = func->GetAttr(tvm::attr::kGlobalSymbol);
       if (global_symbol) {
         continue;
       }
@@ -262,7 +263,7 @@ class GlobalVarNormalizer : private ExprMutator {
     }
   }
 
-  Expr VisitExpr_(const GlobalVarNode* op) final {
+  Expr VisitExpr_(const GlobalVarObj* op) final {
     TVM_FFI_ICHECK(gvar_map_.count(ffi::GetRef<GlobalVar>(op)));
     return gvar_map_[ffi::GetRef<GlobalVar>(op)];
   }
@@ -278,7 +279,7 @@ Pass Normalize() {
   auto pass_func = [=](Function f, IRModule m, PassContext pc) {
     return Normalize(f).as_or_throw<Function>();
   };
-  return CreateFunctionPass(pass_func, 1, "Normalize", {});
+  return CreateFunctionPass(pass_func, 1, "Normalize");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -292,8 +293,7 @@ Pass NormalizeGlobalVar() {
   };
   return CreateModulePass(/*pass_function=*/pass_func,
                           /*opt_level=*/0,
-                          /*pass_name=*/"NormalizeGlobalVar",
-                          /*required=*/{});
+                          /*pass_name=*/"NormalizeGlobalVar");
 }
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

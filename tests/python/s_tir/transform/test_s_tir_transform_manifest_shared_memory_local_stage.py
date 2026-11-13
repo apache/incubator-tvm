@@ -16,33 +16,34 @@
 # under the License.
 # ruff: noqa: E501, F401
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import s_tir
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,line-too-long,redefined-outer-name,unexpected-keyword-arg,too-many-nested-blocks
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MatmulBefore:
-    @Ts.prim_func
-    def main(A: T.Buffer((1024, 1024), "float32"), B: T.Buffer((1024, 1024), "float32"), C: T.Buffer((1024, 1024), "float32")) -> None:
+    @Ts.function
+    def main(A: T.Tensor((1024, 1024), "float32"), B: T.Tensor((1024, 1024), "float32"), C: T.Tensor((1024, 1024), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "default_function", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        for blockIdx_y in T.thread_binding(32, thread="blockIdx.y"):
-            for blockIdx_x in T.thread_binding(32, thread="blockIdx.x"):
-                for threadIdx_y in T.thread_binding(2, thread="threadIdx.y"):
-                    for threadIdx_x in T.thread_binding(2, thread="threadIdx.x"):
+        for blockIdx_y in T.parallel(32, annotations={"thread_binding": "blockIdx.y"}):
+            for blockIdx_x in T.parallel(32, annotations={"thread_binding": "blockIdx.x"}):
+                for threadIdx_y in T.parallel(2, annotations={"thread_binding": "threadIdx.y"}):
+                    for threadIdx_x in T.parallel(2, annotations={"thread_binding": "threadIdx.x"}):
                         for k_0 in T.serial(32):
                             with Ts.sblock():
                                 Ts.reads(A[blockIdx_y * 32 : blockIdx_y * 32 + 32, k_0 * 32 : k_0 * 32 + 32], B[k_0 * 32 : k_0 * 32 + 32, blockIdx_x * 32 : blockIdx_x * 32 + 32])
                                 Ts.writes(C[blockIdx_y * 32 : blockIdx_y * 32 + 32, blockIdx_x * 32 : blockIdx_x * 32 + 32])
-                                A_shared = Ts.sblock_alloc_buffer([1024, 1024], dtype="float32", scope="shared")
-                                B_shared = Ts.sblock_alloc_buffer([1024, 1024], dtype="float32", scope="shared")
+                                A_shared = Ts.sblock_alloc_tensor([1024, 1024], dtype="float32", scope="shared")
+                                B_shared = Ts.sblock_alloc_tensor([1024, 1024], dtype="float32", scope="shared")
                                 for ax0_ax1_fused_0 in T.serial(64):
                                     for ax0_ax1_fused_3 in T.vectorized(4):
                                         with Ts.sblock("A_shared"):
@@ -66,26 +67,26 @@ class MatmulBefore:
                                         C[blockIdx_y * 32 + threadIdx_y * 16 + i_2, blockIdx_x * 32 + threadIdx_x * 16 + j_2] = C[blockIdx_y * 32 + threadIdx_y * 16 + i_2, blockIdx_x * 32 + threadIdx_x * 16 + j_2] + A_shared[blockIdx_y * 32 + threadIdx_y * 16 + i_2, k_0 * 32 + k_1 * 16 + k_2] * B_shared[k_0 * 32 + k_1 * 16 + k_2, blockIdx_x * 32 + threadIdx_x * 16 + j_2]
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MatmulAfter:
-    @Ts.prim_func
-    def main(A: T.Buffer((1024, 1024), "float32"), B: T.Buffer((1024, 1024), "float32"), C: T.Buffer((1024, 1024), "float32")) -> None:
+    @Ts.function
+    def main(A: T.Tensor((1024, 1024), "float32"), B: T.Tensor((1024, 1024), "float32"), C: T.Tensor((1024, 1024), "float32")) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "default_function", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        for blockIdx_y in T.thread_binding(32, thread="blockIdx.y"):
-            for blockIdx_x in T.thread_binding(32, thread="blockIdx.x"):
-                for threadIdx_y in T.thread_binding(2, thread="threadIdx.y"):
-                    for threadIdx_x in T.thread_binding(2, thread="threadIdx.x"):
+        for blockIdx_y in T.parallel(32, annotations={"thread_binding": "blockIdx.y"}):
+            for blockIdx_x in T.parallel(32, annotations={"thread_binding": "blockIdx.x"}):
+                for threadIdx_y in T.parallel(2, annotations={"thread_binding": "threadIdx.y"}):
+                    for threadIdx_x in T.parallel(2, annotations={"thread_binding": "threadIdx.x"}):
                         for k_0 in T.serial(32):
                             with Ts.sblock():
                                 Ts.reads(A[blockIdx_y * 32 : blockIdx_y * 32 + 32, k_0 * 32 : k_0 * 32 + 32], B[k_0 * 32 : k_0 * 32 + 32, blockIdx_x * 32 : blockIdx_x * 32 + 32])
                                 Ts.writes(C[blockIdx_y * 32 : blockIdx_y * 32 + 32, blockIdx_x * 32 : blockIdx_x * 32 + 32])
-                                A_shared = Ts.sblock_alloc_buffer([1024, 1024], dtype="float32", scope="shared")
-                                B_shared = Ts.sblock_alloc_buffer([1024, 1024], dtype="float32", scope="shared")
-                                A_shared_local = Ts.sblock_alloc_buffer([64, 4], dtype="float32", scope="local")
-                                B_shared_local = Ts.sblock_alloc_buffer([64, 4], dtype="float32", scope="local")
+                                A_shared = Ts.sblock_alloc_tensor([1024, 1024], dtype="float32", scope="shared")
+                                B_shared = Ts.sblock_alloc_tensor([1024, 1024], dtype="float32", scope="shared")
+                                A_shared_local = Ts.sblock_alloc_tensor([64, 4], dtype="float32", scope="local")
+                                B_shared_local = Ts.sblock_alloc_tensor([64, 4], dtype="float32", scope="local")
                                 for ax0_ax1_fused_0 in T.serial(64):
                                     for ax0_ax1_fused_3 in T.vectorized(4):
                                         with Ts.sblock():
@@ -125,7 +126,7 @@ class MatmulAfter:
 
 def _check(before, expected):
     after = tvm.s_tir.transform.ManifestSharedMemoryLocalStage()(before)
-    tvm.ir.assert_structural_equal(after, expected)
+    tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
 def test_transform_matmul():
@@ -133,4 +134,4 @@ def test_transform_matmul():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -16,8 +16,20 @@
 # under the License.
 """ROI Align operator"""
 
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC as _UNKNOWN_LOC
+from tvm_tirx.ir.location import Location as _Location
+
 from ..base import Expr
-from . import _ffi_api
+
+
+@tvm_ffi.register_object("relax.attrs.ROIAlignAttrs")
+class ROIAlignAttrs(Attrs):
+    """Attributes for vision.roi_align"""
 
 
 def roi_align(
@@ -29,6 +41,9 @@ def roi_align(
     aligned: bool = False,
     layout: str = "NCHW",
     mode: str = "avg",
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ):
     """ROI Align operator.
 
@@ -66,13 +81,18 @@ def roi_align(
     """
     if isinstance(pooled_size, int):
         pooled_size = (pooled_size, pooled_size)
-    return _ffi_api.roi_align(
-        data,
-        rois,
-        pooled_size,
-        spatial_scale,
-        sample_ratio,
-        aligned,
-        layout,
-        mode,
+    return _Call(
+        "relax.vision.roi_align",
+        [data, rois],
+        attrs=_make_attrs(
+            "relax.attrs.ROIAlignAttrs",
+            pooled_size=pooled_size,
+            spatial_scale=spatial_scale,
+            sample_ratio=sample_ratio,
+            aligned=aligned,
+            layout=layout,
+            mode=mode,
+        ),
+        loc=loc,
+        ty=ty,
     )

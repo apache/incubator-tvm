@@ -15,18 +15,24 @@
 # specific language governing permissions and limitations
 """The builtin Relax operators."""
 
-from tvm.ir import Call, DataTypeImm, GenericConst, StringImm
+from tvm_tirx.ir import Call, DataTypeImm, GenericConst, StringImm
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+from tvm_tirx.runtime import MemoryScope
 
 from ...expr import Expr, prim_value
 from ...utils import convert_to_expr
-from . import _ffi_api
 
 
 def alloc_tensor(
     shape: Expr,
     dtype: str | Expr,
     runtime_device_index: int | Expr,
-    storage_scope: str | Expr = "global",
+    storage_scope: str | MemoryScope | Expr = "global",
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Call:
     """Construct a Call to allocate a tensor with specific shape, dtype, runtime_device_index.
 
@@ -42,7 +48,7 @@ def alloc_tensor(
         The device index indicating on which device the tensor is to be allocated at runtime.
         Index -1 is reserved for the host device.
 
-    storage_scope : Union[str, Expr]
+    storage_scope : Union[str, MemoryScope, Expr]
         The storage scope to allocate the storage to.
 
     Returns
@@ -56,6 +62,8 @@ def alloc_tensor(
         dtype = DataTypeImm(dtype.value if isinstance(dtype, GenericConst) else dtype)
     if isinstance(runtime_device_index, int):
         runtime_device_index = prim_value(runtime_device_index)
+    if isinstance(storage_scope, MemoryScope):
+        storage_scope = storage_scope.name
     if isinstance(storage_scope, str):
         storage_scope = StringImm(storage_scope)
     if not isinstance(storage_scope, StringImm):
@@ -64,10 +72,16 @@ def alloc_tensor(
             f"but {storage_scope} is got."
         )
 
-    return _ffi_api.alloc_tensor(shape, dtype, runtime_device_index, storage_scope)  # type: ignore
+    return _Call(
+        "relax.builtin.alloc_tensor",
+        [shape, dtype, runtime_device_index, storage_scope],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def stop_lift_params(x: Expr) -> Expr:
+def stop_lift_params(x: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """
     An indicator that the consumers of input tensor should not be
     lifted to transform_params function
@@ -82,4 +96,10 @@ def stop_lift_params(x: Expr) -> Expr:
     result : relax.Expr
         The result tensor that is the same as input tensor
     """
-    return _ffi_api.stop_lift_params(x)  # type: ignore
+    return _Call(
+        "relax.builtin.stop_lift_params",
+        [x],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

@@ -19,10 +19,10 @@
 
 import tvm_ffi
 
-from tvm.ir.module import IRModule
-from tvm.ir.transform import PassContext
 from tvm.relax import Expr
 from tvm.relax.dpl import TuplePattern, is_op, rewrite_call, wildcard
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.ir.transform import PassContext
 
 from . import function_pass
 

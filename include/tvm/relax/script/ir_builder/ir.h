@@ -19,6 +19,7 @@
 #ifndef TVM_RELAX_SCRIPT_IR_BUILDER_IR_H_
 #define TVM_RELAX_SCRIPT_IR_BUILDER_IR_H_
 
+#include <tvm/base.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/script/ir_builder/frame.h>
 #include <tvm/relax/type.h>
@@ -30,7 +31,7 @@ namespace ir_builder {
 namespace relax {
 
 /*! \brief Find a module virtual device by target kind and index. */
-TVM_DLL tvm::relax::VDevice LookupVDevice(ffi::String target_kind, int device_index);
+TVM_DLL ffi::Optional<tvm::relax::VDevice> LookupVDevice(ffi::String target_kind, int device_index);
 
 /////////////////////////////// Function ////////////////////////////////
 
@@ -40,10 +41,8 @@ TVM_DLL tvm::relax::VDevice LookupVDevice(ffi::String target_kind, int device_in
  * \param is_private Whether the function is annotated as private.
  * \return The created ir_builder Function frame.
  */
-TVM_DLL FunctionFrame Function(bool is_pure, bool is_private);
-
-/*! \brief Start a bodyless declaration using the normal signature operations. */
-TVM_DLL FunctionFrame DeclFunction(bool is_pure, bool is_private, bool local);
+TVM_DLL FunctionFrame Function(bool is_pure, bool is_private, bool is_declaration = false,
+                               bool local = false);
 
 /*! \brief Define a local function under its cached declaration identity. */
 TVM_DLL FunctionFrame LocalFunction(bool is_pure, const tvm::Var& reference);
@@ -130,15 +129,13 @@ TVM_DLL tvm::Var EmitMatchCast(const tvm::relax::Expr& value, const tvm::Type& t
 TVM_DLL tvm::Var EmitVarBinding(const tvm::relax::VarBinding& binding);
 
 /*! \brief Emit a binding with separate statement and variable-name ranges. */
-TVM_DLL tvm::Var EmitWithSpan(const tvm::relax::Expr& value,
-                              const ffi::Optional<tvm::Type>& annotate_ty,
-                              const ffi::Optional<Span>& name_span,
-                              const ffi::Optional<Span>& span = std::nullopt);
+TVM_DLL tvm::Var EmitWithLoc(const tvm::relax::Expr& value,
+                             const ffi::Optional<tvm::Type>& annotate_ty, const Location& name_loc,
+                             const Location& loc = UnknownLoc());
 
 /*! \brief Emit a match cast with separate statement and variable-name ranges. */
-TVM_DLL tvm::Var EmitMatchCastWithSpan(const tvm::relax::Expr& value, const tvm::Type& ty,
-                                       const ffi::Optional<Span>& name_span,
-                                       const ffi::Optional<Span>& span = std::nullopt);
+TVM_DLL tvm::Var EmitMatchCastWithLoc(const tvm::relax::Expr& value, const tvm::Type& ty,
+                                      const Location& name_loc, const Location& loc = UnknownLoc());
 
 ///////////////////////////// If Then Else /////////////////////////////
 

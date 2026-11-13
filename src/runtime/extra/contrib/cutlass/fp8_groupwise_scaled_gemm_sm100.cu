@@ -46,20 +46,56 @@ struct CutlassFP8GroupwiseGemm<100, TileShape, ClusterShape, ElementA, ElementB,
   }
 };
 
-void tvm_cutlass_fp8_groupwise_scaled_gemm_sm100(Tensor a, Tensor b, Tensor scales_a,
-                                                 Tensor scales_b, Tensor workspace,
+void tvm_cutlass_fp8_groupwise_scaled_gemm_sm100(ffi::Tensor a, ffi::Tensor b, ffi::Tensor scales_a,
+                                                 ffi::Tensor scales_b, ffi::Tensor workspace,
                                                  int64_t block_size_0, int64_t block_size_1,
-                                                 Tensor out) {
+                                                 ffi::Tensor out) {
+  TVM_FFI_ICHECK(a.defined());
+  TVM_FFI_ICHECK(a.IsContiguous());
+  TVM_FFI_ICHECK(a.numel() == 0 || a.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(b.defined());
+  TVM_FFI_ICHECK(b.IsContiguous());
+  TVM_FFI_ICHECK(b.numel() == 0 || b.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(scales_a.defined());
+  TVM_FFI_ICHECK(scales_a.IsContiguous());
+  TVM_FFI_ICHECK(scales_a.numel() == 0 || scales_a.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(scales_b.defined());
+  TVM_FFI_ICHECK(scales_b.IsContiguous());
+  TVM_FFI_ICHECK(scales_b.numel() == 0 || scales_b.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(workspace.defined());
+  TVM_FFI_ICHECK(workspace.IsContiguous());
+  TVM_FFI_ICHECK(workspace.numel() == 0 || workspace.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(out.defined());
+  TVM_FFI_ICHECK(out.IsContiguous());
+  TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
   using TileShape = Shape<_128, _128, _128>;
   using ClusterShape = Shape<_1, _1, _1>;
   tvm_cutlass_fp8_groupwise_scaled_gemm_impl<100, TileShape, ClusterShape>(
       a, b, scales_a, scales_b, workspace, block_size_0, block_size_1, out);
 }
 
-void tvm_cutlass_fp8_groupwise_scaled_bmm_sm100(Tensor a, Tensor b, Tensor scales_a,
-                                                Tensor scales_b, Tensor workspace,
+void tvm_cutlass_fp8_groupwise_scaled_bmm_sm100(ffi::Tensor a, ffi::Tensor b, ffi::Tensor scales_a,
+                                                ffi::Tensor scales_b, ffi::Tensor workspace,
                                                 int64_t block_size_0, int64_t block_size_1,
-                                                Tensor out) {
+                                                ffi::Tensor out) {
+  TVM_FFI_ICHECK(a.defined());
+  TVM_FFI_ICHECK(a.IsContiguous());
+  TVM_FFI_ICHECK(a.numel() == 0 || a.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(b.defined());
+  TVM_FFI_ICHECK(b.IsContiguous());
+  TVM_FFI_ICHECK(b.numel() == 0 || b.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(scales_a.defined());
+  TVM_FFI_ICHECK(scales_a.IsContiguous());
+  TVM_FFI_ICHECK(scales_a.numel() == 0 || scales_a.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(scales_b.defined());
+  TVM_FFI_ICHECK(scales_b.IsContiguous());
+  TVM_FFI_ICHECK(scales_b.numel() == 0 || scales_b.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(workspace.defined());
+  TVM_FFI_ICHECK(workspace.IsContiguous());
+  TVM_FFI_ICHECK(workspace.numel() == 0 || workspace.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(out.defined());
+  TVM_FFI_ICHECK(out.IsContiguous());
+  TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
   using TileShape = Shape<_128, _128, _128>;
   using ClusterShape = Shape<_1, _1, _1>;
   tvm_cutlass_fp8_groupwise_scaled_bmm_impl<100, TileShape, ClusterShape>(

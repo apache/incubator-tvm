@@ -19,18 +19,19 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import verify_trace_roundtrip
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 
-@Ts.prim_func
+@Ts.function
 def matmul(
-    A: T.Buffer((128, 128), "float32"),
-    B: T.Buffer((128, 128), "float32"),
-    C: T.Buffer((128, 128), "float32"),
+    A: T.Tensor((128, 128), "float32"),
+    B: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
 ) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("C"):
@@ -40,11 +41,11 @@ def matmul(
             C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vj, vk]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_after_reorder_block_iter_var(
-    A: T.Buffer((128, 128), "float32"),
-    B: T.Buffer((128, 128), "float32"),
-    C: T.Buffer((128, 128), "float32"),
+    A: T.Tensor((128, 128), "float32"),
+    B: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
 ):
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("C"):
@@ -60,7 +61,7 @@ def test_reorder_block_iter_var():
     sch = tvm.s_tir.Schedule(matmul, debug_mask="all")
     C = sch.get_sblock("C")
     sch.reorder_block_iter_var(C, [2, 1, 0])
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         matmul_after_reorder_block_iter_var.with_attr("global_symbol", "matmul"), sch.mod["main"]
     )
     verify_trace_roundtrip(sch=sch, mod=matmul)
@@ -88,4 +89,4 @@ def test_reorder_block_iter_var_fail_not_unique():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

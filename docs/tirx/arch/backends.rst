@@ -29,7 +29,7 @@ Loading and registration
 backend can register the following target-owned behavior:
 
 #. TVMScript namespaces such as ``Tx.cuda``, ``Tx.ptx``, and ``Tx.nki``;
-#. tile-primitive dispatch implementations for that target kind;
+#. tile-op dispatch implementations for that target kind;
 #. target tags and, when the target owns one, compilation-pipeline entry
    points; and
 #. code-generation helpers that translate backend calls to target source.
@@ -53,8 +53,8 @@ CUDA ownership
        namespaces.
    * - ``op``
      - Define IR builders used by the CUDA script namespaces.
-   * - ``tile_primitive``
-     - Register CUDA implementations of common ``Tx.tile`` operations.
+   * - ``tile``
+     - Register named ``Tx.cuda.tile`` instruction contracts and lowerers.
    * - ``codegen`` and ``cpp``
      - Register source-generation callbacks and CUDA C++ helpers.
    * - ``transforms``
@@ -73,7 +73,7 @@ Trainium ownership
 ------------------
 
 ``tvm.backend.trn`` follows the same boundary.  ``script`` and ``op`` construct
-the ``Tx.nki`` surface, ``tile_primitive`` registers target dispatches,
+the ``Tx.nki`` surface, ``tensor_instructions`` registers ``Tx.trn.tile`` instruction contracts,
 ``layout`` and ``transform`` lower Trainium-specific memory mappings, and
 ``pipeline`` assembles the Trainium pass sequence.  ``target_tags`` registers
 the named AWS Trainium targets.

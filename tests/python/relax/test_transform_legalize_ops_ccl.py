@@ -16,18 +16,19 @@
 # under the License.
 # ruff: noqa: E501, F841
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
 from tvm.relax.transform import LegalizeOps
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_allreduce():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class AllReduce:
         @R.function
         def main(x: R.Tensor((10, 10), "float32"))  -> R.Tensor((10, 10), "float32"):
@@ -42,21 +43,21 @@ def test_allreduce():
     class Expected:
         @R.function
         def main(x: R.Tensor((10, 10), dtype="float32")) -> R.Tensor((10, 10), dtype="float32"):
-            gv0: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allreduce", [x, R.shape([0]), True], out_ty=R.Tensor((10, 10), dtype="float32"))
-            gv1: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allreduce", [x, R.shape([1]), True], out_ty=R.Tensor((10, 10), dtype="float32"))
-            gv2: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allreduce", [x, R.shape([2]), True], out_ty=R.Tensor((10, 10), dtype="float32"))
-            gv3: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allreduce", [x, R.shape([3]), True], out_ty=R.Tensor((10, 10), dtype="float32"))
-            gv4: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allreduce", [x, R.shape([4]), True], out_ty=R.Tensor((10, 10), dtype="float32"))
+            gv0: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allreduce"), [x, R.shape([0]), True], ty_args=[R.Tensor((10, 10), dtype="float32")])
+            gv1: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allreduce"), [x, R.shape([1]), True], ty_args=[R.Tensor((10, 10), dtype="float32")])
+            gv2: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allreduce"), [x, R.shape([2]), True], ty_args=[R.Tensor((10, 10), dtype="float32")])
+            gv3: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allreduce"), [x, R.shape([3]), True], ty_args=[R.Tensor((10, 10), dtype="float32")])
+            gv4: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allreduce"), [x, R.shape([4]), True], ty_args=[R.Tensor((10, 10), dtype="float32")])
             return x
     # fmt: on
 
     mod = LegalizeOps()(AllReduce)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_allgather():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class AllGather:
         @R.function
         def main(x: R.Tensor((10, 10), "float32"))  -> R.Tensor((10, 10), "float32"):
@@ -68,18 +69,18 @@ def test_allgather():
     class Expected:
         @R.function
         def main(x: R.Tensor((10, 10), dtype="float32")) -> R.Tensor((10, 10), dtype="float32"):
-            gv0: R.Tensor((20, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allgather", [x, True], out_ty=R.Tensor((20, 10), dtype="float32"))
-            gv1: R.Tensor((20, 10), dtype="float32") = R.call_dps_packed("runtime.disco.allgather", [x, True], out_ty=R.Tensor((20, 10), dtype="float32"))
+            gv0: R.Tensor((20, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allgather"), [x, True], ty_args=[R.Tensor((20, 10), dtype="float32")])
+            gv1: R.Tensor((20, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.allgather"), [x, True], ty_args=[R.Tensor((20, 10), dtype="float32")])
             return x
     # fmt: on
 
     mod = LegalizeOps()(AllGather)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_broadcast_from_zero():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class BroadcastFromZero:
         @R.function
         def main(x: R.Tensor((10, 10), "float32"))  -> R.Tensor((10, 10), "float32"):
@@ -90,17 +91,17 @@ def test_broadcast_from_zero():
     class Expected:
         @R.function
         def main(x: R.Tensor((10, 10), dtype="float32")) -> R.Tensor((10, 10), dtype="float32"):
-            gv0: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed("runtime.disco.broadcast_from_worker0", [x, False], out_ty=R.Tensor((10, 10), dtype="float32"))
+            gv0: R.Tensor((10, 10), dtype="float32") = R.call_dps_packed(_ExternFunc("runtime.disco.broadcast_from_worker0"), [x, False], ty_args=[R.Tensor((10, 10), dtype="float32")])
             return x
     # fmt: on
 
     mod = LegalizeOps()(BroadcastFromZero)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_scatter_from_worker0():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ScatterFromWorker0:
         @R.function
         def main(x: R.Tensor((10, 10), "float32"))  -> R.Tensor((10,5), "float32"):
@@ -109,8 +110,8 @@ def test_scatter_from_worker0():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
-        def reshape(A: T.Buffer((T.int64(10), T.int64(10)), "float32"), T_reshape: T.Buffer((T.int64(10), T.int64(2), T.int64(5)), "float32")):
+        @Ts.function(private=True)
+        def reshape(A: T.Tensor((T.int64(10), T.int64(10)), "float32"), T_reshape: T.Tensor((T.int64(10), T.int64(2), T.int64(5)), "float32")):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
             for ax0, ax1, ax2 in T.grid(T.int64(10), T.int64(2), T.int64(5)):
@@ -120,8 +121,8 @@ def test_scatter_from_worker0():
                     Ts.writes(T_reshape[v_ax0, v_ax1, v_ax2])
                     T_reshape[v_ax0, v_ax1, v_ax2] = A[((v_ax1 * T.int64(5) + v_ax2) // T.int64(10) + v_ax0) % T.int64(10), (v_ax1 * T.int64(5) + v_ax2) % T.int64(10)]
 
-        @Ts.prim_func(private=True)
-        def transpose(A: T.Buffer((T.int64(10), T.int64(2), T.int64(5)), "float32"), T_transpose: T.Buffer((T.int64(2), T.int64(10), T.int64(5)), "float32")):
+        @Ts.function(private=True)
+        def transpose(A: T.Tensor((T.int64(10), T.int64(2), T.int64(5)), "float32"), T_transpose: T.Tensor((T.int64(2), T.int64(10), T.int64(5)), "float32")):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
             for ax0, ax1, ax2 in T.grid(T.int64(2), T.int64(10), T.int64(5)):
@@ -134,15 +135,15 @@ def test_scatter_from_worker0():
         @R.function
         def main(x: R.Tensor((10, 10), dtype="float32")) -> R.Tensor((10, 5), dtype="float32"):
             cls = Expected
-            gv = R.call_tir(cls.reshape, (x,), out_ty=R.Tensor((10, 2, 5), dtype="float32"))
-            gv1 = R.call_tir(cls.transpose, (gv,), out_ty=R.Tensor((2, 10, 5), dtype="float32"))
-            gv0 = R.call_dps_packed("runtime.disco.scatter_from_worker0", (gv1, False), out_ty=R.Tensor((10, 5), dtype="float32"))
+            gv = R.call_tir(cls.reshape, (x,), ty_args=[R.Tensor((10, 2, 5), dtype="float32")])
+            gv1 = R.call_tir(cls.transpose, (gv,), ty_args=[R.Tensor((2, 10, 5), dtype="float32")])
+            gv0 = R.call_dps_packed(_ExternFunc("runtime.disco.scatter_from_worker0"), (gv1, False), ty_args=[R.Tensor((10, 5), dtype="float32")])
             return gv0
     # fmt: on
 
     mod = LegalizeOps()(ScatterFromWorker0)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -16,11 +16,12 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+#include <tvm/ffi/string.h>
+
 #include <iomanip>
 #include <sstream>
 #include <vector>
 
-#include "../../../support/str_escape.h"
 #include "../utils.h"
 
 namespace tvm {
@@ -47,7 +48,7 @@ void JSONDumps(Any json_obj, std::ostringstream& os) {
     FloatImm float_imm = *std::move(opt_float_imm);
     os << std::setprecision(20) << float_imm->value;
   } else if (auto opt_str = json_obj.as<ffi::String>()) {
-    os << '"' << support::StrEscape((*opt_str).data(), (*opt_str).size()) << '"';
+    os << ffi::EscapeStringJSON(*opt_str);
   } else if (const auto* array = json_obj.as<ffi::ArrayObj>()) {
     os << "[";
     int n = array->size();
@@ -78,12 +79,12 @@ void JSONDumps(Any json_obj, std::ostringstream& os) {
       if (i != 0) {
         os << ",";
       }
-      os << '"' << support::StrEscape(kv.first.data(), kv.first.size()) << '"';
+      os << ffi::EscapeStringJSON(kv.first);
       os << ":";
       JSONDumps(kv.second, os);
     }
     os << "}";
-  } else if (json_obj.as<tirx::IndexMapNode>()) {
+  } else if (json_obj.as<tirx::IndexMapObj>()) {
     JSONDumps(ffi::String(ffi::json::Stringify(
                   ffi::ToJSONGraph(json_obj, ffi::json::Object{{"tvm_version", TVM_VERSION}}),
                   /*indent=*/2)),
@@ -200,54 +201,21 @@ class JSONTokenizer {
 
   bool NextString(Token* token) {
     if (cur_ == end_ || *cur_ != '"') return false;
-    ++cur_;
-    std::string str;
-    for (; cur_ != end_ && *cur_ != '\"'; ++cur_) {
-      if (*cur_ != '\\') {
-        str.push_back(*cur_);
-        continue;
+    const char* start = cur_++;
+    for (; cur_ != end_; ++cur_) {
+      if (*cur_ == '"') {
+        ++cur_;
+        // Decode using the same JSON rules as EscapeStringJSON, including Unicode escapes.
+        *token = Token{TokenType::kString, ffi::json::Parse(std::string(start, cur_))};
+        return true;
       }
-      ++cur_;
-      if (cur_ == end_) {
-        TVM_FFI_THROW(ValueError) << "Unexpected end of string: \\";
-        throw;
-      }
-      switch (*cur_) {
-        case '\"':
-          str.push_back('\"');
-          break;
-        case '\\':
-          str.push_back('\\');
-          break;
-        case '/':
-          str.push_back('/');
-          break;
-        case 'b':
-          str.push_back('\b');
-          break;
-        case 'f':
-          str.push_back('\f');
-          break;
-        case 'n':
-          str.push_back('\n');
-          break;
-        case 'r':
-          str.push_back('\r');
-          break;
-        case 't':
-          str.push_back('\t');
-          break;
-        default:
-          TVM_FFI_THROW(ValueError) << "Unsupported escape sequence: \\" << *cur_
-                                    << ". record:" << std::string(cur_, end_);
+      if (*cur_ == '\\') {
+        ++cur_;
+        if (cur_ == end_) break;
       }
     }
-    if (cur_ == end_) {
-      TVM_FFI_THROW(ValueError) << "Unexpected end of string";
-    }
-    ++cur_;
-    *token = Token{TokenType::kString, ffi::String(str)};
-    return true;
+    TVM_FFI_THROW(ValueError) << "Unexpected end of string";
+    return false;
   }
 
   bool NextLiteral(char c) {

@@ -17,23 +17,24 @@
 """The Relax ROCm backend compilation pipeline and other passes."""
 
 import tvm
+import tvm_tirx
 from tvm import relax
 
 
-def library_dispatch_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
+def library_dispatch_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-argument
     """The default library dispatch passes for ROCm backend."""
     return [
-        relax.backend.DispatchSampling(),
-        relax.backend.DispatchSortScan(),
+        relax.backend.DispatchSampling(target=target),
+        relax.backend.DispatchSortScan(target=target),
     ]
 
 
-def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
+def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-argument
     """The default legalization passes for ROCm backend."""
     from tvm.s_tir import dlight as dl  # pylint: disable=import-outside-toplevel
 
     return [
-        tvm.relax.transform.LegalizeOps(),
+        tvm.relax.transform.LegalizeOps(target=target),
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FoldConstant(),
         tvm.relax.transform.FuseOps(),
@@ -44,11 +45,12 @@ def legalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
             dl.gpu.Reduction(),
             dl.gpu.GeneralReduction(),
             dl.gpu.Fallback(),
+            target=target,
         ),
     ]
 
 
-def dataflow_lower_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
+def dataflow_lower_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-argument
     """The default dataflow lowering passes for ROCm backend."""
     return [
         relax.transform.RewriteDataflowReshape(),
@@ -58,7 +60,7 @@ def dataflow_lower_passes(target: tvm.target.Target):  # pylint: disable=unused-
     ]
 
 
-def finalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argument
+def finalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-argument
     """The default finalization passes for ROCm backend."""
     return [
         relax.transform.StaticPlanBlockMemory(),
@@ -71,19 +73,18 @@ def finalize_passes(target: tvm.target.Target):  # pylint: disable=unused-argume
     ]
 
 
-def get_default_pipeline(target: tvm.target.Target):
+def get_default_pipeline(target: tvm_tirx.target.Target):
     """Return the default compilation pipeline for ROCm."""
 
-    @tvm.transform.module_pass(opt_level=0)
-    def _pipeline(mod: tvm.ir.IRModule, _ctx: tvm.transform.PassContext):
-        with target:
-            seq = tvm.transform.Sequential(
-                library_dispatch_passes(target)
-                + legalize_passes(target)
-                + dataflow_lower_passes(target)
-                + finalize_passes(target)
-            )
-            mod = seq(mod)
+    @tvm_tirx.ir.transform.module_pass(opt_level=0)
+    def _pipeline(mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext):
+        seq = tvm_tirx.ir.transform.Sequential(
+            library_dispatch_passes(target)
+            + legalize_passes(target)
+            + dataflow_lower_passes(target)
+            + finalize_passes(target)
+        )
+        mod = seq(mod)
         return mod
 
     return _pipeline

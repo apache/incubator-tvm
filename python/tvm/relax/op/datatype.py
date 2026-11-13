@@ -16,18 +16,28 @@
 # under the License.
 """Datatype operators."""
 
-from tvm import DataType
-from tvm.ir import PrimType
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs, PrimType
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
 from ..expr import Expr
-from . import _ffi_api
 
 
 def _raw_dtype(dtype):
     return dtype.dtype if isinstance(dtype, PrimType) else dtype
 
 
-def astype(x: Expr, dtype: str | DataType | PrimType) -> Expr:
+@tvm_ffi.register_object("relax.attrs.AstypeAttrs")
+class AstypeAttrs(Attrs):
+    """Attributes used in astype operator"""
+
+
+def astype(
+    x: Expr, dtype: str | tvm_ffi.dtype | PrimType, *, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     """Cast input tensor to the given data type.
 
     Parameters
@@ -35,7 +45,7 @@ def astype(x: Expr, dtype: str | DataType | PrimType) -> Expr:
     x : relax.Expr
         The input data to the operator.
 
-    dtype: Union[str, DataType]
+    dtype: Union[str, tvm_ffi.dtype]
         The target data type
 
     Returns
@@ -43,21 +53,44 @@ def astype(x: Expr, dtype: str | DataType | PrimType) -> Expr:
     result : relax.Expr
         The casted result.
     """
-    return _ffi_api.astype(x, _raw_dtype(dtype))  # type: ignore
+    return _Call(
+        "relax.astype",
+        [x],
+        attrs=_make_attrs("relax.attrs.AstypeAttrs", dtype=_raw_dtype(dtype)),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def wrap_param(data: Expr, dtype: str | DataType | PrimType = "float32") -> Expr:
+@tvm_ffi.register_object("relax.attrs.WrapParamAttrs")
+class WrapParamAttrs(Attrs):
+    """Attributes used in wrap_param operator"""
+
+
+def wrap_param(
+    data: Expr,
+    dtype: str | tvm_ffi.dtype | PrimType = "float32",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     """Cast input tensor which is model param to data type if the dtype of the input data is not
     the same as the given dtype.
     Parameters
     ----------
     data : relax.Expr
         The input data to the operator.
-    dtype : Union[str, DataType]
+    dtype : Union[str, tvm_ffi.dtype]
         The target data type
     Returns
     -------
     result : relax.Expr
         The casted result.
     """
-    return _ffi_api.wrap_param(data, _raw_dtype(dtype))  # type: ignore
+    return _Call(
+        "relax.wrap_param",
+        [data],
+        attrs=_make_attrs("relax.attrs.WrapParamAttrs", dtype=_raw_dtype(dtype)),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

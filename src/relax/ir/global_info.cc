@@ -28,18 +28,21 @@ namespace tvm {
 namespace relax {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  VDeviceNode::RegisterReflection();
-  DummyGlobalInfoNode::RegisterReflection();
+  VDeviceObj::RegisterReflection();
+  DummyGlobalInfoObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  auto make_dummy = []() { return DummyGlobalInfo(ffi::make_object<DummyGlobalInfoNode>()); };
+  auto make_dummy = []() {
+    return DummyGlobalInfo(ffi::UnsafeInit{}, ffi::make_object<DummyGlobalInfoObj>());
+  };
   refl::GlobalDef().def("relax.DummyGlobalInfo", make_dummy);
 }
 
-VDevice::VDevice(Target tgt, int dev_id, MemoryScope mem_scope) {
-  ffi::ObjectPtr<VDeviceNode> n = ffi::make_object<VDeviceNode>();
+VDevice::VDevice(ffi::Optional<Target> tgt, int dev_id, MemoryScope mem_scope)
+    : GlobalInfo(ffi::UnsafeInit{}) {
+  ffi::ObjectPtr<VDeviceObj> n = ffi::make_object<VDeviceObj>();
   n->target = std::move(tgt);
   n->vdevice_id = std::move(dev_id);
   n->memory_scope = std::move(mem_scope);
@@ -48,7 +51,7 @@ VDevice::VDevice(Target tgt, int dev_id, MemoryScope mem_scope) {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  auto make_vdevice = [](Target tgt, int dev_id, MemoryScope mem_scope) {
+  auto make_vdevice = [](ffi::Optional<Target> tgt, int dev_id, MemoryScope mem_scope) {
     return VDevice(tgt, dev_id, mem_scope);
   };
   refl::GlobalDef().def("relax.VDevice", make_vdevice);

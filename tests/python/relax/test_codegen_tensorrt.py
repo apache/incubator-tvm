@@ -16,18 +16,20 @@
 # under the License.
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 from tvm.contrib.pickle_memoize import memoize
+from tvm.relax import script as R
 from tvm.relax.backend.contrib.tensorrt import partition_for_tensorrt
 from tvm.relax.dpl import is_op, make_fused_bias_activation_pattern, wildcard
-from tvm.script import relax as R
-from tvm.testing import env
+from tvm_tirx.testing import env
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dResidualBlock:
     @R.function
     def main(
@@ -44,8 +46,8 @@ class Conv2dResidualBlock:
         return out
 
 
-has_tensorrt = tvm.get_global_func("relax.ext.tensorrt", True)
-env_checker_runtime = tvm.get_global_func("relax.is_tensorrt_runtime_enabled", True)
+has_tensorrt = tvm_ffi.get_global_func("relax.ext.tensorrt", True)
+env_checker_runtime = tvm_ffi.get_global_func("relax.is_tensorrt_runtime_enabled", True)
 
 requires_tensorrt_codegen = pytest.mark.skipif(
     not has_tensorrt,
@@ -66,18 +68,18 @@ pytestmark = [
 
 
 def build_and_run(mod, inputs_np, target, legalize=False):
-    with tvm.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
+    with tvm_tirx.ir.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
         ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target, 0)
+        dev = tvm_tirx.device_from_target(target, 0)
         vm = relax.VirtualMachine(ex, dev)
         f = vm["main"]
-        inputs = [tvm.runtime.tensor(inp, dev) for inp in inputs_np]
+        inputs = [tvm_tirx.runtime.tensor(inp, dev) for inp in inputs_np]
         return f(*inputs).numpy()
 
-    if tvm.target.Target(target).kind.name == "cuda":
-        return tvm.testing.run_with_gpu_lock(run_and_check)
+    if tvm_tirx.target.Target(target).kind.name == "cuda":
+        return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
     return run_and_check()
 
 
@@ -107,7 +109,7 @@ def test_tensorrt_offload():
 
     params_np = {"weight1": inputs[1], "weight2": inputs[2]}
 
-    mod = tvm.transform.Sequential(
+    mod = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.BindParams("main", params_np),
             relax.transform.FuseOpsByPattern(patterns),
@@ -118,7 +120,7 @@ def test_tensorrt_offload():
 
     out = build_and_run(mod, inputs[:1], "cuda")
 
-    tvm.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
 
 
 def _offload_and_compare(mod, params_np, patterns, data_np, rtol=1e-2, atol=1e-2):
@@ -133,7 +135,7 @@ def _offload_and_compare(mod, params_np, patterns, data_np, rtol=1e-2, atol=1e-2
     if patterns is None:
         partitioned = partition_for_tensorrt(mod)
     else:
-        partitioned = tvm.transform.Sequential(
+        partitioned = tvm_tirx.ir.transform.Sequential(
             [relax.transform.FuseOpsByPattern(patterns), relax.transform.MergeCompositeFunctions()]
         )(mod)
     # Guard against a silent false pass: if no pattern matched, nothing is offloaded and the
@@ -144,13 +146,13 @@ def _offload_and_compare(mod, params_np, patterns, data_np, rtol=1e-2, atol=1e-2
     ), "expected the op under test to be offloaded to TensorRT, but nothing was partitioned"
     offloaded = relax.transform.RunCodegen()(partitioned)
     out = build_and_run(offloaded, [data_np], "cuda")
-    tvm.testing.assert_allclose(out, ref, rtol=rtol, atol=atol)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=rtol, atol=atol)
 
 
 def test_tensorrt_conv1d():
     # Regression test: explicit-batch (batch > 1) 1D convolution. The pre-TRT10 converter assumed an
     # implicit batch dimension and dropped the spatial dimension under explicit batch.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Conv1d:
         @R.function
         def main(data: R.Tensor((2, 8, 16), "float32"), weight: R.Tensor((4, 8, 3), "float32")):
@@ -166,7 +168,7 @@ def test_tensorrt_conv1d():
 
 
 def test_tensorrt_max_pool2d():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class MaxPool:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -181,7 +183,7 @@ def test_tensorrt_max_pool2d():
 
 
 def test_tensorrt_avg_pool2d():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class AvgPool:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -196,7 +198,7 @@ def test_tensorrt_avg_pool2d():
 
 
 def test_tensorrt_softmax():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Softmax:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -211,7 +213,7 @@ def test_tensorrt_softmax():
 
 
 def test_tensorrt_sigmoid():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Sigmoid:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -228,7 +230,7 @@ def test_tensorrt_sigmoid():
 def test_tensorrt_subtract_constant_lhs():
     """A bound constant on the left-hand side must remain the minuend."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ConstantMinusTensor:
         @R.function
         def main(
@@ -246,7 +248,7 @@ def test_tensorrt_subtract_constant_lhs():
 
 
 def test_tensorrt_tanh():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Tanh:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -262,7 +264,7 @@ def test_tensorrt_tanh():
 
 def test_tensorrt_conv2d_transpose():
     # Default IOHW kernel layout ([in, out, h, w]); output channels are weight_shape[1].
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ConvTranspose:
         @R.function
         def main(
@@ -283,7 +285,7 @@ def test_tensorrt_conv2d_transpose():
 
 def test_tensorrt_conv3d_transpose():
     # Default IODHW kernel layout ([in, out, d, h, w]); output channels are weight_shape[1].
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ConvTranspose3d:
         @R.function
         def main(
@@ -307,7 +309,7 @@ def test_tensorrt_int8_calibration(monkeypatch):
     # built and run. Validates that the calibrator copies a full batch (batch_size * per-sample
     # elements) without over-reading the input or over-writing the device buffers, which previously
     # crashed for batch > 1.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Conv2dInt8:
         @R.function
         def main(
@@ -323,7 +325,7 @@ def test_tensorrt_int8_calibration(monkeypatch):
     ref = build_and_run(Conv2dInt8, [data, weight], "llvm", legalize=True)
 
     patterns = [("tensorrt.nn.conv2d", is_op("relax.nn.conv2d")(wildcard(), wildcard()))]
-    offloaded = tvm.transform.Sequential(
+    offloaded = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.BindParams("main", {"weight": weight}),
             relax.transform.FuseOpsByPattern(patterns),
@@ -339,9 +341,9 @@ def test_tensorrt_int8_calibration(monkeypatch):
     ex = tvm.compile(offloaded, "cuda")
 
     def run_and_check():
-        dev = tvm.cuda(0)
+        dev = tvm_tirx.cuda(0)
         vm = relax.VirtualMachine(ex, dev)
-        data_trt = tvm.runtime.tensor(data, dev)
+        data_trt = tvm_tirx.runtime.tensor(data, dev)
         out = None
         for _ in range(num_calibration_batches + 1):
             out = vm["main"](data_trt).numpy()
@@ -349,14 +351,14 @@ def test_tensorrt_int8_calibration(monkeypatch):
         assert np.isfinite(out).all()
         # INT8 is lossy, so use a generous tolerance; the key assertion is that calibration
         # completed without a CUDA error.
-        tvm.testing.assert_allclose(out, ref, rtol=0.2, atol=0.1 * float(np.abs(ref).max()))
+        tvm_tirx.testing.assert_allclose(out, ref, rtol=0.2, atol=0.1 * float(np.abs(ref).max()))
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 def test_tensorrt_matmul():
     # Regression test: Relax matmul has no transpose_a/transpose_b attrs (Relay's batch_matmul did).
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Matmul:
         @R.function
         def main(data: R.Tensor((4, 8), "float32"), weight: R.Tensor((8, 16), "float32")):
@@ -373,7 +375,7 @@ def test_tensorrt_matmul():
 
 def test_tensorrt_sum():
     # Regression test: Relax reduce ops (StatisticalAttrs) have no "exclude" attr.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Sum:
         @R.function
         def main(data: R.Tensor((2, 3, 4), "float32")):
@@ -389,7 +391,7 @@ def test_tensorrt_sum():
 
 def test_tensorrt_expand_dims():
     # Regression test: Relax expand_dims carries an `axis` list, not Relay's axis + num_newaxis.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ExpandDims:
         @R.function
         def main(data: R.Tensor((2, 4), "float32")):
@@ -405,7 +407,7 @@ def test_tensorrt_expand_dims():
 
 def test_tensorrt_layer_norm():
     # Regression test: Relax layer_norm normalizes over an `axes` list (Relay used `axis`).
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class LayerNorm:
         @R.function
         def main(
@@ -430,7 +432,7 @@ def test_tensorrt_layer_norm():
 def test_tensorrt_clip():
     # Regression test: Relax clip passes min/max as Expr arguments (Relay used a_min/a_max
     # attributes); the codegen serializes them under the op's argument names.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Clip:
         @R.function
         def main(data: R.Tensor((2, 8, 16, 16), "float32")):
@@ -447,7 +449,7 @@ def test_tensorrt_clip():
 def test_tensorrt_reshape():
     # Regression test: Relax reshape takes the target shape as a Shape argument (Relay used a
     # "newshape" attribute); the codegen serializes it under the op's argument name.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Reshape:
         @R.function
         def main(data: R.Tensor((2, 8, 4, 4), "float32")):
@@ -464,7 +466,7 @@ def test_tensorrt_reshape():
 def test_tensorrt_strided_slice():
     # Regression test: Relax strided_slice passes axes/begin/end/strides as tuple arguments (Relay
     # used start/size/strides attributes); the codegen serializes them positionally.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class StridedSlice:
         @R.function
         def main(data: R.Tensor((4, 8, 16), "float32")):
@@ -490,7 +492,7 @@ def test_tensorrt_strided_slice():
 def test_tensorrt_split():
     # Regression test: Relax split has no Relay-style "mode"; it is multi-output. The converter
     # derives per-output extents from the codegen-recorded output shapes.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Split:
         @R.function
         def main(data: R.Tensor((4, 8, 16), "float32")):
@@ -527,7 +529,7 @@ def test_tensorrt_layout_transform():
 
 def test_tensorrt_sum_all_axes():
     # Edge case: Relax sum with no axis (StatisticalAttrs.axis = None) reduces over all axes.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class SumAll:
         @R.function
         def main(data: R.Tensor((2, 3, 4), "float32")):
@@ -543,7 +545,7 @@ def test_tensorrt_sum_all_axes():
 
 def test_tensorrt_layer_norm_multi_axis():
     # Edge case: layer_norm normalizing over more than one axis.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class LayerNorm2:
         @R.function
         def main(
@@ -567,7 +569,7 @@ def test_tensorrt_layer_norm_multi_axis():
 
 def test_tensorrt_matmul_batched():
     # Edge case: batched (3-D) matmul exercises TensorRT's leading-dim broadcasting.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class BatchMatmul:
         @R.function
         def main(data: R.Tensor((2, 4, 8), "float32"), weight: R.Tensor((2, 8, 16), "float32")):
@@ -584,7 +586,7 @@ def test_tensorrt_matmul_batched():
 
 def test_tensorrt_strided_slice_no_strides():
     # Edge case: strided_slice without an explicit strides argument (defaults to 1).
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class StridedSliceNoStride:
         @R.function
         def main(data: R.Tensor((4, 8, 16), "float32")):
@@ -605,7 +607,7 @@ def test_tensorrt_strided_slice_no_strides():
 
 def test_tensorrt_split_indices():
     # Edge case: split by an explicit index list (the other indices_or_sections form).
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class SplitIdx:
         @R.function
         def main(data: R.Tensor((4, 8, 16), "float32")):
@@ -628,7 +630,7 @@ def test_partition_for_tensorrt():
     # conv2d -> relu subgraph to TensorRT with a single call.
     from tvm.relax.backend.contrib.tensorrt import partition_for_tensorrt
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Model:
         @R.function
         def main(
@@ -653,7 +655,7 @@ def test_partition_for_tensorrt():
 
     mod = relax.transform.RunCodegen()(mod)
     out = build_and_run(mod, [data], "cuda")
-    tvm.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 
 
 @pytest.mark.parametrize(
@@ -669,7 +671,7 @@ def test_tensorrt_resize2d(
 ):
     """Regression test for image.resize2d offload in #19887."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Resize2D:
         @R.function
         def main(data: R.Tensor((1, 3, 8, 8), "float32")):
@@ -693,7 +695,7 @@ def test_tensorrt_resize2d(
 def test_tensorrt_resize2d_pytorch_half_pixel_single_dimension():
     """pytorch_half_pixel selects source coordinate zero for each singleton output dimension."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ResizeSingleDimension:
         @R.function
         def main(data: R.Tensor((1, 1, 5, 7), "float32")):
@@ -716,7 +718,7 @@ def test_tensorrt_resize2d_pytorch_half_pixel_single_dimension():
 def test_tensorrt_silu():
     """YOLO's SiLU activation is lowered as x * sigmoid(x)."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Silu:
         @R.function
         def main(data: R.Tensor((1, 16, 8, 8), "float32")):
@@ -730,4 +732,4 @@ def test_tensorrt_silu():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

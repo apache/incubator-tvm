@@ -18,19 +18,21 @@
 
 import pytest
 
-import tvm
-import tvm.script
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
+from tvm.relax import script as R
 from tvm.relax.transform.transform import CanonicalizeBindings
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def verify(input, expected):
-    tvm.ir.assert_structural_equal(CanonicalizeBindings()(input), expected)
+    tvm_tirx.ir.assert_structural_equal(CanonicalizeBindings()(input), expected)
 
 
 def test_simple_assignments():
@@ -151,8 +153,8 @@ def test_casting():
 
 
 def test_match_cast():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class TestMatchCast:
@@ -163,8 +165,8 @@ def test_match_cast():
             w = z
             return w
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -178,8 +180,8 @@ def test_match_cast():
 
 
 def test_same_shape():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class TestSameShape:
@@ -192,8 +194,8 @@ def test_same_shape():
             q = R.add(w, y)
             return R.add(q, w)
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -208,8 +210,8 @@ def test_same_shape():
 
 
 def test_change_shape():
-    o = T.dynamic("o")
-    p = T.dynamic("p")
+    o = T.dynamic("o", "int64")
+    p = T.dynamic("p", "int64")
 
     @I.ir_module
     class TestChangeShape:
@@ -226,8 +228,8 @@ def test_change_shape():
             q = R.add(w, y)
             return R.add(q, w)
 
-    o = T.dynamic("o")
-    p = T.dynamic("p")
+    o = T.dynamic("o", "int64")
+    p = T.dynamic("p", "int64")
 
     @I.ir_module
     class Expected:
@@ -242,10 +244,10 @@ def test_change_shape():
 
 
 def test_replace_symbolic_variable_and_remove_match_cast():
-    o = T.dynamic("o")
-    p = T.dynamic("p")
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    o = T.dynamic("o", "int64")
+    p = T.dynamic("p", "int64")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class TestChangeShape:
@@ -262,8 +264,8 @@ def test_replace_symbolic_variable_and_remove_match_cast():
             q = R.add(w, y)
             return R.add(q, w)
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -288,10 +290,10 @@ def test_replace_symbolic_variable_and_remove_match_cast_of_tuple():
 
     """
 
-    o = T.dynamic("o")
-    p = T.dynamic("p")
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    o = T.dynamic("o", "int64")
+    p = T.dynamic("p", "int64")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -303,8 +305,8 @@ def test_replace_symbolic_variable_and_remove_match_cast_of_tuple():
             q = R.add(w[0], y[0])
             return R.add(q, w[0])
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -393,9 +395,9 @@ def test_fold_variables_from_match_cast():
 
     """
 
-    N1 = T.dynamic("N1")
-    M = T.dynamic("M")
-    N2 = T.dynamic("N2")
+    N1 = T.dynamic("N1", "int64")
+    M = T.dynamic("M", "int64")
+    N2 = T.dynamic("N2", "int64")
 
     @I.ir_module
     class Before:
@@ -432,9 +434,9 @@ def test_fold_variables_from_match_cast():
             )
             return (proj_A, proj_B)
 
-    N1 = T.dynamic("N1")
-    M = T.dynamic("M")
-    N2 = T.dynamic("N2")
+    N1 = T.dynamic("N1", "int64")
+    M = T.dynamic("M", "int64")
+    N2 = T.dynamic("N2", "int64")
 
     @I.ir_module
     class Expected:
@@ -481,9 +483,9 @@ def test_inconsistent_match_cast_raises_error():
 
     """
 
-    N1 = T.dynamic("N1")
-    M = T.dynamic("M")
-    N2 = T.dynamic("N2")
+    N1 = T.dynamic("N1", "int64")
+    M = T.dynamic("M", "int64")
+    N2 = T.dynamic("N2", "int64")
 
     @I.ir_module
     class Before:
@@ -529,8 +531,8 @@ def test_match_cast_may_have_distinct_values_in_branches():
 
     """
 
-    N = T.dynamic("N")
-    M = T.dynamic("M")
+    N = T.dynamic("N", "int64")
+    M = T.dynamic("M", "int64")
 
     @I.ir_module
     class Before:
@@ -560,8 +562,8 @@ def test_match_cast_may_have_distinct_values_in_branches():
 
             return out
 
-    N = T.dynamic("N")
-    M = T.dynamic("M")
+    N = T.dynamic("N", "int64")
+    M = T.dynamic("M", "int64")
 
     @I.ir_module
     class Expected:
@@ -896,7 +898,7 @@ def test_canonicalize_with_updated_ty():
     in order to provide better type.
     """
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -917,7 +919,7 @@ def test_canonicalize_with_updated_ty():
             # version of `C` with `ndim=2`.
             return C
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -1071,7 +1073,7 @@ def test_var_used_in_distinct_df_blocks():
                 v = R.add(w, x)
                 # v must remain exposed!
                 R.output(v)
-            _ = R.print(format="Hi mom!")
+            _ = R.print("Hi mom!")
             with R.dataflow():
                 a = R.multiply(v, v)
                 b = R.add(a, a)
@@ -1098,7 +1100,7 @@ def test_inner_function():
                         w = R.multiply(x, z)
                         v = R.add(y, w)
                         R.output(z, w, v)
-                    _ = R.print(format="oops")
+                    _ = R.print("oops")
                     with R.dataflow():
                         a = R.multiply(v, v)
                         b = R.add(a, a)
@@ -1132,7 +1134,7 @@ def test_inner_function():
                         w = R.multiply(x, z)
                         v = R.add(y, w)
                         R.output(v)
-                    _ = R.print(format="oops")
+                    _ = R.print("oops")
                     with R.dataflow():
                         a = R.multiply(v, v)
                         b = R.add(a, a)
@@ -1224,7 +1226,7 @@ def test_canonicalization_causes_ty_update():
     class.
     """
 
-    vocab_size = T.dynamic("vocab_size")
+    vocab_size = T.dynamic("vocab_size", "int64")
 
     @I.ir_module
     class Before:
@@ -1261,7 +1263,7 @@ def test_canonicalization_causes_ty_update():
             # with `shape=[vocab_size,4096]`.
             return E
 
-    vocab_size = T.dynamic("vocab_size")
+    vocab_size = T.dynamic("vocab_size", "int64")
 
     @I.ir_module
     class Expected:
@@ -1330,7 +1332,7 @@ def test_trivial_binding_of_replaced_non_dataflow_var():
             return C
 
     After = CanonicalizeBindings()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
     def _get_binding_names(mod):
         return [binding.var.name for binding in mod["main"].body.blocks[0].bindings]
@@ -1369,7 +1371,7 @@ def test_trace_tuple_through_round_trip():
             return param_tuple
 
     After = CanonicalizeBindings()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_trace_partial_tuple_through_round_trip():
@@ -1389,8 +1391,125 @@ def test_trace_partial_tuple_through_round_trip():
     Expected = Before
 
     After = CanonicalizeBindings()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()
+
+
+def test_call_tir_out_ty_follows_arguments_when_match_cast_is_kept():
+    """A call_tir's out_ty must match what its arguments imply.
+
+    The match_cast defining `n` stays because `n` is passed to a kernel at
+    runtime, so the argument of the later call_tir keeps `n` in its shape.
+    Canonicalizing the call's out_ty on its own would replace `n` with 12
+    and leave the two disagreeing. Only that output is rewritten: the second
+    output's shape cannot be derived from the arguments, and neither output's
+    vdevice is in the Function signature, so both are kept.
+    """
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
+    k = T.dynamic("k", "int64")
+
+    @I.ir_module
+    class Before:
+        I.module_global_infos({"vdevice": [R.vdevice("llvm", 0), R.vdevice("llvm", 1)]})
+
+        @Ts.function(private=True)
+        def transpose(
+            x: T.Tensor((1, n, 2, m, 2, 8), "float16"),
+            y: T.Tensor((1, n, m, 2, 2, 8), "float16"),
+            z: T.Tensor((k,), "float16"),
+        ):
+            for i0, i1, i2, i3, i4, i5 in T.grid(1, n, m, 2, 2, 8):
+                with Ts.sblock("b"):
+                    v0, v1, v2, v3, v4, v5 = Ts.axis.remap("SSSSSS", [i0, i1, i2, i3, i4, i5])
+                    y[v0, v1, v2, v3, v4, v5] = x[v0, v1, v3, v2, v4, v5]
+
+        @Ts.function(private=True)
+        def add_scalar(x: T.Tensor((1, 8), "float16"), s: T.int64, y: T.Tensor((1, 8), "float16")):
+            for i in T.serial(8):
+                with Ts.sblock("b"):
+                    vi = Ts.axis.spatial(8, i)
+                    y[0, vi] = x[0, vi] + T.Cast("float16", s)
+
+        @R.function
+        def main(x: R.Tensor((1, 12, 2, 12, 2, 8), "float16"), w: R.Tensor((1, 8), "float16")):
+            cls = Before
+            with R.dataflow():
+                lv = R.match_cast(x, R.Tensor((1, n, 2, m, 2, 8), "float16"))
+                p = R.call_tir(
+                    cls.transpose,
+                    (lv,),
+                    ty_args=[
+                        _TupleType(
+                            [
+                                R.Tensor((1, n, m, 2, 2, 8), "float16", "llvm:1"),
+                                R.Tensor((16,), "float16", "llvm:1"),
+                            ]
+                        )
+                    ],
+                )
+                y = R.call_tir(cls.add_scalar, (w, n), ty_args=[R.Tensor((1, 8), "float16")])
+                gv = (p, y)
+                R.output(gv)
+            return gv
+
+    after = relax.transform.CanonicalizeBindings()(Before)
+    lv_binding, p_binding = after["main"].body.blocks[0].bindings[:2]
+    assert isinstance(lv_binding, relax.MatchCast)
+    assert p_binding.value.args[1].fields[0].same_as(lv_binding.var)
+    transposed, extra = p_binding.value.ty_args[0].fields
+    # The out_ty still names the variables the argument carries.
+    assert transposed.shape[1].same_as(n)
+    assert transposed.shape[2].same_as(m)
+    assert [int(dim) for dim in extra.shape] == [16]
+    expected_vdevice = Before["main"].body.blocks[0].bindings[1].value.ty_args[0].fields[0].vdevice
+    for output in (transposed, extra):
+        tvm_tirx.ir.assert_structural_equal(output.vdevice, expected_vdevice)
+    relax.analysis.check_well_formed(after)
+
+
+def test_call_tir_out_ty_follows_arguments_through_chained_match_casts():
+    """Two match_casts rename the same dimension before a call_tir."""
+    n = T.dynamic("n", "int64")
+    a = T.dynamic("a", "int64")
+    b = T.dynamic("b", "int64")
+
+    @I.ir_module
+    class Before:
+        @Ts.function(private=True)
+        def copy(x: T.Tensor((n, 8), "float16"), y: T.Tensor((n, 8), "float16")):
+            for i, j in T.grid(n, 8):
+                with Ts.sblock("b"):
+                    vi, vj = Ts.axis.remap("SS", [i, j])
+                    y[vi, vj] = x[vi, vj]
+
+        @Ts.function(private=True)
+        def add_scalar(x: T.Tensor((1, 8), "float16"), s: T.int64, y: T.Tensor((1, 8), "float16")):
+            for i in T.serial(8):
+                with Ts.sblock("b"):
+                    vi = Ts.axis.spatial(8, i)
+                    y[0, vi] = x[0, vi] + T.Cast("float16", s)
+
+        @R.function
+        def main(x: R.Tensor((n, 8), "float16"), w: R.Tensor((1, 8), "float16")):
+            cls = Before
+            with R.dataflow():
+                lv1 = R.match_cast(x, R.Tensor((a, 8), "float16"))
+                lv2 = R.match_cast(lv1, R.Tensor((b, 8), "float16"))
+                c = R.call_tir(cls.copy, (lv2,), ty_args=[R.Tensor((b, 8), "float16")])
+                y = R.call_tir(cls.add_scalar, (w, n), ty_args=[R.Tensor((1, 8), "float16")])
+                gv = (c, y)
+                R.output(gv)
+            return gv
+
+    after = relax.transform.CanonicalizeBindings()(Before)
+    for binding in after["main"].body.blocks[0].bindings:
+        value = binding.value
+        if isinstance(value, relax.Call) and value.op == tvm_tirx.ir.Op.get("relax.call_tir"):
+            # Rebuilding the call re-runs the validator, so this passes only when the
+            # out_ty agrees with the argument types.
+            relax.Call(value.op, value.args, value.attrs, value.ty_args)
+    relax.analysis.check_well_formed(after)

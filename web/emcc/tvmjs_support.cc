@@ -45,13 +45,13 @@ extern "C" {
  * \param size The size of the space.
  * \return The allocated space.
  */
-TVM_DLL void* TVMWasmAllocSpace(int size);
+TVM_FFI_DLL void* TVMWasmAllocSpace(int size);
 
 /*!
  * \brief Free the space allocated by TVMWasmAllocSpace.
  * \param data The data pointer.
  */
-TVM_DLL void TVMWasmFreeSpace(void* data);
+TVM_FFI_DLL void TVMWasmFreeSpace(void* data);
 
 /*!
  * \brief Create ffi::Function from a resource handle.
@@ -60,13 +60,13 @@ TVM_DLL void TVMWasmFreeSpace(void* data);
  * \sa TVMWasmPackedCFunc, TVMWasmPackedCFuncFinalizer
 3A * \return 0 if success.
  */
-TVM_DLL int TVMFFIWasmFunctionCreate(void* resource_handle, TVMFFIObjectHandle* out);
+TVM_FFI_DLL int TVMFFIWasmFunctionCreate(void* resource_handle, TVMFFIObjectHandle* out);
 
 /*!
  * \brief Get the last error message.
  * \return The last error message.
  */
-TVM_DLL const char* TVMFFIWasmGetLastError();
+TVM_FFI_DLL const char* TVMFFIWasmGetLastError();
 
 // --- APIs to be implemented by the frontend. ---
 
@@ -102,7 +102,7 @@ int TVMFFIWasmFunctionCreate(void* self, TVMFFIObjectHandle* out) {
 
 const char* TVMFFIWasmGetLastError() {
   static thread_local std::string last_error;
-  last_error = ::tvm::ffi::details::MoveFromSafeCallRaised().what();
+  last_error = ::tvm::ffi::detail::MoveFromSafeCallRaised().what();
   return last_error.c_str();
 }
 
@@ -119,10 +119,10 @@ class AsyncLocalSession : public LocalSession {
     if (name == "runtime.RPCTimeEvaluator") {
       return get_time_eval_placeholder_.get();
     } else if (auto fp = tvm::ffi::Function::GetGlobal(name)) {
-      TVMFFIAny val = tvm::ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(tvm::ffi::Any(*fp));
+      TVMFFIAny val = tvm::ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(tvm::ffi::Any(*fp));
       return val.v_obj;
     } else if (auto fp = tvm::ffi::Function::GetGlobal("__async." + name)) {
-      TVMFFIAny val = tvm::ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(tvm::ffi::Any(*fp));
+      TVMFFIAny val = tvm::ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(tvm::ffi::Any(*fp));
       async_func_set_.insert(val.v_obj);
       return val.v_obj;
     } else {
@@ -201,7 +201,7 @@ class AsyncLocalSession : public LocalSession {
       local_from.dtype = remote_to->dtype;
       local_from.strides = nullptr;
       local_from.byte_offset = 0;
-      this->GetDeviceAPI(remote_to->device)->CopyDataFromTo(&local_from, remote_to, nullptr);
+      this->CopyDataFromTo(&local_from, remote_to, nullptr);
       this->AsyncStreamWait(remote_to->device, nullptr, on_complete);
     } catch (const std::runtime_error& e) {
       this->SendException(on_complete, e.what());
@@ -219,7 +219,7 @@ class AsyncLocalSession : public LocalSession {
       local_to.dtype = remote_from->dtype;
       local_to.strides = nullptr;
       local_to.byte_offset = 0;
-      this->GetDeviceAPI(remote_from->device)->CopyDataFromTo(remote_from, &local_to, nullptr);
+      this->CopyDataFromTo(remote_from, &local_to, nullptr);
       this->AsyncStreamWait(remote_from->device, nullptr, on_complete);
     } catch (const std::runtime_error& e) {
       this->SendException(on_complete, e.what());

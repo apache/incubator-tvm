@@ -16,7 +16,7 @@
 # under the License.
 """Multi-level tiling with reuse."""
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable
 from typing import Any, NamedTuple
 
 from tvm_ffi import register_object
@@ -144,66 +144,10 @@ class MultiLevelTilingWithIntrin(ScheduleRule):
         )
 
 
-@register_object("s_tir.meta_schedule.MultiLevelTilingTensorCore")
-class MultiLevelTilingTensorCore(ScheduleRule):
-    """Extension of MultiLevelTiling for auto-tensorizing with multiple groups of candidate tensor
-    core intrinsics.
-
-    Parameters
-    ----------
-    intrin_groups : List[Mapping[str, str]]
-        A list of groups of tensor core intrinsics. The map should contains key "init", "load_a",
-        "load_b", "compute", "store", which represent the tensor intrin for initialization,
-        loading operand A, loading operand B, tensor core computation, storing the result.
-        The value of the map should be names of tensor intrinsics, must be registerd via
-        TensorIntrin.register(...) beforehand
-    structure : str
-        The tiling structure. Recommended:
-        - 'SSSRRSRS' on GPU
-    tile_bind : Optional[List[str]]
-        For each level of tiles, which thread axis it is bound to. Recommended:
-        - [blockIdx.y, vthread.x, threadIdx.y] on GPU
-    max_innermost_factor : Optional[int]
-        The maximum size of the innermost factor. None means no limit
-    vector_load_lens : Optional[List[int]]
-        The length of vector lane in vectorized cooperative fetching.
-        None means disable vectorization
-    reuse_read : Optional[ReuseType]
-        Data reuse configuration for reading. None means no reuse.
-    reuse_write : Optional[ReuseType]
-        Data reuse configuration for writing. None means no reuse.
-    use_software_pipeline : bool
-        Whether to use the software pipeline.
-    """
-
-    def __init__(
-        self,
-        intrin_groups: list[Mapping[str, str]],
-        structure: str,
-        tile_binds: list[str] | None = None,
-        max_innermost_factor: int | None = None,
-        vector_load_lens: list[int] | None = None,
-        reuse_read: ReuseType | None = None,
-        reuse_write: ReuseType | None = None,
-        use_software_pipeline: bool = False,
-    ) -> None:
-        self.__init_handle_by_constructor__(
-            _ffi_api.ScheduleRuleMultiLevelTilingTensorCore,  # type: ignore # pylint: disable=no-member
-            intrin_groups,
-            structure,
-            tile_binds,
-            max_innermost_factor,
-            vector_load_lens,
-            reuse_read.as_dict() if reuse_read is not None else None,
-            reuse_write.as_dict() if reuse_write is not None else None,
-            use_software_pipeline,
-        )
-
-
 @register_object("s_tir.meta_schedule.MultiLevelTilingWideVector")
 class MultiLevelTilingWideVector(ScheduleRule):
     """Extension of MultiLevelTiling for backends with wide vectors. The loop over the innermost
-    spatial axis of the output buffer is always vectorized with the maximum vector length.
+    spatial axis of the output tensor is always vectorized with the maximum vector length.
 
     Parameters
     ----------

@@ -16,7 +16,7 @@
 # under the License.
 """External function interface to cuBLAS libraries."""
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 
@@ -45,7 +45,7 @@ def matmul(lhs, rhs, transa=False, transb=False, dtype=None):
     return te.extern(
         (n, m),
         [lhs, rhs],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cublas.matmul", ins[0], ins[1], outs[0], transa, transb
         ),
         dtype=dtype,
@@ -79,7 +79,7 @@ def batch_matmul(lhs, rhs, transa=False, transb=False, dtype=None):
     return te.extern(
         (b, n, m),
         [lhs, rhs],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.cublas.batch_matmul", ins[0], ins[1], outs[0], transa, transb
         ),
         dtype=dtype,

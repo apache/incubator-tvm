@@ -24,20 +24,20 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-void PyMeasureCallbackNode::Apply(const TaskScheduler& task_scheduler,                     //
-                                  int task_id,                                             //
-                                  const ffi::Array<MeasureCandidate>& measure_candidates,  //
-                                  const ffi::Array<BuilderResult>& builds,                 //
-                                  const ffi::Array<RunnerResult>& results) {
+void PyMeasureCallbackObj::Apply(const TaskScheduler& task_scheduler,                     //
+                                 int task_id,                                             //
+                                 const ffi::Array<MeasureCandidate>& measure_candidates,  //
+                                 const ffi::Array<BuilderResult>& builds,                 //
+                                 const ffi::Array<RunnerResult>& results) {
   TVM_FFI_ICHECK(f_apply != nullptr) << "PyMeasureCallback's Apply method not implemented!";
   auto _ = Profiler::TimedScope("MeasureCallback/PyMeasureCallback");
   return f_apply(task_scheduler, task_id, measure_candidates, builds, results);
 }
 
-MeasureCallback MeasureCallback::PyMeasureCallback(PyMeasureCallbackNode::FApply f_apply) {
-  ffi::ObjectPtr<PyMeasureCallbackNode> n = ffi::make_object<PyMeasureCallbackNode>();
+MeasureCallback MeasureCallback::PyMeasureCallback(PyMeasureCallbackObj::FApply f_apply) {
+  ffi::ObjectPtr<PyMeasureCallbackObj> n = ffi::make_object<PyMeasureCallbackObj>();
   n->f_apply = std::move(f_apply);
-  return MeasureCallback(n);
+  return MeasureCallback(ffi::UnsafeInit{}, n);
 }
 
 ffi::Array<MeasureCallback, void> MeasureCallback::Default() {
@@ -51,14 +51,14 @@ ffi::Array<MeasureCallback, void> MeasureCallback::Default() {
 // Pattern A (RM): auto-default repr from reflection.
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  MeasureCallbackNode::RegisterReflection();
-  PyMeasureCallbackNode::RegisterReflection();
+  MeasureCallbackObj::RegisterReflection();
+  PyMeasureCallbackObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
-      .def_method("s_tir.meta_schedule.MeasureCallbackApply", &MeasureCallbackNode::Apply)
+      .def_method("s_tir.meta_schedule.MeasureCallbackApply", &MeasureCallbackObj::Apply)
       .def("s_tir.meta_schedule.MeasureCallbackPyMeasureCallback",
            MeasureCallback::PyMeasureCallback)
       .def("s_tir.meta_schedule.MeasureCallbackDefault", MeasureCallback::Default);

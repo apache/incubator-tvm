@@ -21,17 +21,18 @@
 from typing import Optional, Union
 
 import tvm
-from tvm.ir import IRModule, TensorRegion
-from tvm.tirx.expr import Var
+import tvm_tirx
+from tvm_tirx.ir import IRModule, TensorRegion
+from tvm_tirx.tirx.expr import Var
 from tvm.s_tir import SBlock
 
-from tvm.tirx import Buffer, Stmt
-from tvm.tirx.function import PrimFunc
+from tvm_tirx.ir import Stmt
+from tvm_tirx.tirx.function import Function
 from . import _ffi_api
 
 
 def get_sblock_access_region(
-    block: SBlock, buffer_var_map: dict[Var, Buffer]
+    block: SBlock, tensor_var_map: dict[Var, Var]
 ) -> list[list[TensorRegion]]:
     """Detect which regions of tensors in this block are read or written to.
        Regions are sorted by order of appearance in the AST.
@@ -41,8 +42,8 @@ def get_sblock_access_region(
     block: tvm.s_tir.SBlock
         The block in which we are detecting read/write regions.
 
-    buffer_var_map : Dict[Var, Buffer]
-        The outside buffers which may access the block. Mapping from buffer var to the buffer
+    tensor_var_map : Dict[Var, Var]
+        The outside tensors which may access the block. Mapping from tensor var to the tensor
 
     Returns
     -------
@@ -52,11 +53,11 @@ def get_sblock_access_region(
             - second: write regions
             - third: opaque regions
     """
-    return _ffi_api.GetSBlockAccessRegion(block, buffer_var_map)  # type: ignore
+    return _ffi_api.GetSBlockAccessRegion(block, tensor_var_map)  # type: ignore
 
 
 def get_sblock_read_write_region(
-    block: SBlock, buffer_var_map: dict[Var, Buffer]
+    block: SBlock, tensor_var_map: dict[Var, Var]
 ) -> list[list[TensorRegion]]:
     """Auto detect the block read/write region according to its body stmt.
        An opaque access will be counted as both a read and a write access
@@ -66,34 +67,34 @@ def get_sblock_read_write_region(
     block: tvm.s_tir.SBlock
         The block in which we are detecting read/write regions.
 
-    buffer_var_map : Dict[Var, Buffer]
-        The outside buffers which may access the block. Mapping from buffer var to the buffer
+    tensor_var_map : Dict[Var, Var]
+        The outside tensors which may access the block. Mapping from tensor var to the tensor
 
     Returns
     -------
     result : List[List[TensorRegion]]
         An array only consisting of the read regions and write regions of the input block
     """
-    return _ffi_api.GetSBlockReadWriteRegion(block, buffer_var_map)  # type: ignore
+    return _ffi_api.GetSBlockReadWriteRegion(block, tensor_var_map)  # type: ignore
 
 
-def detect_buffer_access_lca(func: PrimFunc) -> dict[Buffer, Stmt]:
-    """Detect the lowest common ancestor(LCA) of buffer access, including both high-level
-    access (BufferLoad, BufferStore) and low-level access (BufferLoad, BufferStore and opaque
+def detect_tensor_access_lca(func: Function) -> dict[Var, Stmt]:
+    """Detect the lowest common ancestor(LCA) of tensor access, including both high-level
+    access (TensorLoad, TensorStore) and low-level access (TensorLoad, TensorStore and opaque
     access).
     The LCA may be a For loop or a Block.
 
     Parameters
     ----------
-    func: tvm.tirx.PrimFunc
+    func: tvm_tirx.tirx.Function
         The function to be detected.
 
     Returns
     -------
-    result : Dict[Buffer, Stmt]
-        Map from buffer to the LCA of all access to it.
+    result : Dict[Var, Stmt]
+        Map from tensor to the LCA of all access to it.
     """
-    return _ffi_api.detect_buffer_access_lca(func)  # type: ignore # pylint: disable=no-member
+    return _ffi_api.detect_tensor_access_lca(func)  # type: ignore # pylint: disable=no-member
 
 
 def find_anchor_sblock(mod: IRModule) -> SBlock | None:
@@ -113,7 +114,7 @@ def find_anchor_sblock(mod: IRModule) -> SBlock | None:
 
     Parameters
     ----------
-    mod: tvm.ir.IRModule
+    mod: tvm_tirx.ir.IRModule
         The input TIR module.
     Returns
     -------
@@ -123,12 +124,12 @@ def find_anchor_sblock(mod: IRModule) -> SBlock | None:
     return _ffi_api.find_anchor_sblock(mod)  # type: ignore # pylint: disable=no-member
 
 
-def verify_gpu_code(func: PrimFunc, constraints: dict[str, int]) -> bool:
+def verify_gpu_code(func: Function, constraints: dict[str, int]) -> bool:
     """Verify if module contains illegal host side direct memory access.
 
     Parameters
     ----------
-    func: tvm.tirx.PrimFunc
+    func: tvm_tirx.tirx.Function
         The module to be verified.
 
     constraints : Dict[str, int]
@@ -143,26 +144,26 @@ def verify_gpu_code(func: PrimFunc, constraints: dict[str, int]) -> bool:
 
 
 def calculate_allocated_bytes(
-    func_or_mod: PrimFunc | IRModule,
+    func_or_mod: Function | IRModule,
 ) -> dict[str, dict[str, int]]:
-    """Calculate allocated memory per memory scope required by TIR PrimFuncs.
+    """Calculate allocated memory per memory scope required by TIR Functions.
 
     Parameters
     ----------
-    func_or_mod: Union[PrimFunc, IRModule]
+    func_or_mod: Union[Function, IRModule]
         The function or module to be detected. If a module is passed, allocated
-        memory is calculated for all PrimFuncs inside the module
+        memory is calculated for all Functions inside the module
 
     Returns
     -------
     result : Dict[str, Dict[str, int]]
         Allocated memory size per scope in bytes for each function in the IRModule returned as a
         dict with function names as keys and a dict of allocated sizes as values. If a single
-        PrimFunc is passed, the function name is returned as "main"
+        Function is passed, the function name is returned as "main"
     """
-    if not isinstance(func_or_mod, PrimFunc | IRModule):
+    if not isinstance(func_or_mod, Function | IRModule):
         raise TypeError(
-            f"Expected argument to be PrimFunc or IRModule, but received {type(func_or_mod)}"
+            f"Expected argument to be Function or IRModule, but received {type(func_or_mod)}"
         )
     return _ffi_api.calculate_allocated_bytes(func_or_mod)  # type: ignore
 
@@ -188,39 +189,45 @@ def OOBChecker():
 
     Returns
     -------
-    fpass : tvm.transform.Pass
+    fpass : tvm_tirx.ir.transform.Pass
         The result pass
     """
     return _ffi_api.OOBChecker()  # type: ignore
 
 
-def get_vtcm_compaction_passes() -> list[tvm.transform.Pass]:
+def get_vtcm_compaction_passes() -> list[tvm_tirx.ir.transform.Pass]:
     """Utility function to get the list of lowering passes to be applied to calculate the compacted
     VTCM allocation size
 
     Returns
     -------
-    result : List[tvm.transform.Pass]
+    result : List[tvm_tirx.ir.transform.Pass]
         returns list of passes
     """
     return _ffi_api.get_vtcm_compaction_passes()  # type: ignore # pylint: disable=no-member
 
 
-def is_pure_function(func: PrimFunc) -> bool:
+def is_pure_function(func: Function) -> bool:
     """Checks if the function is a pure function"""
     return _ffi_api.is_pure_function(func, False)  # type: ignore # pylint: disable=no-member
 
 
-def assert_pure_function(func: PrimFunc) -> bool:
+def assert_pure_function(func: Function) -> bool:
     """Asserts that the function is a pure function"""
     return _ffi_api.is_pure_function(func, True)  # type: ignore # pylint: disable=no-member
 
 
-def verify_well_formed(obj: PrimFunc | IRModule, assert_mode: bool = True) -> bool:
-    """Verify definitions, buffer loads and S-TIR block boundaries.
+def check_well_formed(obj: Function | IRModule) -> None:
+    """Check whether an S-TIR function or module is well formed.
 
-    Modules may contain both S-TIR and ordinary PrimFuncs.  Shared variable
-    identities are checked across function boundaries.  Use the TIRX-specific
-    verifier separately for execution-scope restrictions on ordinary PrimFuncs.
+    Parameters
+    ----------
+    obj : Function or IRModule
+        The function or module to check.
+
+    Raises
+    ------
+    RuntimeError
+        If the function or module is not well formed.
     """
-    return _ffi_api.VerifyWellFormed(obj, assert_mode)
+    _ffi_api.CheckWellFormed(obj)

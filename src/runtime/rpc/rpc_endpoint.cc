@@ -33,6 +33,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <limits>
 #include <memory>
 #include <string>
 #include <type_traits>
@@ -41,7 +42,6 @@
 
 #include "../../support/arena.h"
 #include "../../support/ring_buffer.h"
-#include "../../support/utils.h"
 #include "rpc_local_session.h"
 
 namespace tvm {
@@ -98,6 +98,11 @@ class RPCEndpoint::EventHandler : public support::Stream {
 
   /*! \return Whether we can perform a clean shutdown */
   bool CanCleanShutdown() const { return state_ == kRecvPacketNumBytes; }
+
+  void CloseServingSession() {
+    auto session = std::move(serving_session_);
+    if (session != nullptr) session->Close();
+  }
 
   /*! \brief Finish the copy ack stage. */
   void FinishCopyAck() { this->SwitchToState(kRecvPacketNumBytes); }
@@ -185,10 +190,6 @@ class RPCEndpoint::EventHandler : public support::Stream {
               << "Cannot pass argument " << i << ", type " << obj->GetTypeKey()
               << " (type_index = " << obj->type_index() << ")";
         }
-      } else if (auto opt_device = args[i].as<DLDevice>()) {
-        DLDevice dev = opt_device.value();
-        TVM_FFI_CHECK(!IsRPCSessionDevice(dev), InternalError)
-            << "cannot pass RPC device in the channel";
       }
     }
   }
@@ -418,6 +419,7 @@ class RPCEndpoint::EventHandler : public support::Stream {
           break;
         }
         case RPCCode::kShutdown: {
+          this->CloseServingSession();
           this->SwitchToState(kShutdownReceived);
           break;
         }
@@ -471,7 +473,7 @@ class RPCEndpoint::EventHandler : public support::Stream {
       // switch to the state before sending exception.
       this->SwitchToState(kRecvPacketNumBytes);
       ffi::String msg = args[0].cast<ffi::String>();
-      if (support::StartsWith(msg, "RPCSessionTimeoutError: ")) {
+      if (msg.starts_with("RPCSessionTimeoutError: ")) {
         TVM_FFI_THROW(RPCSessionTimeoutError) << msg;
       } else {
         msg = "RPCError: Error caught from RPC call:\n" + msg;
@@ -746,6 +748,7 @@ RPCCode RPCEndpoint::HandleUntilReturnEvent(bool client_mode, RPCSession::FEncod
           [this](void* data, size_t size) { return channel_->Recv(data, size); }, bytes_needed);
       if (n == 0) {
         if (handler_->CanCleanShutdown()) {
+          handler_->CloseServingSession();
           return RPCCode::kShutdown;
         } else {
           TVM_FFI_THROW(InternalError) << "Channel closes before we get needed bytes";
@@ -818,6 +821,7 @@ std::shared_ptr<RPCEndpoint> RPCEndpoint::Create(std::unique_ptr<RPCChannel> cha
 RPCEndpoint::~RPCEndpoint() { this->Shutdown(); }
 
 void RPCEndpoint::Shutdown() {
+  if (handler_ != nullptr) handler_->CloseServingSession();
   if (channel_ != nullptr) {
     RPCCode code = RPCCode::kShutdown;
     uint64_t packet_nbytes = sizeof(code);
@@ -844,7 +848,13 @@ void RPCEndpoint::ServerLoop() {
     (*f)();
   }
   ffi::Any rv;
-  TVM_FFI_ICHECK(HandleUntilReturnEvent(false, [](ffi::PackedArgs) {}) == RPCCode::kShutdown);
+  try {
+    TVM_FFI_ICHECK(HandleUntilReturnEvent(false, [](ffi::PackedArgs) {}) == RPCCode::kShutdown);
+  } catch (...) {
+    handler_->CloseServingSession();
+    throw;
+  }
+  handler_->CloseServingSession();
   if (const auto f = tvm::ffi::Function::GetGlobal("tvm.rpc.server.shutdown")) {
     (*f)();
   }
@@ -921,9 +931,12 @@ void RPCEndpoint::CopyToRemote(void* from_bytes, DLTensor* to, uint64_t nbytes) 
   RPCCode code = RPCCode::kCopyToRemote;
 
   uint64_t tensor_total_size_bytes = static_cast<uint64_t>(ffi::GetDataSize(*to));
-  TVM_FFI_ICHECK_LE(to->byte_offset + nbytes, tensor_total_size_bytes)
+  // byte_offset is relative to backing storage, not to the logical view.
+  TVM_FFI_ICHECK_LE(nbytes, tensor_total_size_bytes)
       << "CopyToRemote: overflow in tensor size: (byte_offset=" << to->byte_offset
       << ", nbytes=" << nbytes << ", tensor_total_size=" << tensor_total_size_bytes << ")";
+
+  TVM_FFI_ICHECK_LE(nbytes, std::numeric_limits<uint64_t>::max() - to->byte_offset);
 
   uint64_t overhead = RemoteCopyCalculatePacketOverheadSize(to, code, nbytes);
   uint64_t packet_nbytes = overhead + nbytes;
@@ -941,9 +954,12 @@ void RPCEndpoint::CopyFromRemote(DLTensor* from, void* to_bytes, uint64_t nbytes
   RPCCode code = RPCCode::kCopyFromRemote;
 
   uint64_t tensor_total_size_bytes = static_cast<uint64_t>(ffi::GetDataSize(*from));
-  TVM_FFI_ICHECK_LE(from->byte_offset + nbytes, tensor_total_size_bytes)
+  // byte_offset is relative to backing storage, not to the logical view.
+  TVM_FFI_ICHECK_LE(nbytes, tensor_total_size_bytes)
       << "CopyFromRemote: overflow in tensor size: (byte_offset=" << from->byte_offset
       << ", nbytes=" << nbytes << ", tensor_total_size=" << tensor_total_size_bytes << ")";
+
+  TVM_FFI_ICHECK_LE(nbytes, std::numeric_limits<uint64_t>::max() - from->byte_offset);
 
   uint64_t overhead = RemoteCopyCalculatePacketOverheadSize(from, code, nbytes);
   uint64_t packet_nbytes = overhead;
@@ -971,31 +987,12 @@ void RPCFreeHandle(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
 
 void RPCDevSetDevice(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
-  handler->GetDeviceAPI(dev)->SetDevice(dev);
+  handler->SetDevice(dev);
 }
 
 void RPCDevGetAttr(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
-  DeviceAttrKind kind = static_cast<DeviceAttrKind>(args[1].cast<int>());
-  if (kind == kExist) {
-    DeviceAPI* api = handler->GetDeviceAPI(dev, true);
-    if (api != nullptr) {
-      api->GetAttr(dev, kind, rv);
-    } else {
-      *rv = 0;
-    }
-  } else {
-    handler->GetDeviceAPI(dev)->GetAttr(dev, static_cast<DeviceAttrKind>(kind), rv);
-  }
-}
-
-void RPCDevAllocData(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
-  auto dev = args[0].cast<Device>();
-  uint64_t nbytes = args[1].cast<uint64_t>();
-  uint64_t alignment = args[2].cast<uint64_t>();
-  DLDataType type_hint = args[3].cast<DLDataType>();
-  void* data = handler->GetDeviceAPI(dev)->AllocDataSpace(dev, nbytes, alignment, type_hint);
-  *rv = data;
+  *rv = handler->GetAttr(dev, args[1].cast<ffi::String>());
 }
 
 void RPCDevAllocDataWithScope(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
@@ -1004,15 +1001,15 @@ void RPCDevAllocDataWithScope(RPCSession* handler, ffi::PackedArgs args, ffi::An
   int ndim = arr->ndim;
   int64_t* shape = arr->shape;
   DLDataType dtype = arr->dtype;
-  auto mem_scope = args[1].cast<ffi::Optional<ffi::String>>();
-  void* data = handler->GetDeviceAPI(dev)->AllocDataSpace(dev, ndim, shape, dtype, mem_scope);
+  auto mem_scope = args[1].cast<ffi::Optional<MemoryScope>>();
+  void* data = handler->AllocTensor(dev, ffi::ShapeView(shape, ndim), dtype, mem_scope);
   *rv = data;
 }
 
 void RPCDevFreeData(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
   void* ptr = args[1].cast<void*>();
-  handler->GetDeviceAPI(dev)->FreeDataSpace(dev, ptr);
+  handler->FreeTensor(dev, ptr);
 }
 
 void RPCCopyAmongRemote(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
@@ -1028,30 +1025,30 @@ void RPCCopyAmongRemote(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv)
                    to->device.device_type == from->device.device_type)
         << "Can not copy across different dev types directly";
   }
-  handler->GetDeviceAPI(dev)->CopyDataFromTo(from, to, stream);
+  handler->CopyDataFromTo(from, to, stream);
 }
 
 void RPCDevCreateStream(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
-  void* data = handler->GetDeviceAPI(dev)->CreateStream(dev);
+  void* data = handler->CreateStream(dev);
   *rv = data;
 }
 
 void RPCDevFreeStream(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
   TVMStreamHandle stream = args[1].cast<void*>();
-  handler->GetDeviceAPI(dev)->FreeStream(dev, stream);
+  handler->FreeStream(dev, stream);
 }
 
 void RPCDevSetStream(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
   TVMStreamHandle stream = args[1].cast<void*>();
-  handler->GetDeviceAPI(dev)->SetStream(dev, stream);
+  handler->SetStream(dev, stream);
 }
 
 void RPCDevGetCurrentStream(RPCSession* handler, ffi::PackedArgs args, ffi::Any* rv) {
   auto dev = args[0].cast<Device>();
-  *rv = handler->GetDeviceAPI(dev)->GetCurrentStream(dev);
+  *rv = handler->GetCurrentStream(dev);
 }
 
 void RPCEndpoint::EventHandler::HandleSyscall(RPCCode code) {
@@ -1069,9 +1066,6 @@ void RPCEndpoint::EventHandler::HandleSyscall(RPCCode code) {
       break;
     case RPCCode::kDevGetAttr:
       SysCallHandler(RPCDevGetAttr);
-      break;
-    case RPCCode::kDevAllocData:
-      SysCallHandler(RPCDevAllocData);
       break;
     case RPCCode::kDevAllocDataWithScope:
       SysCallHandler(RPCDevAllocDataWithScope);
@@ -1109,12 +1103,14 @@ void RPCEndpoint::EventHandler::HandleSyscall(RPCCode code) {
 /*!
  * \brief RPC client session that proxies all calls to an endpoint.
  */
-class RPCClientSession : public RPCSession, public DeviceAPI {
+class RPCClientSession : public RPCSession {
  public:
   /*!
    * \brief param endpoint The client endpoint of the session.
    */
   explicit RPCClientSession(std::shared_ptr<RPCEndpoint> endpoint) : endpoint_(endpoint) {}
+
+  ~RPCClientSession() override { ReleaseStreams(); }
 
   // function overrides
   PackedFuncHandle GetFunction(const std::string& name) final {
@@ -1133,11 +1129,12 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
     TVM_FFI_ICHECK_GT(rpc_max_size, overhead) << "CopyToRemote: Invalid block size!";
     const uint64_t block_size = rpc_max_size - overhead;
     uint64_t block_count = 0;
+    const uint64_t initial_offset = remote_to->byte_offset;
     const uint64_t num_blocks = nbytes / block_size;
     void* from_bytes;
 
     for (block_count = 0; block_count < num_blocks; block_count++) {
-      remote_to->byte_offset = block_count * block_size;
+      remote_to->byte_offset = initial_offset + block_count * block_size;
       from_bytes = reinterpret_cast<void*>(
           (reinterpret_cast<uint8_t*>(local_from_bytes) + block_count * block_size));
       endpoint_->CopyToRemote(from_bytes, remote_to, block_size);
@@ -1145,7 +1142,7 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
 
     const uint64_t remainder_bytes = nbytes % block_size;
     if (remainder_bytes != 0) {
-      remote_to->byte_offset = block_count * block_size;
+      remote_to->byte_offset = initial_offset + block_count * block_size;
       from_bytes = reinterpret_cast<void*>(
           (reinterpret_cast<uint8_t*>(local_from_bytes) + block_count * block_size));
       endpoint_->CopyToRemote(from_bytes, remote_to, remainder_bytes);
@@ -1159,11 +1156,12 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
     TVM_FFI_ICHECK_GT(rpc_max_size, overhead) << "CopyFromRemote: Invalid block size!";
     const uint64_t block_size = rpc_max_size - overhead;
     uint64_t block_count = 0;
+    const uint64_t initial_offset = remote_from->byte_offset;
     const uint64_t num_blocks = nbytes / block_size;
     void* to_bytes;
 
     for (block_count = 0; block_count < num_blocks; block_count++) {
-      remote_from->byte_offset = block_count * block_size;
+      remote_from->byte_offset = initial_offset + block_count * block_size;
       to_bytes = reinterpret_cast<void*>(
           (reinterpret_cast<uint8_t*>(local_to_bytes) + block_count * block_size));
       endpoint_->CopyFromRemote(remote_from, to_bytes, block_size);
@@ -1171,7 +1169,7 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
 
     const uint64_t remainder_bytes = nbytes % block_size;
     if (remainder_bytes != 0) {
-      remote_from->byte_offset = block_count * block_size;
+      remote_from->byte_offset = initial_offset + block_count * block_size;
       to_bytes = reinterpret_cast<void*>(
           (reinterpret_cast<uint8_t*>(local_to_bytes) + block_count * block_size));
       endpoint_->CopyFromRemote(remote_from, to_bytes, remainder_bytes);
@@ -1182,34 +1180,24 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
 
   void SetDevice(Device dev) final { endpoint_->SysCallRemote(RPCCode::kDevSetDevice, dev); }
 
-  void GetAttr(Device dev, DeviceAttrKind kind, ffi::Any* rv) final {
-    if (dev.device_type == kDLCPU && kind == kExist) {
-      // cpu always exists.
-      *rv = 1;
-    } else {
-      *rv = endpoint_->SysCallRemote(RPCCode::kDevGetAttr, dev, static_cast<int>(kind));
-    }
+  ffi::Any GetAttr(Device dev, const ffi::String& name) final {
+    return endpoint_->SysCallRemote(RPCCode::kDevGetAttr, dev, name);
   }
 
-  void* AllocDataSpace(Device dev, size_t nbytes, size_t alignment, DLDataType type_hint) final {
-    return endpoint_->SysCallRemote(RPCCode::kDevAllocData, dev, nbytes, alignment, type_hint)
-        .cast<void*>();
-  }
-
-  void* AllocDataSpace(Device dev, int ndim, const int64_t* shape, DLDataType dtype,
-                       ffi::Optional<ffi::String> mem_scope) final {
+  void* AllocTensor(Device dev, ffi::ShapeView shape, DLDataType dtype,
+                    ffi::Optional<MemoryScope> mem_scope) final {
     DLTensor temp;
     temp.data = nullptr;
     temp.device = dev;
-    temp.ndim = ndim;
+    temp.ndim = shape.size();
     temp.dtype = dtype;
-    temp.shape = const_cast<int64_t*>(shape);
+    temp.shape = const_cast<int64_t*>(shape.data());
     temp.strides = nullptr;
     temp.byte_offset = 0;
     if (mem_scope.has_value()) {
       return endpoint_
           ->SysCallRemote(RPCCode::kDevAllocDataWithScope, &temp,
-                          static_cast<std::string>(mem_scope.value()))
+                          static_cast<std::string>(mem_scope.value().name()))
           .cast<void*>();
     } else {
       return endpoint_->SysCallRemote(RPCCode::kDevAllocDataWithScope, &temp, nullptr)
@@ -1217,7 +1205,7 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
     }
   }
 
-  void FreeDataSpace(Device dev, void* ptr) final {
+  void FreeTensor(Device dev, void* ptr) final {
     endpoint_->SysCallRemote(RPCCode::kDevFreeData, dev, ptr);
   }
 
@@ -1244,8 +1232,6 @@ class RPCClientSession : public RPCSession, public DeviceAPI {
   TVMStreamHandle GetCurrentStream(Device dev) final {
     return endpoint_->SysCallRemote(RPCCode::kDevGetCurrentStream, dev).cast<void*>();
   }
-
-  DeviceAPI* GetDeviceAPI(Device dev, bool allow_missing) final { return this; }
 
   bool IsLocalSession() const final { return false; }
 

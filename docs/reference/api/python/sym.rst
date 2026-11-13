@@ -15,8 +15,8 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.sym
--------
-.. automodule:: tvm.sym
+tvm_tirx.sym
+------------
+.. automodule:: tvm_tirx.sym
    :members:
    :imported-members:

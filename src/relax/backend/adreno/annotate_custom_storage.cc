@@ -109,7 +109,7 @@
  *           R.output(gv)
  *       return gv
  *
- * Here, the legalized prim functions does have op_pattern attribute.
+ * Here, the legalized functiontions does have op_pattern attribute.
  * We now have what we wanted to run this pass.
  *
  * This pass in principle does scope annotation based on sonsumer priotiry. i.e.
@@ -121,7 +121,7 @@
  *    on consumer scope information. It does evaluating mutiple consumer cases and conflicts.
  * 3: DefineVDevice: Pass does injects hint_on_device for each argument. It also tries to update
  *    out Type containing VDevice information. This update for tirx calls is straight forward
- *    as ty_args in CallNode is meant for this purpose. This ty_args for other calls by
+ *    as ty_args in CallObj is meant for this purpose. This ty_args for other calls by
  *    design is invalid as we do this by per-op type inference.
  *    Another issue with type inference per op is that it cannot decide this
  *    memory scope information which is done by this pass based on consumer demand.
@@ -231,18 +231,20 @@
  * - Fusion
  * - FoldVDeviceScopeChange: There existed some ToVDevice copies from texture to buffer
  *   This pass removes the copes and updates producer scope to global.
- * - SpecializePrimFuncBasedOnCallSite: Finally we update the buffer parameter annotations
+ * - SpecializeFunctionBasedOnCallSite: Finally we update the buffer parameter annotations
  *   according to VDevice scopes.
  *
  */
 
 #include <tvm/ffi/cast.h>
-#include <tvm/relax/attrs/op.h>
+#include <tvm/ir/op.h>
 #include <tvm/relax/backend/adreno/transform.h>
 #include <tvm/relax/dataflow_matcher.h>
+#include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/nested_msg.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op/op.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/tirx/index_map.h>
 
 #include <tuple>
@@ -258,7 +260,7 @@ using namespace tvm::prim;
 namespace backend {
 namespace adreno {
 
-using tvm::tirx::BufferVar;
+using tvm::tirx::TensorVar;
 
 static ffi::Array<PrimExpr> GetShapeFromTensorType(const TensorType& tensor_ty) {
   auto shape = tensor_ty->GetShape();
@@ -274,6 +276,7 @@ static ffi::Array<PrimExpr> GetShapeFromTensorType(const TensorType& tensor_ty) 
  */
 class CollectConsumerScopeInfo : public ExprVisitor {
  public:
+  explicit CollectConsumerScopeInfo(Target target) : target_(std::move(target)) {}
   using ExprVisitor::VisitExpr_;
 
   std::pair<ffi::Map<Expr, ffi::Array<ffi::String>>,
@@ -306,8 +309,8 @@ class CollectConsumerScopeInfo : public ExprVisitor {
     return std::make_pair(call_scope_info, scope_info);
   }
 
-  void VisitBinding_(const VarBindingNode* binding,
-                     const TupleGetItemNode* tuple_get_item_node) final {
+  void VisitBinding_(const VarBindingObj* binding,
+                     const TupleGetItemObj* tuple_get_item_node) final {
     /*
      * lv9 = R.call_tir(add, (lv7, m
      * lv: R.Tuple(
@@ -332,27 +335,26 @@ class CollectConsumerScopeInfo : public ExprVisitor {
     tuple_item_to_binding.Set(ffi::GetRef<Expr>(binding->var.get()), field_map);
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleNode* tuple) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleObj* tuple) final {
     tuples_to_binding.Set(ffi::GetRef<Expr>(binding->var.get()), tuple->fields);
   }
 
-  void VisitExpr_(const CallNode* call) final {
+  void VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
-    GlobalVar gv;
+    ffi::Optional<GlobalVar> gv;
     ffi::Array<Attrs> op_attrs;
     ffi::Optional<int64_t> op_pattern = static_cast<int64_t>(OpPatternKind::kOpaque);
-    Tuple func_args;
+    Tuple func_args =
+        call->op.same_as(call_tir_op) ? call->args[1].as_or_throw<Tuple>() : Tuple(call->args);
 
     if (call->op.same_as(call_tir_op)) {
       gv = call->args[0].as_or_throw<GlobalVar>();
-      tirx::PrimFunc pfunc = mod_->Lookup(gv).as_or_throw<tirx::PrimFunc>();
-      op_attrs = ExtractAttrs<tirx::PrimFunc>(pfunc);
-      op_pattern = ExtractPattern<tirx::PrimFunc>(pfunc);
-      func_args = call->args[1].as_or_throw<Tuple>();
+      tirx::Function pfunc = mod_->Lookup(gv.value()).as_or_throw<tirx::Function>();
+      op_attrs = ExtractAttrs<tirx::Function>(pfunc);
+      op_pattern = ExtractPattern<tirx::Function>(pfunc);
     } else {
-      op_attrs = {call->attrs};
+      if (call->attrs.has_value()) op_attrs = {call->attrs.value()};
       op_pattern = static_cast<int64_t>(OpPatternKind::kOpaque);
-      func_args = Tuple(call->args);
     }
 
     auto is_texture_supported = SupportsTexture(op_attrs, op_pattern.value());
@@ -365,7 +367,7 @@ class CollectConsumerScopeInfo : public ExprVisitor {
             i < is_texture_supported.size() ? is_texture_supported[i] : is_texture_supported[0];
         auto scope = is_texture ? Scope(GetShapeFromTensorType(tensor_ty.value())) : "global";
         ffi::Map<Expr, ffi::Array<ffi::String>> ent_call;
-        const VarNode* arg_var = func_args->fields[i].as<VarNode>();
+        const VarObj* arg_var = func_args->fields[i].as<VarObj>();
         if (scope_info.find(ffi::GetRef<Expr>(arg_var)) != scope_info.end()) {
           ent_call = scope_info[ffi::GetRef<Expr>(arg_var)];
         }
@@ -381,7 +383,7 @@ class CollectConsumerScopeInfo : public ExprVisitor {
   template <typename T>
   ffi::Array<Attrs> ExtractAttrs(const T& func) {
     ffi::Array<Attrs> op_attrs;
-    ffi::Optional<ffi::ObjectRef> attrs = func->template GetAttr<ffi::ObjectRef>("op_attrs");
+    ffi::Optional<ffi::ObjectRef> attrs = func->GetAttr(tvm::relax::attr::kOpAttrs);
     if (attrs) {
       if (auto val = attrs.value().as<Attrs>()) {
         op_attrs.push_back(val.value());
@@ -394,7 +396,7 @@ class CollectConsumerScopeInfo : public ExprVisitor {
 
   template <typename T>
   ffi::Optional<int64_t> ExtractPattern(const T& func) {
-    ffi::Optional<int64_t> op_pat = func->template GetAttr<int64_t>("op_pattern");
+    ffi::Optional<int64_t> op_pat = func->GetAttr(tvm::relax::attr::kOpPattern);
     return op_pat;
   }
 
@@ -427,9 +429,9 @@ class CollectConsumerScopeInfo : public ExprVisitor {
     // currently we support only textures been made from 5d tensors
     // 5d requirement is not limitation of textures in general, it is limitation how
     // we are representing memory scopes/layout and flattening of textures in tirx
-    if (shape.size() == 5 && shape[4].as<IntImmNode>()->value == 4) {
+    if (shape.size() == 5 && shape[4].as<IntImmObj>()->value == 4) {
       for (auto ind : shape) {
-        if (!ind.as<IntImmNode>()) {
+        if (!ind.as<IntImmObj>()) {
           // Dynamic tensors
           return "global.texture-nchw";
         }
@@ -439,10 +441,10 @@ class CollectConsumerScopeInfo : public ExprVisitor {
           static_cast<int>(target_->GetAttr<int64_t>("texture_spatial_limit").value_or(16384));
       int depth_limit =
           static_cast<int>(target_->GetAttr<int64_t>("texture_depth_limit").value_or(2048));
-      int a0 = shape[0].as<IntImmNode>()->value.as<int>().value();
-      int a1 = shape[1].as<IntImmNode>()->value.as<int>().value();
-      int a2 = shape[2].as<IntImmNode>()->value.as<int>().value();
-      int a3 = shape[3].as<IntImmNode>()->value.as<int>().value();
+      int a0 = shape[0].as<IntImmObj>()->value.as<int>().value();
+      int a1 = shape[1].as<IntImmObj>()->value.as<int>().value();
+      int a2 = shape[2].as<IntImmObj>()->value.as<int>().value();
+      int a3 = shape[3].as<IntImmObj>()->value.as<int>().value();
 
       int d1r = a0 * a1;
       int d2r = a2 * a3;
@@ -477,6 +479,8 @@ class CollectConsumerScopeInfo : public ExprVisitor {
  */
 class CollectProducerScopeInfo : public ExprVisitor {
  public:
+  CollectProducerScopeInfo(Target target, BlockBuilder builder)
+      : target_(std::move(target)), builder_(std::move(builder)) {}
   using ExprVisitor::VisitExpr_;
 
   ffi::Map<Expr, Type> Collect(
@@ -492,7 +496,7 @@ class CollectProducerScopeInfo : public ExprVisitor {
     return producer_ty;
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call) final {
     ExprVisitor::VisitBinding_(binding, call);
 
     static const Op call_tir_op = Op::Get("relax.call_tir");
@@ -501,14 +505,13 @@ class CollectProducerScopeInfo : public ExprVisitor {
     if (call->op.same_as(call_tir_op)) {
       out_ty = call->ty_args[0];
     } else {
-      auto* op_ptr = call->op.as<OpNode>();
+      auto* op_ptr = call->op.as<OpObj>();
       Op op = ffi::GetRef<Op>(op_ptr);
-      static auto op_map_context_free = Op::GetAttrMap<FInferType>("FInferType");
+      static auto op_map_context_free = Op::GetAttrMap(tvm::op_attr::kInferType);
       if (op_map_context_free.count(op)) {
         out_ty = Call::ReinferType(call);
       } else {
-        static auto op_map_infer_ty =
-            Op::GetAttrMap<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder");
+        static auto op_map_infer_ty = Op::GetAttrMap(tvm::relax::op_attr::kInferTypeWithBuilder);
         TVM_FFI_ICHECK(op_map_infer_ty.count(op))
             << " Cannot find a type inference attribute registered to op: " << op->name;
         out_ty = op_map_infer_ty[op](ffi::GetRef<Call>(call), builder_);
@@ -518,7 +521,7 @@ class CollectProducerScopeInfo : public ExprVisitor {
     std::unordered_map<ffi::String, int> scope_count;
 
     // Decide the final scope based on the max consumer demand. Rest will use to_device.
-    auto arg_var = binding->var.as<VarNode>();
+    auto arg_var = binding->var.as<VarObj>();
     if (scope_info_.find(ffi::GetRef<Expr>(arg_var)) != scope_info_.end()) {
       for (const auto& val : scope_info_[ffi::GetRef<Expr>(arg_var)]) {
         auto call_node = val.first.as_or_throw<Call>();
@@ -545,13 +548,14 @@ class CollectProducerScopeInfo : public ExprVisitor {
 
  private:
   Type UpdateOutputType(const Type& out_ty, ffi::Array<ffi::String> scope) {
-    if (out_ty->IsInstance<TensorTypeNode>()) {
+    if (out_ty->IsInstance<TensorTypeObj>()) {
       auto tensor_ty = out_ty.as_or_throw<TensorType>();
       auto shape_arr = GetShapeFromTensorType(tensor_ty);
-      return TensorType(ShapeExpr(shape_arr), tensor_ty->dtype, VDevice(target_, 0, scope[0]));
+      return TensorType(ShapeExpr(shape_arr), tensor_ty->dtype,
+                        VDevice(target_, 0, runtime::MemoryScope::Get(scope[0])));
     }
 
-    TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeNode>())
+    TVM_FFI_ICHECK(out_ty->IsInstance<TupleTypeObj>())
         << "Expect output type of call_tir to be either TupleType or "
            "TensorType, but got "
         << out_ty;
@@ -559,14 +563,14 @@ class CollectProducerScopeInfo : public ExprVisitor {
     const auto& tuple_ty = out_ty.as_or_throw<TupleType>();
     ffi::Array<Type> ty_fields;
     for (const auto& si : tuple_ty->fields) {
-      TVM_FFI_ICHECK(si->IsInstance<TensorTypeNode>())
+      TVM_FFI_ICHECK(si->IsInstance<TensorTypeObj>())
           << "Fields of TupleType must be TensorType for call_tir "
              "output structinfo, but got "
           << si;
       auto ty = si.as_or_throw<TensorType>();
       auto shape_arr = GetShapeFromTensorType(ty);
-      ty_fields.push_back(
-          TensorType(ShapeExpr(shape_arr), ty->dtype, VDevice(target_, 0, scope[0])));
+      ty_fields.push_back(TensorType(ShapeExpr(shape_arr), ty->dtype,
+                                     VDevice(target_, 0, runtime::MemoryScope::Get(scope[0]))));
     }
     return TupleType(ty_fields);
   }
@@ -592,17 +596,19 @@ class DefineVDevice : ExprMutator {
   IRModule Run(IRModule& mod) {
     mod_ = mod;
     for (const auto& [gv, func] : mod_->functions) {
-      if (func->IsInstance<relax::FunctionNode>()) {
+      if (func->IsInstance<relax::FunctionObj>()) {
         const auto& base_func = mod_->Lookup(gv);
         // Only non primitive relax functions
-        if (base_func->HasNonzeroAttr(attr::kPrimitive)) {
+        if (base_func->HasNonzeroAttr(tvm::relax::attr::kPrimitive.name)) {
           continue;
         }
-        auto info = CollectConsumerScopeInfo().Collect(mod_, func.as_or_throw<Function>(), target_);
+        auto info =
+            CollectConsumerScopeInfo(target_).Collect(mod_, func.as_or_throw<Function>(), target_);
         call_scope_info_ = info.first;
         scope_info_ = info.second;
-        producer_ty_ = CollectProducerScopeInfo().Collect(mod_, func.as_or_throw<Function>(),
-                                                          scope_info_, target_, builder_);
+        producer_ty_ =
+            CollectProducerScopeInfo(target_, builder_)
+                .Collect(mod_, func.as_or_throw<Function>(), scope_info_, target_, builder_);
         relax::Function update_func = VisitExpr(func).as_or_throw<Function>();
         updates_->Add(gv, update_func);
       }
@@ -624,26 +630,24 @@ class DefineVDevice : ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* call_node) override {
+  Expr VisitExpr_(const CallObj* call_node) override {
     auto call = ExprMutator::VisitExpr_(call_node).as_or_throw<Call>();
     static const Op call_tir_op = Op::Get("relax.call_tir");
 
-    GlobalVar gv;
-    Tuple func_args;
+    ffi::Optional<GlobalVar> gv;
+    Tuple func_args =
+        call->op.same_as(call_tir_op) ? call->args[1].as_or_throw<Tuple>() : Tuple(call->args);
 
     Type out_ty = Type::Missing();
 
     if (call->op.same_as(call_tir_op)) {
       gv = call->args[0].as_or_throw<GlobalVar>();
-      func_args = call->args[1].as_or_throw<Tuple>();
-    } else {
-      func_args = Tuple(call->args);
     }
 
     ffi::Array<Expr> new_args;
     Type updated_ret_ty = producer_ty_[ffi::GetRef<Expr>(call_node)];
 
-    if (updated_ret_ty->IsInstance<TensorTypeNode>()) {
+    if (updated_ret_ty->IsInstance<TensorTypeObj>()) {
       auto tensor_ty = updated_ret_ty.as_or_throw<TensorType>();
       auto shape = tensor_ty->shape.value();
       auto dtype = tensor_ty->dtype;
@@ -653,7 +657,7 @@ class DefineVDevice : ExprMutator {
         updated_ret_ty = TensorType(shape, dtype, vdev_global);
       }
     } else {
-      TVM_FFI_ICHECK(updated_ret_ty->IsInstance<TupleTypeNode>())
+      TVM_FFI_ICHECK(updated_ret_ty->IsInstance<TupleTypeObj>())
           << "Expect output type of call_tir to be either TupleType or "
              "TensorType, but got "
           << updated_ret_ty;
@@ -661,7 +665,7 @@ class DefineVDevice : ExprMutator {
       const auto& tuple_ty = updated_ret_ty.as_or_throw<TupleType>();
       ffi::Array<Type> ty_fields;
       for (const auto& si : tuple_ty->fields) {
-        TVM_FFI_ICHECK(si->IsInstance<TensorTypeNode>())
+        TVM_FFI_ICHECK(si->IsInstance<TensorTypeObj>())
             << "Fields of TupleType must be TensorType for call_tir "
                "output structinfo, but got "
             << si;
@@ -698,19 +702,19 @@ class DefineVDevice : ExprMutator {
     }
 
     if (call->op.same_as(call_tir_op)) {
-      return builder_->Normalize(Call::Unchecked(
-          Type::Missing(), call_tir_op, {gv, Tuple(new_args)}, call->attrs, {updated_ret_ty}));
+      return builder_->Normalize(Call(Type::Missing(), call_tir_op, {gv.value(), Tuple(new_args)},
+                                      call->attrs, {updated_ret_ty}));
     } else {
       return builder_->Normalize(
-          Call::Unchecked(Type::Missing(), call->op, new_args, call->attrs, {updated_ret_ty}));
+          Call(Type::Missing(), call->op, new_args, call->attrs, {updated_ret_ty}));
     }
   }
 
  private:
   VDevice MakeGlobalVDevice(VDevice vdev) {
-    int device_type = vdev->target->GetTargetDeviceType();
+    int device_type = vdev->target.value()->GetTargetDeviceType();
     for (size_t i = 0; i < vdevices_.size(); ++i) {
-      int dev_type = vdevices_[i]->target->GetTargetDeviceType();
+      int dev_type = vdevices_[i]->target.value()->GetTargetDeviceType();
       if (dev_type == device_type && vdevices_[i]->vdevice_id == vdev->vdevice_id &&
           vdevices_[i]->memory_scope == vdev->memory_scope) {
         return vdevices_[i];
@@ -721,34 +725,34 @@ class DefineVDevice : ExprMutator {
   }
 
   Expr HintArg(const Expr& arg, ffi::String scope) {
-    if (arg->IsInstance<GenericConstNode>()) {
-      if (auto tensor_ty = arg->ty.as<TensorTypeNode>()) {
+    if (arg->IsInstance<GenericConstObj>()) {
+      if (auto tensor_ty = arg->ty.as<TensorTypeObj>()) {
         if (!tensor_ty->vdevice.has_value()) {
-          const VDevice& vdev = MakeGlobalVDevice(VDevice(target_, 0, scope));
+          const VDevice& vdev =
+              MakeGlobalVDevice(VDevice(target_, 0, runtime::MemoryScope::Get(scope)));
           TVM_FFI_ICHECK(tensor_ty->shape.has_value())
               << "Shape not defined for a constant tensor ..!";
-          arg->ty = TensorType(tensor_ty->shape.value(), tensor_ty->dtype, vdev, tensor_ty->span);
+          arg->ty = TensorType(tensor_ty->shape.value(), tensor_ty->dtype, vdev, tensor_ty->loc);
           return arg;
         }
       }
     }
     ffi::ObjectPtr<HintOnDeviceAttrs> attrs = ffi::make_object<HintOnDeviceAttrs>();
-    const VDevice& vdev = MakeGlobalVDevice(VDevice(target_, 0, scope));
-    attrs->device_type = vdev->target->GetTargetDeviceType();
+    const VDevice& vdev = MakeGlobalVDevice(VDevice(target_, 0, runtime::MemoryScope::Get(scope)));
+    attrs->device_type = vdev->target.value()->GetTargetDeviceType();
     attrs->index = vdev->vdevice_id;
     attrs->memory_scope = vdev->memory_scope;
 
-    Expr new_arg =
-        Call::Unchecked(Type::Missing(), hint_on_device_op_, {arg}, Attrs{std::move(attrs)}, {});
+    Expr new_arg = Call(Type::Missing(), hint_on_device_op_, {arg}, Attrs{std::move(attrs)}, {});
 
     return new_arg;
   }
 
   ffi::Optional<Target> GetTarget(const Type& ty) {
-    auto tinfo = ty.as<TensorTypeNode>();
+    auto tinfo = ty.as<TensorTypeObj>();
     if (tinfo->vdevice.has_value()) {
       auto vdevice = tinfo->vdevice.value();
-      if (vdevice->target.defined()) {
+      if (vdevice->target.has_value()) {
         return vdevice->target;
       }
     }
@@ -773,8 +777,7 @@ Pass AnnotateCustomMemoryScope(Target target) {
   };
   return CreateModulePass(/*pass_function=*/pass_func,
                           /*opt_level=*/0,
-                          /*pass_name=*/"AnnotateCustomMemoryScope",
-                          /*required=*/{});
+                          /*pass_name=*/"AnnotateCustomMemoryScope");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

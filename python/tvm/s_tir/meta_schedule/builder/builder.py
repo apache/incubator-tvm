@@ -15,10 +15,12 @@
 # specific language governing permissions and limitations
 # under the License.
 # ruff: noqa: RUF012
-"""Meta Schedule builders that translate IRModule to runtime.Module, and then export"""
+"""Meta Schedule builders that translate IRModule to tvm_ffi.Module, and then export"""
 
 from collections.abc import Callable
 from typing import Union
+
+import tvm_ffi
 
 # isort: off
 from typing import Literal
@@ -26,15 +28,15 @@ from typing import Literal
 # isort: on
 from tvm_ffi import register_object
 
-from tvm.ir import IRModule
-from tvm.runtime import Object, Tensor
-from tvm.target import Target
+from tvm_tirx.ir import IRModule
+from tvm_tirx.runtime import Tensor
+from tvm_tirx.target import Target
 
 from .. import _ffi_api
 
 
 @register_object("s_tir.meta_schedule.BuilderInput")
-class BuilderInput(Object):
+class BuilderInput(tvm_ffi.Object):
     """The builder's input.
 
     Parameters
@@ -77,7 +79,7 @@ class BuilderInput(Object):
 
 
 @register_object("s_tir.meta_schedule.BuilderResult")
-class BuilderResult(Object):
+class BuilderResult(tvm_ffi.Object):
     """The builder's result.
 
     Parameters
@@ -113,7 +115,7 @@ class BuilderResult(Object):
 
 
 @register_object("s_tir.meta_schedule.Builder")
-class Builder(Object):
+class Builder(tvm_ffi.Object):
     """The abstract builder interface."""
 
     BuilderType = Union["Builder", Literal["local"]]

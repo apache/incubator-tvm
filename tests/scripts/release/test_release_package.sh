@@ -98,8 +98,7 @@ echo "[8/10] Compile and Python Import on Linux ..."
 cd apache-tvm-src-${version}
 mkdir build
 cd build
-cp ../cmake/config.cmake .
-cmake ..
+cmake .. -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF
 make -j16
 cd ..
 
@@ -119,5 +118,6 @@ python3 -m pip install ${deps}
 
 echo "[10/10] Import TVM and print path ..."
 export TVM_HOME=$(pwd)
-export PYTHONPATH=$TVM_HOME/python:${PYTHONPATH:-}
+export PYTHONPATH=$TVM_HOME/3rdparty/tvm-tirx/python:$TVM_HOME/python:${PYTHONPATH:-}
+export TVM_TIRX_LIBRARY_PATH="${TVM_HOME}/build/lib"
 python3 -c "import tvm; print(tvm.__path__)"

@@ -25,21 +25,21 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class MemoryDatabaseNode : public DatabaseNode {
+class MemoryDatabaseObj : public DatabaseObj {
  public:
-  explicit MemoryDatabaseNode(ffi::String mod_eq_name = "structural") : DatabaseNode(mod_eq_name) {}
+  explicit MemoryDatabaseObj(ffi::String mod_eq_name = "structural") : DatabaseObj(mod_eq_name) {}
 
   ffi::Array<TuningRecord> records;
   ffi::Array<Workload> workloads;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MemoryDatabaseNode>()
-        .def_ro("records", &MemoryDatabaseNode::records)
-        .def_ro("workloads", &MemoryDatabaseNode::workloads);
+    refl::ObjectDef<MemoryDatabaseObj>()
+        .def_ro("records", &MemoryDatabaseObj::records)
+        .def_ro("workloads", &MemoryDatabaseObj::workloads);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MemoryDatabase", MemoryDatabaseNode,
-                                    DatabaseNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MemoryDatabase", MemoryDatabaseObj,
+                                    DatabaseObj);
 
  public:
   bool HasWorkload(const IRModule& mod) final {
@@ -94,7 +94,7 @@ class MemoryDatabaseNode : public DatabaseNode {
 };
 
 Database Database::MemoryDatabase(ffi::String mod_eq_name) {
-  ffi::ObjectPtr<MemoryDatabaseNode> n = ffi::make_object<MemoryDatabaseNode>(mod_eq_name);
+  ffi::ObjectPtr<MemoryDatabaseObj> n = ffi::make_object<MemoryDatabaseObj>(mod_eq_name);
   n->records.clear();
   n->workloads.clear();
   return Database(n);
@@ -105,7 +105,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("s_tir.meta_schedule.DatabaseMemoryDatabase", Database::MemoryDatabase);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { MemoryDatabaseNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { MemoryDatabaseObj::RegisterReflection(); }
 
 }  // namespace meta_schedule
 }  // namespace s_tir

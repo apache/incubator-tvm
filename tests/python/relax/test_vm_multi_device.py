@@ -20,12 +20,13 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.module import IRModule
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.testing import env
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.testing import env
 
 
 def compile(mod: IRModule):
@@ -58,13 +59,13 @@ def test_multi_cpu():
         ) -> R.Tensor((2, 5), "float32"):
             with R.dataflow():
                 lv0 = R.matmul(x, y)
-                lv0 = R.hint_on_device(lv0, tvm.cpu(0))
+                lv0 = R.hint_on_device(lv0, device_type=1, index=0)
                 lv1: R.Tensor((2, 4), "float32", "llvm:1") = R.to_vdevice(lv0, "llvm:1")
                 gv = R.matmul(lv1, z)
                 R.output(gv)
             return gv
 
-    devices = [tvm.cpu(0), tvm.cpu(1)]
+    devices = [tvm_tirx.cpu(0), tvm_tirx.cpu(1)]
     vm = relax.VirtualMachine(compile(Example), devices)
 
     np_ipt0 = np.random.rand(2, 3).astype(np.float32)
@@ -72,11 +73,11 @@ def test_multi_cpu():
     np_ipt2 = np.random.rand(4, 5).astype(np.float32)
     np_res = np.matmul(np.matmul(np_ipt0, np_ipt1), np_ipt2)
 
-    ipt0 = tvm.runtime.tensor(np_ipt0, devices[0])
-    ipt1 = tvm.runtime.tensor(np_ipt1, devices[0])
-    ipt2 = tvm.runtime.tensor(np_ipt2, devices[1])
+    ipt0 = tvm_tirx.runtime.tensor(np_ipt0, devices[0])
+    ipt1 = tvm_tirx.runtime.tensor(np_ipt1, devices[0])
+    ipt2 = tvm_tirx.runtime.tensor(np_ipt2, devices[1])
     res = vm["foo"](ipt0, ipt1, ipt2)
-    tvm.testing.assert_allclose(res.numpy(), np_res)
+    tvm_tirx.testing.assert_allclose(res.numpy(), np_res)
 
 
 @pytest.mark.skipif(not env.has_multi_gpu(), reason="need multiple gpus")
@@ -125,18 +126,18 @@ def test_multi_gpu():
     ex = compile(Example)
 
     def run_and_check():
-        if not tvm.cuda(2).exist:
+        if not tvm_tirx.cuda(2).exist:
             pytest.skip("requires at least 3 visible CUDA devices")
-        devices = [tvm.cuda(1), tvm.cuda(0), tvm.cuda(2)]
+        devices = [tvm_tirx.cuda(1), tvm_tirx.cuda(0), tvm_tirx.cuda(2)]
         vm = relax.VirtualMachine(ex, devices)
-        ipt0 = tvm.runtime.tensor(np_ipt0, devices[0])
-        ipt1 = tvm.runtime.tensor(np_ipt1, devices[0])
-        ipt2 = tvm.runtime.tensor(np_ipt2, devices[1])
-        ipt3 = tvm.runtime.tensor(np_ipt3, devices[2])
+        ipt0 = tvm_tirx.runtime.tensor(np_ipt0, devices[0])
+        ipt1 = tvm_tirx.runtime.tensor(np_ipt1, devices[0])
+        ipt2 = tvm_tirx.runtime.tensor(np_ipt2, devices[1])
+        ipt3 = tvm_tirx.runtime.tensor(np_ipt3, devices[2])
         res = vm["foo"](ipt0, ipt1, ipt2, ipt3)
-        tvm.testing.assert_allclose(res.numpy(), np_res)
+        tvm_tirx.testing.assert_allclose(res.numpy(), np_res)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -175,16 +176,16 @@ def test_multi_device():
     ex = compile(Example)
 
     def run_and_check():
-        devices = [tvm.cuda(0), tvm.cpu(0)]
+        devices = [tvm_tirx.cuda(0), tvm_tirx.cpu(0)]
         vm = relax.VirtualMachine(ex, devices)
-        ipt0 = tvm.runtime.tensor(np_ipt0, devices[1])
-        ipt1 = tvm.runtime.tensor(np_ipt1, devices[1])
-        ipt2 = tvm.runtime.tensor(np_ipt2, devices[0])
+        ipt0 = tvm_tirx.runtime.tensor(np_ipt0, devices[1])
+        ipt1 = tvm_tirx.runtime.tensor(np_ipt1, devices[1])
+        ipt2 = tvm_tirx.runtime.tensor(np_ipt2, devices[0])
         res = vm["foo"](ipt0, ipt1, ipt2)
-        tvm.testing.assert_allclose(res.numpy(), np_res, rtol=1e-4, atol=1e-4)
+        tvm_tirx.testing.assert_allclose(res.numpy(), np_res, rtol=1e-4, atol=1e-4)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

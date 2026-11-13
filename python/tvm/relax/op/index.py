@@ -16,14 +16,34 @@
 # under the License.
 """Indexing operators."""
 
+import tvm_ffi
+
+from tvm.relax.expr import Tuple as _Tuple
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+
 from ..expr import Expr
 from ..utils import convert_to_expr
-from . import _ffi_api
 
 PrimExprLike = int | Expr
 
 
-def take(x: Expr, indices: Expr, axis: int | None = None, mode: str = "fast") -> Expr:
+@tvm_ffi.register_object("relax.attrs.TakeAttrs")
+class TakeAttrs(Attrs):
+    """Attributes used in take operator"""
+
+
+def take(
+    x: Expr,
+    indices: Expr,
+    axis: int | None = None,
+    mode: str = "fast",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     """Take elements from a tensor along an axis.
     Its semantic is mostly similar to `numpy.take`
     (https://numpy.org/doc/stable/reference/generated/numpy.take.html),
@@ -53,7 +73,18 @@ def take(x: Expr, indices: Expr, axis: int | None = None, mode: str = "fast") ->
     ret : relax.Expr
         The taken result.
     """
-    return _ffi_api.take(x, indices, axis, mode)  # type: ignore
+    return _Call(
+        "relax.take",
+        [x, indices],
+        attrs=_make_attrs("relax.attrs.TakeAttrs", axis=axis, mode=mode),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.StridedSliceAttrs")
+class StridedSliceAttrs(Attrs):
+    """Attributes used in strided_slice operator"""
 
 
 def strided_slice(
@@ -63,6 +94,9 @@ def strided_slice(
     end: Expr,
     strides: Expr | None = None,
     assume_inbound: bool = False,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """Strided slice of a tensor.
 
@@ -103,14 +137,22 @@ def strided_slice(
     end = convert_to_expr(end)
     if strides is not None:
         strides = convert_to_expr(strides)
-    return _ffi_api.strided_slice(x, axes, begin, end, strides, assume_inbound)  # type: ignore
+    lengths = [
+        len(value.fields) for value in (axes, begin, end, strides) if isinstance(value, _Tuple)
+    ]
+    if lengths and any(length != lengths[0] for length in lengths):
+        raise RuntimeError("axes, begin, end, and strides must have the same length")
+    return _Call(
+        "relax.strided_slice",
+        [x, axes, begin, end, *([] if strides is None else [strides])],
+        attrs=_make_attrs("relax.attrs.StridedSliceAttrs", assume_inbound=assume_inbound),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
 def dynamic_strided_slice(
-    x: Expr,
-    begin: Expr,
-    end: Expr,
-    strides: Expr,
+    x: Expr, begin: Expr, end: Expr, strides: Expr, *, ty=None, loc: Location = UNKNOWN_LOC
 ) -> Expr:
     """Dynamic strided slice of a tensor. `begin`, `end`, `strides` can be computed at runtime.
 
@@ -140,4 +182,9 @@ def dynamic_strided_slice(
     dyn_strided_slice require the input `begin`, `end` and `strides` to have the
     same length as rank of `data` tensor.
     """
-    return _ffi_api.dynamic_strided_slice(x, begin, end, strides)  # type: ignore
+    return _Call(
+        "relax.dynamic_strided_slice",
+        [x, begin, end, strides],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

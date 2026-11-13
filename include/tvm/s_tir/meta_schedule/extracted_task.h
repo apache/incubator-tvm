@@ -28,7 +28,7 @@
 
 namespace tvm {
 namespace tirx {
-class PrimFunc;
+class Function;
 }  // namespace tirx
 namespace te {
 class Tensor;
@@ -40,8 +40,11 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief A tuning task extracted from the high-level IR */
-class ExtractedTaskNode : public ffi::Object {
+class ExtractedTaskObj : public ffi::Object {
  public:
+  explicit ExtractedTaskObj(ffi::UnsafeInit tag) : target(tag) {}
+
+  explicit ExtractedTaskObj(Target target) : target(std::move(target)) {}
   /*! \brief The name of the task extracted */
   ffi::String task_name;
   /*! \brief The high-level IR */
@@ -55,28 +58,28 @@ class ExtractedTaskNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ExtractedTaskNode>()
-        .def_ro("task_name", &ExtractedTaskNode::task_name)
-        .def_ro("mod", &ExtractedTaskNode::mod)
-        .def_ro("target", &ExtractedTaskNode::target)
-        .def_ro("dispatched", &ExtractedTaskNode::dispatched)
-        .def_ro("weight", &ExtractedTaskNode::weight);
+    refl::ObjectDef<ExtractedTaskObj>()
+        .def_ro("task_name", &ExtractedTaskObj::task_name)
+        .def_ro("mod", &ExtractedTaskObj::mod)
+        .def_ro("target", &ExtractedTaskObj::target)
+        .def_ro("dispatched", &ExtractedTaskObj::dispatched)
+        .def_ro("weight", &ExtractedTaskObj::weight);
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ExtractedTask", ExtractedTaskNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ExtractedTask", ExtractedTaskObj,
                                     ffi::Object);
 };
 
 /*!
- * \brief Managed reference to ExtractedTaskNode
- * \sa ExtractedTaskNode
+ * \brief Managed reference to ExtractedTaskObj
+ * \sa ExtractedTaskObj
  */
 class ExtractedTask : public ffi::ObjectRef {
  public:
   explicit ExtractedTask(ffi::String task_name, IRModule mod, Target target,
                          ffi::Array<IRModule> dispatched, int weight);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExtractedTask, ffi::ObjectRef, ExtractedTaskNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ExtractedTask, ffi::ObjectRef, ExtractedTaskObj);
 };
 
 }  // namespace meta_schedule

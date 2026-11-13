@@ -132,15 +132,15 @@ under ``tests/python``, while environment-specific nightly tests live under ``te
 See :doc:`testing` for details on running tests, target parametrization,
 and the target-specific marks used by CI.
 
-If you want your test to run over a variety of targets, parametrize over ``target`` with ``@pytest.mark.parametrize``, tag GPU targets with ``@pytest.mark.gpu`` so the CI routes them to GPU nodes, and skip a target that is unavailable on the current machine with :py:func:`tvm.testing.device_enabled`. For example:
+If you want your test to run over a variety of targets, parametrize over ``target`` with ``@pytest.mark.parametrize``, tag GPU targets with ``@pytest.mark.gpu`` so the CI routes them to GPU nodes, and skip a target that is unavailable on the current machine with :py:func:`tvm_tirx.testing.device_enabled`. For example:
 
 .. code:: python
 
   @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
   def test_mytest(target):
-      if not tvm.testing.device_enabled(target):
+      if not tvm_tirx.testing.device_enabled(target):
           pytest.skip(f"{target} not enabled")
-      dev = tvm.device_from_target(target)
+      dev = tvm_tirx.device_from_target(target)
       ...
 
 will run ``test_mytest`` with ``target="llvm"`` and ``target="cuda"``, skipping any target whose device is not present. If you only want to test against a single target, drop the parametrization and hardcode the target. Mark GPU tests with ``@pytest.mark.gpu`` so the CI can select them, and skip when the required feature is unavailable with ``@pytest.mark.skipif``. For example, CUDA tests use:
@@ -148,11 +148,11 @@ will run ``test_mytest`` with ``target="llvm"`` and ``target="cuda"``, skipping 
 .. code:: python
 
   @pytest.mark.gpu
-  @pytest.mark.skipif(not tvm.testing.env.has_cuda(), reason="need cuda")
+  @pytest.mark.skipif(not tvm_tirx.testing.env.has_cuda(), reason="need cuda")
   def test_mycudatest():
     ...
 
-The ``tvm.testing.env`` module exposes a ``has_*()`` probe for each runtime and hardware feature (e.g. ``has_cuda()``, ``has_rocm()``, ``has_vulkan()``, ``has_llvm()``). To skip a test when an optional Python package is missing, use ``pytest.importorskip("package_name")``.
+The ``tvm_tirx.testing.env`` module exposes a ``has_*()`` probe for each runtime and hardware feature (e.g. ``has_cuda()``, ``has_rocm()``, ``has_vulkan()``, ``has_llvm()``). To skip a test when an optional Python package is missing, use ``pytest.importorskip("package_name")``.
 
 
 Network Resources
@@ -162,10 +162,8 @@ In CI, downloading files from the Internet is a big source of flaky test failure
 server can go down or be slow), so try to avoid using the network at all during tests. In some cases
 this isn't a reasonable proposition (e.g. the docs tutorials which need to download models).
 
-New network downloads are rejected by the CI `request hook
-<https://github.com/apache/tvm/blob/main/tests/python/request_hook.py>`_. Prefer
-checked-in fixtures or generated data. If a download is unavoidable, arrange a stable
-project-managed mirror with the maintainers and add an explicit ``URL_MAP`` entry.
+Prefer checked-in fixtures or generated data. If a download is unavoidable, arrange a
+stable project-managed mirror with the maintainers.
 
 
 Handle Integer Constant Expression

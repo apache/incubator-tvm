@@ -22,10 +22,10 @@ from collections.abc import Callable
 from functools import partial
 from typing import Any
 
-from tvm import tirx
 from tvm.relax.frontend.nn import Tensor, op
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=invalid-name
 
@@ -170,7 +170,7 @@ def rope_freq_longrope(  # pylint: disable=too-many-arguments
     dtype: str,
     max_position_embeddings: int,
     original_max_position_embeddings: int,
-    ext_factors: T.Buffer | None = None,
+    ext_factors: T.Tensor | None = None,
 ):
     """Compute the inverse frequency of RoPE for longrope scaling."""
     scale = max_position_embeddings / original_max_position_embeddings
@@ -363,7 +363,7 @@ def llama_rope(  # pylint: disable=too-many-arguments
     scale = tirx.const(scale, dtype)
 
     def _rope(  # pylint: disable=too-many-arguments
-        x: T.Buffer,
+        x: T.Tensor,
         b: tirx.Var,
         s: tirx.Var,
         h: tirx.Var,
@@ -391,15 +391,15 @@ def llama_rope(  # pylint: disable=too-many-arguments
             expr = tirx.Let(var, value, expr)
         return expr
 
-    batch_size = T.dynamic("batch_size")
-    seq_len = T.dynamic("seq_len")
+    batch_size = T.dynamic("batch_size", "int64")
+    seq_len = T.dynamic("seq_len", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def fused_rope(  # pylint: disable=too-many-locals
-        qkv: T.Buffer((batch_size, seq_len, fused_heads, head_dim), dtype),
-        q: T.Buffer((batch_size, seq_len, num_q_heads, head_dim), dtype),
-        k: T.Buffer((batch_size, seq_len, num_kv_heads, head_dim), dtype),
-        v: T.Buffer((batch_size, seq_len, num_kv_heads, head_dim), dtype),
+        qkv: T.Tensor((batch_size, seq_len, fused_heads, head_dim), dtype),
+        q: T.Tensor((batch_size, seq_len, num_q_heads, head_dim), dtype),
+        k: T.Tensor((batch_size, seq_len, num_kv_heads, head_dim), dtype),
+        v: T.Tensor((batch_size, seq_len, num_kv_heads, head_dim), dtype),
         total_seq_len: T.int64,
     ):
         T.func_attr(
@@ -490,12 +490,12 @@ def llama_rope_with_position_map(  # pylint: disable=too-many-arguments
         original_max_position_embeddings = 0
 
     def _rope(  # pylint: disable=too-many-arguments
-        x: T.Buffer,
+        x: T.Tensor,
         s: tirx.Var,
         h: tirx.Var,
         d: tirx.Var,
         pos: tirx.Var,
-        ext_factors: T.Buffer | None = None,
+        ext_factors: T.Tensor | None = None,
     ):
         kwargs = {}
         if ext_factors is not None:
@@ -524,13 +524,15 @@ def llama_rope_with_position_map(  # pylint: disable=too-many-arguments
     seq_len = T.dynamic("seq_len", "int32")
     position_map_elem_offset = T.dynamic("position_map_elem_offset", "int32")
 
-    @Ts.prim_func
+    @Ts.function
     def fused_rope(  # pylint: disable=too-many-locals
-        qkv: T.Buffer((seq_len, fused_heads, head_dim), dtype),
-        position_map: T.Buffer((seq_len,), "int32", elem_offset=position_map_elem_offset),
-        q: T.Buffer((seq_len, num_q_heads, head_dim), dtype),
-        k: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        v: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
+        qkv: T.Tensor((seq_len, fused_heads, head_dim), dtype),
+        position_map: T.Tensor(
+            (seq_len,), "int32", layout=T.TileLayout(T.S[(seq_len,)] + (position_map_elem_offset))
+        ),
+        q: T.Tensor((seq_len, num_q_heads, head_dim), dtype),
+        k: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        v: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
         apply_rope: T.int64,
     ):
         T.func_attr(
@@ -558,17 +560,19 @@ def llama_rope_with_position_map(  # pylint: disable=too-many-arguments
                 else:
                     v[s, h - (num_q_heads + num_kv_heads), d] = qkv[s, h, d]
 
-    seq_len = T.dynamic("seq_len")
-    position_map_elem_offset = T.dynamic("position_map_elem_offset")
+    seq_len = T.dynamic("seq_len", "int64")
+    position_map_elem_offset = T.dynamic("position_map_elem_offset", "int64")
 
-    @Ts.prim_func
+    @Ts.function
     def fused_rope_longrope_scaling(  # pylint: disable=too-many-locals
-        qkv: T.Buffer((seq_len, fused_heads, head_dim), dtype),
-        position_map: T.Buffer((seq_len,), "int32", elem_offset=position_map_elem_offset),
-        q: T.Buffer((seq_len, num_q_heads, head_dim), dtype),
-        k: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        v: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        ext_factors: T.Buffer((rotary_dim,), "float32"),  # type: ignore
+        qkv: T.Tensor((seq_len, fused_heads, head_dim), dtype),
+        position_map: T.Tensor(
+            (seq_len,), "int32", layout=T.TileLayout(T.S[(seq_len,)] + (position_map_elem_offset))
+        ),
+        q: T.Tensor((seq_len, num_q_heads, head_dim), dtype),
+        k: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        v: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        ext_factors: T.Tensor((rotary_dim,), "float32"),  # type: ignore
     ):
         T.func_attr(
             {
@@ -578,12 +582,20 @@ def llama_rope_with_position_map(  # pylint: disable=too-many-arguments
         )
 
         # long factors is the first half, short factors is the second half
-        long_factors = T.decl_buffer((rotary_dim // 2,), "float32", data=ext_factors.data)
-        short_factors = T.decl_buffer(
-            (rotary_dim // 2,),
-            "float32",
-            data=ext_factors.data,
-            elem_offset=(rotary_dim // 2),
+        long_factors = T.decl_tensor(
+            ext_factors.data,
+            ty_args=[T.Tensor((rotary_dim // 2,), "float32", data=ext_factors.data)],
+        )
+        short_factors = T.decl_tensor(
+            ext_factors.data,
+            ty_args=[
+                T.Tensor(
+                    (rotary_dim // 2,),
+                    "float32",
+                    layout=T.TileLayout(T.S[(rotary_dim // 2,)] + (rotary_dim // 2)),
+                    data=ext_factors.data,
+                )
+            ],
         )
 
         if seq_len > original_max_position_embeddings:
@@ -706,12 +718,12 @@ def llama4_rope_with_position_map(  # pylint: disable=too-many-arguments
         original_max_position_embeddings = 0
 
     def _rope(  # pylint: disable=too-many-arguments
-        x: T.Buffer,
+        x: T.Tensor,
         s: tirx.Var,
         h: tirx.Var,
         d: tirx.Var,
         pos: tirx.Var,
-        ext_factors: T.Buffer | None = None,
+        ext_factors: T.Tensor | None = None,
     ):
         kwargs = {}
         if ext_factors is not None:
@@ -741,13 +753,15 @@ def llama4_rope_with_position_map(  # pylint: disable=too-many-arguments
     seq_len = T.dynamic("seq_len", "int32")
     position_map_elem_offset = T.dynamic("position_map_elem_offset", "int32")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def fused_rope(  # pylint: disable=too-many-locals
-        qkv: T.Buffer((seq_len, fused_heads, head_dim), dtype),
-        position_map: T.Buffer((seq_len,), "int32", elem_offset=position_map_elem_offset),
-        q: T.Buffer((seq_len, num_q_heads, head_dim), dtype),
-        k: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        v: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
+        qkv: T.Tensor((seq_len, fused_heads, head_dim), dtype),
+        position_map: T.Tensor(
+            (seq_len,), "int32", layout=T.TileLayout(T.S[(seq_len,)] + (position_map_elem_offset))
+        ),
+        q: T.Tensor((seq_len, num_q_heads, head_dim), dtype),
+        k: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        v: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
         apply_rope: T.int64,
     ):
         T.func_attr(
@@ -775,17 +789,19 @@ def llama4_rope_with_position_map(  # pylint: disable=too-many-arguments
                 else:
                     v[s, h - (num_q_heads + num_kv_heads), d] = qkv[s, h, d]
 
-    seq_len = T.dynamic("seq_len")
-    position_map_elem_offset = T.dynamic("position_map_elem_offset")
+    seq_len = T.dynamic("seq_len", "int64")
+    position_map_elem_offset = T.dynamic("position_map_elem_offset", "int64")
 
-    @Ts.prim_func
+    @Ts.function
     def fused_rope_longrope_scaling(  # pylint: disable=too-many-locals
-        qkv: T.Buffer((seq_len, fused_heads, head_dim), dtype),
-        position_map: T.Buffer((seq_len,), "int32", elem_offset=position_map_elem_offset),
-        q: T.Buffer((seq_len, num_q_heads, head_dim), dtype),
-        k: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        v: T.Buffer((seq_len, num_kv_heads, head_dim), dtype),
-        ext_factors: T.Buffer((rotary_dim,), "float32"),  # type: ignore
+        qkv: T.Tensor((seq_len, fused_heads, head_dim), dtype),
+        position_map: T.Tensor(
+            (seq_len,), "int32", layout=T.TileLayout(T.S[(seq_len,)] + (position_map_elem_offset))
+        ),
+        q: T.Tensor((seq_len, num_q_heads, head_dim), dtype),
+        k: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        v: T.Tensor((seq_len, num_kv_heads, head_dim), dtype),
+        ext_factors: T.Tensor((rotary_dim,), "float32"),  # type: ignore
     ):
         T.func_attr(
             {
@@ -795,12 +811,20 @@ def llama4_rope_with_position_map(  # pylint: disable=too-many-arguments
         )
 
         # long factors is the first half, short factors is the second half
-        long_factors = T.decl_buffer((rotary_dim // 2,), "float32", data=ext_factors.data)
-        short_factors = T.decl_buffer(
-            (rotary_dim // 2,),
-            "float32",
-            data=ext_factors.data,
-            elem_offset=(rotary_dim // 2),
+        long_factors = T.decl_tensor(
+            ext_factors.data,
+            ty_args=[T.Tensor((rotary_dim // 2,), "float32", data=ext_factors.data)],
+        )
+        short_factors = T.decl_tensor(
+            ext_factors.data,
+            ty_args=[
+                T.Tensor(
+                    (rotary_dim // 2,),
+                    "float32",
+                    layout=T.TileLayout(T.S[(rotary_dim // 2,)] + (rotary_dim // 2)),
+                    data=ext_factors.data,
+                )
+            ],
         )
 
         if seq_len > original_max_position_embeddings:

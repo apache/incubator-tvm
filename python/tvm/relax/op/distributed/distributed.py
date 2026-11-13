@@ -17,16 +17,23 @@
 # pylint: disable=redefined-builtin
 """Operators for distributed Relax."""
 
-from tvm.ir import Call
-from tvm.relax.distributed import DeviceMesh, DTensorType, Placement
+from tvm.relax.distributed import DeviceMesh, Placement
+from tvm_tirx.ir import Call, Op
+from tvm_tirx.ir._expose_api import _make_op_api
+from tvm_tirx.ir.attrs import make_node
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
-from ...expr import Expr, GlobalVar
-from ...expr import Tuple as RxTuple
-from ...utils import convert_to_expr
-from . import _ffi_api
+from ...expr import Expr
 
 
-def annotate_sharding(input: Expr, device_mesh: DeviceMesh, placement: Placement) -> Expr:
+def annotate_sharding(
+    input: Expr,
+    device_mesh: DeviceMesh,
+    placement: Placement,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     """Annotate sharding plan for tensor
 
     Parameters
@@ -43,10 +50,25 @@ def annotate_sharding(input: Expr, device_mesh: DeviceMesh, placement: Placement
     result : relax.Expr
       The tensor unmodified.
     """
-    return _ffi_api.annotate_sharding(input, device_mesh, placement)  # type: ignore
+    return Call(
+        "relax.dist.annotate_sharding",
+        [input],
+        attrs=make_node(
+            "relax.attrs.DistributionAttrs", device_mesh=device_mesh, placement=placement
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def redistribute(input: Expr, device_mesh: DeviceMesh, placement: Placement) -> Expr:
+def redistribute(
+    input: Expr,
+    device_mesh: DeviceMesh,
+    placement: Placement,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     """Redistribute tensor
 
     Parameters
@@ -62,50 +84,23 @@ def redistribute(input: Expr, device_mesh: DeviceMesh, placement: Placement) -> 
     result : relax.Expr
       The tensor after redistribution.
     """
-    return _ffi_api.redistribute(input, device_mesh, placement)  # type: ignore
+    return Call(
+        "relax.dist.redistribute",
+        [input],
+        attrs=make_node(
+            "relax.attrs.DistributionAttrs", device_mesh=device_mesh, placement=placement
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def call_tir_local_view(
-    gvar: GlobalVar,
-    args: Expr,
-    out_ty: DTensorType | list[DTensorType],
-) -> Call:
-    """
-    Call a tirx.prim_func and return the output. The prim_func should be a worker-local function
-    that is actually executed on each worker, instead of the unpartitioned function.
-    The output of this operator is DTensor or a tuple of DTensors.
-
-    Parameters
-    ----------
-    gvar : GlobalVar
-        The GlobalVar referring to a tirx PrimFunc.
-
-    args : Expr
-        The ordered distributed-tensor and primitive input arguments.  These
-        correspond positionally to the leading parameters of the PrimFunc.
-
-    out_ty : Union[DTensorType, List[DTensorType]]
-        The type information of the call_tir output.
-        It should be a single or a list of DTensorType. Each one denotes the
-        type information of a returned tensor.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_tir_local_view operator.
-    """
-    if isinstance(args, tuple | list):
-        args = RxTuple([convert_to_expr(a) for a in args])
-    elif isinstance(args, Expr) and not isinstance(args, RxTuple):  # type: ignore
-        args = RxTuple((args,))
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    return _ffi_api.call_tir_local_view(gvar, args, out_ty)  # type: ignore
+call_tir_local_view = _make_op_api(Op.get("relax.dist.call_tir_local_view"), __name__)
 
 
-def redistribute_replica_to_shard(input: Expr, num_workers: int, axis: int) -> Expr:
+def redistribute_replica_to_shard(
+    input: Expr, num_workers: int, axis: int, *, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     """Slice tensor into several parts along one axis,
         and each worker takes one part.
         input.ty.shape[axis] % num_workers == 0 is required.
@@ -128,4 +123,10 @@ def redistribute_replica_to_shard(input: Expr, num_workers: int, axis: int) -> E
     result : relax.Expr
       Sliced Tensor kept by each device.
     """
-    return _ffi_api.redistribute_replica_to_shard(input, num_workers, axis)
+    return Call(
+        "relax.dist.redistribute_replica_to_shard",
+        [input],
+        attrs=make_node("relax.attrs.ScatterCollectiveAttrs", num_workers=num_workers, axis=axis),
+        loc=loc,
+        ty=ty,
+    )

@@ -25,10 +25,10 @@ namespace distributed {
 bool TypeCompatibleWithDistIR(ffi::Array<Type> tys) {
   bool compatible = true;
   for (const auto& ty : tys) {
-    if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       compatible &= TypeCompatibleWithDistIR(tuple_ty->fields);
     } else {
-      compatible &= !ty->IsInstance<TensorTypeNode>();
+      compatible &= !ty->IsInstance<TensorTypeObj>();
     }
   }
   return compatible;
@@ -37,10 +37,10 @@ bool TypeCompatibleWithDistIR(ffi::Array<Type> tys) {
 bool TypeCompatibleWithRelax(ffi::Array<Type> tys) {
   bool compatible = true;
   for (const auto& ty : tys) {
-    if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
       compatible &= TypeCompatibleWithRelax(tuple_ty->fields);
     } else {
-      compatible &= !ty->IsInstance<DTensorTypeNode>();
+      compatible &= !ty->IsInstance<DTensorTypeObj>();
     }
   }
   return compatible;
@@ -48,7 +48,7 @@ bool TypeCompatibleWithRelax(ffi::Array<Type> tys) {
 bool IsDistIRFunc(Function func) {
   ffi::Array<Type> param_tys;
   for (const auto& param : func->params) {
-    TVM_FFI_ICHECK(!param->ty.IsMissing());
+    TVM_FFI_ICHECK(!param->ty.as<MissingType>().has_value());
     param_tys.push_back(param->ty.as_or_throw<Type>());
   }
   bool compatible_with_dist_ir = TypeCompatibleWithDistIR(param_tys);
@@ -65,7 +65,7 @@ bool IsDistIRFunc(Function func) {
 bool IsShardingAnnotatedFunc(Function func) {
   bool has_annotate_sharding = false;
   PostOrderVisit(func, [&has_annotate_sharding](const Expr& e) {
-    const CallNode* call = e.as<CallNode>();
+    const CallObj* call = e.as<CallObj>();
     if (!call) {
       return;
     }

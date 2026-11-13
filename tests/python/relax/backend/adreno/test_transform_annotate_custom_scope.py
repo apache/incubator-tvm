@@ -17,20 +17,25 @@
 # ruff: noqa: F401, F841
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.module import IRModule
 from tvm.relax.expr_functor import PyExprMutator, PyExprVisitor, mutator, visitor
 from tvm.relax.transform.legalize_ops import adreno as legalize_adreno
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.runtime import MemoryScope
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 @visitor
 class ValidateScope(PyExprVisitor):  # pylint: disable=abstract-method
     def __init__(self, scope_info: dict) -> None:
-        self.scope_info = scope_info
+        self.scope_info = {
+            name: [[MemoryScope(scope) for scope in scopes] for scopes in signature]
+            for name, signature in scope_info.items()
+        }
         self.matched = True
 
     def visit(self, mod: IRModule) -> None:
@@ -48,13 +53,15 @@ class ValidateScope(PyExprVisitor):  # pylint: disable=abstract-method
                 assert isinstance(arg_ty, relax.TensorType), (
                     f"Expected TensorType but git {type(arg_ty)}"
                 )
-                call_mem_scope = "global" if not arg_ty.vdevice else arg_ty.vdevice.memory_scope
+                call_mem_scope = (
+                    MemoryScope("global") if not arg_ty.vdevice else arg_ty.vdevice.memory_scope
+                )
                 assert call_mem_scope == self.scope_info[call.args[0].name_hint][0][idx], (
                     f"Scope mismatched for argument {idx} in {call.args[0].name_hint}"
                 )
             if isinstance(call.ty_args[0], relax.TensorType):
                 call_mem_scope = (
-                    "global"
+                    MemoryScope("global")
                     if not call.ty_args[0].vdevice
                     else call.ty_args[0].vdevice.memory_scope
                 )
@@ -66,46 +73,47 @@ class ValidateScope(PyExprVisitor):  # pylint: disable=abstract-method
                     f"Expected TupleType but git {type(call.ty_args[0])}"
                 )
                 for idx, ty in enumerate(call.ty_args[0].fields):
-                    call_mem_scope = "global" if not ty.vdevice else ty.vdevice.memory_scope
+                    call_mem_scope = (
+                        MemoryScope("global") if not ty.vdevice else ty.vdevice.memory_scope
+                    )
                     assert call_mem_scope == self.scope_info[call.args[0].name_hint][1][idx], (
                         f"Scope mismatched for return scope for {idx} in {call.args[0].name_hint}"
                     )
 
 
 def verify(mod, expected):
-    tgt = tvm.target.Target({"kind": "opencl", "device": "adreno"}, host="llvm")
+    tgt = tvm_tirx.target.Target({"kind": "opencl", "device": "adreno"}, host="llvm")
     skip_ops = [
         "relax.nn.conv2d",
         "relax.nn.max_pool2d",
         "relax.nn.adaptive_avg_pool2d",
         # "relax.nn.layer_norm",
     ]
-    with tgt:
-        mod = tvm.tirx.transform.BindTarget(tvm.target.Target.current(allow_none=False))(mod)
-        mod = tvm.relax.transform.DecomposeOpsForInference()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        desired_layouts = {"relax.nn.conv2d": ["NCHW4c", "OIHW4o", "NCHW4c"]}
-        mod = tvm.relax.transform.ConvertLayout(desired_layouts)(mod)
-        mod = tvm.relax.transform.Normalize()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        mod = tvm.relax.transform.LegalizeOps(skip_ops=skip_ops)(mod)
-        mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
-        mod = tvm.relax.backend.adreno.transform.AnnotateCustomMemoryScope(tgt)(mod)
-        # There is a possibility of some skipped ops above might not use 5D layouts.
-        mod = tvm.relax.transform.LegalizeOps()(mod)
-        mod = tvm.relax.transform.LegalizeOps(
-            {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo},
-        )(mod)
-        # Lets get pattern info for newly legalized ops
-        mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
-        mod = tvm.relax.transform.FoldConstant()(mod)
-        mod = tvm.relax.transform.FuseOps()(mod)
-        mod = tvm.relax.transform.FuseTIR()(mod)
-        mod = tvm.relax.transform.DeadCodeElimination()(mod)
-        mod = tvm.relax.backend.adreno.transform.FoldVDeviceScopeChange()(mod)
-        mod = tvm.relax.transform.DeadCodeElimination()(mod)
-        mod = tvm.relax.transform.SpecializePrimFuncBasedOnCallSite()(mod)
-        mod = tvm.relax.transform.Normalize()(mod)
+    mod = tvm_tirx.tirx.transform.BindTarget(tgt)(mod)
+    mod = tvm.relax.transform.DecomposeOpsForInference()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    desired_layouts = {"relax.nn.conv2d": ["NCHW4c", "OIHW4o", "NCHW4c"]}
+    mod = tvm.relax.transform.ConvertLayout(desired_layouts)(mod)
+    mod = tvm.relax.transform.Normalize()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    mod = tvm.relax.transform.LegalizeOps(skip_ops=skip_ops, target=tgt)(mod)
+    mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
+    mod = tvm.relax.backend.adreno.transform.AnnotateCustomMemoryScope(tgt)(mod)
+    # There is a possibility of some skipped ops above might not use 5D layouts.
+    mod = tvm.relax.transform.LegalizeOps(target=tgt)(mod)
+    mod = tvm.relax.transform.LegalizeOps(
+        {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo}, target=tgt
+    )(mod)
+    # Lets get pattern info for newly legalized ops
+    mod = tvm.relax.transform.AnnotateTIROpPattern()(mod)
+    mod = tvm.relax.transform.FoldConstant()(mod)
+    mod = tvm.relax.transform.FuseOps()(mod)
+    mod = tvm.relax.transform.FuseTIR()(mod)
+    mod = tvm.relax.transform.DeadCodeElimination()(mod)
+    mod = tvm.relax.backend.adreno.transform.FoldVDeviceScopeChange()(mod)
+    mod = tvm.relax.transform.DeadCodeElimination()(mod)
+    mod = tvm.relax.transform.SpecializeFunctionBasedOnCallSite()(mod)
+    mod = tvm.relax.transform.Normalize()(mod)
 
     ValidateScope(expected).visit(mod)
 
@@ -195,14 +203,14 @@ def test_conv2d_NHWC_sub_indexed():
 
 
 def _test_conv2d_symbolic_sub_indexed():
-    N, H, W = T.dynamic("N"), T.dynamic("H"), T.dynamic("W")
-    Hw, Ww = T.dynamic("Hw"), T.dynamic("Ww")
+    N, H, W = T.dynamic("N", "int64"), T.dynamic("H", "int64"), T.dynamic("W", "int64")
+    Hw, Ww = T.dynamic("Hw", "int64"), T.dynamic("Ww", "int64")
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
 
     @I.ir_module
     class Input:
@@ -1212,4 +1220,4 @@ def test_injective_nwo_inputs2():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

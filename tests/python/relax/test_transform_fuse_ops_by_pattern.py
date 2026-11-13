@@ -19,7 +19,9 @@ import numpy as np
 import pytest
 
 import tvm
+import tvm_tirx
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.backend.cuda.cublas import partition_for_cublas
 from tvm.relax.backend.cuda.cutlass import partition_for_cutlass
 from tvm.relax.dpl.pattern import (
@@ -30,13 +32,12 @@ from tvm.relax.dpl.pattern import (
     wildcard,
 )
 from tvm.relax.transform import PatternCheckContext
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLU:
     @R.function
     def main(
@@ -50,7 +51,7 @@ class Conv2dReLU:
         return conv1
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLU_composite_annotated:
     @R.function
     def main(
@@ -98,7 +99,7 @@ class Conv2dReLU_composite_annotated:
         return gv11
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2:
     @R.function
     def main(
@@ -114,7 +115,7 @@ class Conv2dReLUx2:
         return conv2
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2Partitioned:
     @R.function
     def main(
@@ -164,7 +165,7 @@ class Conv2dReLUx2Partitioned:
         return gv2
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2Partitioned_only_conv2d:
     @R.function
     def main(
@@ -212,7 +213,7 @@ class Conv2dReLUx2Partitioned_only_conv2d:
         return gv1
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dConv2dReLU:
     @R.function
     def main(
@@ -228,7 +229,7 @@ class Conv2dConv2dReLU:
         return conv2d
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dConv2dReLUPartitioned:
     @R.function
     def main(
@@ -276,7 +277,7 @@ class Conv2dConv2dReLUPartitioned:
         return gv2
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class BranchTupleOutput:
     @R.function
     def main(
@@ -294,7 +295,7 @@ class BranchTupleOutput:
         return out
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class BranchTupleOutputPartitioned:
     @R.function
     def main(
@@ -331,7 +332,7 @@ class BranchTupleOutputPartitioned:
         return (gv1, gv)
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Branch:
     @R.function
     def main(
@@ -349,7 +350,7 @@ class Branch:
         return out
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dx2:
     @R.function
     def main2(
@@ -388,7 +389,7 @@ class Conv2dx2:
         return result
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dx2_partitioned:
     @R.function
     def fused_relax_nn_conv2d_cutlass(
@@ -465,7 +466,7 @@ conv2d_relu_pat = make_fused_bias_activation_pattern("relax.nn.conv2d", activati
 
 def check(mod, patterns, expected, bind_constants=True, annotate_codegen=False):
     partitioned = relax.transform.FuseOpsByPattern(patterns, bind_constants, annotate_codegen)(mod)
-    tvm.ir.assert_structural_equal(partitioned, expected)
+    tvm_tirx.ir.assert_structural_equal(partitioned, expected)
 
 
 def test_partition_conv2d_relu():
@@ -511,7 +512,7 @@ def test_cyclic_dependency():
 
 def test_bind_params():
     weight_np = np.random.randn(64, 64, 3, 3).astype("float32")
-    mod = tvm.transform.Sequential(
+    mod = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.BindParams("main", {"weight1": weight_np}),
             relax.transform.FuseOpsByPattern(
@@ -525,7 +526,7 @@ def test_bind_params():
     for gvar, f in mod.functions.items():
         if gvar.name_hint == "fused_relax_nn_conv2d_relax_nn_relu":
             conv2d = f.body.blocks[0].bindings[0].value
-            assert isinstance(conv2d.args[1], tvm.ir.GenericConst)
+            assert isinstance(conv2d.args[1], tvm_tirx.ir.GenericConst)
 
 
 def test_annotate_codegen():
@@ -558,7 +559,7 @@ def test_unmatched_calls_may_include_lambda_functions(annotate_codegen):
     attribute.
     """
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
         @R.function
         def main(
@@ -613,7 +614,7 @@ def test_compare_with_merge_composite_path():
     mod1 = relax.transform.FuseOpsByPattern(patterns, bind_constants=True, annotate_codegen=True)(
         mod
     )
-    tvm.relax.analysis.well_formed(mod1)
+    tvm.relax.analysis.check_well_formed(mod1)
 
     @I.ir_module
     class Expected1:
@@ -648,13 +649,13 @@ def test_compare_with_merge_composite_path():
                 R.output(gv)
             return gv
 
-    tvm.ir.assert_structural_equal(mod1, Expected1)
+    tvm_tirx.ir.assert_structural_equal(mod1, Expected1)
 
     mod2 = relax.transform.FuseOpsByPattern(patterns, bind_constants=True, annotate_codegen=False)(
         mod
     )
     mod2 = relax.transform.MergeCompositeFunctions()(mod2)
-    tvm.relax.analysis.well_formed(mod2)
+    tvm.relax.analysis.check_well_formed(mod2)
 
     @I.ir_module
     class Expected2:
@@ -690,7 +691,7 @@ def test_compare_with_merge_composite_path():
                 R.output(gv)
             return gv
 
-    tvm.ir.assert_structural_equal(mod2, Expected2)
+    tvm_tirx.ir.assert_structural_equal(mod2, Expected2)
 
 
 def test_multiple_entries_multiple_calls_same_extern():
@@ -701,10 +702,10 @@ def test_multiple_entries_multiple_calls_same_extern():
 def test_ignore_call_tir():
     @I.ir_module
     class Conv2dReLUCallTIR:
-        @Ts.prim_func
+        @Ts.function
         def relu(
-            data: T.Buffer((1, 64, 56, 56), "float32"),
-            out: T.Buffer((1, 64, 56, 56), "float32"),
+            data: T.Tensor((1, 64, 56, 56), "float32"),
+            out: T.Tensor((1, 64, 56, 56), "float32"),
         ):
             for ax0, ax1, ax2, ax3 in T.grid(1, 64, 56, 56):
                 with Ts.sblock("root"):
@@ -721,7 +722,7 @@ def test_ignore_call_tir():
                 relu1 = R.call_tir(
                     Conv2dReLUCallTIR.relu,
                     (conv1,),
-                    R.Tensor((1, 64, 56, 56), "float32"),
+                    ty_args=[R.Tensor((1, 64, 56, 56), "float32")],
                 )
                 R.output(relu1)
 
@@ -729,10 +730,10 @@ def test_ignore_call_tir():
 
     @I.ir_module
     class Conv2dReLUCallTIR_partitioned:
-        @Ts.prim_func
+        @Ts.function
         def relu(
-            data: T.Buffer((1, 64, 56, 56), "float32"),
-            out: T.Buffer((1, 64, 56, 56), "float32"),
+            data: T.Tensor((1, 64, 56, 56), "float32"),
+            out: T.Tensor((1, 64, 56, 56), "float32"),
         ):
             # with Ts.sblock("root"):
             for ax0, ax1, ax2, ax3 in T.grid(1, 64, 56, 56):
@@ -770,7 +771,7 @@ def test_ignore_call_tir():
                 relu1 = R.call_tir(
                     cls.relu,
                     (lv,),
-                    out_ty=R.Tensor((1, 64, 56, 56), dtype="float32"),
+                    ty_args=[R.Tensor((1, 64, 56, 56), dtype="float32")],
                 )
                 R.output(relu1)
             return relu1
@@ -839,7 +840,7 @@ def test_check_pattern():
         expr = context.annotated_expr["root"]
         assert isinstance(lhs, relax.expr.Var) and lhs.name == "data"
         assert isinstance(rhs, relax.expr.Var) and rhs.name == "weight1"
-        assert isinstance(expr, tvm.ir.Call) and expr.op.name == "relax.nn.conv2d"
+        assert isinstance(expr, tvm_tirx.ir.Call) and expr.op.name == "relax.nn.conv2d"
         return False
 
     check(
@@ -907,7 +908,7 @@ def test_split():
             R.output(out)
         return out
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected1:
         @R.function(private=True)
         def fused_relax_split(inp: R.Tensor((16, 32), dtype="float32")) -> R.Tuple(
@@ -962,7 +963,7 @@ def test_split():
                 R.output(gv)
             return gv
 
-    mod = tvm.IRModule({"main": func})
+    mod = tvm_tirx.IRModule({"main": func})
 
     split = is_op("relax.split")(wildcard())
     it1 = is_tuple_get_item(split, 0)
@@ -1004,7 +1005,7 @@ def test_clip():
                 R.output(gv)
             return gv
 
-    mod1 = tvm.IRModule({"main": func1})
+    mod1 = tvm_tirx.IRModule({"main": func1})
     pat_clip = is_op("relax.clip")(wildcard(), wildcard(), wildcard())
 
     check(mod1, [("x.clip", pat_clip)], Expected1)
@@ -1055,7 +1056,7 @@ def test_clip():
                 R.output(gv, gv1)
             return (gv, gv1)
 
-    mod = tvm.IRModule({"main": func2})
+    mod = tvm_tirx.IRModule({"main": func2})
     check(mod, [("x.clip", pat_clip)], Expected2)
 
 
@@ -1138,8 +1139,8 @@ def test_error_on_repeated_variable_definitions():
 
 
 def test_matmul_symbolic_var():
-    batch_size = T.dynamic("batch_size")
-    M = T.dynamic("M")
+    batch_size = T.dynamic("batch_size", "int64")
+    M = T.dynamic("M", "int64")
 
     @I.ir_module
     class Before:
@@ -1156,11 +1157,11 @@ def test_matmul_symbolic_var():
                 R.output(out)
             return out
 
-    batch_size_main = T.dynamic("batch_size")
-    M_main = T.dynamic("M")
-    batch_size_fused_relax_matmul_cublas = T.dynamic("batch_size")
-    batch_size_fused_relax_matmul1_cublas = T.dynamic("batch_size")
-    M_fused_relax_matmul1_cublas = T.dynamic("M")
+    batch_size_main = T.dynamic("batch_size", "int64")
+    M_main = T.dynamic("M", "int64")
+    batch_size_fused_relax_matmul_cublas = T.dynamic("batch_size", "int64")
+    batch_size_fused_relax_matmul1_cublas = T.dynamic("batch_size", "int64")
+    M_fused_relax_matmul1_cublas = T.dynamic("M", "int64")
 
     @I.ir_module
     class Expected:
@@ -1231,7 +1232,7 @@ def test_matmul_symbolic_var():
     After = relax.transform.FuseOpsByPattern(patterns, bind_constants=False, annotate_codegen=True)(
         Before
     )
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_match_maximal_subgraph():
@@ -1249,7 +1250,7 @@ def test_match_maximal_subgraph():
             R.output(lv2)
         return lv2
 
-    mod = tvm.IRModule({"main": func})
+    mod = tvm_tirx.IRModule({"main": func})
 
     matmul = is_op("relax.matmul")(wildcard(), wildcard())
     matmul_add = is_op("relax.add")(matmul, wildcard())
@@ -1360,7 +1361,7 @@ def test_dataflow_inside_branch():
         bind_constants=False,
         annotate_codegen=True,
     )(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_concat():
@@ -1401,7 +1402,7 @@ def test_concat():
                 R.output(gv)
             return gv
 
-    mod = tvm.IRModule({"main": func})
+    mod = tvm_tirx.IRModule({"main": func})
     inp = is_tuple([is_op("relax.abs")(wildcard()), is_op("relax.abs")(wildcard())])
     pat_clip = is_op("relax.concat")(inp)
 
@@ -1456,7 +1457,7 @@ def test_unique_boundary_output_precedes_last_group_binding():
         [("compiler_A.relu_chain", pattern)], annotate_codegen=True
     )(Before)
 
-    relax.analysis.well_formed(after)
+    relax.analysis.check_well_formed(after)
     assert not relax.analysis.free_vars(after["main"])
 
     calls = [
@@ -1504,7 +1505,7 @@ def test_inline_bound_static_shape_argument():
         lambda expr: (
             reshape_calls.append(expr)
             if isinstance(expr, relax.Call)
-            and isinstance(expr.op, tvm.ir.Op)
+            and isinstance(expr.op, tvm_tirx.ir.Op)
             and expr.op.name == "relax.reshape"
             else None
         ),

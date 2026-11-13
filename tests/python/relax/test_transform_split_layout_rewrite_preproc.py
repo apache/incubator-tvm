@@ -15,25 +15,26 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import tvm.testing
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_single_buffer():
     @I.ir_module
     class Before:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            X: T.Buffer((224, 224), "float32"),
-            W: T.Buffer((224, 224), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W: T.Tensor((224, 224), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
-            T.func_attr({"layout_free_buffers": [1]})
-            W_rewrite = Ts.sblock_alloc_buffer((4, 4, 56, 56))
+            T.func_attr({"layout_free_tensors": [1]})
+            W_rewrite = Ts.sblock_alloc_tensor((4, 4, 56, 56))
             for i, j in T.grid(224, 224):
                 with Ts.sblock("W_rewrite"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -53,17 +54,19 @@ def test_single_buffer():
             R.func_attr({"num_input": 1})
             cls = Before
             with R.dataflow():
-                gv = R.call_tir(cls.tir_func, (x, w), out_ty=R.Tensor((224, 224), dtype="float32"))
+                gv = R.call_tir(
+                    cls.tir_func, (x, w), ty_args=[R.Tensor((224, 224), dtype="float32")]
+                )
                 R.output(gv)
             return gv
 
     @I.ir_module
     class After:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_prepacked(
-            X: T.Buffer((224, 224), "float32"),
-            W_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
             for i0, j0, i1, j1 in T.grid(4, 4, 56, 56):
                 with Ts.sblock("Out"):
@@ -71,10 +74,10 @@ def test_single_buffer():
                     vj = Ts.axis.spatial(224, j0 * 56 + j1)
                     Out[vi, vj] = X[vi, vj] + W_rewrite[vi // 56, vj // 56, vi % 56, vj % 56]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_weight_prepack(
-            W: T.Buffer((224, 224), "float32"),
-            W_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
+            W: T.Tensor((224, 224), "float32"),
+            W_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
         ):
             for i, j in T.grid(224, 224):
                 with Ts.sblock("W_rewrite"):
@@ -90,31 +93,31 @@ def test_single_buffer():
             cls = After
             with R.dataflow():
                 lv = R.call_tir(
-                    cls.tir_func_weight_prepack, (w,), out_ty=R.Tensor((4, 4, 56, 56), "float32")
+                    cls.tir_func_weight_prepack, (w,), ty_args=[R.Tensor((4, 4, 56, 56), "float32")]
                 )
                 lv1 = R.call_tir(
-                    cls.tir_func_prepacked, (x, lv), out_ty=R.Tensor((224, 224), "float32")
+                    cls.tir_func_prepacked, (x, lv), ty_args=[R.Tensor((224, 224), "float32")]
                 )
                 gv: R.Tensor((224, 224), dtype="float32") = lv1
                 R.output(gv)
             return gv
 
     mod = relax.transform.SplitLayoutRewritePreproc()(Before)
-    tvm.ir.assert_structural_equal(mod, After)
+    tvm_tirx.ir.assert_structural_equal(mod, After)
 
 
 def test_multiple_buffers():
     @I.ir_module
     class Before:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            X: T.Buffer((224, 224), "float32"),
-            W1: T.Buffer((224, 224), "float32"),
-            W2: T.Buffer((224, 224), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W1: T.Tensor((224, 224), "float32"),
+            W2: T.Tensor((224, 224), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
-            W1_rewrite = Ts.sblock_alloc_buffer((4, 4, 56, 56))
-            W2_rewrite = Ts.sblock_alloc_buffer((4, 4, 56, 56))
+            W1_rewrite = Ts.sblock_alloc_tensor((4, 4, 56, 56))
+            W2_rewrite = Ts.sblock_alloc_tensor((4, 4, 56, 56))
             for i, j in T.grid(224, 224):
                 with Ts.sblock("W1_rewrite"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -145,19 +148,19 @@ def test_multiple_buffers():
             cls = Before
             with R.dataflow():
                 gv = R.call_tir(
-                    cls.tir_func, (x, w1, w2), out_ty=R.Tensor((224, 224), dtype="float32")
+                    cls.tir_func, (x, w1, w2), ty_args=[R.Tensor((224, 224), dtype="float32")]
                 )
                 R.output(gv)
             return gv
 
     @I.ir_module
     class After:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_prepacked(
-            X: T.Buffer((224, 224), "float32"),
-            W1_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
-            W2_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W1_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
+            W2_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
             for i0, j0, i1, j1 in T.grid(4, 4, 56, 56):
                 with Ts.sblock("Out"):
@@ -169,12 +172,12 @@ def test_multiple_buffers():
                         + W2_rewrite[vi // 56, vj // 56, vi % 56, vj % 56]
                     )
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_weight_prepack(
-            W1: T.Buffer((224, 224), "float32"),
-            W2: T.Buffer((224, 224), "float32"),
-            W1_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
-            W2_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
+            W1: T.Tensor((224, 224), "float32"),
+            W2: T.Tensor((224, 224), "float32"),
+            W1_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
+            W2_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
         ):
             for i, j in T.grid(224, 224):
                 with Ts.sblock("W1_rewrite"):
@@ -197,35 +200,39 @@ def test_multiple_buffers():
                 lv0 = R.call_tir(
                     cls.tir_func_weight_prepack,
                     (w1, w2),
-                    out_ty=[
-                        R.Tensor((4, 4, 56, 56), "float32"),
-                        R.Tensor((4, 4, 56, 56), "float32"),
+                    ty_args=[
+                        _TupleType(
+                            [
+                                R.Tensor((4, 4, 56, 56), "float32"),
+                                R.Tensor((4, 4, 56, 56), "float32"),
+                            ]
+                        )
                     ],
                 )
                 lv1 = R.call_tir(
                     cls.tir_func_prepacked,
                     (x, lv0[0], lv0[1]),
-                    out_ty=R.Tensor((224, 224), "float32"),
+                    ty_args=[R.Tensor((224, 224), "float32")],
                 )
                 gv: R.Tensor((224, 224), dtype="float32") = lv1
                 R.output(gv)
             return gv
 
     mod = relax.transform.SplitLayoutRewritePreproc()(Before)
-    tvm.ir.assert_structural_equal(mod, After)
+    tvm_tirx.ir.assert_structural_equal(mod, After)
 
 
 def test_attr_inheritance():
     @I.ir_module
     class Before:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            X: T.Buffer((224, 224), "float32"),
-            W: T.Buffer((224, 224), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W: T.Tensor((224, 224), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
-            T.func_attr({"layout_free_buffers": [1], "tirx.noalias": True})
-            W_rewrite = Ts.sblock_alloc_buffer((4, 4, 56, 56))
+            T.func_attr({"layout_free_tensors": [1], "tirx.noalias": True})
+            W_rewrite = Ts.sblock_alloc_tensor((4, 4, 56, 56))
             for i, j in T.grid(224, 224):
                 with Ts.sblock("W_rewrite"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -245,17 +252,19 @@ def test_attr_inheritance():
             R.func_attr({"num_input": 1})
             cls = Before
             with R.dataflow():
-                gv = R.call_tir(cls.tir_func, (x, w), out_ty=R.Tensor((224, 224), dtype="float32"))
+                gv = R.call_tir(
+                    cls.tir_func, (x, w), ty_args=[R.Tensor((224, 224), dtype="float32")]
+                )
                 R.output(gv)
             return gv
 
     @I.ir_module
     class After:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_prepacked(
-            X: T.Buffer((224, 224), "float32"),
-            W_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
-            Out: T.Buffer((224, 224), "float32"),
+            X: T.Tensor((224, 224), "float32"),
+            W_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
+            Out: T.Tensor((224, 224), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i0, j0, i1, j1 in T.grid(4, 4, 56, 56):
@@ -264,10 +273,10 @@ def test_attr_inheritance():
                     vj = Ts.axis.spatial(224, j0 * 56 + j1)
                     Out[vi, vj] = X[vi, vj] + W_rewrite[vi // 56, vj // 56, vi % 56, vj % 56]
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func_weight_prepack(
-            W: T.Buffer((224, 224), "float32"),
-            W_rewrite: T.Buffer((4, 4, 56, 56), "float32"),
+            W: T.Tensor((224, 224), "float32"),
+            W_rewrite: T.Tensor((4, 4, 56, 56), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i, j in T.grid(224, 224):
@@ -284,18 +293,18 @@ def test_attr_inheritance():
             cls = After
             with R.dataflow():
                 lv = R.call_tir(
-                    cls.tir_func_weight_prepack, (w,), out_ty=R.Tensor((4, 4, 56, 56), "float32")
+                    cls.tir_func_weight_prepack, (w,), ty_args=[R.Tensor((4, 4, 56, 56), "float32")]
                 )
                 lv1 = R.call_tir(
-                    cls.tir_func_prepacked, (x, lv), out_ty=R.Tensor((224, 224), "float32")
+                    cls.tir_func_prepacked, (x, lv), ty_args=[R.Tensor((224, 224), "float32")]
                 )
                 gv: R.Tensor((224, 224), dtype="float32") = lv1
                 R.output(gv)
             return gv
 
     mod = relax.transform.SplitLayoutRewritePreproc()(Before)
-    tvm.ir.assert_structural_equal(mod, After)
+    tvm_tirx.ir.assert_structural_equal(mod, After)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

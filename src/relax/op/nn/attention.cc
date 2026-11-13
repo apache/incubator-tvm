@@ -21,6 +21,7 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/relax/op_attr.h>
 
 #include <utility>
 
@@ -38,12 +39,12 @@ Expr attention(Expr query, Expr key, Expr value, ffi::Optional<Expr> bias,
   attrs->window_size = window_size;
 
   if (bias) {
-    return Call::Unchecked(Type::Missing(), Op::Get("relax.nn.attention_bias"),
-                           {std::move(query), std::move(key), std::move(value), bias.value()},
-                           Attrs(attrs), {});
+    return Call(Type::Missing(), Op::Get("relax.nn.attention_bias"),
+                {std::move(query), std::move(key), std::move(value), bias.value()}, Attrs(attrs),
+                {});
   }
-  return Call::Unchecked(Type::Missing(), Op::Get("relax.nn.attention"),
-                         {std::move(query), std::move(key), std::move(value)}, Attrs(attrs), {});
+  return Call(Type::Missing(), Op::Get("relax.nn.attention"),
+              {std::move(query), std::move(key), std::move(value)}, Attrs(attrs), {});
 }
 
 Expr attention_var_len(Expr query, Expr key, Expr value, Expr seqstart_q, Expr seqstart_k,
@@ -54,9 +55,24 @@ Expr attention_var_len(Expr query, Expr key, Expr value, Expr seqstart_q, Expr s
   attrs->causal_mask = causal_mask;
   attrs->window_size = window_size;
 
-  return Call::Unchecked(Type::Missing(), Op::Get("relax.nn.attention_var_len"),
-                         {query, key, value, seqstart_q, seqstart_k, max_seqlen_q, max_seqlen_k},
-                         Attrs(attrs), {});
+  return Call(Type::Missing(), Op::Get("relax.nn.attention_var_len"),
+              {query, key, value, seqstart_q, seqstart_k, max_seqlen_q, max_seqlen_k}, Attrs(attrs),
+              {});
+}
+
+void AttentionAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<AttentionAttrs>()
+      .def_ro(
+          "scale", &AttentionAttrs::scale,
+          "The custom scale applied before the softmax. The default value is 1 / sqrt(head_dim).",
+          refl::DefaultValue(ffi::Optional<FloatImm>{}))
+      .def_ro("causal_mask", &AttentionAttrs::causal_mask,
+              "The type of the causal mask, i.e. 'TopLeft' and 'BottomRight'.",
+              refl::DefaultValue(ffi::Optional<ffi::String>{}))
+      .def_ro("window_size", &AttentionAttrs::window_size,
+              "The size of the window for sliding-window attention.",
+              refl::DefaultValue(ffi::Optional<IntImm>{}));
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -81,9 +97,9 @@ Type InferTypeAttention(const Call& call, const BlockBuilder& ctx) {
   diag_dim(q_ty, "query");
   diag_dim(k_ty, "key");
   diag_dim(v_ty, "value");
-  const ShapeExprNode* q_shape = q_ty->shape.as<ShapeExprNode>();
-  const ShapeExprNode* k_shape = k_ty->shape.as<ShapeExprNode>();
-  const ShapeExprNode* v_shape = v_ty->shape.as<ShapeExprNode>();
+  const ShapeExprObj* q_shape = q_ty->shape.as<ShapeExprObj>();
+  const ShapeExprObj* k_shape = k_ty->shape.as<ShapeExprObj>();
+  const ShapeExprObj* v_shape = v_ty->shape.as<ShapeExprObj>();
   PrimExpr num_batches = q_shape->values[0];
   PrimExpr num_queries = q_shape->values[1];
   PrimExpr num_heads = q_shape->values[2];
@@ -118,7 +134,7 @@ Type InferTypeAttention(const Call& call, const BlockBuilder& ctx) {
 
   if (input_ty.size() == 4) {
     TensorType bias_ty = input_ty[3];
-    const ShapeExprNode* bias_shape = bias_ty->shape.as<ShapeExprNode>();
+    const ShapeExprObj* bias_shape = bias_ty->shape.as<ShapeExprObj>();
     if (bias_ty->ndim != 4) {
       TVM_FFI_VISIT_THROW(ValueError, call)
           << "The bias should have 4 dimensions."
@@ -126,7 +142,7 @@ Type InferTypeAttention(const Call& call, const BlockBuilder& ctx) {
     }
     auto diag_equal_or_broadcast = [&](PrimExpr v1, PrimExpr v2, ffi::String m1, ffi::String m2,
                                        ffi::String dim) {
-      if (analyzer->CanProve(v1 != v2) && !tvm::prim::is_one(v2)) {
+      if (analyzer->CanProve(v1 != v2) && !tvm::prim::IsOne(v2)) {
         TVM_FFI_VISIT_THROW(ValueError, call)
             << "The " << m1 << " " << dim << " and the " << m2 << " " << dim
             << " should be the same or broadcastable. However, the " << dim << " of " << m1
@@ -154,20 +170,20 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("query", "The input queries tensor."),
                  sig::arg("key", "The input keys tensor."),
                  sig::arg("value", "The input values tensor."), sig::call_attrs<AttentionAttrs>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kAlways)
-      .set_attr<FInferMixedPrecision>("FInferMixedPrecision", InferMixedPrecisionAttention)
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeAttention)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kAlways)
+      .set_attr(tvm::relax::op_attr::kInferMixedPrecision, InferMixedPrecisionAttention)
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeAttention)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.nn.attention_bias")
       .signature(sig::arg("query", "The input queries tensor."),
                  sig::arg("key", "The input keys tensor."),
                  sig::arg("value", "The input values tensor."),
                  sig::arg("bias", "The input bias tensor."), sig::call_attrs<AttentionAttrs>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kAlways)
-      .set_attr<FInferMixedPrecision>("FInferMixedPrecision", InferMixedPrecisionAttention)
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeAttention)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kAlways)
+      .set_attr(tvm::relax::op_attr::kInferMixedPrecision, InferMixedPrecisionAttention)
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeAttention)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.nn.attention_var_len")
       .signature(sig::arg("query", "The input queries tensor."),
@@ -178,10 +194,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  sig::arg("max_seqlen_q", "The maximum query sequence length in the batch."),
                  sig::arg("max_seqlen_k", "The maximum key sequence length in the batch."),
                  sig::call_attrs<AttentionAttrs>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kAlways)
-      .set_attr<FInferMixedPrecision>("FInferMixedPrecision", InferMixedPrecisionAttention)
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeAttention)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kAlways)
+      .set_attr(tvm::relax::op_attr::kInferMixedPrecision, InferMixedPrecisionAttention)
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeAttention)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   AttentionAttrs::RegisterReflection();
 }

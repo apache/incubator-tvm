@@ -73,10 +73,10 @@ inline tvm::relax::SeqExpr GetSeqExprForBranch(const SeqExprFrame& frame, ffi::S
   // Step 0. Check frame type
   std::string method;
   std::string output_var_suffix;
-  if (frame->IsInstance<ThenFrameNode>()) {
+  if (frame->IsInstance<ThenFrameObj>()) {
     method = "R.Then";
     output_var_suffix = "_then";
-  } else if (frame->IsInstance<ElseFrameNode>()) {
+  } else if (frame->IsInstance<ElseFrameObj>()) {
     method = "R.Else";
     output_var_suffix = "_else";
   } else {
@@ -96,7 +96,7 @@ inline tvm::relax::SeqExpr GetSeqExprForBranch(const SeqExprFrame& frame, ffi::S
   // variable name.
 
   tvm::relax::Binding last_binding = last_block->bindings.back();
-  TVM_FFI_ICHECK(!last_binding->var->IsInstance<tvm::relax::DataflowVarNode>())
+  TVM_FFI_ICHECK(!last_binding->var->IsInstance<tvm::relax::DataflowVarObj>())
       << "A non-dataflow var is expected in the last binding of '" << method << "'.";
 
   *var_name = last_binding->var->name;
@@ -108,30 +108,28 @@ inline tvm::relax::SeqExpr GetSeqExprForBranch(const SeqExprFrame& frame, ffi::S
                                                       last_block->bindings.end() - 1);
 
   tvm::Var new_var(last_binding->var->name + output_var_suffix,
-                   tvm::relax::GetType(last_binding->var), last_binding->var->span);
-  tvm::relax::Expr body;
+                   tvm::relax::GetType(last_binding->var), last_binding->var->loc);
+  tvm::relax::Expr body = new_var;
 
-  const auto* var_binding = last_binding.as<tvm::relax::VarBindingNode>();
+  const auto* var_binding = last_binding.as<tvm::relax::VarBindingObj>();
 
   if (var_binding && tvm::relax::IsLeafOrTuple(var_binding->value)) {
     body = var_binding->value;
   } else if (var_binding) {
     last_block_bindings.push_back(
-        tvm::relax::VarBinding(new_var, var_binding->value, var_binding->span));
-    body = new_var;
-  } else if (const auto* match_cast = last_binding.as<tvm::relax::MatchCastNode>()) {
+        tvm::relax::VarBinding(new_var, var_binding->value, var_binding->loc));
+  } else if (const auto* match_cast = last_binding.as<tvm::relax::MatchCastObj>()) {
     last_block_bindings.push_back(
-        tvm::relax::MatchCast(new_var, match_cast->value, match_cast->ty, match_cast->span));
-    body = new_var;
+        tvm::relax::MatchCast(new_var, match_cast->value, match_cast->ty, match_cast->loc));
   } else {
     TVM_FFI_CHECK(false, TypeError) << "Unsupported binding type: " << last_binding->GetTypeKey();
   }
 
-  new_blocks.push_back(last_block->IsInstance<tvm::relax::DataflowBlockNode>()
-                           ? tvm::relax::DataflowBlock(last_block_bindings, last_block->span)
-                           : tvm::relax::BindingBlock(last_block_bindings, last_block->span));
+  new_blocks.push_back(last_block->IsInstance<tvm::relax::DataflowBlockObj>()
+                           ? tvm::relax::DataflowBlock(last_block_bindings, last_block->loc)
+                           : tvm::relax::BindingBlock(last_block_bindings, last_block->loc));
 
-  return tvm::relax::SeqExpr(new_blocks, body, frame->source_span);
+  return tvm::relax::SeqExpr(new_blocks, body, frame->loc);
 }
 
 }  // namespace relax

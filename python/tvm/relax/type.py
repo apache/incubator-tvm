@@ -21,8 +21,10 @@
 import tvm_ffi
 from tvm_ffi import Array
 
-from tvm.ir import AnyType, EnvFunc, PrimType, Span, TupleType
 from tvm.relax.global_info import VDevice
+from tvm_tirx.ir import AnyType, EnvFunc, Location, PrimType, TupleType
+from tvm_tirx.ir.location import UNKNOWN_LOC, UnknownLoc
+from tvm_tirx.ir.type import _normalize_type
 
 from . import _ffi_api
 from .expr import Expr, ShapeExpr, Type
@@ -50,14 +52,16 @@ class ShapeType(Type):
 
     values: list[Expr] | None
     ndim: int
-    span: Span
+    loc: Location
 
-    def __init__(self, values: list[Expr] | None = None, ndim: int = -1, span: Span = None) -> None:
+    def __init__(
+        self, values: list[Expr] | None = None, ndim: int = -1, loc: Location = UNKNOWN_LOC
+    ) -> None:
         self.__init_handle_by_constructor__(
             _ffi_api.ShapeType,
             values,
             ndim,
-            span,  # type: ignore
+            loc,  # type: ignore
         )
 
 
@@ -88,15 +92,15 @@ class TensorType(Type):
     dtype: PrimType
     vdevice: VDevice | None
     ndim: int
-    span: Span
+    loc: Location
 
     def __init__(
         self,
-        shape: Expr | None | list[Expr] = None,
+        shape: Expr | list[Expr] | None = None,
         dtype: str | PrimType | None = "float32",
-        vdevice: VDevice | None | str = None,
+        vdevice: VDevice | str | None = None,
         ndim: int = -1,
-        span: Span = None,
+        loc: Location = UNKNOWN_LOC,
     ) -> None:
         if isinstance(shape, list | tuple | Array):
             shape = ShapeExpr(shape)
@@ -108,7 +112,7 @@ class TensorType(Type):
             dtype,
             ndim,
             vdevice,
-            span,  # type: ignore
+            loc,  # type: ignore
         )
 
 
@@ -135,17 +139,17 @@ class FuncType(Type):
     ret: Type
     derive_func: EnvFunc | None
     purity: bool
-    span: Span
+    loc: Location
 
     def __init__(
-        self, params: list[Type], ret: Type, purity: bool = True, span: Span = None
+        self, params: list[Type], ret: Type, purity: bool = True, loc: Location = UNKNOWN_LOC
     ) -> None:
         self.__init_handle_by_constructor__(
             _ffi_api.FuncType,
-            params,
-            ret,
+            None if params is None else [_normalize_type(param) for param in params],
+            _normalize_type(ret),
             purity,
-            span,  # type: ignore
+            loc,  # type: ignore
         )
 
     @staticmethod
@@ -154,7 +158,7 @@ class FuncType(Type):
         ret: Type | None = None,
         derive_func: str | EnvFunc | None = None,
         purity: bool = False,
-        span: Span = None,
+        loc: Location = UNKNOWN_LOC,
     ) -> "FuncType":
         """
         Create an opaque FuncType.
@@ -174,8 +178,8 @@ class FuncType(Type):
         purity: bool
            Whether the function is pure (false by default, as most opaque functions are not pure)
 
-        span: Optional[Span]
-           Optional span information of the ast.
+        loc: Location
+           Optional loc information of the ast.
 
         Returns
         -------
@@ -187,5 +191,7 @@ class FuncType(Type):
         """
 
         if isinstance(derive_func, str):
-            derive_func = EnvFunc.get("tvm.relax.type.infer_view_ty")
-        return _ffi_api.FuncTypeOpaqueFunc(ret, derive_func, purity, span)  # type: ignore
+            derive_func = EnvFunc.get(derive_func)
+        return _ffi_api.FuncTypeOpaqueFunc(
+            None if ret is None else _normalize_type(ret), derive_func, purity, loc
+        )

@@ -29,13 +29,14 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.frontend.stablehlo import from_stablehlo
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
-from tvm.testing import env
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
+from tvm_tirx.testing import env
 
 
 def generate_np_inputs(
@@ -124,33 +125,33 @@ def check_correctness(
 
     # TODO (yongwww): support multiple targets,
     # "llvm" should be good for this check
-    target = tvm.target.Target("llvm", host="llvm")
+    target = tvm_tirx.target.Target("llvm", host="llvm")
     # Compile and run
     ex = tvm.compile(ir_mod, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     vm.set_input("main", *inputs_np)
     vm.invoke_stateful("main")
     tvm_output = vm.get_outputs("main")
 
     # Single ouput
-    if isinstance(tvm_output, tvm.runtime.Tensor):
-        tvm.testing.assert_allclose(tvm_output.numpy(), jax_output, rtol=1e-5, atol=1e-5)
+    if isinstance(tvm_output, tvm_tirx.runtime.Tensor):
+        tvm_tirx.testing.assert_allclose(tvm_output.numpy(), jax_output, rtol=1e-5, atol=1e-5)
         return
 
     # Multiple ouputs
     assert len(tvm_output) == len(jax_output), "numbers of outputs mismatch"
     for tvm_out, jax_out in zip(tvm_output, jax_output):
-        tvm.testing.assert_allclose(tvm_out.numpy(), jax_out, rtol=1e-5, atol=1e-5)
+        tvm_tirx.testing.assert_allclose(tvm_out.numpy(), jax_out, rtol=1e-5, atol=1e-5)
 
 
 def get_vm_res(
-    ir_mod: tvm.IRModule, weights: np.ndarray | list[np.ndarray]
-) -> tvm.runtime.Tensor | list[tvm.runtime.Tensor]:
+    ir_mod: tvm_tirx.IRModule, weights: np.ndarray | list[np.ndarray]
+) -> tvm_tirx.runtime.Tensor | list[tvm_tirx.runtime.Tensor]:
     """Compile and run an ir_module on Relax VM
 
     Parameters
     ----------
-    ir_mod: tvm.IRModule
+    ir_mod: tvm_tirx.IRModule
         input ir module
 
     weights: Union[np.ndarray, List[np.ndarray]]
@@ -158,13 +159,13 @@ def get_vm_res(
 
     Results
     -------
-    out: Union[tvm.runtime.Tensor, List[tvm.runtime.Tensor]]
+    out: Union[tvm_tirx.runtime.Tensor, List[tvm_tirx.runtime.Tensor]]
         inference result
     """
-    target = tvm.target.Target("llvm", host="llvm")
+    target = tvm_tirx.target.Target("llvm", host="llvm")
     # Compile and run
     ex = tvm.compile(ir_mod, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     vm.set_input("main", *weights)
     vm.invoke_stateful("main")
     tvm_output = vm.get_outputs("main")
@@ -183,10 +184,10 @@ def test_add_dynamic():
 
     mod = from_stablehlo(add_dyn)
 
-    n_0 = T.dynamic("n_0")
-    n_1 = T.dynamic("n_1")
-    n_2 = T.dynamic("n_2")
-    n_3 = T.dynamic("n_3")
+    n_0 = T.dynamic("n_0", "int64")
+    n_1 = T.dynamic("n_1", "int64")
+    n_2 = T.dynamic("n_2", "int64")
+    n_3 = T.dynamic("n_3", "int64")
 
     @I.ir_module
     class Expected:
@@ -201,7 +202,7 @@ def test_add_dynamic():
                 R.output(gv)
             return gv
 
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 @pytest.mark.gpu
@@ -374,8 +375,8 @@ def test_conv():
     # compile and run
     tvm_output = get_vm_res(ir_mod, inputs_np)
     # verify accuracy
-    tvm.testing.assert_allclose(tvm_output.numpy(), jax_output, rtol=1e-5, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), jax_output, rtol=1e-5, atol=1e-5)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

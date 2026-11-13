@@ -80,6 +80,7 @@ to show how to use Apache TVM to compile a simple neural network.
 #
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend import nn
 
@@ -137,14 +138,14 @@ mod = relax.get_pipeline("zero")(mod)
 
 import numpy as np
 
-target = tvm.target.Target("llvm")
+target = tvm_tirx.target.Target("llvm")
 ex = tvm.compile(mod, target)
-device = tvm.cpu()
+device = tvm_tirx.cpu()
 vm = relax.VirtualMachine(ex, device)
 data = np.random.rand(1, 784).astype("float32")
-tvm_data = tvm.runtime.tensor(data, device=device)
+tvm_data = tvm_tirx.runtime.tensor(data, device=device)
 params = [np.random.rand(*param.shape).astype("float32") for _, param in param_spec]
-params = [tvm.runtime.tensor(param, device=device) for param in params]
+params = [tvm_tirx.runtime.tensor(param, device=device) for param in params]
 print(vm["forward"](tvm_data, *params).numpy())
 
 ################################################################################
@@ -165,7 +166,7 @@ print(vm["forward"](tvm_data, *params).numpy())
 #   .. code-block:: Python
 #
 #       # Convert PyTorch tensor to TVM Tensor
-#       x_tvm = tvm.runtime.from_dlpack(x_torch)
+#       x_tvm = tvm_ffi.from_dlpack(x_torch)
 #       # Convert TVM Tensor to PyTorch tensor
 #       x_torch = torch.from_dlpack(x_tvm)
 #

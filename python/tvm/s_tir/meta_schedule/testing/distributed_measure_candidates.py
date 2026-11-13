@@ -23,7 +23,7 @@ import os
 from tqdm import tqdm  # type: ignore
 
 from tvm.s_tir import meta_schedule as ms
-from tvm.target import Target
+from tvm_tirx.target import Target
 
 
 def _parse_args():

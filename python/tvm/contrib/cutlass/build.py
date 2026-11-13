@@ -26,12 +26,14 @@ import os
 from collections.abc import Sequence
 from functools import reduce
 
+import tvm_ffi
 from tvm_ffi import register_global_func
 
-import tvm
-from tvm import relax, runtime
-from tvm.support.nvcc import get_cuda_version
+import tvm_tirx
+from tvm import relax
 from tvm.topi.utils import get_const_tuple
+from tvm_tirx import runtime
+from tvm_tirx.support.nvcc import get_cuda_version
 
 from .gen_conv2d import CutlassConv2DProfiler
 from .gen_gemm import CutlassGemmProfiler
@@ -42,7 +44,7 @@ logger = logging.getLogger("cutlass")
 
 def has_cutlass():
     """Returns true if the CUTLASS custom codegen is available"""
-    return tvm.get_global_func("relax.ext.cutlass", True) is not None
+    return tvm_ffi.get_global_func("relax.ext.cutlass", True) is not None
 
 
 def _get_cutlass_path():
@@ -108,7 +110,7 @@ def select_gemm_kernel(
 ):
     """Run CUTLASS profiler to select the best kernel, or return the default one for dynamic
     workloads."""
-    if any(isinstance(s, tvm.tirx.Any) for s in [MM, KK, NN]):
+    if any(isinstance(s, tvm_tirx.tirx.Any) for s in [MM, KK, NN]):
         out = cutlass_profiler.get_default(
             op_type, out_dtype, arg0_dtype, arg1_dtype, use_3xtf32, batched=batched
         )
@@ -249,7 +251,7 @@ def handle_conv2d(
     else:
         conv_kind = ConvKind.Fprop
 
-    if any(isinstance(s, tvm.tirx.Any) for s in d_shape):
+    if any(isinstance(s, tvm_tirx.tirx.Any) for s in d_shape):
         out = cutlass_profiler.get_default(
             op_type, out_dtype, data_dtype, weight_dtype, use_3xtf32, conv_kind, strides
         )
@@ -399,14 +401,14 @@ def _extract_relax_function_signature(f):
 
 
 def _extract_arg_idx(pattern_name, f):
-    extract_func = tvm.get_global_func("relax.contrib.extract_arg_idx")
+    extract_func = tvm_ffi.get_global_func("relax.contrib.extract_arg_idx")
     arg_indices = extract_func(pattern_name, f)
     return {k: int(v) for k, v in arg_indices.items()}
 
 
 def is_shape_valid_for_cutlass_matmul(
-    lhs_shape: Sequence[tvm.ir.Expr],
-    rhs_shape: Sequence[tvm.ir.Expr],
+    lhs_shape: Sequence[tvm_tirx.ir.Expr],
+    rhs_shape: Sequence[tvm_tirx.ir.Expr],
 ) -> bool:
     """
     Check whether the shape of inputs can be handled by CUTLASS GEMM.
@@ -417,7 +419,7 @@ def is_shape_valid_for_cutlass_matmul(
     as well as ND x 2D and 2D x ND. For example, it cannot handle matmul with shape
     (2, 1, 4, 8) x (2, 3, 8, 16), because the batch stride of lhs is not constant.
     """
-    if not isinstance(lhs_shape[-1], tvm.tirx.expr.IntImm | int):
+    if not isinstance(lhs_shape[-1], tvm_tirx.ir.IntImm | int):
         # Reduction axis must be constant
         return False
 
@@ -427,7 +429,7 @@ def is_shape_valid_for_cutlass_matmul(
         # This could be regular matmul or batch matmul with shape ND x 2D or 2D x ND
         return True
 
-    analyzer = tvm.sym.Analyzer()
+    analyzer = tvm_tirx.sym.Analyzer()
     # If one side has less dimensions, use 1 to fill the gap
     batch_dim_pairs = list(
         itertools.zip_longest(
@@ -803,7 +805,7 @@ class CutlassRelaxFunctionAnnotator(relax.PyExprMutator):
     def visit_function_(self, f):
         if "Composite" not in f.attrs:
             body = super().visit_expr(f.body)
-            return relax.Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.span)
+            return relax.Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.loc)
 
         op_type = f.attrs["Composite"]
 
@@ -820,8 +822,8 @@ class CutlassRelaxFunctionAnnotator(relax.PyExprMutator):
 
         raise ValueError(f"Unsupported composite {op_type}")
 
-    def visit_span(self, span):
-        return span
+    def visit_loc(self, loc):
+        return loc
 
 
 @register_global_func("contrib.cutlass.tune_relax_function")
@@ -836,7 +838,7 @@ def profile_relax_function(functions, options):
 
     for f in functions:
         annotator = CutlassRelaxFunctionAnnotator(
-            tvm.IRModule.from_expr(f), conv2d_profiler, gemm_profiler, options
+            tvm_tirx.IRModule.from_expr(f), conv2d_profiler, gemm_profiler, options
         )
         annotated_functions.append(annotator.visit_expr(f))
 
@@ -849,7 +851,7 @@ def compile_cutlass_module(c_source_module, options):
 
     Parameters
     ----------
-    c_source_module: runtime.Module
+    c_source_module: tvm_ffi.Module
         A C-source module containing CUTLASS kernels.
 
     options: dict
@@ -862,7 +864,7 @@ def compile_cutlass_module(c_source_module, options):
 
     Returns
     -------
-    rt_mod : runtime.Module
+    rt_mod : tvm_ffi.Module
         A runtime module where all cutlass kernels have been compiled.
     """
     tmp_dir = options.get("tmp_dir", "./tmp")
@@ -873,10 +875,12 @@ def compile_cutlass_module(c_source_module, options):
     compile_options = _get_cutlass_compile_options(**compile_config)
     lib_path = os.path.join(tmp_dir, "cutlass.o")
     logger.info("Compiling generated CUTLASS code")
-    c_source_module.export_library(lib_path, workspace_dir=tmp_dir, **compile_options)
+    tvm_tirx.codegen.Executable(c_source_module).export_library(
+        lib_path, workspace_dir=tmp_dir, **compile_options
+    )
 
     # Recover static library
-    return tvm.runtime.load_static_library(lib_path, function_names)
+    return tvm_tirx.codegen.load_static_library(lib_path, function_names)
 
 
 def finalize_modules(lib, lib_path="compile.so", tmp_dir="./tmp"):
@@ -887,7 +891,7 @@ def finalize_modules(lib, lib_path="compile.so", tmp_dir="./tmp"):
 
     Parameters
     ----------
-    lib : runtime.Module
+    lib : tvm_ffi.Module
         The output from build.
 
     lib_path : string
@@ -898,10 +902,10 @@ def finalize_modules(lib, lib_path="compile.so", tmp_dir="./tmp"):
 
     Returns
     -------
-    updated_lib : runtime.Module
+    updated_lib : tvm_ffi.Module
         The updated library with all compilation and linking completed.
 
     """
     lib_path = os.path.join(tmp_dir, lib_path)
-    lib.export_library(lib_path, workspace_dir=tmp_dir, cc="nvcc")
+    tvm_tirx.codegen.Executable(lib).export_library(lib_path, workspace_dir=tmp_dir, cc="nvcc")
     return runtime.load_module(lib_path)

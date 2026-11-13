@@ -22,7 +22,7 @@ import enum
 import re
 from enum import auto as enum_auto
 
-from tvm.tirx.expr import FloatImm, IntImm
+from tvm_tirx.ir import FloatImm, IntImm
 
 
 class GeneratorTarget(enum.Enum):

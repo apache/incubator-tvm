@@ -19,21 +19,30 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.script
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
-use_np_array = tvm.testing.parameter(False, True)
+
+@pytest.fixture(params=[False, True], scope="session")
+def use_np_array(request):
+    return request.param
 
 
 def test_bind_params(use_np_array):
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class InputModule:
-        @Ts.prim_func
-        def tir_matmul(A: T.Buffer((16, 16)), B: T.Buffer((16, 16)), C: T.Buffer((16, 16))) -> None:
+        @Ts.function
+        def tir_matmul(
+            A: T.Tensor((16, 16), "float32"),
+            B: T.Tensor((16, 16), "float32"),
+            C: T.Tensor((16, 16), "float32"),
+        ) -> None:
             T.func_attr({"global_symbol": "tir_matmul"})
 
             for i0, j, k0, i1, k1 in T.grid(4, 16, 4, 4, 4):
@@ -49,36 +58,38 @@ def test_bind_params(use_np_array):
         def main(x: R.Tensor((16, 16), "float32"), w: R.Tensor((16, 16), "float32")) -> R.Tensor(
             (16, 16), "float32"
         ):
-            gv0 = R.call_tir(InputModule.tir_matmul, (x, w), R.Tensor((16, 16), dtype="float32"))
+            gv0 = R.call_tir(
+                InputModule.tir_matmul, (x, w), ty_args=[R.Tensor((16, 16), dtype="float32")]
+            )
             return gv0
 
     x_np = np.random.rand(16, 16).astype(np.float32)
     w_np = np.random.rand(16, 16).astype(np.float32)
-    x_tvm = tvm.runtime.tensor(x_np)
-    w_tvm = tvm.runtime.tensor(w_np)
+    x_tvm = tvm_tirx.runtime.tensor(x_np)
+    w_tvm = tvm_tirx.runtime.tensor(w_np)
     params_dict = {"w": w_np if use_np_array else w_tvm}
     mod = relax.transform.BindParams("main", params_dict)(InputModule)
     assert len(mod["main"].params) == 1
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     ex_after = tvm.compile(mod, target)
-    vm_after = relax.VirtualMachine(ex_after, tvm.cpu())
+    vm_after = relax.VirtualMachine(ex_after, tvm_tirx.cpu())
     res_after = vm_after["main"](x_tvm)
 
     ex_before = tvm.compile(InputModule, target)
-    vm_before = relax.VirtualMachine(ex_before, tvm.cpu())
+    vm_before = relax.VirtualMachine(ex_before, tvm_tirx.cpu())
     res_before = vm_before["main"](x_tvm, w_tvm)
 
-    tvm.testing.assert_allclose(res_before.numpy(), res_after.numpy())
+    tvm_tirx.testing.assert_allclose(res_before.numpy(), res_after.numpy())
 
 
 def test_bind_params_symbolic_vars():
-    batch = T.dynamic("batch")
-    k = T.dynamic("k")
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    batch = T.dynamic("batch", "int64")
+    k = T.dynamic("k", "int64")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(
@@ -90,39 +101,45 @@ def test_bind_params_symbolic_vars():
         ) -> R.Tensor((batch, k), dtype="float32"):
             with R.dataflow():
                 lv0 = R.call_dps_packed(
-                    "linear0", (x, w0, b0), out_ty=R.Tensor((batch, n), dtype="float32")
+                    _ExternFunc("linear0"),
+                    (x, w0, b0),
+                    ty_args=[R.Tensor((batch, n), dtype="float32")],
                 )
                 out = R.call_dps_packed(
-                    "linear1", (lv0, w1, b1), out_ty=R.Tensor((batch, k), dtype="float32")
+                    _ExternFunc("linear1"),
+                    (lv0, w1, b1),
+                    ty_args=[R.Tensor((batch, k), dtype="float32")],
                 )
                 R.output(out)
             return out
 
     m, n, k = 4, 6, 8
-    w0_tvm = tvm.runtime.tensor(np.random.rand(n, m).astype(np.float32))
-    b0_tvm = tvm.runtime.tensor(np.random.rand(n).astype(np.float32))
-    w1_tvm = tvm.runtime.tensor(np.random.rand(k, n).astype(np.float32))
-    b1_tvm = tvm.runtime.tensor(np.random.rand(k).astype(np.float32))
+    w0_tvm = tvm_tirx.runtime.tensor(np.random.rand(n, m).astype(np.float32))
+    b0_tvm = tvm_tirx.runtime.tensor(np.random.rand(n).astype(np.float32))
+    w1_tvm = tvm_tirx.runtime.tensor(np.random.rand(k, n).astype(np.float32))
+    b1_tvm = tvm_tirx.runtime.tensor(np.random.rand(k).astype(np.float32))
     params_dict = {"w0": w0_tvm, "b0": b0_tvm, "w1": w1_tvm, "b1": b1_tvm}
     mod = relax.transform.BindParams("main", params_dict)(Before)
 
-    # Since it contains ConstantNode, it's hard to check with structural equality.
+    # Since it contains ConstantObj, it's hard to check with structural equality.
     func = mod["main"]
     assert len(func.params) == 1
     batch = func.params[0].ty.shape[0]
-    tvm.ir.assert_structural_equal(func.params[0].ty, relax.TensorType((batch, 4), "float32"))
-    tvm.ir.assert_structural_equal(func.ret_ty, relax.TensorType((batch, 8), "float32"))
+    tvm_tirx.ir.assert_structural_equal(func.params[0].ty, relax.TensorType((batch, 4), "float32"))
+    tvm_tirx.ir.assert_structural_equal(func.ret_ty, relax.TensorType((batch, 8), "float32"))
     bindings = func.body.blocks[0].bindings
-    tvm.ir.assert_structural_equal(bindings[0].var.ty, relax.TensorType((batch, 6), "float32"))
-    tvm.ir.assert_structural_equal(bindings[1].var.ty, relax.TensorType((batch, 8), "float32"))
+    tvm_tirx.ir.assert_structural_equal(bindings[0].var.ty, relax.TensorType((batch, 6), "float32"))
+    tvm_tirx.ir.assert_structural_equal(bindings[1].var.ty, relax.TensorType((batch, 8), "float32"))
 
 
 def test_bind_params_consistent_explicit_and_inferred_symbolic_var():
-    prim_type = tvm.ir.PrimType("int64")
+    prim_type = tvm_tirx.ir.PrimType("int64")
     n = relax.Var("n", prim_type)
     data = relax.Var("data", relax.TensorType([n], "float32"))
     before = relax.Function([n, data], n, prim_type)
-    explicit_value = tvm.tirx.Add(tvm.tirx.const(2, "int64"), tvm.tirx.const(3, "int64"))
+    explicit_value = tvm_tirx.tirx.Add(
+        tvm_tirx.tirx.const(2, "int64"), tvm_tirx.tirx.const(3, "int64")
+    )
 
     after = before.bind_params({n: explicit_value, data: np.zeros([5], "float32")})
 
@@ -131,7 +148,7 @@ def test_bind_params_consistent_explicit_and_inferred_symbolic_var():
 
 
 def test_bind_params_conflicting_explicit_and_inferred_symbolic_var():
-    prim_type = tvm.ir.PrimType("int64")
+    prim_type = tvm_tirx.ir.PrimType("int64")
     n = relax.Var("n", prim_type)
     data = relax.Var("data", relax.TensorType([n], "float32"))
     before = relax.Function([n, data], n, prim_type)
@@ -147,7 +164,7 @@ def test_bind_params_conflicting_explicit_and_inferred_symbolic_var():
 
 
 def test_bind_params_rejects_non_primitive_explicit_symbolic_var():
-    prim_type = tvm.ir.PrimType("int64")
+    prim_type = tvm_tirx.ir.PrimType("int64")
     n = relax.Var("n", prim_type)
     data = relax.Var("data", relax.TensorType([n], "float32"))
     before = relax.Function([n, data], n, prim_type)
@@ -165,7 +182,7 @@ def test_bind_params_rejects_non_primitive_explicit_symbolic_var():
 
 
 def test_bind_params_rejects_non_primitive_standalone_symbolic_var():
-    prim_type = tvm.ir.PrimType("int64")
+    prim_type = tvm_tirx.ir.PrimType("int64")
     n = relax.Var("n", prim_type)
     before = relax.Function([n], n, prim_type)
 
@@ -176,11 +193,13 @@ def test_bind_params_rejects_non_primitive_standalone_symbolic_var():
         before.bind_params({n: relax.const(np.array(5, dtype="int64"))})
 
 
-param_specification = tvm.testing.parameter("by_string", "by_var")
+@pytest.fixture(params=["by_string", "by_var"], scope="session")
+def param_specification(request):
+    return request.param
 
 
 def test_bind_params_by_var_obj(param_specification):
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(A: R.Tensor([16], "float32")):
@@ -189,7 +208,7 @@ def test_bind_params_by_var_obj(param_specification):
     np_data = np.arange(16).astype("float32")
     inlined_relax_const = relax.const(np_data)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def main():
@@ -204,11 +223,11 @@ def test_bind_params_by_var_obj(param_specification):
 
     After = relax.transform.BindParams("main", {var: np_data})(Before)
 
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_bind_params_by_var_name():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(A: R.Tensor([16], "float32")):
@@ -217,7 +236,7 @@ def test_bind_params_by_var_name():
     np_data = np.arange(16).astype("float32")
     inlined_relax_const = relax.const(np_data)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def main():
@@ -225,8 +244,8 @@ def test_bind_params_by_var_name():
 
     After = relax.transform.BindParams("main", {"A": np_data})(Before)
 
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

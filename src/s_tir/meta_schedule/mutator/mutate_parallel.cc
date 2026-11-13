@@ -42,7 +42,7 @@ bool IsAnnotateWithParallel(const Instruction& inst) {
   }
   TVM_FFI_ICHECK_EQ(inst->attrs.size(), 1);
   ffi::String ann_key = inst->attrs[0].as_or_throw<ffi::String>();
-  return ann_key == s_tir::attr::meta_schedule_parallel;
+  return ann_key == tvm::s_tir::attr::kMetaScheduleParallel.name;
 }
 
 /*!
@@ -53,8 +53,8 @@ bool IsAnnotateWithParallel(const Instruction& inst) {
  */
 Instruction ReplaceAnnValue(Instruction inst, int64_t ann_val) {
   TVM_FFI_ICHECK_EQ(inst->inputs.size(), 2);
-  return Instruction(/*kind=*/inst->kind,                                   //
-                     /*inputs=*/{inst->inputs[0], IntImm::Int32(ann_val)},  //
+  return Instruction(/*kind=*/inst->kind,                    //
+                     /*inputs=*/{inst->inputs[0], ann_val},  //
                      /*attrs=*/inst->attrs,
                      /*outputs=*/inst->outputs);
 }
@@ -64,13 +64,13 @@ Instruction ReplaceAnnValue(Instruction inst, int64_t ann_val) {
  * \param inst The instruction to be checked
  * \return The output of the instruction Get-Block
  */
-const SBlockRVNode* GetInstGetSBlockOutput(const Instruction& inst) {
+const SBlockRVObj* GetInstGetSBlockOutput(const Instruction& inst) {
   static const InstructionKind& inst_get_sblock = InstructionKind::Get("GetSBlock");
   if (!inst->kind.same_as(inst_get_sblock)) {
     return nullptr;
   }
   TVM_FFI_ICHECK_EQ(inst->outputs.size(), 1);
-  const SBlockRVNode* block = TVM_TYPE_AS(inst->outputs[0], SBlockRVNode);
+  const SBlockRVObj* block = TVM_TYPE_AS(inst->outputs[0], SBlockRVObj);
   return block;
 }
 
@@ -78,7 +78,7 @@ const SBlockRVNode* GetInstGetSBlockOutput(const Instruction& inst) {
  * \brief Analyze the parallel structure
  * \param self The schedule state
  * \param block_name The name of the root block
- * \param func_name The name of the PrimFunc
+ * \param func_name The name of the Function
  * \param limit The uplimit of the parallelism
  * \return The parallel structure
  */
@@ -88,21 +88,22 @@ std::vector<std::vector<int64_t>> AnalyzeParallel(const ScheduleState& self,
   ffi::Array<StmtSRef> block_srefs =
       GetSBlocks(self, block_name, self->mod->GetGlobalVar(func_name));
   TVM_FFI_ICHECK_EQ(block_srefs.size(), 1);
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_srefs[0]);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_srefs[0]);
   ScopeBlockLoopInfo info = GetScopeBlockLoopInfo(ffi::GetRef<SBlock>(block));
   std::vector<std::vector<int64_t>> results;
   results.reserve(info.realizes.size());
   for (const SBlockRealize& realize : info.realizes) {
     // Step 1. Extract static loop extents for spatial loops
     std::vector<int64_t> loop_extents;
-    const ForNode* loop = nullptr;
-    for (const StmtSRefNode* loop_sref = self->stmt2ref.at(realize->block.get())->parent;
-         (loop = loop_sref->StmtAs<ForNode>()) != nullptr;  //
+    const ForObj* loop = nullptr;
+    for (const StmtSRefObj* loop_sref = self->stmt2ref.at(realize->block.get())->parent;
+         (loop = loop_sref->StmtAs<ForObj>()) != nullptr;  //
          loop_sref = loop_sref->parent) {
       int64_t loop_extent = -1;
-      const auto* ext_imm = loop->extent.as<IntImmNode>();
+      PrimExpr ext_imm_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
+      const auto* ext_imm = ext_imm_expr.as<IntImmObj>();
       if (auto ext = ext_imm ? ext_imm->value.as<int64_t>() : std::nullopt; ext.has_value()) {
-        if (!info.non_spatial_vars.count(loop->loop_var.get())) {
+        if (!info.non_spatial_vars.count(loop->var.get())) {
           loop_extent = *ext;
         }
       }
@@ -164,7 +165,7 @@ using s_tir::Instruction;
 using s_tir::Trace;
 
 /*! \brief Create a Mutator that mutates the parallel extent */
-class MutateParallelNode : public MutatorNode {
+class MutateParallelObj : public MutatorObj {
  public:
   /*!
    * \brief The maximum number of jobs to be launched per CPU core.
@@ -179,15 +180,15 @@ class MutateParallelNode : public MutatorNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MutateParallelNode>().def_ro("max_jobs_per_core",
-                                                 &MutateParallelNode::max_jobs_per_core);
+    refl::ObjectDef<MutateParallelObj>().def_ro("max_jobs_per_core",
+                                                &MutateParallelObj::max_jobs_per_core);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MutateParallel", MutateParallelNode,
-                                    MutatorNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MutateParallel", MutateParallelObj,
+                                    MutatorObj);
 
  public:
   struct Candidate;
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   void InitializeWithTuneContext(const TuneContext& context) final {
     Target target = context->target.value();
     this->max_parallel_extent_ = GetTargetNumCores(target) * this->max_jobs_per_core;
@@ -195,24 +196,24 @@ class MutateParallelNode : public MutatorNode {
         ffi::ToJSONGraph(context->mod.value(), ffi::json::Object{{"tvm_version", TVM_VERSION}}),
         /*indent=*/2);
   }
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   ffi::Optional<Trace> Apply(const Trace& trace, TRandState* rand_state) final;
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   Mutator Clone() const final {
-    ffi::ObjectPtr<MutateParallelNode> n = ffi::make_object<MutateParallelNode>(*this);
-    return Mutator(n);
+    ffi::ObjectPtr<MutateParallelObj> n = ffi::make_object<MutateParallelObj>(*this);
+    return Mutator(ffi::UnsafeInit{}, n);
   }
 };
 
 /*! \brief The candidate to be mutated */
-struct MutateParallelNode::Candidate {
+struct MutateParallelObj::Candidate {
   /*! \brief The annotation instruction */
-  Instruction inst;
+  ffi::Optional<Instruction> inst;
   /*! \brief The current parallel extent */
   int64_t parallel_extent;
   /*! \brief The name of the root block */
   ffi::String block_name;
-  /*! \brief The name of the PrimFunc */
+  /*! \brief The name of the Function */
   ffi::String func_name;
 };
 
@@ -224,18 +225,18 @@ struct MutateParallelNode::Candidate {
  * \return Whether a decision is found
  */
 bool FindParallelDecision(const Trace& trace, TRandState* rand_state,
-                          MutateParallelNode::Candidate* candidate) {
-  using s_tir::InstructionNode;
-  using s_tir::SBlockRVNode;
-  std::unordered_map<const SBlockRVNode*, const InstructionNode*> get_sblock_insts;
-  std::vector<const InstructionNode*> ann_insts;
+                          MutateParallelObj::Candidate* candidate) {
+  using s_tir::InstructionObj;
+  using s_tir::SBlockRVObj;
+  std::unordered_map<const SBlockRVObj*, const InstructionObj*> get_sblock_insts;
+  std::vector<const InstructionObj*> ann_insts;
   get_sblock_insts.reserve(trace->insts.size());
   ann_insts.reserve(trace->insts.size());
   for (const Instruction& inst : trace->insts) {
     if (s_tir::IsAnnotateWithParallel(inst)) {
       ann_insts.push_back(inst.get());
     }
-    if (const SBlockRVNode* block_rv = s_tir::GetInstGetSBlockOutput(inst)) {
+    if (const SBlockRVObj* block_rv = s_tir::GetInstGetSBlockOutput(inst)) {
       get_sblock_insts[block_rv] = inst.get();
     }
   }
@@ -243,19 +244,19 @@ bool FindParallelDecision(const Trace& trace, TRandState* rand_state,
   if (n_ann_insts == 0) {
     return false;
   }
-  const InstructionNode* ann_inst = ann_insts[s_tir::SampleInt(rand_state, 0, n_ann_insts)];
+  const InstructionObj* ann_inst = ann_insts[s_tir::SampleInt(rand_state, 0, n_ann_insts)];
   TVM_FFI_ICHECK_EQ(ann_inst->inputs.size(), 2);
-  const InstructionNode* get_sblock_inst =
+  const InstructionObj* get_sblock_inst =
       get_sblock_insts.at(ann_inst->inputs[0].as_or_throw<s_tir::SBlockRV>().get());
   TVM_FFI_ICHECK_EQ(get_sblock_inst->attrs.size(), 2);
   candidate->inst = ffi::GetRef<Instruction>(ann_inst);
-  candidate->parallel_extent = static_cast<int64_t>(ann_inst->inputs[1].cast<IntImm>()->value);
+  candidate->parallel_extent = ann_inst->inputs[1].cast<int64_t>();
   candidate->block_name = get_sblock_inst->attrs[0].as_or_throw<ffi::String>();
   candidate->func_name = get_sblock_inst->attrs[1].as_or_throw<ffi::String>();
   return true;
 }
 
-ffi::Optional<Trace> MutateParallelNode::Apply(const Trace& trace, TRandState* rand_state) {
+ffi::Optional<Trace> MutateParallelObj::Apply(const Trace& trace, TRandState* rand_state) {
   // Step 1. Find a parallel decision.
   Candidate candidate;
   if (!FindParallelDecision(trace, rand_state, &candidate)) {
@@ -303,8 +304,8 @@ ffi::Optional<Trace> MutateParallelNode::Apply(const Trace& trace, TRandState* r
   ffi::Array<Instruction> insts;
   insts.reserve(trace->insts.size());
   for (const Instruction& inst : trace->insts) {
-    if (inst.same_as(candidate.inst)) {
-      insts.push_back(s_tir::ReplaceAnnValue(candidate.inst, limit));
+    if (inst.same_as(candidate.inst.value())) {
+      insts.push_back(s_tir::ReplaceAnnValue(candidate.inst.value(), limit));
     } else if (inst->kind->IsPostproc()) {
       break;
     } else {
@@ -315,12 +316,12 @@ ffi::Optional<Trace> MutateParallelNode::Apply(const Trace& trace, TRandState* r
 }
 
 Mutator Mutator::MutateParallel(int64_t max_jobs_per_core) {
-  ffi::ObjectPtr<MutateParallelNode> n = ffi::make_object<MutateParallelNode>();
+  ffi::ObjectPtr<MutateParallelObj> n = ffi::make_object<MutateParallelObj>();
   n->max_jobs_per_core = max_jobs_per_core;
-  return Mutator(n);
+  return Mutator(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { MutateParallelNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { MutateParallelObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

@@ -25,17 +25,20 @@ import textwrap
 
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm import relax, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax.backend.contrib.tensorrt import partition_for_tensorrt
 from tvm.relax.dpl import is_op, wildcard
-from tvm.support import cc
-from tvm.testing import env
+from tvm_tirx import tirx
+from tvm_tirx.support import cc
+from tvm_tirx.testing import env
 
-_has_codegen = tvm.get_global_func("relax.ext.tensorrt", True) is not None
-_runtime_enabled = tvm.get_global_func("relax.is_tensorrt_runtime_enabled", True)
+_has_codegen = tvm_ffi.get_global_func("relax.ext.tensorrt", True) is not None
+_runtime_enabled = tvm_ffi.get_global_func("relax.is_tensorrt_runtime_enabled", True)
 _has_runtime = _runtime_enabled is not None and _runtime_enabled()
 
 pytestmark = pytest.mark.skipif(not _has_codegen, reason="TensorRT codegen is not enabled")
@@ -79,7 +82,7 @@ def _legacy_bytes(module):
 def _module_bytes(module):
     """Extract a leaf's payload from the same import packer used by export_library."""
     assert not module.imports
-    packed = tvm.get_global_func("runtime.ModulePackImportsToTensor")(module).numpy().tobytes()
+    packed = tvm_ffi.get_global_func("runtime.ModulePackImportsToTensor")(module).numpy().tobytes()
     assert struct.unpack_from("<Q", packed)[0] == len(packed) - 8
     offset = 8
     # The import tree consists of row pointers followed by child indices.
@@ -97,7 +100,7 @@ def _module_bytes(module):
 
 
 def _load_bytes(payload):
-    return tvm.get_global_func("ffi.Module.load_from_bytes.tensorrt")(payload)
+    return tvm_ffi.get_global_func("ffi.Module.load_from_bytes.tensorrt")(payload)
 
 
 def _relu_partition(shape=(2, 4)):
@@ -107,7 +110,7 @@ def _relu_partition(shape=(2, 4)):
         with builder.dataflow():
             output = builder.emit_output(relax.op.nn.relu(data))
         builder.emit_func_output(output)
-    return tvm.transform.Sequential(
+    return tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.FuseOpsByPattern(
                 [("tensorrt.nn.relu", is_op("relax.nn.relu")(wildcard()))]
@@ -121,7 +124,7 @@ def _codegen(partitioned, eager=None):
     config = {}
     if eager is not None:
         config["relax.ext.tensorrt.options"] = {"build_at_compile_time": eager}
-    with tvm.transform.PassContext(config=config):
+    with tvm_tirx.ir.transform.PassContext(config=config):
         return relax.transform.RunCodegen()(partitioned)
 
 
@@ -147,7 +150,7 @@ def test_default_preserves_legacy_bytes():
 
 @pytest.mark.skipif(_has_runtime, reason="This test requires a codegen-only TensorRT build")
 def test_eager_requires_runtime():
-    with pytest.raises(RuntimeError, match="USE_TENSORRT_RUNTIME"):
+    with pytest.raises(RuntimeError, match="TVM_USE_TENSORRT_RUNTIME"):
         _codegen(_relu_partition(), eager=True)
 
 
@@ -168,7 +171,7 @@ def test_eager_requires_runtime():
 )
 def test_reject_malformed_engine_trailer(trailer, message):
     module = _external_modules(_codegen(_relu_partition()))[0]
-    with pytest.raises(tvm.error.InternalError, match=message):
+    with pytest.raises(RuntimeError, match=message):
         _load_bytes(_legacy_bytes(module) + trailer)
 
 
@@ -184,7 +187,7 @@ def test_eager_requires_static_positive_dimensions(batch):
 def test_eager_rejects_int8_calibration(monkeypatch):
     monkeypatch.setenv("TVM_TENSORRT_USE_INT8", "1")
     monkeypatch.setenv("TENSORRT_NUM_CALI_INT8", "1")
-    with pytest.raises(tvm.error.InternalError, match="INT8 calibration"):
+    with pytest.raises(RuntimeError, match="INT8 calibration"):
         _codegen(_relu_partition(), eager=True)
 
 
@@ -212,7 +215,7 @@ def _two_partitions(dtype):
         ("tensorrt.add", is_op("relax.add")(wildcard(), wildcard())),
         ("tensorrt.multiply", is_op("relax.multiply")(wildcard(), wildcard())),
     ]
-    partitioned = tvm.transform.Sequential(
+    partitioned = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.BindParams("main", parameters),
             # Leave sin on the TVM side to force two TensorRT partitions.
@@ -256,7 +259,7 @@ def test_failed_engine_build_can_be_retried():
     kernels[-1]["name"] = "tensorrt.unsupported_test_op"
     names = module["get_const_vars"]()
     assert len(names) == 2
-    failing = tvm.get_global_func("runtime.tensorrt_runtime_create")(
+    failing = tvm_ffi.get_global_func("runtime.tensorrt_runtime_create")(
         module["get_symbol"](), json.dumps(graph), names
     )
     constants_by_name = dict(offloaded.attrs["const_name_to_constant"])
@@ -265,12 +268,12 @@ def test_failed_engine_build_can_be_retried():
 
     def check():
         for _ in range(2):
-            with pytest.raises(tvm.error.InternalError, match="Unsupported operator"):
+            with pytest.raises(RuntimeError, match="Unsupported operator"):
                 failing["build_engine"](constants)
             assert _module_bytes(failing) == legacy
             assert _module_bytes(_load_bytes(legacy)) == legacy
 
-    tvm.testing.run_with_gpu_lock(check)
+    tvm_tirx.testing.run_with_gpu_lock(check)
 
 
 @requires_runtime
@@ -292,7 +295,7 @@ def test_exported_engines_run_without_builder(
     tmp_path, monkeypatch, dtype, device_id, model, execution_device
 ):
     """Build weighted partitions before VM creation, then load and run without a builder."""
-    if not tvm.cuda(device_id).exist:
+    if not tvm_tirx.cuda(device_id).exist:
         pytest.skip(f"CUDA device {device_id} is not available")
 
     target = "llvm" if execution_device == "cpu" else "cuda"
@@ -321,16 +324,16 @@ def test_exported_engines_run_without_builder(
         """
         import sys
         import numpy as np
-        import tvm
+        import tvm, tvm_tirx
         from tvm import relax
 
-        artifact = tvm.runtime.load_module(sys.argv[1])
-        device = tvm.cpu() if sys.argv[5] == "cpu" else tvm.cuda(int(sys.argv[3]))
+        artifact = tvm_tirx.runtime.load_module(sys.argv[1])
+        device = tvm_tirx.cpu() if sys.argv[5] == "cpu" else tvm_tirx.cuda(int(sys.argv[3]))
         tolerance = float(sys.argv[4])
         vm = relax.VirtualMachine(artifact, device)
         reference = np.load(sys.argv[2])
         for data, expected in zip(reference["data"], reference["expected"]):
-            result = vm["main"](tvm.runtime.tensor(data, device))
+            result = vm["main"](tvm_tirx.runtime.tensor(data, device))
             assert result.device == device
             np.testing.assert_allclose(result.numpy(), expected, rtol=tolerance, atol=tolerance)
         """
@@ -394,9 +397,7 @@ def test_exported_engines_run_without_builder(
                 calibration.setenv("TVM_TENSORRT_USE_INT8", use_int8)
                 calibration.setenv("TENSORRT_NUM_CALI_INT8", "1")
                 loaded = _load_bytes(_module_bytes(module))
-                with pytest.raises(
-                    tvm.error.InternalError, match="prebuilt TensorRT.*INT8 calibration"
-                ):
+                with pytest.raises(RuntimeError, match="prebuilt TensorRT.*INT8 calibration"):
                     loaded["__init_" + loaded["get_symbol"]()](constants)
 
         # A corrupt plan must fail deserialization instead of rebuilding from the JSON.
@@ -407,16 +408,14 @@ def test_exported_engines_run_without_builder(
         symbol = corrupt["get_symbol"]()
         corrupt["__init_" + symbol](constants)
         # Engine deserialization is deferred until the input device is known.
-        device = tvm.cpu() if execution_device == "cpu" else tvm.cuda(device_id)
-        argument = tvm.runtime.tensor(np.zeros(data.shape[1:], dtype=dtype), device)
-        output = tvm.runtime.tensor(np.zeros(expected.shape[1:], dtype=dtype), device)
-        with pytest.raises(
-            tvm.error.InternalError, match="deserialize the embedded TensorRT engine"
-        ):
+        device = tvm_tirx.cpu() if execution_device == "cpu" else tvm_tirx.cuda(device_id)
+        argument = tvm_tirx.runtime.tensor(np.zeros(data.shape[1:], dtype=dtype), device)
+        output = tvm_tirx.runtime.tensor(np.zeros(expected.shape[1:], dtype=dtype), device)
+        with pytest.raises(RuntimeError, match="deserialize the embedded TensorRT engine"):
             corrupt[symbol](argument, output)
 
-    tvm.testing.run_with_gpu_lock(check)
+    tvm_tirx.testing.run_with_gpu_lock(check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

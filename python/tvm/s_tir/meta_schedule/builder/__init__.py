@@ -17,7 +17,7 @@
 # under the License.
 """
 The tvm.s_tir.meta_schedule.builder package.
-Meta Schedule builders that translate IRModule to runtime.Module,
+Meta Schedule builders that translate IRModule to tvm_ffi.Module,
 and then export
 """
 

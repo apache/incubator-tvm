@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_DATABASE_H_
 #define TVM_S_TIR_META_SCHEDULE_DATABASE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
@@ -41,7 +42,7 @@ namespace meta_schedule {
 class ModuleEquality;
 
 /*! \brief A workload, i.e. an IRModule and its structural hash. */
-class WorkloadNode : public ffi::Object {
+class WorkloadObj : public ffi::Object {
  public:
   /*! \brief The type of structural hash */
   using THashCode = size_t;
@@ -52,9 +53,9 @@ class WorkloadNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<WorkloadNode>().def_ro("mod", &WorkloadNode::mod);
+    refl::ObjectDef<WorkloadObj>().def_ro("mod", &WorkloadObj::mod);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.Workload", WorkloadNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.Workload", WorkloadObj, ffi::Object);
 
   /*!
    * \brief Export the workload to a JSON string.
@@ -64,13 +65,15 @@ class WorkloadNode : public ffi::Object {
 };
 
 /*!
- * \brief Managed reference to WorkloadNode.
- *  \sa WorkloadNode
+ * \brief Managed reference to WorkloadObj.
+ *  \sa WorkloadObj
  */
 class Workload : public ffi::ObjectRef {
  public:
-  using THashCode = WorkloadNode::THashCode;
-  explicit Workload(ffi::ObjectPtr<WorkloadNode> data) : ffi::ObjectRef(data) {}
+  using THashCode = WorkloadObj::THashCode;
+  explicit Workload(ffi::UnsafeInit tag, ffi::ObjectPtr<WorkloadObj> data) : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
   /*!
    * \brief Constructor of Workload.
    * \param mod The workload's IRModule.
@@ -89,7 +92,7 @@ class Workload : public ffi::ObjectRef {
    */
   TVM_DLL static Workload FromJSON(const ffi::ObjectRef& json_obj);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Workload, ffi::ObjectRef, WorkloadNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Workload, ffi::ObjectRef, WorkloadObj);
 };
 
 /*! \brief The hash method for Workload */
@@ -112,7 +115,7 @@ struct WorkloadEqual {
 class MeasureCandidate;
 
 /*! \brief The class of tuning records. */
-class TuningRecordNode : public ffi::Object {
+class TuningRecordObj : public ffi::Object {
  public:
   /*! \brief The trace tuned. */
   s_tir::Trace trace;
@@ -127,14 +130,14 @@ class TuningRecordNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TuningRecordNode>()
-        .def_ro("trace", &TuningRecordNode::trace)
-        .def_ro("workload", &TuningRecordNode::workload)
-        .def_ro("run_secs", &TuningRecordNode::run_secs)
-        .def_ro("target", &TuningRecordNode::target)
-        .def_ro("args_info", &TuningRecordNode::args_info);
+    refl::ObjectDef<TuningRecordObj>()
+        .def_ro("trace", &TuningRecordObj::trace)
+        .def_ro("workload", &TuningRecordObj::workload)
+        .def_ro("run_secs", &TuningRecordObj::run_secs)
+        .def_ro("target", &TuningRecordObj::target)
+        .def_ro("args_info", &TuningRecordObj::args_info);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TuningRecord", TuningRecordNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TuningRecord", TuningRecordObj,
                                     ffi::Object);
 
   /*! \brief Construct the measure candidate given the initial IR module and trace
@@ -154,8 +157,8 @@ class TuningRecordNode : public ffi::Object {
 };
 
 /*!
- * \brief The managed reference of TuningRecordNode.
- * \sa TuningRecordNode
+ * \brief The managed reference of TuningRecordObj.
+ * \sa TuningRecordObj
  */
 class TuningRecord : public ffi::ObjectRef {
  public:
@@ -178,13 +181,13 @@ class TuningRecord : public ffi::ObjectRef {
    * \return The tuning record created.
    */
   TVM_DLL static TuningRecord FromJSON(const ffi::ObjectRef& json_obj, const Workload& workload);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuningRecord, ffi::ObjectRef, TuningRecordNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuningRecord, ffi::ObjectRef, TuningRecordObj);
 };
 
 class Database;
 
 /* \brief The abstract interface of database. */
-class DatabaseNode : public ffi::Object {
+class DatabaseObj : public ffi::Object {
  public:
   /*!
    * \brief Constructor
@@ -198,10 +201,10 @@ class DatabaseNode : public ffi::Object {
    *                      or in case no anchor block is found.
    *                      For the definition of the anchor block, see tvm/tirx/analysis.h.
    */
-  explicit DatabaseNode(ffi::String mod_eq_name = "structural");
+  explicit DatabaseObj(ffi::String mod_eq_name = "structural");
 
   /*! \brief Default destructor */
-  virtual ~DatabaseNode();
+  virtual ~DatabaseObj();
   /*!
    * \brief Check if the database has the given workload.
    * \param mod The IRModule to be searched for.
@@ -275,7 +278,7 @@ class DatabaseNode : public ffi::Object {
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Database", DatabaseNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Database", DatabaseObj, ffi::Object);
 
  private:
   /*! \brief The module equality testing and hashing method */
@@ -283,7 +286,7 @@ class DatabaseNode : public ffi::Object {
 };
 
 /*! \brief The database with customized methods on the python-side. */
-class PyDatabaseNode : public DatabaseNode {
+class PyDatabaseObj : public DatabaseObj {
  public:
   /*!
    * \brief Constructor
@@ -297,7 +300,7 @@ class PyDatabaseNode : public DatabaseNode {
    *                      or in case no anchor block is found.
    *                      For the definition of the anchor block, see tvm/tirx/analysis.h.
    */
-  explicit PyDatabaseNode(ffi::String mod_eq_name = "structural");
+  explicit PyDatabaseObj(ffi::String mod_eq_name = "structural");
 
   /*!
    * \brief The function type of `HasWorkload` method.
@@ -394,7 +397,7 @@ class PyDatabaseNode : public DatabaseNode {
     // `f_query_ir_module` is not registered
     // `f_size` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyDatabaseNode>();
+    refl::ObjectDef<PyDatabaseObj>();
   }
 
   bool HasWorkload(const IRModule& mod) final {
@@ -428,7 +431,7 @@ class PyDatabaseNode : public DatabaseNode {
   ffi::Optional<TuningRecord> QueryTuningRecord(const IRModule& mod, const Target& target,
                                                 const ffi::String& workload_name) final {
     if (f_query_tuning_record == nullptr) {
-      return DatabaseNode::QueryTuningRecord(mod, target, workload_name);
+      return DatabaseObj::QueryTuningRecord(mod, target, workload_name);
     } else {
       return f_query_tuning_record(mod, target, workload_name);
     }
@@ -437,7 +440,7 @@ class PyDatabaseNode : public DatabaseNode {
   ffi::Optional<s_tir::Schedule> QuerySchedule(const IRModule& mod, const Target& target,
                                                const ffi::String& workload_name) final {
     if (f_query_schedule == nullptr) {
-      return DatabaseNode::QuerySchedule(mod, target, workload_name);
+      return DatabaseObj::QuerySchedule(mod, target, workload_name);
     } else {
       return f_query_schedule(mod, target, workload_name);
     }
@@ -446,7 +449,7 @@ class PyDatabaseNode : public DatabaseNode {
   ffi::Optional<IRModule> QueryIRModule(const IRModule& mod, const Target& target,
                                         const ffi::String& workload_name) final {
     if (f_query_ir_module == nullptr) {
-      return DatabaseNode::QueryIRModule(mod, target, workload_name);
+      return DatabaseObj::QueryIRModule(mod, target, workload_name);
     } else {
       return f_query_ir_module(mod, target, workload_name);
     }
@@ -458,20 +461,20 @@ class PyDatabaseNode : public DatabaseNode {
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyDatabase", PyDatabaseNode, DatabaseNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyDatabase", PyDatabaseObj, DatabaseObj);
 };
 
 /*!
- * \brief Managed reference to DatabaseNode.
- * \sa DatabaseNode
+ * \brief Managed reference to DatabaseObj.
+ * \sa DatabaseObj
  */
 class Database : public ffi::ObjectRef {
  public:
   /*!
-   * \brief Constructor from ffi::ObjectPtr<DatabaseNode>.
+   * \brief Constructor from ffi::ObjectPtr<DatabaseObj>.
    * \param data The object pointer.
    */
-  explicit Database(ffi::ObjectPtr<DatabaseNode> data) : ffi::ObjectRef(data) {
+  explicit Database(ffi::ObjectPtr<DatabaseObj> data) : ffi::ObjectRef(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   /*!
@@ -526,15 +529,15 @@ class Database : public ffi::ObjectRef {
    * \param mod_eq_name A string to specify the module equality testing and hashing method.
    * \return The created database.
    */
-  TVM_DLL static Database PyDatabase(PyDatabaseNode::FHasWorkload f_has_workload,
-                                     PyDatabaseNode::FCommitWorkload f_commit_workload,
-                                     PyDatabaseNode::FCommitTuningRecord f_commit_tuning_record,
-                                     PyDatabaseNode::FGetTopK f_get_top_k,
-                                     PyDatabaseNode::FGetAllTuningRecords f_get_all_tuning_records,
-                                     PyDatabaseNode::FQueryTuningRecord f_query_tuning_record,
-                                     PyDatabaseNode::FQuerySchedule f_query_schedule,
-                                     PyDatabaseNode::FQueryIRModule f_query_ir_module,
-                                     PyDatabaseNode::FSize f_size,
+  TVM_DLL static Database PyDatabase(PyDatabaseObj::FHasWorkload f_has_workload,
+                                     PyDatabaseObj::FCommitWorkload f_commit_workload,
+                                     PyDatabaseObj::FCommitTuningRecord f_commit_tuning_record,
+                                     PyDatabaseObj::FGetTopK f_get_top_k,
+                                     PyDatabaseObj::FGetAllTuningRecords f_get_all_tuning_records,
+                                     PyDatabaseObj::FQueryTuningRecord f_query_tuning_record,
+                                     PyDatabaseObj::FQuerySchedule f_query_schedule,
+                                     PyDatabaseObj::FQueryIRModule f_query_ir_module,
+                                     PyDatabaseObj::FSize f_size,
                                      ffi::String mod_eq_name = "structural");
   /*! \return The current Database in the scope. */
   static ffi::Optional<Database> Current();
@@ -543,8 +546,12 @@ class Database : public ffi::ObjectRef {
   /*! \brief Exiting the scope of the context manager */
   void ExitWithScope();
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Database, ffi::ObjectRef, DatabaseNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Database, ffi::ObjectRef, DatabaseObj);
 };
+
+namespace attr {
+inline constexpr ffi::reflection::AttrKey<ffi::String> kTaskName{"task_name"};
+}  // namespace attr
 
 }  // namespace meta_schedule
 }  // namespace s_tir

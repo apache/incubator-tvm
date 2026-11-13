@@ -18,6 +18,7 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/container/dict.h>
+#include <tvm/ffi/extra/dataclass.h>
 #include <tvm/ffi/extra/structural_mutate.h>
 #include <tvm/ffi/reflection/registry.h>
 
@@ -29,7 +30,7 @@ using namespace tvm::tirx;
 
 namespace {
 
-ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
+ffi::String InstructionAsPythonRepr(const InstructionObj* self) {
   ffi::Array<Any> inputs;
   inputs.reserve(self->inputs.size());
   for (const Any& obj : self->inputs) {
@@ -37,22 +38,22 @@ ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
       inputs.push_back(ffi::String("None"));
     } else if (auto opt_str = obj.as<ffi::String>()) {
       inputs.push_back(ffi::String('"' + (*opt_str).operator std::string() + '"'));
-    } else if (obj.as<SBlockRVNode>() || obj.as<LoopRVNode>()) {
+    } else if (obj.as<SBlockRVObj>() || obj.as<LoopRVObj>()) {
       inputs.push_back(ffi::String("_"));
     } else if (obj.type_index() < ffi::TypeIndex::kTVMFFISmallStr) {
       inputs.push_back(obj);
-    } else if (obj.as<IntImmNode>() || obj.as<FloatImmNode>()) {
+    } else if (obj.as<IntImmObj>() || obj.as<FloatImmObj>()) {
       inputs.push_back(obj);
     } else if (auto expr = obj.as<PrimExpr>()) {
       auto f_substitute = [](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
-        return ffi::Any(Var("_", var->ty, var->span).as_or_throw<PrimExpr>());
+        return ffi::Any(Var("_", var->ty, var->loc).as_or_throw<PrimExpr>());
       };
       PrimExpr new_expr = ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(expr.value(), f_substitute)
                               .as_or_throw<PrimExpr>();
       std::ostringstream os;
       os << new_expr;
       inputs.push_back(ffi::String(os.str()));
-    } else if (obj.as<IndexMapNode>()) {
+    } else if (obj.as<IndexMapObj>()) {
       inputs.push_back(obj);
     } else {
       TVM_FFI_THROW(TypeError) << "Stringifying is not supported for type: " << obj.GetTypeKey();
@@ -68,17 +69,16 @@ ffi::String InstructionAsPythonRepr(const InstructionNode* self) {
 
 }  // namespace
 
-TVM_FFI_STATIC_INIT_BLOCK() { InstructionKindNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { InstructionKindObj::RegisterReflection(); }
 
-bool InstructionKindNode::IsPostproc() const {
+bool InstructionKindObj::IsPostproc() const {
   static InstructionKind inst_enter_postproc = InstructionKind::Get("EnterPostproc");
   return this == inst_enter_postproc.get();
 }
 
 Instruction::Instruction(InstructionKind kind, ffi::Array<Any> inputs, ffi::Array<Any> attrs,
                          ffi::Array<Any> outputs) {
-  ffi::ObjectPtr<InstructionNode> n = ffi::make_object<InstructionNode>();
-  n->kind = std::move(kind);
+  ffi::ObjectPtr<InstructionObj> n = ffi::make_object<InstructionObj>(std::move(kind));
   n->inputs = std::move(inputs);
   n->attrs = std::move(attrs);
   n->outputs = std::move(outputs);
@@ -87,11 +87,11 @@ Instruction::Instruction(InstructionKind kind, ffi::Array<Any> inputs, ffi::Arra
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  InstructionNode::RegisterReflection();
-  refl::TypeAttrDef<InstructionNode>().def(refl::type_attr::kRepr,
-                                           [](Instruction inst, ffi::Function) -> ffi::String {
-                                             return InstructionAsPythonRepr(inst.get());
-                                           });
+  InstructionObj::RegisterReflection();
+  refl::TypeAttrDef<InstructionObj>().def(ffi::type_attr::kRepr.name,
+                                          [](Instruction inst, ffi::Function) -> ffi::String {
+                                            return InstructionAsPythonRepr(inst.get());
+                                          });
 
   refl::GlobalDef().def("s_tir.schedule.Instruction",
                         [](InstructionKind kind, ffi::Array<Any> inputs, ffi::Array<Any> attrs,
@@ -119,7 +119,7 @@ class InstructionKindRegistry {
     if (auto kind = kinds_.Get(name)) {
       return *kind;
     }
-    InstructionKind kind(ffi::make_object<InstructionKindNode>());
+    InstructionKind kind(ffi::UnsafeInit{}, ffi::make_object<InstructionKindObj>());
     kinds_.Set(name, kind);
     return kind;
   }

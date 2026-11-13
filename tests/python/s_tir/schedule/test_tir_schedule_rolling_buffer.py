@@ -19,35 +19,37 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import s_tir, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import s_tir
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 
 def check_rolling_buffer(
-    sch: s_tir.Schedule, origin: tirx.PrimFunc, expected: tirx.PrimFunc, check_run=False
+    sch: s_tir.Schedule, origin: tirx.Function, expected: tirx.Function, check_run=False
 ):
     scheduled = sch.mod["main"]
     assert_structural_equal_ignore_global_symbol(scheduled, expected)
     verify_trace_roundtrip(sch, origin)
     if check_run:
-        in_buffer = origin.params[0]
-        out_buffer = origin.params[1]
-        in_shape = [int(_) for _ in in_buffer.shape]
-        out_shape = [int(_) for _ in out_buffer.shape]
-        x = tvm.runtime.tensor(np.random.uniform(0, 64, in_shape).astype(in_buffer.dtype))
-        y0 = tvm.runtime.tensor(np.zeros(out_shape).astype(out_buffer.dtype))
-        y1 = tvm.runtime.tensor(np.zeros(out_shape).astype(out_buffer.dtype))
+        in_tensor = origin.params[0]
+        out_tensor = origin.params[1]
+        in_shape = [int(_) for _ in in_tensor.shape]
+        out_shape = [int(_) for _ in out_tensor.shape]
+        x = tvm_tirx.runtime.tensor(np.random.uniform(0, 64, in_shape).astype(in_tensor.dtype))
+        y0 = tvm_tirx.runtime.tensor(np.zeros(out_shape).astype(out_tensor.dtype))
+        y1 = tvm_tirx.runtime.tensor(np.zeros(out_shape).astype(out_tensor.dtype))
         f_origin = tvm.compile(origin)
         f_scheduled = tvm.compile(scheduled)
         f_origin(x, y0)
         f_scheduled(x, y1)
-        tvm.testing.assert_allclose(y0.numpy(), y1.numpy())
+        tvm_tirx.testing.assert_allclose(y0.numpy(), y1.numpy())
 
 
 def _tile_nd(s, tile, block_name):
@@ -65,9 +67,9 @@ def _tile_nd(s, tile, block_name):
 
 
 def test_1d_rolling_buffer():
-    @Ts.prim_func
-    def before(A: T.Buffer((4, 12), "int32"), C: T.Buffer((4, 8), "int32")):
-        B = Ts.sblock_alloc_buffer((4, 10), "int32")
+    @Ts.function
+    def before(A: T.Tensor((4, 12), "int32"), C: T.Tensor((4, 8), "int32")):
+        B = Ts.sblock_alloc_tensor((4, 10), "int32")
         for c in T.serial(4):
             for i in T.serial(0, 10):
                 for k in T.serial(3):
@@ -84,9 +86,9 @@ def test_1d_rolling_buffer():
                             C[cc, vi] = 0
                         C[cc, vi] = C[cc, vi] + B[cc, vi + vk]
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((4, 12), "int32"), C: T.Buffer((4, 8), "int32")):
-        B = Ts.sblock_alloc_buffer([4, 6], dtype="int32")
+    @Ts.function
+    def expected(A: T.Tensor((4, 12), "int32"), C: T.Tensor((4, 8), "int32")):
+        B = Ts.sblock_alloc_tensor([4, 6], dtype="int32")
         for c, i_0 in T.grid(4, 2):
             for ax0, ax1 in T.grid(6, 3):
                 with Ts.sblock("B"):
@@ -118,9 +120,9 @@ def test_1d_rolling_buffer():
     check_rolling_buffer(sch, before, expected, check_run=True)
 
 
-@Ts.prim_func
-def cascade_2_max_pool2d(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")):
-    B = Ts.sblock_alloc_buffer([1, 10, 10, 16], dtype="int8")
+@Ts.function
+def cascade_2_max_pool2d(A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")):
+    B = Ts.sblock_alloc_tensor([1, 10, 10, 16], dtype="int8")
     for i0, i1, i2, i3, i4, i5 in T.grid(1, 10, 10, 16, 3, 3):
         with Ts.sblock("B"):
             ax0, ax1, ax2, ax3, rv0, rv1 = Ts.axis.remap("SSSSRR", [i0, i1, i2, i3, i4, i5])
@@ -135,12 +137,12 @@ def cascade_2_max_pool2d(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8
             C[ax0, ax1, ax2, ax3] = T.max(C[ax0, ax1, ax2, ax3], B[ax0, ax1 + rv0, ax2 + rv1, ax3])
 
 
-@Ts.prim_func
+@Ts.function
 def cascade_3_max_pool2d_with_stride(
-    A: T.Buffer((1, 24, 24, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")
+    A: T.Tensor((1, 24, 24, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")
 ):
-    B_0 = Ts.sblock_alloc_buffer([1, 22, 22, 16], dtype="int8")
-    B_1 = Ts.sblock_alloc_buffer([1, 10, 10, 16], dtype="int8")
+    B_0 = Ts.sblock_alloc_tensor([1, 22, 22, 16], dtype="int8")
+    B_1 = Ts.sblock_alloc_tensor([1, 10, 10, 16], dtype="int8")
     for i0, i1, i2, i3, i4, i5 in T.grid(1, 22, 22, 16, 3, 3):
         with Ts.sblock("B_0"):
             ax0, ax1, ax2, ax3, rv0, rv1 = Ts.axis.remap("SSSSRR", [i0, i1, i2, i3, i4, i5])
@@ -168,9 +170,9 @@ def cascade_3_max_pool2d_with_stride(
 
 
 def test_cascade_max_pool2d_w_tiled():
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")):
-        B = Ts.sblock_alloc_buffer([1, 10, 6, 16], dtype="int8")
+    @Ts.function
+    def expected(A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")):
+        B = Ts.sblock_alloc_tensor([1, 10, 6, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 1, 2, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(10, 6, 16, 3, 3):
                 with Ts.sblock("B"):
@@ -209,9 +211,9 @@ def test_cascade_max_pool2d_w_tiled():
 
 
 def test_cascade_max_pool2d_h_tiled():
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")):
-        B = Ts.sblock_alloc_buffer([1, 6, 10, 16], dtype="int8")
+    @Ts.function
+    def expected(A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")):
+        B = Ts.sblock_alloc_tensor([1, 6, 10, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 2, 1, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(6, 10, 16, 3, 3):
                 with Ts.sblock("B"):
@@ -250,9 +252,9 @@ def test_cascade_max_pool2d_h_tiled():
 
 
 def test_cascade_max_pool2d_h_w_c_tiled():
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")):
-        B = Ts.sblock_alloc_buffer([1, 6, 10, 16], dtype="int8")
+    @Ts.function
+    def expected(A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")):
+        B = Ts.sblock_alloc_tensor([1, 6, 10, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 2, 2, 2):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(6, 6, 8, 3, 3):
                 with Ts.sblock("B"):
@@ -292,9 +294,9 @@ def test_cascade_max_pool2d_h_w_c_tiled():
 
 
 def test_cascade_max_pool2d_non_perfect_tiled():
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")) -> None:
-        B = Ts.sblock_alloc_buffer([1, 8, 10, 16], dtype="int8")
+    @Ts.function
+    def expected(A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")) -> None:
+        B = Ts.sblock_alloc_tensor([1, 8, 10, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 2, 2, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(8, 8, 16, 3, 3):
                 with Ts.sblock("B"):
@@ -339,10 +341,10 @@ def test_cascade_max_pool2d_non_perfect_tiled():
 
 
 def test_cascade_3_max_pool2d_with_stride():
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 24, 24, 16), "int8"), C: T.Buffer((1, 8, 8, 16), "int8")) -> None:
-        B_0 = Ts.sblock_alloc_buffer([1, 13, 22, 16], dtype="int8")
-        B_1 = Ts.sblock_alloc_buffer([1, 6, 10, 16], dtype="int8")
+    @Ts.function
+    def expected(A: T.Tensor((1, 24, 24, 16), "int8"), C: T.Tensor((1, 8, 8, 16), "int8")) -> None:
+        B_0 = Ts.sblock_alloc_tensor([1, 13, 22, 16], dtype="int8")
+        B_1 = Ts.sblock_alloc_tensor([1, 6, 10, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 2, 2, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(13, 13, 16, 3, 3):
                 with Ts.sblock("B_0"):
@@ -400,9 +402,9 @@ def test_cascade_3_max_pool2d_with_stride():
 
 
 def test_upscale():
-    @Ts.prim_func
-    def before(A: T.Buffer((1, 16, 16, 16), "int8"), C: T.Buffer((1, 24, 24, 16), "int8")) -> None:
-        B = Ts.sblock_alloc_buffer([1, 14, 14, 16], dtype="int8")
+    @Ts.function
+    def before(A: T.Tensor((1, 16, 16, 16), "int8"), C: T.Tensor((1, 24, 24, 16), "int8")) -> None:
+        B = Ts.sblock_alloc_tensor([1, 14, 14, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 5, 5, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(5, 5, 16, 3, 3):
                 with Ts.sblock("B"):
@@ -435,11 +437,11 @@ def test_upscale():
                         C[ax0, ax1, ax2, ax3], B[ax0, ax1 // 2 + rv0, ax2 // 2 + rv1, ax3]
                     )
 
-    @Ts.prim_func
+    @Ts.function
     def expected(
-        A: T.Buffer((1, 16, 16, 16), "int8"), C: T.Buffer((1, 24, 24, 16), "int8")
+        A: T.Tensor((1, 16, 16, 16), "int8"), C: T.Tensor((1, 24, 24, 16), "int8")
     ) -> None:
-        B = Ts.sblock_alloc_buffer([1, 5, 14, 16], dtype="int8")
+        B = Ts.sblock_alloc_tensor([1, 5, 14, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 5, 5, 1):
             for ax0, ax1, ax2, ax3, ax4 in T.grid(5, 5, 16, 3, 3):
                 with Ts.sblock("B"):
@@ -483,11 +485,11 @@ def test_upscale():
 
 
 def test_fail_rolling_buffer_multi_writers():
-    @Ts.prim_func
+    @Ts.function
     def func_multi_writers(
-        A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 12, 12, 16), "int8")
+        A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 12, 12, 16), "int8")
     ):
-        B = Ts.sblock_alloc_buffer([1, 12, 12, 16], dtype="int8")
+        B = Ts.sblock_alloc_tensor([1, 12, 12, 16], dtype="int8")
         for i0, i1, i2, i3 in T.grid(1, 3, 3, 1):
             for ax0, ax1, ax2 in T.grid(6, 6, 16):
                 with Ts.sblock("B_writer_0"):
@@ -528,11 +530,11 @@ def test_fail_rolling_buffer_multi_writers():
 
 
 def test_fail_rolling_buffer_not_match():
-    @Ts.prim_func
+    @Ts.function
     def func_non_overlap(
-        A: T.Buffer((1, 12, 12, 16), "int8"), C: T.Buffer((1, 12, 12, 16), "int8")
+        A: T.Tensor((1, 12, 12, 16), "int8"), C: T.Tensor((1, 12, 12, 16), "int8")
     ):
-        B = Ts.sblock_alloc_buffer([1, 12, 12, 16], dtype="int8")
+        B = Ts.sblock_alloc_tensor([1, 12, 12, 16], dtype="int8")
         for i0_0, i1_0, i2_0, i3_0 in T.grid(1, 3, 3, 1):
             for ax0, ax1, ax2 in T.grid(4, 4, 16):
                 with Ts.sblock("B"):
@@ -575,4 +577,4 @@ def test_fail_rolling_buffer_injection_invalid():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

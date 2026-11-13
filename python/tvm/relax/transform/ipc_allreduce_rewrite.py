@@ -18,14 +18,16 @@
 The pass is written in Python for experiment, fast development.
 """
 
-import tvm
+import tvm_ffi
+
+import tvm_tirx
 from tvm import relax
-from tvm.ir.module import IRModule
 from tvm.relax.expr import Expr, Var
 from tvm.relax.expr_functor import PyExprMutator, PyExprVisitor, mutator, visitor
+from tvm_tirx.ir.module import IRModule
 
 
-@tvm.transform.module_pass(opt_level=0, name="IPCAllReduceRewrite")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="IPCAllReduceRewrite")
 class IPCAllReduceRewrite:
     """Rewrite all-reduce operation to customized all-reduce impl with IPC memory."""
 
@@ -40,9 +42,9 @@ class IPCAllReduceRewrite:
         """
         self.allreduce_strategy = allreduce_strategy
 
-    def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
+    def transform_module(self, mod: IRModule, _ctx: tvm_tirx.ir.transform.PassContext) -> IRModule:
         """IRModule-level transformation"""
-        fcustom_allreduce = tvm.get_global_func(
+        fcustom_allreduce = tvm_ffi.get_global_func(
             "runtime.disco.cuda_ipc.custom_allreduce", allow_missing=True
         )
         if fcustom_allreduce is None:
@@ -59,8 +61,8 @@ class _Visitor(PyExprVisitor):  # pylint: disable=abstract-method
         self.allreduce_strategy = allreduce_strategy
         self.alloc_map: dict[Var, relax.Call] = {}
         self.binding_replacement_map: dict[relax.Expr, relax.Expr] = {}
-        self.builtin_alloc_tensor_op = tvm.ir.Op.get("relax.builtin.alloc_tensor")
-        self.reshape_op = tvm.ir.Op.get("relax.reshape")
+        self.builtin_alloc_tensor_op = tvm_tirx.ir.Op.get("relax.builtin.alloc_tensor")
+        self.reshape_op = tvm_tirx.ir.Op.get("relax.reshape")
 
     def visit(self, mod: IRModule) -> dict[relax.Expr, relax.Expr]:
         """Entry point"""
@@ -109,7 +111,7 @@ class _Visitor(PyExprVisitor):  # pylint: disable=abstract-method
             alloc_tensor.args[0],
             alloc_tensor.args[1],
             alloc_tensor.args[2],
-            tvm.ir.StringImm("ipc_memory"),
+            tvm_tirx.ir.StringImm("ipc_memory"),
         )
 
         self.binding_replacement_map[call] = relax.Call(

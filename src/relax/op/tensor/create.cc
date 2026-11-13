@@ -27,6 +27,8 @@
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/op.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/sym/analyzer.h>
 
 #include <string>
@@ -37,6 +39,20 @@
 namespace tvm {
 namespace relax {
 
+void InitAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<InitAttrs>().def_ro("dtype", &InitAttrs::dtype,
+                                      "The data type of the created tensor.",
+                                      refl::DefaultValue(ffi::Optional<DLDataType>{}));
+}
+
+void TriluAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<TriluAttrs>().def_ro(
+      "k", &TriluAttrs::k,
+      "The number of diagonals above or below the main diagonal to exclude or include.");
+}
+
 TVM_FFI_STATIC_INIT_BLOCK() {
   InitAttrs::RegisterReflection();
   TriluAttrs::RegisterReflection();
@@ -45,25 +61,22 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 /* Initialization operators */
 
 /* relax.full */
-Expr full(ffi::Variant<Expr, ffi::Array<PrimExpr>> shape, Expr fill_value,
+// Prefer shape arrays to the generic Expr conversion of sequences to tuples.
+Expr full(ffi::Variant<ffi::Array<PrimExpr>, Expr> shape, Expr fill_value,
           ffi::Optional<DLDataType> dtype) {
-  Expr shape_in_expr{nullptr};
-  if (const auto* expr = shape.as<ExprNode>()) {
-    shape_in_expr = ffi::GetRef<Expr>(expr);
-  } else if (const auto* _array = shape.as<ffi::ArrayObj>()) {
-    shape_in_expr =
-        ShapeExpr(ffi::GetRef<ffi::ObjectRef>(_array).as_or_throw<ffi::Array<PrimExpr>>());
-  } else {
-    TVM_FFI_THROW(InternalError)
-        << "Full only expects the input shape to be either an Expr or an Array of PrimExpr. ";
-  }
+  Expr shape_in_expr = [&]() -> Expr {
+    if (const auto* expr = shape.as<ExprObj>()) {
+      return ffi::GetRef<Expr>(expr);
+    }
+    return ShapeExpr(shape.get<ffi::Array<PrimExpr>>());
+  }();
 
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
 
   static const Op op = Op::Get("relax.full");
-  return Call::Unchecked(Type::Missing(), op, {std::move(shape_in_expr), std::move(fill_value)},
-                         Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(shape_in_expr), std::move(fill_value)}, Attrs(attrs),
+              {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -71,13 +84,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.full", full);
 }
 
-Type InferTypeFull(const CallNode* call_node) {
+Type InferTypeFull(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Full op should have 2 arguments";
   }
-  const auto* shape_ty = GetTypeAs<ShapeTypeNode>(call->args[0]);
-  const auto* fill_value_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  const auto* shape_ty = GetTypeAs<ShapeTypeObj>(call->args[0]);
+  const auto* fill_value_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   if (shape_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Full requires the input shape to be a Shape. However, the given one is "
@@ -101,11 +114,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("shape", "The shape of the created tensor."),
                  sig::arg("fill_value", "The scalar tensor, denoting the value to fill."),
                  sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeFull>())
-      .set_attr<bool>("RequiresArgumentShapes", false)
-      .set_attr<bool>("FDataDependent", true)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeFull>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kRequiresArgumentShapes, false)
+      .set_attr(tvm::relax::op_attr::kDataDependent, true)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.full_like */
@@ -113,8 +126,7 @@ Expr full_like(Expr x, Expr fill_value, ffi::Optional<DLDataType> dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.full_like");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x), std::move(fill_value)}, Attrs(attrs),
-                         {});
+  return Call(Type::Missing(), op, {std::move(x), std::move(fill_value)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -122,7 +134,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.full_like", full_like);
 }
 
-Type InferTypeFullLike(const CallNode* call_node) {
+Type InferTypeFullLike(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   ffi::Array<TensorType> input_ty = GetInputTensorType(call);
   TensorType data_ty = input_ty[0];
@@ -137,7 +149,7 @@ Type InferTypeFullLike(const CallNode* call_node) {
   if (!attrs->dtype.has_value()) {
     return data_ty;
   } else {
-    auto output_ty = ffi::make_object<TensorTypeNode>(*data_ty.get());
+    auto output_ty = ffi::make_object<TensorTypeObj>(*data_ty.get());
     output_ty->dtype = PrimType(attrs->dtype.value());
     return TensorType(output_ty);
   }
@@ -147,19 +159,19 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.full_like")
       .signature(sig::arg("x", "The input tensor."),
                  sig::arg("fill_value", "The scalar value to fill."), sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeFullLike>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeFullLike>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 // Structure info inference for ones and zeros
-Type InferTypeOnesZeros(const CallNode* call_node) {
+Type InferTypeOnesZeros(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 1) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Ones/Zeros should have 1 argument";
   }
 
-  const auto* shape_ty = GetTypeAs<ShapeTypeNode>(call->args[0]);
+  const auto* shape_ty = GetTypeAs<ShapeTypeObj>(call->args[0]);
   if (shape_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Ones/Zeros requires the input shape to be a Shape. However, the given one is "
@@ -171,14 +183,14 @@ Type InferTypeOnesZeros(const CallNode* call_node) {
 }
 
 // Structure info inference for ones_like and zeros_like
-Type InferTypeOnesLikeZerosLike(const CallNode* call_node) {
+Type InferTypeOnesLikeZerosLike(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<InitAttrs>();
   if (!attrs->dtype.has_value()) {
     return data_ty;
   } else {
-    auto output_ty = ffi::make_object<TensorTypeNode>(*data_ty.get());
+    auto output_ty = ffi::make_object<TensorTypeObj>(*data_ty.get());
     output_ty->dtype = PrimType(attrs->dtype.value());
     return TensorType(output_ty);
   }
@@ -190,14 +202,14 @@ Expr ones(Expr shape, DLDataType dtype) {
   attrs->dtype = dtype;
 
   static const Op op = Op::Get("relax.ones");
-  return Call::Unchecked(Type::Missing(), op, {std::move(shape)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(shape)}, Attrs(attrs), {});
 }
 
 Expr ones_like(Expr x, ffi::Optional<DLDataType> dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.ones_like");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -207,14 +219,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.ones")
       .signature(sig::arg("shape", "The shape of the created tensor."),
                  sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeOnesZeros>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeOnesZeros>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.ones_like")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeOnesLikeZerosLike>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeOnesLikeZerosLike>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.zeros & relax.zeros_like */
@@ -223,14 +235,14 @@ Expr zeros(Expr shape, DLDataType dtype) {
   attrs->dtype = dtype;
 
   static const Op op = Op::Get("relax.zeros");
-  return Call::Unchecked(Type::Missing(), op, {std::move(shape)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(shape)}, Attrs(attrs), {});
 }
 
 Expr zeros_like(Expr x, ffi::Optional<DLDataType> dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.zeros_like");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -240,14 +252,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.zeros")
       .signature(sig::arg("shape", "The shape of the created tensor."),
                  sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeOnesZeros>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeOnesZeros>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.zeros_like")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeOnesLikeZerosLike>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeOnesLikeZerosLike>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.eye & relax.eye_like */
@@ -255,15 +267,14 @@ Expr eye(PrimExpr n, PrimExpr m, PrimExpr k, DLDataType dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.eye");
-  return Call::Unchecked(Type::Missing(), op, {std::move(n), std::move(m), std::move(k)},
-                         Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(n), std::move(m), std::move(k)}, Attrs(attrs), {});
 }
 
 Expr eye_like(Expr x, PrimExpr k, ffi::Optional<DLDataType> dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.eye_like");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x), std::move(k)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(x), std::move(k)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -271,7 +282,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.eye", eye).def("relax.op.eye_like", eye_like);
 }
 
-Type InferTypeEye(const CallNode* call_node) {
+Type InferTypeEye(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 3) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Eye op should have 3 arguments: n, m, and k, but got "
@@ -296,7 +307,7 @@ Type InferTypeEye(const CallNode* call_node) {
   return TensorType(ShapeExpr({n, m}), PrimType(dtype));
 }
 
-Type InferTypeEyeLike(const CallNode* call_node) {
+Type InferTypeEyeLike(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call)
@@ -304,7 +315,7 @@ Type InferTypeEyeLike(const CallNode* call_node) {
         << " arguments";
   }
 
-  const auto* x_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* x_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   if (x_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Eye_like expects the input `x` to be a Tensor, but got "
@@ -329,15 +340,15 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("n", "Number of rows in the output."),
                  sig::arg("m", "Number of columns in the output."),
                  sig::arg("k", "Index of the diagonal."), sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeEye>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeEye>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.eye_like")
       .signature(sig::arg("x", "The input tensor."), sig::arg("k", "Index of the diagonal."),
                  sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeEyeLike>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeEyeLike>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.arange */
@@ -345,8 +356,8 @@ Expr arange(PrimExpr start, PrimExpr stop, PrimExpr step, DLDataType dtype) {
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.arange");
-  return Call::Unchecked(Type::Missing(), op, {std::move(start), std::move(stop), std::move(step)},
-                         Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(start), std::move(stop), std::move(step)},
+              Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -354,7 +365,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.arange", arange);
 }
 
-Type InferTypeArange(const CallNode* call_node) {
+Type InferTypeArange(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 3) {
     TVM_FFI_VISIT_THROW(ValueError, call)
@@ -376,15 +387,16 @@ Type InferTypeArange(const CallNode* call_node) {
   const auto* attrs = call->attrs.as<InitAttrs>();
   TVM_FFI_ICHECK(attrs->dtype.has_value());
   DLDataType dtype = attrs->dtype.value();
-  PrimExpr num_elem;
-  if (start.ty().code() == DLDataTypeCode::kDLInt && end.ty().code() == DLDataTypeCode::kDLInt &&
-      step.ty().code() == DLDataTypeCode::kDLInt) {
-    num_elem = tvm::floordiv((end - start + step - 1), step);
-  } else {
-    num_elem =
-        tvm::prim::cast(tvm::PrimType::Int(64),
-                        tvm::ceil(tvm::prim::cast(tvm::PrimType::Float(32), end - start) / step));
-  }
+  PrimExpr num_elem = [&]() -> PrimExpr {
+    if (start.ty().code() == DLDataTypeCode::kDLInt && end.ty().code() == DLDataTypeCode::kDLInt &&
+        step.ty().code() == DLDataTypeCode::kDLInt) {
+      return tvm::floordiv((end - start + step - 1), step);
+    } else {
+      return tvm::prim::cast(
+          tvm::prim::ceil(tvm::prim::cast(end - start, tvm::PrimType::Float(32)) / step),
+          tvm::PrimType::Int(64));
+    }
+  }();
   sym::Analyzer analyzer;
   num_elem = analyzer->Simplify(num_elem);
   return TensorType(ShapeExpr({num_elem}), PrimType(dtype));
@@ -396,9 +408,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  sig::arg("end", "The ending value for the set of points."),
                  sig::arg("step", "The gap between each pair of adjacent points."),
                  sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeArange>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeArange>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.hamming_window */
@@ -407,10 +419,9 @@ Expr hamming_window(PrimExpr window_size, PrimExpr periodic, PrimExpr alpha, Pri
   ffi::ObjectPtr<InitAttrs> attrs = ffi::make_object<InitAttrs>();
   attrs->dtype = dtype;
   static const Op op = Op::Get("relax.hamming_window");
-  return Call::Unchecked(
-      Type::Missing(), op,
-      {std::move(window_size), std::move(periodic), std::move(alpha), std::move(beta)},
-      Attrs(attrs), {});
+  return Call(Type::Missing(), op,
+              {std::move(window_size), std::move(periodic), std::move(alpha), std::move(beta)},
+              Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -418,7 +429,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.hamming_window", hamming_window);
 }
 
-Type InferTypeHammingWindow(const CallNode* call_node) {
+Type InferTypeHammingWindow(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   const auto* attrs = call->attrs.as<InitAttrs>();
   TVM_FFI_ICHECK(attrs->dtype.has_value());
@@ -450,27 +461,27 @@ Type InferTypeHammingWindow(const CallNode* call_node) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.hamming_window")
       .signature(
-          sig::arg("window_size", "The size of the window"),
+          sig::arg<IntExpr>("window_size", "The size of the window"),
           sig::arg("periodic",
                    "If True, returns a window to be used as periodic function. If False, return a "
                    "symmetric window"),
           sig::arg("alpha", "The coefficient alpha"), sig::arg("beta", "The coefficient beta"),
           sig::call_attrs<InitAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeHammingWindow>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeHammingWindow>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.tril & relax.triu */
 
 Expr tril(Expr x, Expr k) {
   static const Op op = Op::Get("relax.tril");
-  return Call::Unchecked(Type::Missing(), op, {x, k});
+  return Call(Type::Missing(), op, {x, k});
 }
 
 Expr triu(Expr x, Expr k) {
   static const Op op = Op::Get("relax.triu");
-  return Call::Unchecked(Type::Missing(), op, {x, k});
+  return Call(Type::Missing(), op, {x, k});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -480,7 +491,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("relax.op.triu", static_cast<Expr (*)(Expr, Expr)>(triu));
 }
 
-Type InferTypeTrilTriu(const CallNode* call_node) {
+Type InferTypeTrilTriu(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   auto [data_ty, offset] = GetArgType<TensorType, PrimType>(call);
 
@@ -495,14 +506,16 @@ Type InferTypeTrilTriu(const CallNode* call_node) {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.tril")
-      .signature(sig::arg("x", "The input tensor."), sig::arg("k", "The offset of the diagonal."))
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeTrilTriu>())
-      .set_attr<bool>("FPurity", true);
+      .signature(sig::arg("x", "The input tensor."),
+                 sig::arg<IntExpr>("k", "The offset of the diagonal."))
+      .set_native_fn_attr<&InferTypeTrilTriu>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 
   OpDef("relax.triu")
-      .signature(sig::arg("x", "The input tensor."), sig::arg("k", "The offset of the diagonal."))
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeTrilTriu>())
-      .set_attr<bool>("FPurity", true);
+      .signature(sig::arg("x", "The input tensor."),
+                 sig::arg<IntExpr>("k", "The offset of the diagonal."))
+      .set_native_fn_attr<&InferTypeTrilTriu>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 }  // namespace relax

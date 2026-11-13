@@ -26,11 +26,14 @@ from typing import Literal
 import tvm_ffi
 from tvm_ffi import get_global_func
 
-from tvm import ir, s_tir, tirx
-from tvm.ir import TensorRegion
-from tvm.s_tir import Schedule
+import tvm_tirx
+from tvm import s_tir
+from tvm.s_tir import Schedule, match_shape_stride_pattern
 from tvm.s_tir.schedule import SBlockRV
-from tvm.target.target import Target
+from tvm_tirx import ir, tirx
+from tvm_tirx.ir import Range, TensorRegion
+from tvm_tirx.runtime import MemoryScope
+from tvm_tirx.target.target import Target
 
 logger = logging.getLogger(__name__)  # pylint: disable=invalid-name
 
@@ -59,7 +62,7 @@ class IterInfo:
     @property
     def dom(self) -> int | tirx.Expr:
         """The iteration domain of the loop."""
-        return int(self._dom) if isinstance(self._dom, tirx.IntImm) else self._dom
+        return int(self._dom) if isinstance(self._dom, tvm_tirx.ir.IntImm) else self._dom
 
     def __str__(self) -> str:
         return f'Iter("{self.kind}", {self.dom})'
@@ -69,27 +72,27 @@ class IterInfo:
 
 
 get_sblockrealize = get_global_func("s_tir.schedule.GetSBlockRealize")
-# BufferIndex Types
+# TensorIndex Types
 Index = namedtuple("Index", ["sub"])  # c
 RemIndex = namedtuple("RemIndex", ["sub", "div"])  # c%len
 DivIndex = namedtuple("DivIndex", ["sub", "div"])  # c//len
 MergeIndex = namedtuple("MulIndex", ["dom", "mul", "sub"])  # co*len + cb
-BufIndex = list[Index | RemIndex | DivIndex | MergeIndex | None]
+TensorIndex = list[Index | RemIndex | DivIndex | MergeIndex | None]
 
 
-class BufferInfo:
-    "Information about Buffer. Provides useful analysis"
+class TensorInfo:
+    "Information about Tensor. Provides useful analysis"
 
-    buf_region: TensorRegion
+    tensor_region: TensorRegion
     shape: tuple[int]
     assoc_lps: list[s_tir.schedule.LoopRV | None]
-    assoc_lps_info: list[tirx.For | None]
+    assoc_lps_info: list[tvm_tirx.ir.For | None]
 
     def __init__(
         self,
         sch: s_tir.Schedule,
         block_rv: s_tir.schedule.SBlockRV,
-        buf_region: TensorRegion,
+        tensor_region: TensorRegion,
         lps: list[s_tir.schedule.LoopRV] | None,
     ):
         block = sch.get(block_rv)
@@ -98,20 +101,20 @@ class BufferInfo:
         loops = [sch.get(lp) for lp in lps]
         iter_vars = [Var.var for Var in block.iter_vars]
         iter_values = get_sblockrealize(sch, block_rv).iter_values
-        lpvar_lp = dict([loop.loop_var, lp] for loop, lp in zip(loops, lps))
+        lpvar_lp = dict([loop.var, lp] for loop, lp in zip(loops, lps))
         var_lp = dict(zip(iter_vars, [lpvar_lp.get(val, None) for val in iter_values]))
 
-        def extract_index_types(buf: TensorRegion) -> BufIndex:
-            buf_index = []
-            for expr in buf.region:
-                expr = expr.min
+        def extract_index_types(tensor: TensorRegion) -> TensorIndex:
+            tensor_index = []
+            for expr in tensor.region:
+                expr = expr.begin
                 dim = None
                 if isinstance(expr, tirx.expr.Add) and ir.is_prim_var(expr.b):
                     var_add = expr.b
                     if (
                         isinstance(expr, tirx.expr.Mul)
                         and ir.is_prim_var(expr.a)
-                        and isinstance(expr.b, tirx.expr.IntImm)
+                        and isinstance(expr.b, tvm_tirx.ir.IntImm)
                     ):
                         mul = expr.b
                         var_mul = expr.a
@@ -119,21 +122,21 @@ class BufferInfo:
                 elif (
                     isinstance(expr, tirx.expr.FloorMod)
                     and ir.is_prim_var(expr.a)
-                    and isinstance(expr.b, tirx.expr.IntImm)
+                    and isinstance(expr.b, tvm_tirx.ir.IntImm)
                 ):
                     dim = RemIndex(expr.a, expr.b)
                 elif (
                     isinstance(expr, tirx.expr.FloorDiv)
                     and ir.is_prim_var(expr.a)
-                    and isinstance(expr.b, tirx.expr.IntImm)
+                    and isinstance(expr.b, tvm_tirx.ir.IntImm)
                 ):
                     dim = DivIndex(expr.a, expr.b)
                 elif ir.is_prim_var(expr):
                     dim = Index(expr)
-                buf_index.append(dim)
-            return buf_index
+                tensor_index.append(dim)
+            return tensor_index
 
-        indexes = extract_index_types(buf_region)
+        indexes = extract_index_types(tensor_region)
         assoc_lps = [
             (
                 var_lp.get(getattr(idx, "sub"), None)
@@ -143,27 +146,36 @@ class BufferInfo:
             for idx in indexes
         ]
 
-        self.buf_region = buf_region
+        self.tensor_region = tensor_region
         self.assoc_lps = assoc_lps
         self.assoc_lps_info = [(sch.get(lp) if lp is not None else None) for lp in assoc_lps]
-        self.shape = buf_region.source.shape
+        self.shape = tensor_region.source.shape
 
-    def get_scope(self) -> str:
-        return self.buf_region.source.scope()
+    def get_scope(self) -> MemoryScope:
+        return self.tensor_region.source.scope()
 
-    def get_vecsize(self, buf_index: int = 0, vbits: int = 128):
+    def get_vecsize(self, tensor_index: int = 0, vbits: int = 128):
         if self.assoc_lps_info[-1] is None:
             return None
 
-        vlp_extent = int(self.assoc_lps_info[-1].extent) & ~(
-            int(self.assoc_lps_info[-1].extent) - 1
+        vlp_extent = int(
+            Range.get_extent_from_begin_end(
+                self.assoc_lps_info[-1].begin, self.assoc_lps_info[-1].end
+            )
+        ) & ~(
+            int(
+                Range.get_extent_from_begin_end(
+                    self.assoc_lps_info[-1].begin, self.assoc_lps_info[-1].end
+                )
+            )
+            - 1
         )
-        vbuf_extent = int(self.shape[-1]) & ~(int(self.shape[-1]) - 1)
+        vtensor_extent = int(self.shape[-1]) & ~(int(self.shape[-1]) - 1)
 
-        return min(vlp_extent, vbuf_extent, vbits // self.buf_region.source.dtype.bits)
+        return min(vlp_extent, vtensor_extent, vbits // self.tensor_region.source.dtype.bits)
 
     def __str__(self) -> str:
-        return f"BufferInfo({self.buf_region})"
+        return f"TensorInfo({self.tensor_region})"
 
     def __repr__(self) -> str:
         return str(self)
@@ -194,15 +206,15 @@ class SBlockInfo:
         """The iteration domain of the block."""
         return [i.dom for i in self.iters]
 
-    def read_bufs(self, sch: s_tir.Schedule) -> list[BufferInfo]:
+    def read_tensors(self, sch: s_tir.Schedule) -> list[TensorInfo]:
         block_stmt = sch.get(self.block_rv)
         lps = sch.get_loops(self.block_rv)
-        return [BufferInfo(sch, self.block_rv, buf, lps) for buf in block_stmt.reads]
+        return [TensorInfo(sch, self.block_rv, tensor, lps) for tensor in block_stmt.reads]
 
-    def write_bufs(self, sch: s_tir.Schedule) -> list[BufferInfo]:
+    def write_tensors(self, sch: s_tir.Schedule) -> list[TensorInfo]:
         block_stmt = sch.get(self.block_rv)
         lps = sch.get_loops(self.block_rv)
-        return [BufferInfo(sch, self.block_rv, buf, lps) for buf in block_stmt.writes]
+        return [TensorInfo(sch, self.block_rv, tensor, lps) for tensor in block_stmt.writes]
 
     def dom_kind(self) -> str:
         """The iteration domain kind of the block, for example, SSSS, SSSR."""
@@ -216,7 +228,7 @@ class SBlockInfo:
         """Whether the SBlock is elementwise, i.e. trivial mapping between read/write region"""
 
         def _check_unit_var_range(dom: ir.Range, var: tirx.Var) -> bool:
-            return dom.min.same_as(var) and dom.extent == 1
+            return dom.begin.same_as(var) and dom.extent == 1
 
         if not self.is_injective():
             return False
@@ -244,8 +256,8 @@ class SBlockInfo:
         """Whether the SBlock can be considered having a Layout Transform Pattern"""
         return (
             all(k == "S" for k in self.dom_kind())
-            and len(self.write_bufs(sch)) == 1
-            and len(self.read_bufs(sch)) == 1
+            and len(self.write_tensors(sch)) == 1
+            and len(self.read_tensors(sch)) == 1
             and not self.is_elementwise(sch)
             and not get_global_func("s_tir.schedule.HasIfThenElse")(sch.get(self.block_rv))
         )
@@ -254,11 +266,11 @@ class SBlockInfo:
         """Whether the SBlock can be considered having a data pad pattern"""
         return (
             all(k == "S" for k in self.dom_kind())
-            and len(self.write_bufs(sch)) == 1
-            and len(self.read_bufs(sch)) == 1
+            and len(self.write_tensors(sch)) == 1
+            and len(self.read_tensors(sch)) == 1
             and not self.is_elementwise(sch)
-            and len(self.write_bufs(sch)[0].buf_region.region)
-            == len(self.read_bufs(sch)[0].buf_region.region)
+            and len(self.write_tensors(sch)[0].tensor_region.region)
+            == len(self.read_tensors(sch)[0].tensor_region.region)
             and get_global_func("s_tir.schedule.HasIfThenElse")(sch.get(self.block_rv))
         )
 
@@ -285,22 +297,22 @@ class SBlockInfo:
         return str(self)
 
 
-_normalize_prim_func = get_global_func("s_tir.schedule.NormalizePrimFunc")
+_normalize_function = get_global_func("s_tir.schedule.NormalizeFunction")
 
 
-def normalize_prim_func(sch: s_tir.Schedule) -> list[SBlockInfo] | None:
-    """Normalize the primfunc to normal form"""
+def normalize_function(sch: s_tir.Schedule) -> list[SBlockInfo] | None:
+    """Normalize the function to normal form"""
     try:
-        result = _normalize_prim_func(sch)
+        result = _normalize_function(sch)
         if result is None:
             return None
     except Exception:  # pylint: disable=broad-except
         return None
 
-    def _iter_kind(i: tirx.IterVar) -> str:
+    def _iter_kind(i: s_tir.IterVar) -> str:
         return {
-            tirx.IterVar.DataPar: "S",
-            tirx.IterVar.CommReduce: "R",
+            s_tir.IterVar.DataPar: "S",
+            s_tir.IterVar.CommReduce: "R",
         }.get(i.iter_type, "O")
 
     blocks: list[SBlockInfo] = []
@@ -325,8 +337,8 @@ def normalize_prim_func(sch: s_tir.Schedule) -> list[SBlockInfo] | None:
 
 
 def get_sblock_info(sch: s_tir.Schedule, block: s_tir.schedule.SBlockRV) -> SBlockInfo:
-    def _iter_kind(loop: tirx.IterVar) -> str:
-        return {tirx.IterVar.DataPar: "S", tirx.IterVar.CommReduce: "R"}.get(loop.iter_type, "O")
+    def _iter_kind(loop: s_tir.IterVar) -> str:
+        return {s_tir.IterVar.DataPar: "S", s_tir.IterVar.CommReduce: "R"}.get(loop.iter_type, "O")
 
     def _is_reduction_block(block: s_tir.schedule.SBlockRV):
         for iter_var in sch.get(block).iter_vars:
@@ -395,24 +407,23 @@ def get_max_shared_memory_per_block(target: Target) -> int:
 
 
 def get_root_block(sch: Schedule, func_name: str = "main") -> SBlockRV:
-    try:
-        block = sch.mod[func_name].body.block
-    except Exception:
+    body = sch.mod[func_name].body
+    if body is None or len(body) != 1 or not isinstance(body[0], s_tir.SBlockRealize):
         raise ValueError(
             f"The function body is expected to be the root block, but got:\n"
             f"{sch.mod[func_name].body}"
         )
-    return sch.get_sblock(block.name_hint)
+    return sch.get_sblock(body[0].block.name_hint)
 
 
 def collect_block_iter_vars_used_in_access_region(
     block: s_tir.SBlock, region: list[ir.Range]
 ) -> set[tirx.Var]:
-    """Collect the block iter variables used in the access region of a buffer region."""
+    """Collect the block iter variables used in the access region of a tensor region."""
     tir_vars = set()
     for expr in region:
         assert expr.extent == 1
-        tir_vars |= collect_vars_used_in_prim_expr(expr.min)
+        tir_vars |= collect_vars_used_in_prim_expr(expr.begin)
     tir_vars &= set(iter_var.var for iter_var in block.iter_vars)
     return tir_vars
 
@@ -432,14 +443,24 @@ def detect_dominant_read(block: s_tir.SBlock) -> tirx.Expr:
     """Detect the dominant read indices in the block."""
     dominant_read = None
     num_read_iters = -1
-    for buffer_region in block.reads:
-        tir_vars = collect_block_iter_vars_used_in_access_region(block, buffer_region.region)
+    for tensor_region in block.reads:
+        tir_vars = collect_block_iter_vars_used_in_access_region(block, tensor_region.region)
         if num_read_iters < len(tir_vars):
             num_read_iters = len(tir_vars)
-            dominant_read = buffer_region
+            dominant_read = tensor_region
     assert dominant_read is not None
-    (result,) = dominant_read.source.offset_of([e.min for e in dominant_read.region])
-    return result
+    return _tensor_region_offset(dominant_read)
+
+
+def _tensor_region_offset(region):
+    """Linear element offset of a region's first element."""
+    tensor = region.source
+    pattern = match_shape_stride_pattern(tensor.ty)
+    assert pattern is not None
+    offset = pattern.elem_offset
+    for axis, bounds in enumerate(region.region):
+        offset += bounds.begin * pattern.strides[axis]
+    return tvm_tirx.sym.Analyzer().simplify(offset)
 
 
 def is_broadcast_epilogue(
@@ -448,13 +469,13 @@ def is_broadcast_epilogue(
     epilogue: s_tir.schedule.SBlockRV,
 ) -> bool:
     """Check if the epilogue block is a broadcast pattern"""
-    write_buffers = {r.source for r in sch.get(block).writes}
+    write_tensors = {r.source for r in sch.get(block).writes}
     epilogue_iters = {i.var: i for i in sch.get(epilogue).iter_vars if i.dom != 1}
-    for buffer_region in sch.get(epilogue).reads:
-        if buffer_region.source not in write_buffers:
+    for tensor_region in sch.get(epilogue).reads:
+        if tensor_region.source not in write_tensors:
             continue
         tir_vars = collect_block_iter_vars_used_in_access_region(
-            sch.get(epilogue), buffer_region.region
+            sch.get(epilogue), tensor_region.region
         )
         if len(tir_vars) < len(epilogue_iters):
             return True

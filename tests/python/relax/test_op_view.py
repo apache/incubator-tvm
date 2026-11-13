@@ -19,10 +19,12 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
+from tvm.testing import device_enabled
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_infer_shape_of_1d_static_view():
@@ -36,7 +38,7 @@ def test_infer_shape_of_1d_static_view():
         B = R.memory.view(A, R.shape([4096]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_shape_of_2d_static_view():
@@ -50,7 +52,7 @@ def test_infer_shape_of_2d_static_view():
         B = R.memory.view(A, R.shape([64, 64]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_shape_argument_is_not_shape():
@@ -73,7 +75,7 @@ def test_infer_shape_of_1d_static_view_smaller_than_1d_source():
         B = R.memory.view(A, R.shape([16]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_shape_of_2d_static_view_smaller_than_1d_source():
@@ -87,7 +89,7 @@ def test_infer_shape_of_2d_static_view_smaller_than_1d_source():
         B = R.memory.view(A, R.shape([4, 4]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_shape_of_2d_static_view_same_size_as_2d_source():
@@ -101,7 +103,7 @@ def test_infer_shape_of_2d_static_view_same_size_as_2d_source():
         B = R.memory.view(A, R.shape([16, 256]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_1d_static_view_larger_than_1d_source():
@@ -123,62 +125,62 @@ def test_error_if_static_2d_view_larger_than_source():
 
 
 def test_infer_shape_of_1d_dynamic_view():
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def explicit_ty(A: R.Tensor([N])) -> R.Tensor([N // 2]):
         B: R.Tensor([N // 2]) = R.memory.view(A, R.shape([N // 2]))
         return B
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def inferred_ty(A: R.Tensor([N])):
         B = R.memory.view(A, R.shape([N // 2]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_shape_of_2d_dynamic_view_of_1d_source():
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def explicit_ty(A: R.Tensor([N])) -> R.Tensor([N // 8, 8]):
         B: R.Tensor([N // 8, 8]) = R.memory.view(A, R.shape([N // 8, 8]))
         return B
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def inferred_ty(A: R.Tensor([N])):
         B = R.memory.view(A, R.shape([N // 8, 8]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_shape_of_2d_dynamic_view():
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def explicit_ty(A: R.Tensor([N])) -> R.Tensor([N // 2]):
         B: R.Tensor([N // 2]) = R.memory.view(A, R.shape([N // 2]))
         return B
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function(private=True)
     def inferred_ty(A: R.Tensor([N])):
         B = R.memory.view(A, R.shape([N // 2]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_1d_dynamic_view_larger_than_1d_source():
     with pytest.raises(ValueError):
-        N = T.dynamic("N")
+        N = T.dynamic("N", "int64")
 
         @R.function
         def func(A: R.Tensor([N])):
@@ -188,7 +190,7 @@ def test_error_if_1d_dynamic_view_larger_than_1d_source():
 
 def test_error_if_1d_dynamic_view_provably_larger_than_1d_source():
     with pytest.raises(ValueError):
-        N = T.dynamic("N")
+        N = T.dynamic("N", "int64")
 
         @R.function
         def func(A: R.Tensor([N])):
@@ -198,7 +200,7 @@ def test_error_if_1d_dynamic_view_provably_larger_than_1d_source():
 
 def test_error_if_2d_dynamic_view_provably_larger_than_1d_source():
     with pytest.raises(ValueError):
-        N = T.dynamic("N")
+        N = T.dynamic("N", "int64")
 
         @R.function
         def func(A: R.Tensor([N])):
@@ -221,7 +223,7 @@ def test_validity_of_dynamic_view_may_depend_on_runtime_value():
 
     """
 
-    N = T.dynamic("N")
+    N = T.dynamic("N", "int64")
 
     @R.function
     def func(A: R.Tensor([N])):
@@ -247,7 +249,7 @@ def test_infer_dtype_of_float32_view():
         B = R.memory.view(A, dtype=R.dtype("float32"))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_view_dtype_is_void():
@@ -272,7 +274,7 @@ def test_view_without_explicit_dtype_keeps_input_dtype():
         B = R.memory.view(A, R.shape([4, 4]))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_dtype_of_float32_view_from_relax_var():
@@ -296,7 +298,7 @@ def test_infer_dtype_of_float32_view_from_relax_var():
         B = R.memory.view(A, dtype=dtype)
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_infer_dtype_of_view_with_unknown_dtype():
@@ -317,7 +319,7 @@ def test_infer_dtype_of_view_with_unknown_dtype():
         B = R.memory.view(A, dtype=dtype)
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_view_dtype_may_be_smaller_than_input_dtype():
@@ -339,7 +341,7 @@ def test_view_dtype_may_be_smaller_than_input_dtype():
         B = R.memory.view(A, dtype=R.dtype("float8"))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_view_dtype_is_larger_than_input_dtype():
@@ -372,7 +374,7 @@ def test_increase_dtype_size_while_decreasing_number_of_elements():
         B = R.memory.view(A, shape=R.shape([8]), dtype=R.dtype("float16"))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_decrease_dtype_size_while_increasing_number_of_elements():
@@ -388,7 +390,7 @@ def test_decrease_dtype_size_while_increasing_number_of_elements():
         B = R.memory.view(A, shape=R.shape([16]), dtype=R.dtype("uint8"))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_error_if_number_of_bytes_of_view_is_larger_than_original():
@@ -443,7 +445,7 @@ def test_applying_relative_byte_offset_of_zero_is_legal():
         B = R.memory.view(A, relative_byte_offset=R.prim_value(0))
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_applying_unknown_relative_byte_offset_is_legal():
@@ -466,7 +468,7 @@ def test_applying_unknown_relative_byte_offset_is_legal():
         B = R.memory.view(A, relative_byte_offset=relative_byte_offset)
         return B
 
-    tvm.ir.assert_structural_equal(explicit_ty, inferred_ty)
+    tvm_tirx.ir.assert_structural_equal(explicit_ty, inferred_ty)
 
 
 def test_legalize_is_no_op():
@@ -482,7 +484,7 @@ def test_legalize_is_no_op():
     Expected = Before
 
     After = tvm.relax.transform.LegalizeOps()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_lower_runtime_builtin_shape_change():
@@ -499,7 +501,7 @@ def test_lower_runtime_builtin_shape_change():
         def main(A: R.Tensor([4096], "float32")):
             _ = R.null_value()
             B = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -513,7 +515,7 @@ def test_lower_runtime_builtin_shape_change():
             return B
 
     After = tvm.relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_lower_runtime_builtin_view_shape_from_unknown():
@@ -532,7 +534,7 @@ def test_lower_runtime_builtin_view_shape_from_unknown():
         def main(A: R.Tensor(dtype="float32")):
             _ = R.null_value()
             B = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -546,7 +548,7 @@ def test_lower_runtime_builtin_view_shape_from_unknown():
             return B
 
     After = tvm.relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_lower_runtime_builtin_dtype_change():
@@ -562,7 +564,7 @@ def test_lower_runtime_builtin_dtype_change():
         @R.function
         def main(A: R.Tensor([4096], "float32")):
             B = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -576,7 +578,7 @@ def test_lower_runtime_builtin_dtype_change():
             return B
 
     After = tvm.relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_lower_runtime_builtin_byte_offset():
@@ -593,7 +595,7 @@ def test_lower_runtime_builtin_byte_offset():
         def main(A: R.Tensor([4096], "float32")):
             _ = R.null_value()
             B = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -607,7 +609,7 @@ def test_lower_runtime_builtin_byte_offset():
             return B
 
     After = tvm.relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_lower_runtime_builtin_view_with_multiple_updated_fields():
@@ -642,7 +644,7 @@ def test_lower_runtime_builtin_view_with_multiple_updated_fields():
         @R.function
         def main(A: R.Tensor([4096], "uint8")):
             B = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -654,7 +656,7 @@ def test_lower_runtime_builtin_view_with_multiple_updated_fields():
                 R.prim_value(0),
             )
             C = R.ExternFunc(
-                "runtime.TVMTensorCreateView",
+                "runtime.TensorCreateView",
                 R.Callable(
                     derive_func="tvm.relax.type.infer_view_ty",
                     purity=True,
@@ -668,12 +670,12 @@ def test_lower_runtime_builtin_view_with_multiple_updated_fields():
             return (B, C)
 
     After = tvm.relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_execute_no_op_view(target):
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     @I.ir_module
@@ -688,21 +690,21 @@ def test_execute_no_op_view(target):
     np_expected = np_input
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(built, device=dev)
-        tvm_input = tvm.runtime.tensor(np_input, dev)
+        tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
         tvm_output = vm["main"](tvm_input)
-        tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+        tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
     if target == "llvm":
         run_and_check()
     else:
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_execute_view_with_new_shape(target):
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     @I.ir_module
@@ -717,21 +719,21 @@ def test_execute_view_with_new_shape(target):
     np_expected = np_input.reshape(64, 64)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(built, device=dev)
-        tvm_input = tvm.runtime.tensor(np_input, dev)
+        tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
         tvm_output = vm["main"](tvm_input)
-        tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+        tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
     if target == "llvm":
         run_and_check()
     else:
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_execute_view_with_new_byte_offset(target):
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     @I.ir_module
@@ -750,21 +752,21 @@ def test_execute_view_with_new_byte_offset(target):
     np_expected = np_input.reshape(64, 64)[32:48, :]
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(built, device=dev)
-        tvm_input = tvm.runtime.tensor(np_input, dev)
+        tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
         tvm_output = vm["main"](tvm_input)
-        tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+        tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
     if target == "llvm":
         run_and_check()
     else:
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_execute_view_with_new_dtype(target):
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     @I.ir_module
@@ -779,21 +781,21 @@ def test_execute_view_with_new_dtype(target):
     np_expected = np_input.view("uint32")
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(built, device=dev)
-        tvm_input = tvm.runtime.tensor(np_input, dev)
+        tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
         tvm_output = vm["main"](tvm_input)
-        tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+        tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
     if target == "llvm":
         run_and_check()
     else:
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize("target", ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)])
 def test_execute_view_with_multiple_updated_fields(target):
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     @I.ir_module
@@ -821,18 +823,18 @@ def test_execute_view_with_multiple_updated_fields(target):
     ]
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(built, device=dev)
-        tvm_input = tvm.runtime.tensor(np_input, dev)
+        tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
         tvm_output = vm["main"](tvm_input)
-        tvm.testing.assert_allclose(tvm_output[0].numpy(), np_expected[0])
-        tvm.testing.assert_allclose(tvm_output[1].numpy(), np_expected[1])
+        tvm_tirx.testing.assert_allclose(tvm_output[0].numpy(), np_expected[0])
+        tvm_tirx.testing.assert_allclose(tvm_output[1].numpy(), np_expected[1])
 
     if target == "llvm":
         run_and_check()
     else:
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

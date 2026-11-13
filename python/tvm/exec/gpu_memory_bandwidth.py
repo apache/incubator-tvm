@@ -23,9 +23,10 @@ import itertools
 import numpy as np
 
 import tvm
+import tvm_tirx
 from tvm import te
 from tvm.s_tir.meta_schedule.runner import EvaluatorConfig, RPCConfig
-from tvm.testing import local_run, rpc_run
+from tvm.s_tir.testing.runner import local_run, rpc_run
 
 
 def _parse_args() -> argparse.Namespace:
@@ -150,7 +151,7 @@ def _workload(
         name="B",
     )
     # pylint: enable=invalid-name
-    return te.create_prim_func([A, B])
+    return te.create_function([A, B])
 
 
 def _schedule(
@@ -179,9 +180,9 @@ def main():  # pylint: disable=too-many-locals
     """Entry point"""
     args = _parse_args()
     # pylint: disable=invalid-name
-    target = tvm.target.Target(args.target)
+    target = tvm_tirx.target.Target(args.target)
     if args.target_host is not None:
-        target = tvm.target.Target(args.target, host=args.target_host)
+        target = tvm_tirx.target.Target(args.target, host=args.target_host)
     dtype = args.dtype
     rpcConfig = None
     if args.rpc_host is not None and args.rpc_port is not None and args.rpc_key is not None:

@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_LINEAR_ALGEBRA_H_
 #define TVM_RELAX_OP_TENSOR_LINEAR_ALGEBRA_H_
 
-#include <tvm/relax/attrs/linear_algebra.h>
+#include <tvm/relax/op/linear_algebra.h>
 
 #include "../op_common.h"
 

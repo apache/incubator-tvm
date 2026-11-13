@@ -24,13 +24,17 @@ import inspect
 import pytest
 
 import tvm
-import tvm.script
-import tvm.testing
-from tvm import IRModule, relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
+from tvm import relax
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx import IRModule
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def _check(
@@ -38,30 +42,32 @@ def _check(
     expect: relax.Function | IRModule | None = None,
 ):
     test = parsed.script(show_meta=True)
-    roundtrip_mod = tvm.script.from_source(
+    roundtrip_mod = tvm_tirx.script.from_source(
         test,
         extra_vars={
-            "I": tvm.script.ir,
-            "R": tvm.script.relax,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
+            "I": tvm_tirx.script.ir,
+            "R": tvm.relax.script,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
         },
     )
-    tvm.ir.assert_structural_equal(parsed, roundtrip_mod)
+    tvm_tirx.ir.assert_structural_equal(parsed, roundtrip_mod)
     if isinstance(parsed, IRModule) and isinstance(roundtrip_mod, IRModule):
-        relax.analysis.well_formed(parsed)
-        relax.analysis.well_formed(roundtrip_mod)
+        relax.analysis.check_well_formed(parsed)
+        relax.analysis.check_well_formed(roundtrip_mod)
     if expect:
-        tvm.ir.assert_structural_equal(parsed, expect)
+        tvm_tirx.ir.assert_structural_equal(parsed, expect)
 
 
 def test_call_tir_requires_global_var():
-    with pytest.raises(tvm.error.InternalError, match="first argument to be a GlobalVar"):
+    with pytest.raises(RuntimeError, match="first argument to be a GlobalVar"):
 
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
             # call_tir requires a GlobalVar rather than a packed-function name.
-            gv0 = gv1 = R.call_tir("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = gv1 = R.call_tir(
+                "extern_func", x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             return gv0
 
 
@@ -107,17 +113,26 @@ def test_unexpected_tir_cast_args():
         @R.function
         def f(x: R.Tensor((m,), "float32")):
             # tirx.cast expects 2 arguments, but got 3
-            return R.call_tir("foo", (x,), R.Tensor((T.cast("int32", m, 1),), dtype="float32"))
+            return R.call_tir(
+                "foo",
+                (x,),
+                ty_args=[
+                    R.Tensor(
+                        (T.cast("int32", loc=1, ty=m),),
+                        dtype="float32",
+                    )
+                ],
+            )
 
 
 def test_unexpected_tir_args():
     with pytest.raises(TypeError):
         m = T.dynamic("m", "int64")
 
-        @tvm.script.ir_module
+        @tvm_tirx.script.ir_module
         class TestWellCallTIR:
-            @Ts.prim_func
-            def tir_addone(A: T.Buffer((16, 16), "int32"), B: T.Buffer((16, 16), "int32")) -> None:
+            @Ts.function
+            def tir_addone(A: T.Tensor((16, 16), "int32"), B: T.Tensor((16, 16), "int32")) -> None:
                 T.func_attr({"global_symbol": "tir_addone"})
                 for i, j in T.grid(16, 16):
                     with Ts.sblock("tir_addone"):
@@ -127,7 +142,7 @@ def test_unexpected_tir_args():
             @R.function
             def foo(x: R.Tensor((m, m), "float32")):
                 # tirx.max expects 2 arguments, but got 1
-                gv = R.call_tir(tir_addone, (x,), R.Tensor((T.max(16),), dtype="float32"))  # noqa: F821
+                gv = R.call_tir(tir_addone, (x,), ty_args=[R.Tensor((T.max(16),), dtype="float32")])  # noqa: F821
                 return gv
 
     with pytest.raises(TypeError):
@@ -135,8 +150,10 @@ def test_unexpected_tir_args():
 
         @R.function
         def f(x: R.Tensor((m, m), "float32")):
-            # call_tir expected a tirx prim_func
-            return relax.call_tir("extern_func", (x,), R.Tensor((T.max(m),), dtype="float32"))
+            # call_tir expected a tirx function
+            return relax.call_tir(
+                "extern_func", (x,), ty_args=[R.Tensor((T.max(m),), dtype="float32")]
+            )
 
 
 def test_func_type_annotation_fail():
@@ -189,7 +206,7 @@ def test_unassigned_call_fail():
 
 
 def test_incorrect_tensor_shape():
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
 
         @R.function
         def f(x: R.Tensor([16])):
@@ -203,9 +220,13 @@ def test_dataflow_binding_after_output():
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
             with R.dataflow():
-                gv = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+                gv = R.call_dps_packed(
+                    _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
                 R.output(gv)
-                lv = R.call_dps_packed("extern_func", gv, R.Tensor((128, 128), dtype="float32"))
+                lv = R.call_dps_packed(
+                    _ExternFunc("extern_func"), gv, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             return gv
 
 
@@ -216,9 +237,13 @@ def test_dataflow_output_global_var():
 
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv0 = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = R.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             with R.dataflow():
-                gv1 = R.call_dps_packed("extern_func", gv0, R.Tensor((128, 128), dtype="float32"))
+                gv1 = R.call_dps_packed(
+                    _ExternFunc("extern_func"), gv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
                 R.output(gv0, gv1)
             return gv1
 
@@ -231,7 +256,9 @@ def test_dataflow_multiple_output():
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
             with R.dataflow():
-                gv = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+                gv = R.call_dps_packed(
+                    _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
                 R.output(gv)
                 R.output(gv)
             return gv
@@ -242,7 +269,9 @@ def test_dataflow_output_outside_dataflow_block():
 
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
-            gv = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+            gv = R.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             R.output(gv)
             return gv
 
@@ -275,7 +304,9 @@ def test_function_without_return():
 
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")):
-            gv0 = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = R.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
 
 
 def test_annotate_override():
@@ -291,7 +322,7 @@ def test_annotate_override():
     assert isinstance(y_bind.var.ty, relax.TensorType)
     assert isinstance(z_bind.var.ty, relax.AnyType)
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
 
         @R.function
         def test(x: R.Tensor):
@@ -311,38 +342,39 @@ def test_annotate_override():
 
 
 def test_call_tir_inplace_with_tuple_var_raises_error():
-    with pytest.raises(TypeError):
+    @tvm_tirx.script.ir_module
+    class Module:
+        @R.function
+        def main(x: R.Tensor((2, 3), "int32"), y: R.Tensor((2, 3), "int32")):
+            cls = Module
+            args = (x, y)
+            res = R.call_tir_inplace(
+                cls.copy,
+                # The `args` tuple must be an in-line tuple, not a
+                # reference to a tuple.  This error should be
+                # caught by explicit module validation.
+                args,
+                inplace_indices=[0, -1],
+                ty_args=[_TupleType([R.Tensor((2, 3), "int32"), R.Tensor((2, 3), "int32")])],
+            )
+            return res
 
-        @tvm.script.ir_module
-        class Module:
-            @R.function
-            def main(x: R.Tensor((2, 3), "int32"), y: R.Tensor((2, 3), "int32")):
-                cls = Module
-                args = (x, y)
-                res = R.call_tir_inplace(
-                    cls.copy,
-                    # The `args` tuple must be an in-line tuple, not a
-                    # reference to a tuple.  This error should be
-                    # caught and raised during parsing.
-                    args,
-                    inplace_indices=[0, -1],
-                    out_ty=[R.Tensor((2, 3), "int32"), R.Tensor((2, 3), "int32")],
-                )
-                return res
+        @Ts.function
+        def copy(
+            A: T.Tensor((2, 3), "int32"),
+            B: T.Tensor((2, 3), "int32"),
+            out1: T.Tensor((2, 3), "int32"),
+        ):
+            # copies the contents of B into A and out1
+            T.func_attr({"tirx.noalias": True})
+            for (*iters,) in T.grid(T.int64(2), T.int64(3)):
+                with Ts.sblock("T_zeros"):
+                    i, j = Ts.axis.remap("SS", iters)
+                    A[i, j] = B[i, j]
+                    out1[i, j] = B[i, j]
 
-            @Ts.prim_func
-            def copy(
-                A: T.Buffer((2, 3), "int32"),
-                B: T.Buffer((2, 3), "int32"),
-                out1: T.Buffer((2, 3), "int32"),
-            ):
-                # copies the contents of B into A and out1
-                T.func_attr({"tirx.noalias": True})
-                for (*iters,) in T.grid(T.int64(2), T.int64(3)):
-                    with Ts.sblock("T_zeros"):
-                        i, j = Ts.axis.remap("SS", iters)
-                        A[i, j] = B[i, j]
-                        out1[i, j] = B[i, j]
+    with pytest.raises(ValueError):
+        relax.analysis.check_well_formed(Module)
 
 
 def test_if_inside_dataflow():
@@ -386,6 +418,16 @@ def test_function_with_non_void_return_type_must_be_assigned():
             return x
 
 
+@pytest.mark.parametrize("value", [(1,), ((),), [()]])
+def test_nonempty_host_tuple_statement_is_rejected(value):
+    with pytest.raises(TypeError, match="Unsupported expression statement"):
+
+        @R.function
+        def func():
+            value
+            return ()
+
+
 def test_private_function_with_global_symbol_fail():
     with pytest.raises(ValueError):
 
@@ -417,4 +459,4 @@ def test_private_function_with_global_symbol_no_module_fail():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -79,6 +79,7 @@ struct ConvEntry {
   // cudnnMathType_t math_type;
   Device device;
   runtime::DeviceAPI* cuda_api;
+  ffi::Tensor workspace_owner;
   void* workspace{nullptr};
   size_t workspace_size{0};
   ConvEntry();

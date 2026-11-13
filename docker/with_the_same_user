@@ -70,10 +70,6 @@ else
     CUDA_ENV=""
 fi
 
-if [[ "$CI_IMAGE_NAME" == *"hexagon"* ]] && [[ ${CI:-false} != "true" ]]; then
-  PATH=$(echo "$PATH" | sed 's/\/opt\/sccache://g')
-fi
-
 sudo -u "#${CI_BUILD_UID}" --preserve-env \
 ${CUDA_ENV} \
 PATH=${PATH} \

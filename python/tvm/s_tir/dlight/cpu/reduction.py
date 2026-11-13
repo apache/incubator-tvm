@@ -16,11 +16,12 @@
 # under the License.
 """CPU reduction rule for operators including softmax, layer norm, RMS norm, etc."""
 
-from tvm import s_tir, tirx
-from tvm.target import Target
-from tvm.target.codegen import llvm_get_vector_width
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.codegen import llvm
+from tvm_tirx.target import Target
 
-from ..analysis import normalize_prim_func
+from ..analysis import normalize_function
 from ..base import get_extent
 from .base import CPUScheduleRule
 
@@ -53,15 +54,15 @@ class Reduction(CPUScheduleRule):
 
     def apply(  # pylint: disable=too-many-locals,too-many-return-statements,too-many-branches
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         _: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
-        if not isinstance(func, tirx.PrimFunc) or not self.is_target_available(target):
+        if not isinstance(func, tirx.Function) or not self.is_target_available(target):
             return None
 
         sch = s_tir.Schedule(func)
-        block_infos = normalize_prim_func(sch)
+        block_infos = normalize_function(sch)
         if block_infos is None or len(block_infos) < 2:
             return None
 
@@ -83,12 +84,12 @@ class Reduction(CPUScheduleRule):
         if not num_leading_s:
             return None
 
-        # Infer dtype from the last block's write buffer.
+        # Infer dtype from the last block's write tensor.
         last_block_stmt = sch.get(block_infos[-1].block_rv)
         dtype_bits = last_block_stmt.writes[0].source.dtype.bits if last_block_stmt.writes else 32
 
         # Determine vector lanes from target VLEN.
-        vlen_bits = llvm_get_vector_width(target)
+        vlen_bits = llvm.get_vector_width(target)
         if vlen_bits <= 0:
             vlen_bits = 128
         vec_lanes = max(vlen_bits // dtype_bits, 2)
@@ -147,5 +148,5 @@ class Reduction(CPUScheduleRule):
         if isinstance(extent, int) and extent <= vec_lanes:
             return
         _, inner_loop = sch.split(inner, factors=[None, vec_lanes])
-        sch.annotate(inner_loop, ann_key="pragma_auto_unroll_max_step", ann_val=vec_lanes)
-        sch.annotate(inner_loop, ann_key="pragma_unroll_explicit", ann_val=1)
+        sch.annotate(inner_loop, ann_key="tirx.auto_unroll_max_step", ann_val=vec_lanes)
+        sch.annotate(inner_loop, ann_key="tirx.unroll_explicit", ann_val=1)

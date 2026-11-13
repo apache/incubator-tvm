@@ -32,6 +32,8 @@
 
 #include <functional>
 #include <iterator>
+#include <set>
+#include <vector>
 
 #include "../../support/ordered_set.h"
 
@@ -44,11 +46,10 @@ struct VarIdentityLess {
 
 using VarIdentitySet = std::set<Var, VarIdentityLess>;
 
-TVM_FFI_STATIC_INIT_BLOCK() { DataflowBlockRewriteNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { DataflowBlockRewriteObj::RegisterReflection(); }
 
 DataflowBlockRewrite::DataflowBlockRewrite(DataflowBlock dfb, Function root_fn) {
-  auto n = ffi::make_object<DataflowBlockRewriteNode>();
-  n->dfb_ = dfb;
+  auto n = ffi::make_object<DataflowBlockRewriteObj>(dfb);
   n->root_fn_ = root_fn;
   n->original_fn_ptr_ = root_fn.get();
   auto p = FunctionUseDef(root_fn);
@@ -67,24 +68,24 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   });
 }
 
-void DataflowBlockRewriteNode::ReplaceAllUses(Var old_var, Var new_var) {
+void DataflowBlockRewriteObj::ReplaceAllUses(Var old_var, Var new_var) {
   class ReplaceAllUsePass : public ExprMutator {
     Var old_var, new_var;
-    const DataflowBlockNode* const to_catch;
+    const DataflowBlockObj* const to_catch;
 
    public:
-    DataflowBlock caught;
+    ffi::Optional<DataflowBlock> caught;
 
-    ReplaceAllUsePass(Var old_var, Var new_var, const DataflowBlockNode* to_catch)
+    ReplaceAllUsePass(Var old_var, Var new_var, const DataflowBlockObj* to_catch)
         : old_var(old_var), new_var(new_var), to_catch(to_catch) {}
 
     using ExprMutator::VisitExpr_;
 
-    Expr VisitExpr_(const VarNode* op) override {
+    Expr VisitExpr_(const VarObj* op) override {
       return (op == old_var.get()) ? new_var : ffi::GetRef<Expr>(op);
     }
 
-    BindingBlock VisitBindingBlock_(const DataflowBlockNode* op) override {
+    BindingBlock VisitBindingBlock_(const DataflowBlockObj* op) override {
       BindingBlock res = ExprMutator::VisitBindingBlock_(op);
       if (op == to_catch) caught = res.as_or_throw<DataflowBlock>();
       return res;
@@ -99,7 +100,7 @@ void DataflowBlockRewriteNode::ReplaceAllUses(Var old_var, Var new_var) {
   ReplaceAllUsePass replacer(old_var, new_var, dfb_.get());
   if (root_fn_) {
     root_fn_ = replacer.VisitExpr(root_fn_.value()).as_or_throw<Function>();
-    dfb_ = replacer.caught;
+    dfb_ = replacer.caught.value();
   } else {
     dfb_ = replacer.VisitBindingBlock(dfb_).as_or_throw<DataflowBlock>();
   }
@@ -143,20 +144,20 @@ class UpdateDFB : public ExprMutator {
   UpdateDFB(DataflowBlock old_dfb, DataflowBlock new_dfb)
       : old_dfb(std::move(old_dfb)), new_dfb(std::move(new_dfb)) {}
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* op) override {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* op) override {
     return old_dfb.get() == op ? new_dfb : old_dfb;
   }
 };
 
-void DataflowBlockRewriteNode::Add(Binding binding) {
+void DataflowBlockRewriteObj::Add(Binding binding) {
   auto [var, val] = [binding] {
-    if (auto vb = binding.as<VarBindingNode>()) {
+    if (auto vb = binding.as<VarBindingObj>()) {
       return std::make_pair(vb->var, vb->value);
-    } else if (auto mc = binding.as<MatchCastNode>()) {
+    } else if (auto mc = binding.as<MatchCastObj>()) {
       return std::make_pair(mc->var, mc->value);
     }
     TVM_FFI_THROW(InternalError) << "Unsupported binding type";
-    return std::make_pair(Var{}, Expr{});
+    throw;
   }();
 
   TVM_FFI_ICHECK(0 == to_users_.count(var)) << var << " has been defined so cannot be added.";
@@ -179,7 +180,7 @@ void DataflowBlockRewriteNode::Add(Binding binding) {
     root_fn_ = updater.VisitExpr(root_fn_.value()).as_or_throw<Function>();
   }
 
-  for (const VarNode* v : used_vars) {
+  for (const VarObj* v : used_vars) {
     auto var = ffi::GetRef<Var>(v);
     if (auto users = to_users_.Get(var)) {
       users.value().push_back(var);
@@ -257,7 +258,7 @@ class RemoveUnusedVars : public ExprMutator {
   RemoveUnusedVars(ffi::Map<Var, ffi::Array<Var>> users, ffi::Array<Var> fn_outputs)
       : RemoveUnusedVars(GetUnusedVars(users, fn_outputs)) {}
 
-  void VisitBinding_(const VarBindingNode* binding) override {
+  void VisitBinding_(const VarBindingObj* binding) override {
     bool can_remove = unused_vars.count(binding->var) &&
                       (in_dataflow_block_ || !ContainsImpureCall(binding->value));
     if (!can_remove) {
@@ -265,7 +266,7 @@ class RemoveUnusedVars : public ExprMutator {
     }
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) override {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) override {
     bool capture_output = caught_rewrite && block == caught_rewrite.value().get();
 
     bool cache = in_dataflow_block_;
@@ -284,7 +285,7 @@ class RemoveUnusedVars : public ExprMutator {
   bool in_dataflow_block_{false};
 };
 
-void DataflowBlockRewriteNode::RemoveUnused(Var unused, bool allow_undef) {
+void DataflowBlockRewriteObj::RemoveUnused(Var unused, bool allow_undef) {
   // first need to check if this var is used.
   if (to_users_.count(unused) == 0) {  // no def.
     if (allow_undef) return;
@@ -316,7 +317,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                         });
 }
 
-void DataflowBlockRewriteNode::RemoveAllUnused() {
+void DataflowBlockRewriteObj::RemoveAllUnused() {
   RemoveUnusedVars remover(to_users_, fn_outputs_);
   remover.caught_rewrite = dfb_;
 
@@ -361,7 +362,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.analysis.remove_all_unused", RemoveAllUnused);
 }
 
-IRModule DataflowBlockRewriteNode::MutateIRModule(IRModule irmod) {
+IRModule DataflowBlockRewriteObj::MutateIRModule(IRModule irmod) {
   BlockBuilder builder = BlockBuilder::Create(irmod);
 
   for (auto& [gvar, fn] : irmod->functions) {

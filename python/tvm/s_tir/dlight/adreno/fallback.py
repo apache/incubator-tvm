@@ -33,11 +33,30 @@
 # under the License.
 """Dlight Adreno Fallback Schedules"""
 
-from tvm import s_tir, tirx
-from tvm.target import Target
+from functools import cache
+
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.runtime import MemoryScope
+from tvm_tirx.target import Target
 
 from .. import analysis
 from .base import AdrenoScheduleRule
+
+
+@cache
+def _texture_scopes():
+    return tuple(
+        MemoryScope(name)
+        for name in (
+            "texture",
+            "global.texture",
+            "global.texture-1d",
+            "global.texture-nchw",
+            "global.texture-nhwc",
+            "global.texture-weight",
+        )
+    )
 
 
 def _assert_gpu_target(target: Target):
@@ -102,11 +121,11 @@ class Fallback(AdrenoScheduleRule):
         return remaining_blocks
 
     @staticmethod
-    def schedule_default(sch: s_tir.Schedule, blk: s_tir.schedule.SBlockRV):
+    def schedule_default(sch: s_tir.Schedule, blk: s_tir.schedule.SBlockRV, *, target=None):
         block_info = analysis.get_sblock_info(sch, blk)
 
         s_loops, r_loops, o_loops = [], [], []
-        v_loop = block_info.write_bufs(sch)[0].assoc_lps[-1]
+        v_loop = block_info.write_tensors(sch)[0].assoc_lps[-1]
 
         for iter_info in block_info.iters:
             if sch.get(iter_info.loop_rv) == sch.get(v_loop):
@@ -114,7 +133,7 @@ class Fallback(AdrenoScheduleRule):
             {"S": s_loops, "R": r_loops, "O": o_loops}.get(iter_info.kind).append(iter_info.loop_rv)
 
         iter_vars = analysis.collect_block_iter_vars_used_in_access_region(
-            sch.get(blk), block_info.write_bufs(sch)[0].buf_region.region
+            sch.get(blk), block_info.write_tensors(sch)[0].tensor_region.region
         )
         o_outer = [lp for lp in o_loops if sch.get(lp).var in iter_vars]
         o_inner = [lp for lp in o_loops if sch.get(lp).var not in iter_vars]
@@ -127,7 +146,7 @@ class Fallback(AdrenoScheduleRule):
         sch.reorder(*s_loops, *o_outer, *r_loops, *o_inner)
 
         assert s_loops
-        tgt = Target.current(allow_none=True)
+        tgt = target
 
         b = sch.fuse(*s_loops)
         tx_extent = get_max_threads_per_block(tgt) if tgt is not None else 256
@@ -147,7 +166,7 @@ class Fallback(AdrenoScheduleRule):
             sch.vectorize(v_loop)
 
     @staticmethod
-    def schedule_fallback(sch):
+    def schedule_fallback(sch, *, target=None):
         root_block = analysis.get_root_block(sch)
         blocks = sch.get_child_blocks(root_block)
 
@@ -160,21 +179,21 @@ class Fallback(AdrenoScheduleRule):
         remaining_blocks = [blk for blk in blocks if blk not in schedule_blocks]
 
         for blk in schedule_blocks:
-            Fallback.schedule_default(sch, blk)
+            Fallback.schedule_default(sch, blk, target=target)
         remaining_blocks = Fallback.schedule_inline_blocks(sch, remaining_blocks)
         # TODO: Analyze unscheduled blocks to schedule instead of relying on remaining
         for blk in remaining_blocks:
-            Fallback.schedule_default(sch, blk)
+            Fallback.schedule_default(sch, blk, target=target)
 
     def apply(  # pylint: disable=too-many-locals
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         _: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
         # pylint: disable=invalid-name
 
-        if not isinstance(func, tirx.PrimFunc) or not self.is_target_available(target):
+        if not isinstance(func, tirx.Function) or not self.is_target_available(target):
             return None
 
         sch = s_tir.Schedule(func)
@@ -185,8 +204,10 @@ class Fallback(AdrenoScheduleRule):
             return None
 
         block_infos = [analysis.get_sblock_info(sch, block) for block in blocks]
-        if not any("texture" in block.write_bufs(sch)[0].get_scope() for block in block_infos):
+        if not any(
+            block.write_tensors(sch)[0].get_scope() in _texture_scopes() for block in block_infos
+        ):
             return None
 
-        Fallback.schedule_fallback(sch)
+        Fallback.schedule_fallback(sch, target=target)
         return sch

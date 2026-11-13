@@ -24,11 +24,13 @@
 #ifndef TVM_RELAX_BLOCK_BUILDER_H_
 #define TVM_RELAX_BLOCK_BUILDER_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/unique_name_supply.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/utils.h>
 #include <tvm/runtime/base.h>
 #include <tvm/sym/analyzer.h>
+#include <tvm/target/target.h>
 
 namespace tvm {
 namespace relax {
@@ -58,12 +60,15 @@ namespace relax {
  * in mind when using and developing BlockBuilder, we can group
  * the code in a logically clean way.
  *
- * BlockBuilderNode is implemented as a virtual interface to
+ * BlockBuilderObj is implemented as a virtual interface to
  * allow logically grouped implementation and internal data
  * structures that are hidden from the users.
  */
-class BlockBuilderNode : public ffi::Object {
+class BlockBuilderObj : public ffi::Object {
  public:
+  /*! \brief Explicit target for the operation being legalized, if one was supplied. */
+  ffi::Optional<Target> target;
+
   //-------------------------------
   // Global Context management
   //-------------------------------
@@ -96,7 +101,7 @@ class BlockBuilderNode : public ffi::Object {
   virtual IRModule Finalize() = 0;
 
   /*!
-   * \brief Add a Relax function or a TIR PrimFunc to internal context module.
+   * \brief Add a Relax function or a TIR tirx::Function to internal context module.
    * \param func The function to be added.
    * \param func_name_hint The name hint of the function to be added.
    * \note If the function to be added already exists, return its
@@ -106,7 +111,7 @@ class BlockBuilderNode : public ffi::Object {
   virtual GlobalVar AddFunction(const BaseFunc& func, ffi::String func_name_hint) = 0;
 
   /*!
-   * \brief Update a Relax function or a TIR PrimFunc in the internal context module.
+   * \brief Update a Relax function or a TIR tirx::Function in the internal context module.
    * \param gv The global var referring the function to be updated.
    * \param function The updated function.
    */
@@ -251,7 +256,7 @@ class BlockBuilderNode : public ffi::Object {
   virtual sym::Analyzer GetAnalyzer() = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.BlockBuilder", BlockBuilderNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.BlockBuilder", BlockBuilderObj, ffi::Object);
 };
 
 class BlockBuilder : public ffi::ObjectRef {
@@ -311,7 +316,11 @@ class BlockBuilder : public ffi::ObjectRef {
   TVM_DLL static BlockBuilder Create(ffi::Optional<IRModule> ctx_mod,
                                      DisableOperatorSpecificNormalizationForTVMScript tag);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(BlockBuilder, ffi::ObjectRef, BlockBuilderNode);
+  explicit BlockBuilder(ffi::UnsafeInit tag, ffi::ObjectPtr<BlockBuilderObj> n)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(n);
+  }
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BlockBuilder, ffi::ObjectRef, BlockBuilderObj);
 };
 
 }  // namespace relax

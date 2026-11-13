@@ -16,7 +16,7 @@
 
 import pytest
 
-import tvm
+import tvm_tirx
 from tvm.relax.ir.instrument import WellFormedInstrument
 
 
@@ -64,7 +64,7 @@ def apply_instrument_well_formed(unit_test_marks):
     validate_before_transform = "skip_well_formed_check_before_transform" not in unit_test_marks
     validate_after_transform = "skip_well_formed_check_after_transform" not in unit_test_marks
 
-    current = tvm.transform.PassContext.current()
+    current = tvm_tirx.ir.transform.PassContext.current()
     instruments = list(current.instruments)
 
     if validate_before_transform or validate_after_transform:
@@ -72,7 +72,7 @@ def apply_instrument_well_formed(unit_test_marks):
             WellFormedInstrument(validate_before_transform=validate_before_transform)
         )
 
-    override = tvm.transform.PassContext(
+    override = tvm_tirx.ir.transform.PassContext(
         # With the new WellFormedInstrument appended
         instruments=instruments,
         # Forward all other parameters

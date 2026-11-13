@@ -25,13 +25,13 @@ from tvm import te
 logger = logging.getLogger(__name__)
 
 ######################################################################
-#################### PRIMFUNC FOR LUT and Take Op ####################
+#################### FUNCTION FOR LUT and Take Op ####################
 ######################################################################
 
 
 def saturate(x: te.Tensor, dtype: str):
     """Saturate value for the specified data type"""
-    return te.max(te.min_value(dtype), te.min(x, te.max_value(dtype)))
+    return te.max(te.min_value(ty=dtype), te.min(x, te.max_value(ty=dtype)))
 
 
 def hardswish_func(x):
@@ -83,7 +83,7 @@ def LUT_generation(inp_scale, inp_zp, out_scale, out_zp, op_name) -> None:
     return LUT
 
 
-def generate_take_primfunc(inp, ty):
+def generate_take_function(inp, ty):
     # Generating the take op
     N, H, W, C = inp.ty.shape
     data = te.placeholder((N, H, W, C), dtype=ty.dtype, name="data")
@@ -95,5 +95,5 @@ def generate_take_primfunc(inp, ty):
         ),
         name="take_op",
     )
-    mod = te.create_prim_func([data, LUT_func, take])
+    mod = te.create_function([data, LUT_func, take])
     return mod

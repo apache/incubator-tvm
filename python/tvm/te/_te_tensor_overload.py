@@ -57,5 +57,5 @@ def __rtruediv__(_lhs, _rhs):
     return NotImplemented
 
 
-def astype(_value, _dtype, _span=None):
+def astype(_value, _dtype, _loc=None):
     return NotImplemented

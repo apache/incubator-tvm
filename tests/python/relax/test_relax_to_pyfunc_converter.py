@@ -25,41 +25,44 @@ import numpy as np
 import pytest
 import torch
 import torch.nn.functional as F
+import tvm_ffi
 
 import tvm
+import tvm_tirx
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
 from tvm.relax.relax_to_pyfunc_converter import RelaxToPyFuncConverter
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
-n_symbolic_add = T.dynamic("n")
-batch_symbolic_matmul = T.dynamic("batch")
-m = T.dynamic("m")
-k = T.dynamic("k")
-n_symbolic_matmul = T.dynamic("n")
-batch_symbolic_expand_dims = T.dynamic("batch")
-seq_len = T.dynamic("seq_len")
+n_symbolic_add = T.dynamic("n", "int64")
+batch_symbolic_matmul = T.dynamic("batch", "int64")
+m = T.dynamic("m", "int64")
+k = T.dynamic("k", "int64")
+n_symbolic_matmul = T.dynamic("n", "int64")
+batch_symbolic_expand_dims = T.dynamic("batch", "int64")
+seq_len = T.dynamic("seq_len", "int64")
 
 
 @I.ir_module
 class ComprehensiveTestModule:
     """Test module covering all converter features."""
 
-    @Ts.prim_func
+    @Ts.function
     def add_tir(
-        x: T.Buffer((5,), "float32"), y: T.Buffer((5,), "float32"), out: T.Buffer((5,), "float32")
+        x: T.Tensor((5,), "float32"), y: T.Tensor((5,), "float32"), out: T.Tensor((5,), "float32")
     ):
         """TIR function for addition."""
 
         for i in range(5):
             out[i] = x[i] + y[i]
 
-    @Ts.prim_func
+    @Ts.function
     def mul_tir(
-        x: T.Buffer((3, 4), "float32"),
-        y: T.Buffer((3, 4), "float32"),
-        out: T.Buffer((3, 4), "float32"),
+        x: T.Tensor((3, 4), "float32"),
+        y: T.Tensor((3, 4), "float32"),
+        out: T.Tensor((3, 4), "float32"),
     ):
         """TIR function for multiplication."""
 
@@ -82,12 +85,12 @@ class ComprehensiveTestModule:
         (5,), "float32"
     ):
         cls = ComprehensiveTestModule
-        return R.call_tir(cls.add_tir, (x, y), out_ty=R.Tensor((5,), "float32"))
+        return R.call_tir(cls.add_tir, (x, y), ty_args=[R.Tensor((5,), "float32")])
 
     @R.function
     def with_call_dps_packed(x: R.Tensor((5,), "float32")) -> R.Tensor((5,), "float32"):
         return R.call_dps_packed(
-            "my_softmax", (x, R.prim_value(1)), out_ty=R.Tensor((5,), "float32")
+            _ExternFunc("my_softmax"), (x, R.prim_value(1)), ty_args=[R.Tensor((5,), "float32")]
         )
 
     @R.function
@@ -97,7 +100,7 @@ class ComprehensiveTestModule:
         added = R.add(x, y)
         relued = R.nn.relu(added)
         cls = ComprehensiveTestModule
-        tir_result = R.call_tir(cls.add_tir, (relued, y), out_ty=R.Tensor((5,), "float32"))
+        tir_result = R.call_tir(cls.add_tir, (relued, y), ty_args=[R.Tensor((5,), "float32")])
         return R.nn.relu(tir_result)
 
     @R.function
@@ -211,7 +214,7 @@ def create_mock_packed_function():
         return x
 
     # Register the function globally
-    tvm.register_global_func("my_softmax", mock_softmax)
+    tvm_ffi.register_global_func("my_softmax", mock_softmax)
 
 
 class TestRelaxToPyFuncConverter:
@@ -881,11 +884,11 @@ class TestDLPackAndTupleSupport:
 
         @I.ir_module
         class DLPackTestModule:
-            @Ts.prim_func
+            @Ts.function
             def test_tir(
-                x: T.Buffer((4,), "float32"),
-                y: T.Buffer((4,), "float32"),
-                out: T.Buffer((4,), "float32"),
+                x: T.Tensor((4,), "float32"),
+                y: T.Tensor((4,), "float32"),
+                out: T.Tensor((4,), "float32"),
             ):
                 for i in range(4):
                     out[i] = x[i] + y[i]
@@ -895,7 +898,7 @@ class TestDLPackAndTupleSupport:
                 (4,), "float32"
             ):
                 return R.call_tir(
-                    DLPackTestModule.test_tir, (x, y), out_ty=R.Tensor((4,), "float32")
+                    DLPackTestModule.test_tir, (x, y), ty_args=[R.Tensor((4,), "float32")]
                 )
 
         converter = RelaxToPyFuncConverter(DLPackTestModule)
@@ -931,15 +934,15 @@ class TestDLPackAndTupleSupport:
             assert torch.allclose(r, e), "Split tensor values should match"
 
     def test_tvm_runtime_api_compatibility(self):
-        """Test compatibility with tvm.runtime API instead of deprecated tvm.nd."""
+        """Test compatibility with tvm_tirx.runtime API instead of deprecated tvm.nd."""
 
         @I.ir_module
         class RuntimeAPITestModule:
-            @Ts.prim_func
+            @Ts.function
             def test_tir(
-                x: T.Buffer((3,), "float32"),
-                y: T.Buffer((3,), "float32"),
-                out: T.Buffer((3,), "float32"),
+                x: T.Tensor((3,), "float32"),
+                y: T.Tensor((3,), "float32"),
+                out: T.Tensor((3,), "float32"),
             ):
                 for i in range(3):
                     out[i] = x[i] * y[i]
@@ -949,7 +952,7 @@ class TestDLPackAndTupleSupport:
                 (3,), "float32"
             ):
                 return R.call_tir(
-                    RuntimeAPITestModule.test_tir, (x, y), out_ty=R.Tensor((3,), "float32")
+                    RuntimeAPITestModule.test_tir, (x, y), ty_args=[R.Tensor((3,), "float32")]
                 )
 
         converter = RelaxToPyFuncConverter(RuntimeAPITestModule)
@@ -970,14 +973,16 @@ class TestDLPackAndTupleSupport:
         def test_packed_func(x, axis):
             return x  # Simple identity function
 
-        tvm.register_global_func("test_packed_func", test_packed_func)
+        tvm_ffi.register_global_func("test_packed_func", test_packed_func)
 
         @I.ir_module
         class PackedFuncTestModule:
             @R.function
             def test_dps(x: R.Tensor((4,), "float32")) -> R.Tensor((4,), "float32"):
                 return R.call_dps_packed(
-                    "test_packed_func", (x, R.const(0)), out_ty=R.Tensor((4,), "float32")
+                    _ExternFunc("test_packed_func"),
+                    (x, R.const(0)),
+                    ty_args=[R.Tensor((4,), "float32")],
                 )
 
         converter = RelaxToPyFuncConverter(PackedFuncTestModule)
@@ -994,11 +999,11 @@ class TestDLPackAndTupleSupport:
 
         @I.ir_module
         class MixedOpsTestModule:
-            @Ts.prim_func
+            @Ts.function
             def add_tir(
-                x: T.Buffer((4,), "float32"),
-                y: T.Buffer((4,), "float32"),
-                out: T.Buffer((4,), "float32"),
+                x: T.Tensor((4,), "float32"),
+                y: T.Tensor((4,), "float32"),
+                out: T.Tensor((4,), "float32"),
             ):
                 for i in range(4):
                     out[i] = x[i] + y[i]
@@ -1009,7 +1014,7 @@ class TestDLPackAndTupleSupport:
             ):
                 # TIR operation
                 tir_result = R.call_tir(
-                    MixedOpsTestModule.add_tir, (x, y), out_ty=R.Tensor((4,), "float32")
+                    MixedOpsTestModule.add_tir, (x, y), ty_args=[R.Tensor((4,), "float32")]
                 )
                 # Relax operations
                 relued = R.nn.relu(tir_result)
@@ -1054,4 +1059,4 @@ class TestDLPackAndTupleSupport:
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

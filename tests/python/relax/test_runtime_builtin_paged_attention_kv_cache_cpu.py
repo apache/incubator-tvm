@@ -28,8 +28,8 @@ import scipy.special
 import tvm_ffi
 from tvm_ffi import Shape
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.frontend.nn.llm.kv_cache import (
     AttnKind,
     _attention_decode_cpu,
@@ -59,7 +59,7 @@ rope_scale = 1.0
 rope_theta = 1e4
 rope_scaling = {}
 dtype = None
-device = tvm.cpu()
+device = tvm_tirx.cpu()
 
 fclear = None
 fadd_sequence = None
@@ -113,37 +113,39 @@ def set_global_func(head_dim, dtype, layer_sliding_window_size=1024):
     global fattn_prefill_sliding_window, fattn_decode_sliding_window
     global fmerge_state, fsplit_rotary, fattention_rotary, fcopy_single_page, fcompact_copy
 
-    fclear = tvm.get_global_func("vm.builtin.kv_state_clear")
-    fadd_sequence = tvm.get_global_func("vm.builtin.kv_state_add_sequence")
-    fremove_sequence = tvm.get_global_func("vm.builtin.kv_state_remove_sequence")
-    ffork_sequence = tvm.get_global_func("vm.builtin.kv_state_fork_sequence")
-    fenable_sliding_window_for_seq = tvm.get_global_func(
+    fclear = tvm_ffi.get_global_func("vm.builtin.kv_state_clear")
+    fadd_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_add_sequence")
+    fremove_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_remove_sequence")
+    ffork_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_fork_sequence")
+    fenable_sliding_window_for_seq = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_enable_sliding_window_for_seq"
     )
-    fpopn = tvm.get_global_func("vm.builtin.kv_state_popn")
-    fbegin_forward = tvm.get_global_func("vm.builtin.kv_state_begin_forward")
-    fend_forward = tvm.get_global_func("vm.builtin.kv_state_end_forward")
-    fcommit_accepted_token_tree_nodes = tvm.get_global_func(
+    fpopn = tvm_ffi.get_global_func("vm.builtin.kv_state_popn")
+    fbegin_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_begin_forward")
+    fend_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_end_forward")
+    fcommit_accepted_token_tree_nodes = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_commit_accepted_token_tree_nodes"
     )
-    fattention_with_fuse_qkv = tvm.get_global_func(
+    fattention_with_fuse_qkv = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_attention_with_fused_qkv"
     )
-    fattention_with_shared_kv = tvm.get_global_func(
+    fattention_with_shared_kv = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_attention_with_shared_kv"
     )
-    fis_empty = tvm.get_global_func("vm.builtin.attention_kv_cache_empty")
-    fdebug_get_kv = tvm.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
-    fget_checkpoint_metadata = tvm.get_global_func(
+    fis_empty = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_empty")
+    fdebug_get_kv = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
+    fget_checkpoint_metadata = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_get_checkpoint_metadata"
     )
-    fexport_page_group = tvm.get_global_func("vm.builtin.attention_kv_cache_export_page_group")
-    fprepare_import = tvm.get_global_func("vm.builtin.attention_kv_cache_prepare_import")
-    fimport_page_group = tvm.get_global_func("vm.builtin.attention_kv_cache_import_page_group")
-    ffinish_import = tvm.get_global_func("vm.builtin.attention_kv_cache_finish_import")
-    fget_sequence_length = tvm.get_global_func("vm.builtin.attention_kv_cache_get_sequence_length")
+    fexport_page_group = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_export_page_group")
+    fprepare_import = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_prepare_import")
+    fimport_page_group = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_import_page_group")
+    ffinish_import = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_finish_import")
+    fget_sequence_length = tvm_ffi.get_global_func(
+        "vm.builtin.attention_kv_cache_get_sequence_length"
+    )
 
-    target = tvm.target.Target.from_device(device)
+    target = tvm_tirx.target.Target.from_device(device)
     cache_key = (
         str(target),
         num_layers,
@@ -191,10 +193,9 @@ def set_global_func(head_dim, dtype, layer_sliding_window_size=1024):
             _copy_single_page_cpu(num_kv_heads, page_size, head_dim, dtype),
             _compact_kv_copy_cpu(num_kv_heads, head_dim, dtype),
         ]:
-            mod = tvm.IRModule({"main": tir_func})
-            with target:
-                mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
-            f = tvm.tirx.build(mod["main"], target=target)
+            mod = tvm_tirx.IRModule({"main": tir_func})
+            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
+            f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
             builts.append(f.main)
         builts = tuple(builts)
         _COMPILED_KERNEL_CACHE[cache_key] = builts
@@ -224,7 +225,7 @@ def create_kv_cache(
     layer_sliding_window_size=None,
     attn_kinds=None,
 ):
-    fcreate = tvm.get_global_func("vm.builtin.paged_attention_kv_cache_create")
+    fcreate = tvm_ffi.get_global_func("vm.builtin.paged_attention_kv_cache_create")
     cache_config = [
         reserved_nseq,
         maximum_total_seq_length,
@@ -249,7 +250,7 @@ def create_kv_cache(
         rope_scale,
         rope_theta,
         None,  # rope_ext_factors
-        tvm.runtime.empty((), dtype, device=device),
+        tvm_tirx.runtime.empty((), dtype, device=device),
         ftranspose_append,
         None,  # f_transpose_append_mla
         ["tirx", fattn_prefill_ragged],
@@ -311,20 +312,20 @@ def verify_cached_kv(kv_cache, seq_ids, expected_k, expected_v):
         values_expected = expected_v[seq_id]
         assert keys_expected.shape == values_expected.shape
         seq_length = expected_k[seq_id].shape[1]
-        keys = tvm.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
-        values = tvm.runtime.empty(values_expected.shape, dtype=dtype, device=device)
+        keys = tvm_tirx.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
+        values = tvm_tirx.runtime.empty(values_expected.shape, dtype=dtype, device=device)
         fdebug_get_kv(kv_cache, seq_id, 0, seq_length, keys, values)
-        tvm.testing.assert_allclose(keys.numpy(), keys_expected, rtol=1e-3, atol=1e-3)
-        tvm.testing.assert_allclose(values.numpy(), values_expected, rtol=1e-3, atol=1e-3)
+        tvm_tirx.testing.assert_allclose(keys.numpy(), keys_expected, rtol=1e-3, atol=1e-3)
+        tvm_tirx.testing.assert_allclose(values.numpy(), values_expected, rtol=1e-3, atol=1e-3)
 
 
 def verify_exported_page_groups(kv_cache, seq_id):
     metadata = json.loads(fget_checkpoint_metadata(kv_cache, seq_id))
     seq_length = metadata["seq_length"]
-    keys = tvm.runtime.empty(
+    keys = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
-    values = tvm.runtime.empty(
+    values = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
     fdebug_get_kv(kv_cache, seq_id, 0, seq_length, keys, values)
@@ -332,7 +333,7 @@ def verify_exported_page_groups(kv_cache, seq_id):
     values_np = values.numpy()
 
     for group in metadata["groups"]:
-        group_data = tvm.runtime.empty(tuple(group["shape"]), dtype=dtype, device=device)
+        group_data = tvm_tirx.runtime.empty(tuple(group["shape"]), dtype=dtype, device=device)
         fexport_page_group(kv_cache, seq_id, group["group_index"], group_data)
         group_np = group_data.numpy()
         layer = group["group_index"]
@@ -342,10 +343,10 @@ def verify_exported_page_groups(kv_cache, seq_id):
             length = page["length"]
             exported_k = group_np[0, logical_page_index, 0, :, :length, :].transpose(1, 0, 2)
             exported_v = group_np[0, logical_page_index, 1, :, :length, :].transpose(1, 0, 2)
-            tvm.testing.assert_allclose(
+            tvm_tirx.testing.assert_allclose(
                 exported_k, keys_np[layer, start_pos : start_pos + length], rtol=1e-3, atol=1e-3
             )
-            tvm.testing.assert_allclose(
+            tvm_tirx.testing.assert_allclose(
                 exported_v, values_np[layer, start_pos : start_pos + length], rtol=1e-3, atol=1e-3
             )
 
@@ -353,29 +354,29 @@ def verify_exported_page_groups(kv_cache, seq_id):
 def export_page_groups(kv_cache, metadata):
     groups = []
     for group in metadata["groups"]:
-        group_data = tvm.runtime.empty(tuple(group["shape"]), dtype=dtype, device=device)
+        group_data = tvm_tirx.runtime.empty(tuple(group["shape"]), dtype=dtype, device=device)
         fexport_page_group(kv_cache, metadata["seq_id"], group["group_index"], group_data)
         groups.append(group_data)
     return groups
 
 
 def verify_debug_kv_equal(lhs_cache, rhs_cache, seq_id, seq_length):
-    lhs_keys = tvm.runtime.empty(
+    lhs_keys = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
-    lhs_values = tvm.runtime.empty(
+    lhs_values = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
-    rhs_keys = tvm.runtime.empty(
+    rhs_keys = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
-    rhs_values = tvm.runtime.empty(
+    rhs_values = tvm_tirx.runtime.empty(
         (num_layers, seq_length, num_kv_heads, head_dim), dtype=dtype, device=device
     )
     fdebug_get_kv(lhs_cache, seq_id, 0, seq_length, lhs_keys, lhs_values)
     fdebug_get_kv(rhs_cache, seq_id, 0, seq_length, rhs_keys, rhs_values)
-    tvm.testing.assert_allclose(lhs_keys.numpy(), rhs_keys.numpy(), rtol=1e-3, atol=1e-3)
-    tvm.testing.assert_allclose(lhs_values.numpy(), rhs_values.numpy(), rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(lhs_keys.numpy(), rhs_keys.numpy(), rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(lhs_values.numpy(), rhs_values.numpy(), rtol=1e-3, atol=1e-3)
 
 
 def f_apply_rotary(x, offset, scale, theta, offset_list: list[int] | None = None):
@@ -522,8 +523,10 @@ def apply_attention(
         queries_np = global_new_q[layer_id]
         keys_np = global_new_k[layer_id]
         values_np = global_new_v[layer_id]
-        qkv = tvm.runtime.tensor(np.concatenate([queries_np, keys_np, values_np], axis=1), device)
-        outputs = tvm.runtime.empty(queries_np.shape, dtype, device=device)
+        qkv = tvm_tirx.runtime.tensor(
+            np.concatenate([queries_np, keys_np, values_np], axis=1), device
+        )
+        outputs = tvm_tirx.runtime.empty(queries_np.shape, dtype, device=device)
         fattention_with_fuse_qkv(kv_cache, layer_id, sm_scale, qkv, outputs)
 
         # Compute attention expected results.
@@ -603,7 +606,7 @@ def apply_attention(
                 axis=0,
             ).astype(dtype)
 
-            tvm.testing.assert_allclose(
+            tvm_tirx.testing.assert_allclose(
                 outputs[:, sum_length : sum_length + append_length, ...],
                 results,
                 rtol=1e-3,
@@ -710,8 +713,8 @@ def test_per_layer_sliding_window():
         current_v = rng.standard_normal((append_length, num_kv_heads, head_dim)).astype(dtype)
 
         fbegin_forward(kv_cache, Shape([0]), Shape([append_length]), None)
-        qkv = tvm.runtime.tensor(np.concatenate([q, current_k, current_v], axis=1), device)
-        output = tvm.runtime.empty(q.shape, dtype, device=device)
+        qkv = tvm_tirx.runtime.tensor(np.concatenate([q, current_k, current_v], axis=1), device)
+        output = tvm_tirx.runtime.empty(q.shape, dtype, device=device)
         fattention_with_fuse_qkv(kv_cache, 0, sm_scale, qkv, output)
 
         cached_k = np.concatenate([cached_k, current_k], axis=0)
@@ -719,7 +722,7 @@ def test_per_layer_sliding_window():
         expected = _causal_attention_reference(
             q, cached_k, cached_v, past_length, layer_window_size
         )
-        tvm.testing.assert_allclose(output.numpy(), expected, rtol=1e-3, atol=1e-3)
+        tvm_tirx.testing.assert_allclose(output.numpy(), expected, rtol=1e-3, atol=1e-3)
         fend_forward(kv_cache)
 
 
@@ -755,18 +758,20 @@ def test_attention_with_shared_kv(source_attn_kind, layer_window_size):
         shared_q = rng.standard_normal((append_length, num_qo_heads, head_dim)).astype(dtype)
 
         fbegin_forward(kv_cache, Shape([0]), Shape([append_length]), None)
-        qkv = tvm.runtime.tensor(np.concatenate([source_q, current_k, current_v], axis=1), device)
-        source_output = tvm.runtime.empty(source_q.shape, dtype, device=device)
+        qkv = tvm_tirx.runtime.tensor(
+            np.concatenate([source_q, current_k, current_v], axis=1), device
+        )
+        source_output = tvm_tirx.runtime.empty(source_q.shape, dtype, device=device)
         fattention_with_fuse_qkv(kv_cache, 0, sm_scale, qkv, source_output)
 
-        shared_output = tvm.runtime.empty(shared_q.shape, dtype, device=device)
+        shared_output = tvm_tirx.runtime.empty(shared_q.shape, dtype, device=device)
         fattention_with_shared_kv(
             kv_cache,
             0,
             sm_scale,
-            tvm.runtime.tensor(shared_q, device),
-            tvm.runtime.tensor(current_k, device),
-            tvm.runtime.tensor(current_v, device),
+            tvm_tirx.runtime.tensor(shared_q, device),
+            tvm_tirx.runtime.tensor(current_k, device),
+            tvm_tirx.runtime.tensor(current_v, device),
             shared_output,
         )
 
@@ -775,7 +780,7 @@ def test_attention_with_shared_kv(source_attn_kind, layer_window_size):
         expected = _causal_attention_reference(
             shared_q, cached_k, cached_v, past_length, layer_window_size
         )
-        tvm.testing.assert_allclose(shared_output.numpy(), expected, rtol=1e-3, atol=1e-3)
+        tvm_tirx.testing.assert_allclose(shared_output.numpy(), expected, rtol=1e-3, atol=1e-3)
         fend_forward(kv_cache)
 
 

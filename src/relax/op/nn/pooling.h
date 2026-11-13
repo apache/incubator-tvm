@@ -25,7 +25,7 @@
 #ifndef TVM_RELAX_OP_NN_POOLING_H_
 #define TVM_RELAX_OP_NN_POOLING_H_
 
-#include <tvm/relax/attrs/nn.h>
+#include <tvm/relax/op/nn.h>
 
 #include "../op_common.h"
 

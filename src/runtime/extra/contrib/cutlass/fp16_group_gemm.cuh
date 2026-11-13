@@ -33,38 +33,56 @@ template <int Arch, typename ElementA, typename ElementB, typename ElementC>
 struct CutlassGroupGemm;
 
 template <int Arch>
-void tvm_cutlass_group_gemm_impl(Tensor x, Tensor weight, Tensor indptr, Tensor workspace,
-                                 Tensor out) {
+void tvm_cutlass_group_gemm_impl(ffi::Tensor x, ffi::Tensor weight, ffi::Tensor indptr,
+                                 ffi::Tensor workspace, ffi::Tensor out) {
+  TVM_FFI_ICHECK(x.defined());
+  TVM_FFI_ICHECK(x.IsContiguous());
+  TVM_FFI_ICHECK(x.numel() == 0 || x.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(weight.defined());
+  TVM_FFI_ICHECK(weight.IsContiguous());
+  TVM_FFI_ICHECK(weight.numel() == 0 || weight.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(indptr.defined());
+  TVM_FFI_ICHECK(indptr.IsContiguous());
+  TVM_FFI_ICHECK(indptr.numel() == 0 || indptr.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(workspace.defined());
+  TVM_FFI_ICHECK(workspace.IsContiguous());
+  TVM_FFI_ICHECK(workspace.numel() == 0 || workspace.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(out.defined());
+  TVM_FFI_ICHECK(out.IsContiguous());
+  TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
   // Workspace is used for storing device-side group gemm arguments and cutlass internal workspace.
   // Recommened size is 4MB.
-  cudaStream_t stream = static_cast<cudaStream_t>(TVMFFIEnvGetStream(kDLCUDA, x->device.device_id));
-  TVM_FFI_ICHECK_EQ(x->ndim, 2);
-  TVM_FFI_ICHECK_EQ(weight->ndim, 3);
-  TVM_FFI_ICHECK_EQ(indptr->ndim, 1);
-  TVM_FFI_ICHECK_EQ(workspace->ndim, 1);
-  TVM_FFI_ICHECK_EQ(out->ndim, 2);
-  int num_groups = weight->shape[0];
-  int n = weight->shape[1];
-  int k = weight->shape[2];
+  cudaStream_t stream =
+      static_cast<cudaStream_t>(TVMFFIEnvGetStream(kDLCUDA, x.device().device_id));
+  TVM_FFI_ICHECK_EQ(x.ndim(), 2);
+  TVM_FFI_ICHECK_EQ(weight.ndim(), 3);
+  TVM_FFI_ICHECK_EQ(indptr.ndim(), 1);
+  TVM_FFI_ICHECK_EQ(workspace.ndim(), 1);
+  TVM_FFI_ICHECK_EQ(out.ndim(), 2);
+  int num_groups = weight.shape()[0];
+  int n = weight.shape()[1];
+  int k = weight.shape()[2];
   float alpha = 1.0f;
   float beta = 0.0f;
 
-  if (x->dtype == DLDataType{kDLFloat, 16, 1}) {
-    TVM_FFI_ICHECK((weight->dtype == DLDataType{kDLFloat, 16, 1}));
-    TVM_FFI_ICHECK((out->dtype == DLDataType{kDLFloat, 16, 1}));
+  if (x.dtype() == DLDataType{kDLFloat, 16, 1}) {
+    TVM_FFI_ICHECK((weight.dtype() == DLDataType{kDLFloat, 16, 1}));
+    TVM_FFI_ICHECK((out.dtype() == DLDataType{kDLFloat, 16, 1}));
     using Dtype = cutlass::half_t;
     CutlassGroupGemm<Arch, Dtype, Dtype, Dtype>::run(
-        static_cast<Dtype*>(x->data), static_cast<Dtype*>(weight->data),
-        static_cast<int64_t*>(indptr->data), static_cast<uint8_t*>(workspace->data),
-        workspace->shape[0], n, k, num_groups, alpha, beta, static_cast<Dtype*>(out->data), stream);
-  } else if (x->dtype == DLDataType{kDLBfloat, 16, 1}) {
-    TVM_FFI_ICHECK((weight->dtype == DLDataType{kDLBfloat, 16, 1}));
-    TVM_FFI_ICHECK((out->dtype == DLDataType{kDLBfloat, 16, 1}));
+        static_cast<Dtype*>(x.data_ptr()), static_cast<Dtype*>(weight.data_ptr()),
+        static_cast<int64_t*>(indptr.data_ptr()), static_cast<uint8_t*>(workspace.data_ptr()),
+        workspace.shape()[0], n, k, num_groups, alpha, beta, static_cast<Dtype*>(out.data_ptr()),
+        stream);
+  } else if (x.dtype() == DLDataType{kDLBfloat, 16, 1}) {
+    TVM_FFI_ICHECK((weight.dtype() == DLDataType{kDLBfloat, 16, 1}));
+    TVM_FFI_ICHECK((out.dtype() == DLDataType{kDLBfloat, 16, 1}));
     using Dtype = cutlass::bfloat16_t;
     CutlassGroupGemm<Arch, Dtype, Dtype, Dtype>::run(
-        static_cast<Dtype*>(x->data), static_cast<Dtype*>(weight->data),
-        static_cast<int64_t*>(indptr->data), static_cast<uint8_t*>(workspace->data),
-        workspace->shape[0], n, k, num_groups, alpha, beta, static_cast<Dtype*>(out->data), stream);
+        static_cast<Dtype*>(x.data_ptr()), static_cast<Dtype*>(weight.data_ptr()),
+        static_cast<int64_t*>(indptr.data_ptr()), static_cast<uint8_t*>(workspace.data_ptr()),
+        workspace.shape()[0], n, k, num_groups, alpha, beta, static_cast<Dtype*>(out.data_ptr()),
+        stream);
   }
 }
 

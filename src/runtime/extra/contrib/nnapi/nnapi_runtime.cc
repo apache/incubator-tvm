@@ -70,7 +70,7 @@ class NNAPIRuntime : public JSONRuntimeBase {
 
   std::optional<CompiledModel> compiled_model_;
 
-  void Init(const ffi::Array<Tensor>& consts) final {
+  void Init(const ffi::Array<ffi::Tensor>& consts) final {
     TVM_FFI_ICHECK_EQ(consts.size(), const_idx_.size())
         << "The number of input constants must match the number of required constants.";
     SetupConstants(consts);
@@ -229,14 +229,14 @@ class NNAPIRuntime : public JSONRuntimeBase {
   std::unordered_map<uint32_t, NNAPIOperand> node_output_map_;
 
 #else   // ifdef TVM_GRAPH_EXECUTOR_NNAPI
-  void Init(const ffi::Array<Tensor>& consts) final {
+  void Init(const ffi::Array<ffi::Tensor>& consts) final {
     TVM_FFI_THROW(InternalError)
-        << "NNAPI runtime is not enabled. Build with USE_NNAPI_RUNTIME to enable it.";
+        << "NNAPI runtime is not enabled. Build with TVM_USE_NNAPI_RUNTIME to enable it.";
   }
 
   void Run() final {
     TVM_FFI_THROW(InternalError)
-        << "NNAPI runtime is not enabled. Build with USE_NNAPI_RUNTIME to enable it.";
+        << "NNAPI runtime is not enabled. Build with TVM_USE_NNAPI_RUNTIME to enable it.";
   }
 #endif  // ifdef TVM_GRAPH_EXECUTOR_NNAPI
 };

@@ -178,7 +178,7 @@ Run from the TVM repo root with the workspace `PYTHONPATH` (see `tir-test`).
      codegen test, since certification does not enumerate those helpers;
    - only when the instruction belongs to the MegaMoE extracted-intrinsics
      surface → its kernel and mnemonic list in
-     `test_codegen_cuda.py::test_megamoe_extracted_intrinsics_codegen`
+     `3rdparty/tvm-tirx/tests/python/tirx/codegen/test_cuda.py::test_megamoe_extracted_intrinsics_codegen`
      (that test covers one workload, not the dialect).
 3. **Regenerate the stub** — any change to a family's tokens or shapes makes
    `test_ptx_stub_up_to_date` fail until you do:
@@ -277,8 +277,8 @@ Do this as one commit series, in this order:
    made the first time this table changed versions.
 3. **Retarget the citations.** Update the module docstring's version
    statement and URL, then run the renumbering over `table.py`,
-   `engine.py`, `render.py`, `tests/python/tirx/codegen/test_ptx_*.py` and
-   `test_codegen_cuda.py`, skipping any block that already carries the new
+   `engine.py`, `render.py`, `3rdparty/tvm-tirx/tests/python/tirx/codegen/test_ptx_*.py` and
+   `test_cuda.py`, skipping any block that already carries the new
    numbering (`_PTX_94_ENTRIES` was such a block for 9.3→9.4). Hand-fix the
    forms a regex cannot: ranges that span an insertion (`9.7.x.a-b`), brace
    groups (`9.7.4.{1,2,3}`), sibling shorthand (`.12`, `/ .17`), global

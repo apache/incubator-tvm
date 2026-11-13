@@ -16,11 +16,21 @@
 # under the License.
 """Relax Neural Network (NN) operators"""
 
-from tvm import DataType, relax
-from tvm.tirx import FloatImm
+import tvm_ffi
+
+from tvm import relax
+from tvm_tirx.ir import Attrs, FloatImm
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir import PrimType as _PrimType
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
 from ...expr import Expr
-from . import _ffi_api
+
+
+@tvm_ffi.register_object("relax.attrs.Conv1DAttrs")
+class Conv1DAttrs(Attrs):
+    """Attributes for nn.conv1d"""
 
 
 def conv1d(
@@ -33,7 +43,11 @@ def conv1d(
     data_layout: str = "NCW",
     kernel_layout: str = "OIW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""1D convolution.
 
@@ -92,7 +106,7 @@ def conv1d(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv1d.
 
     Returns
@@ -107,18 +121,39 @@ def conv1d(
     if isinstance(padding, int):
         padding = (padding, padding)
 
-    return _ffi_api.conv1d(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 1:
+        padding = tuple(padding) + tuple(padding)
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 1:
+        raise RuntimeError("strides must contain 1 values")
+    if len(padding) != 2:
+        raise RuntimeError("padding must contain 2 values")
+    if len(dilation) != 1:
+        raise RuntimeError("dilation must contain 1 values")
+    return _Call(
+        "relax.nn.conv1d",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv1DAttrs",
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Conv2DAttrs")
+class Conv2DAttrs(Attrs):
+    """Attributes for nn.conv2d"""
 
 
 def conv2d(
@@ -131,7 +166,11 @@ def conv2d(
     data_layout: str = "NCHW",
     kernel_layout: str = "OIHW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""2D convolution.
 
@@ -190,7 +229,7 @@ def conv2d(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv2d.
 
     Returns
@@ -205,18 +244,43 @@ def conv2d(
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding)
 
-    return _ffi_api.conv2d(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 2:
+        raise RuntimeError("strides must contain 2 values")
+    if len(padding) != 4:
+        raise RuntimeError("padding must contain 4 values")
+    if len(dilation) != 2:
+        raise RuntimeError("dilation must contain 2 values")
+    return _Call(
+        "relax.nn.conv2d",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv2DAttrs",
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Conv3DAttrs")
+class Conv3DAttrs(Attrs):
+    """Attributes for nn.conv3d"""
 
 
 def conv3d(
@@ -229,7 +293,11 @@ def conv3d(
     data_layout: str = "NCDHW",
     kernel_layout: str = "OIDHW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""3D convolution.
 
@@ -290,7 +358,7 @@ def conv3d(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv2d.
 
     See Also
@@ -309,18 +377,43 @@ def conv3d(
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding, padding, padding)
 
-    return _ffi_api.conv3d(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 3:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 3
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 3
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 3:
+        raise RuntimeError("strides must contain 3 values")
+    if len(padding) != 6:
+        raise RuntimeError("padding must contain 6 values")
+    if len(dilation) != 3:
+        raise RuntimeError("dilation must contain 3 values")
+    return _Call(
+        "relax.nn.conv3d",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv3DAttrs",
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Conv1DTransposeAttrs")
+class Conv1DTransposeAttrs(Attrs):
+    """Attributes for nn.conv1d_transpose"""
 
 
 def conv1d_transpose(
@@ -334,7 +427,11 @@ def conv1d_transpose(
     data_layout: str = "NCW",
     kernel_layout: str = "IOW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""1D transposed convolution operator.
 
@@ -382,7 +479,7 @@ def conv1d_transpose(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv2d.
 
     Returns
@@ -399,19 +496,42 @@ def conv1d_transpose(
     if isinstance(output_padding, int):
         output_padding = (output_padding,)
 
-    return _ffi_api.conv1d_transpose(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        output_padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 1:
+        padding = tuple(padding) + tuple(padding)
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 1:
+        raise RuntimeError("strides must contain 1 values")
+    if len(padding) != 2:
+        raise RuntimeError("padding must contain 2 values")
+    if len(dilation) != 1:
+        raise RuntimeError("dilation must contain 1 values")
+    if len(output_padding) != 1:
+        raise RuntimeError("output_padding must contain 1 values")
+    return _Call(
+        "relax.nn.conv1d_transpose",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv1DTransposeAttrs",
+            strides=strides,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Conv2DTransposeAttrs")
+class Conv2DTransposeAttrs(Attrs):
+    """Attributes for nn.conv2d_transpose"""
 
 
 def conv2d_transpose(
@@ -425,7 +545,11 @@ def conv2d_transpose(
     data_layout: str = "NCHW",
     kernel_layout: str = "IOHW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""Two dimensional transposed convolution operator.
 
@@ -483,7 +607,7 @@ def conv2d_transpose(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv2d.
 
     Returns
@@ -501,19 +625,48 @@ def conv2d_transpose(
     if isinstance(output_padding, int):
         output_padding = (output_padding, output_padding)
 
-    return _ffi_api.conv2d_transpose(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        output_padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if len(output_padding) == 1:
+        output_padding = tuple(output_padding) * 2
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 2:
+        raise RuntimeError("strides must contain 2 values")
+    if len(padding) != 4:
+        raise RuntimeError("padding must contain 4 values")
+    if len(dilation) != 2:
+        raise RuntimeError("dilation must contain 2 values")
+    if len(output_padding) != 2:
+        raise RuntimeError("output_padding must contain 2 values")
+    return _Call(
+        "relax.nn.conv2d_transpose",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv2DTransposeAttrs",
+            strides=strides,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Conv3DTransposeAttrs")
+class Conv3DTransposeAttrs(Attrs):
+    """Attributes for nn.conv3d_transpose"""
 
 
 def conv3d_transpose(
@@ -527,7 +680,11 @@ def conv3d_transpose(
     data_layout: str = "NCDHW",
     kernel_layout: str = "IODHW",
     out_layout: str | None = None,
-    out_dtype: str | DataType | None = None,
+    out_dtype: str | tvm_ffi.dtype | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""Three dimensional transposed convolution operator.
 
@@ -581,7 +738,7 @@ def conv3d_transpose(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[Union[str, DataType]]
+    out_dtype : Optional[Union[str, tvm_ffi.dtype]]
         Specifies the output data type for mixed precision conv3d_transpose.
 
     See Also
@@ -604,19 +761,48 @@ def conv3d_transpose(
     if isinstance(output_padding, int):
         output_padding = (output_padding, output_padding, output_padding)
 
-    return _ffi_api.conv3d_transpose(  # type: ignore
-        data,
-        weight,
-        strides,
-        padding,
-        output_padding,
-        dilation,
-        groups,
-        data_layout,
-        kernel_layout,
-        out_layout,
-        out_dtype,
+    if len(padding) == 3:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 3
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 3
+    if len(output_padding) == 1:
+        output_padding = tuple(output_padding) * 3
+    if groups <= 0:
+        raise RuntimeError("The number of groups must be positive")
+    if len(strides) != 3:
+        raise RuntimeError("strides must contain 3 values")
+    if len(padding) != 6:
+        raise RuntimeError("padding must contain 6 values")
+    if len(dilation) != 3:
+        raise RuntimeError("dilation must contain 3 values")
+    if len(output_padding) != 3:
+        raise RuntimeError("output_padding must contain 3 values")
+    return _Call(
+        "relax.nn.conv3d_transpose",
+        [data, weight],
+        attrs=_make_attrs(
+            "relax.attrs.Conv3DTransposeAttrs",
+            strides=strides,
+            padding=padding,
+            output_padding=output_padding,
+            dilation=dilation,
+            groups=groups,
+            data_layout=data_layout,
+            kernel_layout=kernel_layout,
+            out_layout=(data_layout if out_layout is None else out_layout),
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.PadAttrs")
+class PadAttrs(Attrs):
+    """Attributes used in pad operator"""
 
 
 def pad(
@@ -624,6 +810,9 @@ def pad(
     pad_width: list[int] | tuple[int, ...],
     pad_mode: str | None = "constant",
     pad_value: float | None = 0.0,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ):
     r"""Padding
 
@@ -652,10 +841,23 @@ def pad(
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.pad(data, pad_width, pad_mode, pad_value)
+    return _Call(
+        "relax.nn.pad",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.PadAttrs", pad_width=pad_width, pad_mode=pad_mode, pad_value=pad_value
+        ),
+        loc=loc,
+        ty=ty,
+    )
 
 
-def pixel_shuffle(data: Expr, upscale_factor: int):
+@tvm_ffi.register_object("relax.attrs.PixelShuffleAttrs")
+class PixelShuffleAttrs(Attrs):
+    """Attributes used in pixel_shuffle operator"""
+
+
+def pixel_shuffle(data: Expr, upscale_factor: int, *, ty=None, loc: Location = UNKNOWN_LOC):
     r"""
     Pixel Shuffle Operator
 
@@ -685,7 +887,18 @@ def pixel_shuffle(data: Expr, upscale_factor: int):
     If the input tensor has shape (1, 8, 10, 15) and `upscale_factor` is 2,
     the resulting tensor will have shape (1, 2, 20, 30).
     """
-    return _ffi_api.pixel_shuffle(data, upscale_factor)
+    return _Call(
+        "relax.nn.pixel_shuffle",
+        [data],
+        attrs=_make_attrs("relax.attrs.PixelShuffleAttrs", upscale_factor=upscale_factor),
+        loc=loc,
+        ty=ty,
+    )
+
+
+@tvm_ffi.register_object("relax.attrs.Pool1DAttrs")
+class Pool1DAttrs(Attrs):
+    """Attributes for nn.max_pool1d and nn.avg_pool1d"""
 
 
 def max_pool1d(
@@ -698,6 +911,9 @@ def max_pool1d(
     count_include_pad: bool = False,
     layout: str = "NCW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""1D maximum pooling operator.
 
@@ -756,17 +972,38 @@ def max_pool1d(
     if isinstance(padding, int):
         padding = (padding, padding)
 
-    return _ffi_api.max_pool1d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 1:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) != 1:
+        raise RuntimeError("strides must contain 1 values")
+    if len(padding) != 2:
+        raise RuntimeError("padding must contain 2 values")
+    if len(dilation) != 1:
+        raise RuntimeError("dilation must contain 1 values")
+    if len(pool_size) != 1:
+        raise RuntimeError("pool_size must contain 1 values")
+    return _Call(
+        "relax.nn.max_pool1d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool1DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Pool2DAttrs")
+class Pool2DAttrs(Attrs):
+    """Attributes for nn.max_pool2d"""
 
 
 def max_pool2d(
@@ -779,6 +1016,10 @@ def max_pool2d(
     count_include_pad: bool = False,
     layout: str = "NCHW",
     out_layout: str | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""2D maximum pooling operator.
 
@@ -844,17 +1085,45 @@ def max_pool2d(
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding)
 
-    return _ffi_api.max_pool2d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 2
+    if len(strides) != 2:
+        raise RuntimeError("strides must contain 2 values")
+    if len(padding) != 4:
+        raise RuntimeError("padding must contain 4 values")
+    if len(dilation) != 2:
+        raise RuntimeError("dilation must contain 2 values")
+    if len(pool_size) != 2:
+        raise RuntimeError("pool_size must contain 2 values")
+    return _Call(
+        "relax.nn.max_pool2d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool2DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.Pool3DAttrs")
+class Pool3DAttrs(Attrs):
+    """Attributes for nn.max_pool3d and nn.avg_pool3d"""
 
 
 def max_pool3d(
@@ -867,6 +1136,9 @@ def max_pool3d(
     count_include_pad: bool = False,
     layout: str = "NCDHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""3D maximum pooling operator.
 
@@ -926,16 +1198,38 @@ def max_pool3d(
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding, padding, padding)
 
-    return _ffi_api.max_pool3d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 3:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 3
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 3
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 3
+    if len(strides) != 3:
+        raise RuntimeError("strides must contain 3 values")
+    if len(padding) != 6:
+        raise RuntimeError("padding must contain 6 values")
+    if len(dilation) != 3:
+        raise RuntimeError("dilation must contain 3 values")
+    if len(pool_size) != 3:
+        raise RuntimeError("pool_size must contain 3 values")
+    return _Call(
+        "relax.nn.max_pool3d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool3DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
@@ -949,6 +1243,9 @@ def avg_pool1d(
     count_include_pad: bool = True,
     layout: str = "NCW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""1D average pooling operator.
 
@@ -1006,16 +1303,32 @@ def avg_pool1d(
         dilation = (dilation,)
     if isinstance(padding, int):
         padding = (padding, padding)
-    return _ffi_api.avg_pool1d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 1:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) != 1:
+        raise RuntimeError("strides must contain 1 values")
+    if len(padding) != 2:
+        raise RuntimeError("padding must contain 2 values")
+    if len(dilation) != 1:
+        raise RuntimeError("dilation must contain 1 values")
+    if len(pool_size) != 1:
+        raise RuntimeError("pool_size must contain 1 values")
+    return _Call(
+        "relax.nn.avg_pool1d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool1DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
@@ -1029,6 +1342,9 @@ def avg_pool2d(
     count_include_pad: bool = False,
     layout: str = "NCHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""2D average pooling operator.
 
@@ -1094,16 +1410,38 @@ def avg_pool2d(
         dilation = (dilation, dilation)
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding)
-    return _ffi_api.avg_pool2d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 2
+    if len(strides) != 2:
+        raise RuntimeError("strides must contain 2 values")
+    if len(padding) != 4:
+        raise RuntimeError("padding must contain 4 values")
+    if len(dilation) != 2:
+        raise RuntimeError("dilation must contain 2 values")
+    if len(pool_size) != 2:
+        raise RuntimeError("pool_size must contain 2 values")
+    return _Call(
+        "relax.nn.avg_pool2d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool2DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
@@ -1117,6 +1455,9 @@ def avg_pool3d(
     count_include_pad: bool = True,
     layout: str = "NCDHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""2D average pooling operator.
 
@@ -1176,17 +1517,44 @@ def avg_pool3d(
     if isinstance(padding, int):
         padding = (padding, padding, padding, padding, padding, padding)
 
-    return _ffi_api.avg_pool3d(  # type: ignore
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 3:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 3
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 3
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 3
+    if len(strides) != 3:
+        raise RuntimeError("strides must contain 3 values")
+    if len(padding) != 6:
+        raise RuntimeError("padding must contain 6 values")
+    if len(dilation) != 3:
+        raise RuntimeError("dilation must contain 3 values")
+    if len(pool_size) != 3:
+        raise RuntimeError("pool_size must contain 3 values")
+    return _Call(
+        "relax.nn.avg_pool3d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool3DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.AdaptivePool1DAttrs")
+class AdaptivePool1DAttrs(Attrs):
+    """Attributes for 1d adaptive pool operator"""
 
 
 def adaptive_avg_pool1d(
@@ -1194,6 +1562,9 @@ def adaptive_avg_pool1d(
     output_size: int | tuple[int] | None = None,
     layout: str = "NCW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""1D adaptive average pooling operator. This operator is experimental.
 
@@ -1239,7 +1610,25 @@ def adaptive_avg_pool1d(
     """
     if isinstance(output_size, int):
         output_size = (output_size,)
-    return _ffi_api.adaptive_avg_pool1d(data, output_size, layout, out_layout)  # type: ignore
+    if output_size is not None and len(output_size) != 1:
+        raise RuntimeError("output_size must contain 1 values")
+    return _Call(
+        "relax.nn.adaptive_avg_pool1d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.AdaptivePool1DAttrs",
+            output_size=output_size,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.AdaptivePool2DAttrs")
+class AdaptivePool2DAttrs(Attrs):
+    """Attributes for 2d adaptive pool operator"""
 
 
 def adaptive_avg_pool2d(
@@ -1247,6 +1636,10 @@ def adaptive_avg_pool2d(
     output_size: int | tuple[int, int] | None = None,
     layout: str = "NCHW",
     out_layout: str | None = None,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""2D adaptive average pooling operator. This operator is experimental.
 
@@ -1295,7 +1688,26 @@ def adaptive_avg_pool2d(
     """
     if isinstance(output_size, int):
         output_size = (output_size, output_size)
-    return _ffi_api.adaptive_avg_pool2d(data, output_size, layout, out_layout)  # type: ignore
+    if output_size is not None and len(output_size) != 2:
+        raise RuntimeError("output_size must contain 2 values")
+    return _Call(
+        "relax.nn.adaptive_avg_pool2d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.AdaptivePool2DAttrs",
+            output_size=output_size,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.AdaptivePool3DAttrs")
+class AdaptivePool3DAttrs(Attrs):
+    """Attributes for 3d adaptive pool operator"""
 
 
 def adaptive_avg_pool3d(
@@ -1303,6 +1715,9 @@ def adaptive_avg_pool3d(
     output_size: int | tuple[int, int] | None = None,
     layout: str = "NCDHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""3D adaptive average pooling operator. This operator is experimental.
 
@@ -1351,10 +1766,23 @@ def adaptive_avg_pool3d(
     """
     if isinstance(output_size, int):
         output_size = (output_size, output_size, output_size)
-    return _ffi_api.adaptive_avg_pool3d(data, output_size, layout, out_layout)  # type: ignore
+    if output_size is not None and len(output_size) != 3:
+        raise RuntimeError("output_size must contain 3 values")
+    return _Call(
+        "relax.nn.adaptive_avg_pool3d",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.AdaptivePool3DAttrs",
+            output_size=output_size,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def relu(data: Expr) -> Expr:
+def relu(data: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Rectified linear unit.
 
     .. math::
@@ -1370,7 +1798,7 @@ def relu(data: Expr) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.relu(data)  # type: ignore
+    return _Call("relax.nn.relu", [data], ty_args=ty_args, loc=loc, ty=ty)  # type: ignore
 
 
 def relu6(data: Expr) -> Expr:
@@ -1392,7 +1820,14 @@ def relu6(data: Expr) -> Expr:
     return relax.op.clip(data, 0, 6)
 
 
-def leakyrelu(data: Expr, alpha: float = 0.01) -> Expr:
+@tvm_ffi.register_object("relax.attrs.LeakyReluAttrs")
+class LeakyReluAttrs(Attrs):
+    """Attributes used in leaky_relu operator"""
+
+
+def leakyrelu(
+    data: Expr, alpha: float = 0.01, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     """Rectified linear unit.
 
     .. math::
@@ -1412,10 +1847,17 @@ def leakyrelu(data: Expr, alpha: float = 0.01) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.leakyrelu(data, alpha)  # type: ignore
+    return _Call(
+        "relax.nn.leakyrelu",
+        [data],
+        attrs=_make_attrs("relax.attrs.LeakyReluAttrs", alpha=alpha),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def gelu(data: Expr) -> Expr:
+def gelu(data: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Gaussian Error Linear Units function
 
     .. math::
@@ -1437,10 +1879,10 @@ def gelu(data: Expr) -> Expr:
     ----
     The input tensor is required to have float dtype
     """
-    return _ffi_api.gelu(data)  # type: ignore
+    return _Call("relax.nn.gelu", [data], ty_args=ty_args, loc=loc, ty=ty)  # type: ignore
 
 
-def gelu_tanh(data: Expr) -> Expr:
+def gelu_tanh(data: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Gaussian Error Linear Units function with tanh approximation
 
     .. math::
@@ -1460,10 +1902,10 @@ def gelu_tanh(data: Expr) -> Expr:
     ----
     The input tensor is required to have float dtype
     """
-    return _ffi_api.gelu_tanh(data)  # type: ignore
+    return _Call("relax.nn.gelu_tanh", [data], ty_args=ty_args, loc=loc, ty=ty)  # type: ignore
 
 
-def selu(data: Expr) -> Expr:
+def selu(data: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Scaled Exponential Linear Unit (SELU).
 
     .. math::
@@ -1484,10 +1926,10 @@ def selu(data: Expr) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.selu(data)
+    return _Call("relax.nn.selu", [data], ty_args=ty_args, loc=loc, ty=ty)
 
 
-def silu(data: Expr) -> Expr:
+def silu(data: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Sigmoid Linear Unit function
 
     .. math::
@@ -1507,10 +1949,15 @@ def silu(data: Expr) -> Expr:
     ----
     The input tensor is required to have float dtype
     """
-    return _ffi_api.silu(data)  # type: ignore
+    return _Call("relax.nn.silu", [data], ty_args=ty_args, loc=loc, ty=ty)  # type: ignore
 
 
-def softmax(data: Expr, axis: int = -1) -> Expr:
+@tvm_ffi.register_object("relax.attrs.SoftmaxAttrs")
+class SoftmaxAttrs(Attrs):
+    """Attributes for nn.softmax"""
+
+
+def softmax(data: Expr, axis: int = -1, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Computes softmax.
 
     .. math:: \text{softmax}(x)_i = \frac{\exp(x_i)}{\sum_j \exp(x_j)}
@@ -1534,10 +1981,29 @@ def softmax(data: Expr, axis: int = -1) -> Expr:
     ----
     The input tensor is required to have float dtype
     """
-    return _ffi_api.softmax(data, axis)  # type: ignore
+    return _Call(
+        "relax.nn.softmax",
+        [data],
+        attrs=_make_attrs("relax.attrs.SoftmaxAttrs", axis=axis),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def softplus(data: Expr, beta: float = 1.0, threshold: float = 20.0) -> Expr:
+@tvm_ffi.register_object("relax.attrs.SoftplusAttrs")
+class SoftplusAttrs(Attrs):
+    """Attributes used in softplus operator"""
+
+
+def softplus(
+    data: Expr,
+    beta: float = 1.0,
+    threshold: float = 20.0,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+) -> Expr:
     r"""Softplus activation function.
 
     .. math:: \text{Softplus}(x) = \frac{1}{\beta} \log(1 + e^{\beta x})
@@ -1559,10 +2025,17 @@ def softplus(data: Expr, beta: float = 1.0, threshold: float = 20.0) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.softplus(data, beta, threshold)
+    return _Call(
+        "relax.nn.softplus",
+        [data],
+        attrs=_make_attrs("relax.attrs.SoftplusAttrs", beta=beta, threshold=threshold),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )
 
 
-def log_softmax(data: Expr, axis: int = -1) -> Expr:
+def log_softmax(data: Expr, axis: int = -1, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Computes log softmax.
 
     .. math::
@@ -1587,10 +2060,21 @@ def log_softmax(data: Expr, axis: int = -1) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.log_softmax(data, axis)  # type: ignore
+    return _Call(
+        "relax.nn.log_softmax",
+        [data],
+        attrs=_make_attrs("relax.attrs.SoftmaxAttrs", axis=axis),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def prelu(data: Expr, alpha: Expr, axis: int = 1) -> Expr:
+@tvm_ffi.register_object("relax.attrs.PReluAttrs")
+class PReluAttrs(Attrs):
+    """Attributes used in prelu operator"""
+
+
+def prelu(data: Expr, alpha: Expr, axis: int = 1, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     r"""Parametric Rectified Linear Unit (PReLU).
 
     .. math::
@@ -1613,7 +2097,18 @@ def prelu(data: Expr, alpha: Expr, axis: int = 1) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.prelu(data, alpha, axis)
+    return _Call(
+        "relax.nn.prelu",
+        [data, alpha],
+        attrs=_make_attrs("relax.attrs.PReluAttrs", axis=axis),
+        loc=loc,
+        ty=ty,
+    )
+
+
+@tvm_ffi.register_object("relax.attrs.BatchNormAttrs")
+class BatchNormAttrs(Attrs):
+    """Attributes used in batch_norm operator"""
 
 
 def batch_norm(
@@ -1628,6 +2123,9 @@ def batch_norm(
     scale: bool = True,
     momentum: float = 0.1,
     training: bool = True,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""
     Batch normalization layer (Ioffe and Szegedy, 2014).
@@ -1726,19 +2224,26 @@ def batch_norm(
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.batch_norm(  # type: ignore
-        data,
-        gamma,
-        beta,
-        moving_mean,
-        moving_var,
-        axis,
-        epsilon,
-        center,
-        scale,
-        momentum,
-        training,
+    return _Call(
+        "relax.nn.batch_norm",
+        [data, gamma, beta, moving_mean, moving_var],
+        attrs=_make_attrs(
+            "relax.attrs.BatchNormAttrs",
+            axis=axis,
+            epsilon=epsilon,
+            center=center,
+            scale=scale,
+            momentum=momentum,
+            training=training,
+        ),
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.LayerNormAttrs")
+class LayerNormAttrs(Attrs):
+    """Attributes used in layer_norm operator"""
 
 
 def layer_norm(
@@ -1749,6 +2254,9 @@ def layer_norm(
     epsilon: float = 1e-5,
     center: bool = True,
     scale: bool = True,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""
     Layer normalization (Lei Ba and et al., 2016).
@@ -1799,7 +2307,20 @@ def layer_norm(
     """
     if isinstance(axes, int):
         axes = [axes]
-    return _ffi_api.layer_norm(data, gamma, beta, axes, epsilon, center, scale)  # type: ignore
+    return _Call(
+        "relax.nn.layer_norm",
+        [data, gamma, beta],
+        attrs=_make_attrs(
+            "relax.attrs.LayerNormAttrs", axes=axes, epsilon=epsilon, center=center, scale=scale
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.GroupNormAttrs")
+class GroupNormAttrs(Attrs):
+    """Attributes used in group_norm operator"""
 
 
 def group_norm(
@@ -1812,6 +2333,9 @@ def group_norm(
     epsilon: float = 1e-5,
     center: bool = True,
     scale: bool = True,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""
     Group normalization (Yuxin Wu and et al., 2016).
@@ -1855,9 +2379,26 @@ def group_norm(
     """
     if isinstance(axes, int):
         axes = [axes]
-    return _ffi_api.group_norm(  # type: ignore
-        data, gamma, beta, num_groups, channel_axis, axes, epsilon, center, scale
+    return _Call(
+        "relax.nn.group_norm",
+        [data, gamma, beta],
+        attrs=_make_attrs(
+            "relax.attrs.GroupNormAttrs",
+            num_groups=num_groups,
+            channel_axis=channel_axis,
+            axes=axes,
+            epsilon=epsilon,
+            center=center,
+            scale=scale,
+        ),
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.InstanceNormAttrs")
+class InstanceNormAttrs(Attrs):
+    """Attributes used in instance_norm operator"""
 
 
 def instance_norm(
@@ -1869,6 +2410,9 @@ def instance_norm(
     epsilon: float = 1e-5,
     center: bool = True,
     scale: bool = True,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""
     Instance normalization
@@ -1903,16 +2447,25 @@ def instance_norm(
     """
     if isinstance(axes, int):
         axes = [axes]
-    return _ffi_api.instance_norm(  # type: ignore
-        data,
-        gamma,
-        beta,
-        channel_axis,
-        axes,
-        epsilon,
-        center,
-        scale,
+    return _Call(
+        "relax.nn.instance_norm",
+        [data, gamma, beta],
+        attrs=_make_attrs(
+            "relax.attrs.InstanceNormAttrs",
+            channel_axis=channel_axis,
+            axes=axes,
+            epsilon=epsilon,
+            center=center,
+            scale=scale,
+        ),
+        loc=loc,
+        ty=ty,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.RMSNormAttrs")
+class RMSNormAttrs(Attrs):
+    """Attributes used in rms_norm operator"""
 
 
 def rms_norm(
@@ -1920,6 +2473,9 @@ def rms_norm(
     weight: Expr,
     axes: int | list[int] = -1,
     epsilon: float = 1e-5,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""
     Root mean square normalization (Biao Zhang and et al., 2019).
@@ -1952,10 +2508,21 @@ def rms_norm(
     """
     if isinstance(axes, int):
         axes = [axes]
-    return _ffi_api.rms_norm(data, weight, axes, epsilon)  # type: ignore
+    return _Call(
+        "relax.nn.rms_norm",
+        [data, weight],
+        attrs=_make_attrs("relax.attrs.RMSNormAttrs", axes=axes, epsilon=epsilon),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def dropout(data: Expr, rate: float = 0.5) -> Expr:
+@tvm_ffi.register_object("relax.attrs.DropoutAttrs")
+class DropoutAttrs(Attrs):
+    """Attributes for dropout operator"""
+
+
+def dropout(data: Expr, rate: float = 0.5, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Applies the dropout operation to the input tensor.
 
     During training, each element of the input is set to zero with
@@ -1977,10 +2544,18 @@ def dropout(data: Expr, rate: float = 0.5) -> Expr:
         The first one is the original tensor and the second one is a
         mask tensor (1.0 where element not dropped, 0.0 where dropped)
     """
-    return _ffi_api.dropout(data, rate)  # type: ignore
+    return _Call(
+        "relax.nn.dropout",
+        [data],
+        attrs=_make_attrs("relax.attrs.DropoutAttrs", rate=rate),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def cross_entropy_with_logits(predictions: Expr, labels: Expr) -> Expr:
+def cross_entropy_with_logits(
+    predictions: Expr, labels: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     r"""CrossEntropy with logits between the predictions and labels.
 
     The shape of predictions and labels must be the same. And when ndim >= 2,
@@ -2004,7 +2579,18 @@ def cross_entropy_with_logits(predictions: Expr, labels: Expr) -> Expr:
     result : relax.Expr
       The computed result.
     """
-    return _ffi_api.cross_entropy_with_logits(predictions, labels)  # type: ignore
+    return _Call(
+        "relax.nn.cross_entropy_with_logits",
+        [predictions, labels],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.NLLLossAttrs")
+class NLLLossAttrs(Attrs):
+    """Attributes used in nll_loss operator"""
 
 
 def nll_loss(
@@ -2013,6 +2599,10 @@ def nll_loss(
     weights: Expr | None = None,
     reduction: str = "mean",
     ignore_index: int = -100,
+    *,
+    ty_args=None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """Negative log likelihood loss.
 
@@ -2049,7 +2639,23 @@ def nll_loss(
     result : relax.Expr
       The computed result.
     """
-    return _ffi_api.nll_loss(predictions, targets, weights, reduction, ignore_index)  # type: ignore
+    if reduction not in ("none", "sum", "mean"):
+        raise RuntimeError("reduction must be none, sum, or mean")
+    return _Call(
+        "relax.nn.nll_loss",
+        [predictions, targets, *([] if weights is None else [weights])],
+        attrs=_make_attrs(
+            "relax.attrs.NLLLossAttrs", reduction=reduction, ignore_index=ignore_index
+        ),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.AttentionAttrs")
+class AttentionAttrs(Attrs):
+    """Attributes used in attention operator"""
 
 
 def attention(
@@ -2060,6 +2666,9 @@ def attention(
     scale: FloatImm | None = None,
     causal_mask: str | None = None,
     window_size: int | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""Computes fused multi head attention.
 
@@ -2140,7 +2749,18 @@ def attention(
         The computed result. The layout of the output should be
         (batch_size, seq_len, num_head, head_dim_v).
     """
-    return _ffi_api.attention(query, key, value, bias, scale, causal_mask, window_size)  # type: ignore
+    return _Call(
+        "relax.nn.attention_bias" if bias is not None else "relax.nn.attention",
+        [query, key, value, *([] if bias is None else [bias])],
+        attrs=_make_attrs(
+            "relax.attrs.AttentionAttrs",
+            scale=scale,
+            causal_mask=causal_mask,
+            window_size=window_size,
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
 def attention_bias(
@@ -2151,6 +2771,9 @@ def attention_bias(
     scale: FloatImm | None = None,
     causal_mask: str | None = None,
     window_size: int | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     r"""Computes fused multi head attention.
 
@@ -2235,7 +2858,18 @@ def attention_bias(
         The computed result. The layout of the output should be
         (batch_size, seq_len, num_head, head_dim_v).
     """
-    return _ffi_api.attention(query, key, value, bias, scale, causal_mask, window_size)  # type: ignore
+    return _Call(
+        "relax.nn.attention_bias",
+        [query, key, value, bias],
+        attrs=_make_attrs(
+            "relax.attrs.AttentionAttrs",
+            scale=scale,
+            causal_mask=causal_mask,
+            window_size=window_size,
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
 def attention_var_len(
@@ -2249,6 +2883,9 @@ def attention_var_len(
     scale: FloatImm | None = None,
     causal_mask: str | None = None,
     window_size: int | None = None,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """Computes fused multi head attention over batched sequences of variable lengths.
 
@@ -2339,21 +2976,21 @@ def attention_var_len(
         seqstart_k = seqstart_q
     if max_seqlen_k is None:
         max_seqlen_k = max_seqlen_q
-    return _ffi_api.attention_var_len(
-        queries,
-        keys,
-        values,
-        seqstart_q,
-        seqstart_k,
-        max_seqlen_q,
-        max_seqlen_k,
-        scale,
-        causal_mask,
-        window_size,
+    return _Call(
+        "relax.nn.attention_var_len",
+        [queries, keys, values, seqstart_q, seqstart_k, max_seqlen_q, max_seqlen_k],
+        attrs=_make_attrs(
+            "relax.attrs.AttentionAttrs",
+            scale=scale,
+            causal_mask=causal_mask,
+            window_size=window_size,
+        ),
+        loc=loc,
+        ty=ty,
     )  # type: ignore
 
 
-def batch_flatten(data: Expr) -> Expr:
+def batch_flatten(data: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Flatten all dimensions except the first (batch) dimension.
 
     This operation flattens a tensor of shape `(N, C, H, W, ...)` into
@@ -2369,4 +3006,4 @@ def batch_flatten(data: Expr) -> Expr:
     result : relax.Expr
         The flattened result with shape `(batch_size, flattened_features)`.
     """
-    return _ffi_api.batch_flatten(data)  # type: ignore
+    return _Call("relax.nn.batch_flatten", [data], loc=loc, ty=ty)  # type: ignore

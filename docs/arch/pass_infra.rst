@@ -20,98 +20,36 @@
 Pass Infrastructure
 ===================
 
-Both Relax and TVM IR contain a series of optimization passes which improve performance metrics
-of models such as mean inference, memory footprint, or power consumption for
-specific devices. There is a suite of standard optimizations as well as machine
-learning-specific optimizations including constant folding, dead code
-elimination, operator layout alteration, operator fusion, buffer handling, and
-loop transformation, etc. Each of these passes is structured as a ir-to-ir
-transformation using the analysis result collected during and/or before traversal.
+A pass transforms an ``IRModule`` into another ``IRModule``. ``PassContext``
+provides scoped configuration and instrumentation, and ``Sequential`` composes
+passes in an explicit order. The same utilities support transformations across
+IR dialects and allow pass implementations in C++ or Python.
 
-However, as TVM evolves quickly, the need for a more systematic and efficient
-way to manage these passes is becoming apparent. In addition, a generic
-framework that manages the passes across different layers of the TVM stack (e.g.
-Relax and TensorIR) paves the way for developers to quickly prototype and plug the
-implemented passes into the system.
-
-This doc describes the design of such an infra that takes the advantage of the
-way production compilers are used to manage the optimization passes and the style
-modern deep learning frameworks adopted to build up layers.
-
-For example, many existing production compilers, such as GCC and LLVM, employ
-pass managers to effectively manage the execution of passes. Initially managing
-passes is straightforward as the number of passes is small, but mature compilers
-will contain hundreds of individual passes. Often external users will want to
-have custom passes correctly scheduled without having to modify a single
-handcrafted pass order.
-
-Similarly, modern deep learning frameworks, such as PyTorch, also have
-the tendency to enable pass-style layer construction scheme through
-`Sequential`_. With such constructs, these modern frameworks are able to
-conveniently add modules/layers to their containers and build up neural
-networks easily.
-
-The design of the TVM pass infra is largely inspired by the hierarchical
-pass manager used in LLVM and the block-style containers used in the popular
-deep learning frameworks. The major goals of the pass infra include:
-
-#) enabling better programmatic orchestration of optimizations. This allows
-   users to flexibly customize and build their own optimization pipelines.
-
-#) providing a user-friendly way to debug optimization passes.
-
-#) alleviating developers from manually and respectively resolving the
-   dependencies between passes.
-
-#) simplifying the implementation of new passes for developers. For example, we
-   allow users to implement a pass in Python and let the pass infra manipulate
-   its execution.
-
-The Design
-----------
-
-We focus on ease of extension for users, making it possible for users to quickly
-add new passes without loss of backward compatibility. The design contains both
-the backend and the frontend. The former implements the main logic of the pass
-infra. The latter provides simple APIs for users to interact with, i.e.,
-allowing users to quickly create their own optimization pipelines.
+Passes do not declare dependencies or discover prerequisite passes by name.
+A pipeline supplies all of its passes in the order they should execute.
 
 C++ Backend
 ~~~~~~~~~~~
 
-We provide a ``PassInfo`` object to contain the basic information needed by
-a pass. ``name`` is the pass name, ``opt_level`` indicates at which optimization
-level the pass will be enabled, and ``required`` represents the passes that are
-required to execute a certain pass (see `include/tvm/ir/transform.h`_ for
-more details). For example, during registration of a pass (will be covered in
-later), the pass developers can specify the name of the pass, the optimization
-level it will be performed at, and/or the passes that are required.
-``opt_level`` could be used to help the pass infra identify if a certain pass
-needs to be executed when running under a user-provided optimization level. The
-``required`` field can be used by the pass infra to resolve pass dependencies.
+``PassInfo`` contains a pass's ``name`` and ``opt_level``. The optimization
+level controls whether a pass in a ``Sequential`` runs under the current
+``PassContext``. See `include/tvm/ir/transform.h`_ for the core interfaces.
 
 .. code:: c++
 
-    class PassInfoNode : public Object {
+    class PassInfoObj : public Object {
       int opt_level;
       ffi::String name;
-      bool traceable;
-      ffi::Array<ffi::String> required;
     };
 
 PassContext
 ^^^^^^^^^^^
 
-``PassContext`` carries useful information for an optimization pass. For
-example, it contains the error reporting system so optimization authors can
-provide diagnostics about why an optimization fails. ``PassContext`` is also
-designed to replace the old ``BuildConfig`` which was used to help users
-configure the compilation options, including optimization level and
-required/disabled passes, etc. For instance, we may have a configuration which
-performs all passes at ``opt_level=3`` with some disabled passes using
-``disabled_pass=xx`` provided by ``PassContext``. Now we could glob all passes
-at ``opt_level=3`` and exclude those in the disabled pass list. ``PassContext``
-also provides a way to instrument all passes. See section :ref:`pass_instrument_cpp_backend`.
+``PassContext`` configures transformations with an optimization level, explicit
+``required_pass`` and ``disabled_pass`` names, pass-specific configuration, and
+instruments. These name lists control passes already present in a pipeline;
+they do not create or insert passes. See :ref:`pass_instrument_cpp_backend`
+for instrumentation behavior.
 
 This class is designed for users to conveniently write the Python ``with``
 syntax to perform optimizations under a certain configuration. In addition, the
@@ -123,14 +61,13 @@ Python APIs to create a compilation pipeline using pass context.
 
 .. code:: c++
 
-    class PassContextNode : public Object {
+    class PassContextObj : public Object {
      public:
       int opt_level{2};
       ffi::Array<ffi::String> required_pass;
       ffi::Array<ffi::String> disabled_pass;
-      mutable ffi::Optional<DiagnosticContext> diag_ctx;
       ffi::Map<ffi::String, Any> config;
-      ffi::Array<instrument::PassInstrument> instruments;
+      ffi::Array<PassInstrument> instruments;
     };
 
     class PassContext : public ObjectRef {
@@ -159,7 +96,7 @@ Python APIs to create a compilation pipeline using pass context.
       /*! \brief The current pass context. */
       std::stack<PassContext> context_stack;
       PassContextThreadLocalEntry() {
-        default_context = PassContext(ffi::make_object<PassContextNode>());
+        default_context = PassContext(ffi::make_object<PassContextObj>());
       }
     };
 
@@ -167,14 +104,14 @@ Pass Constructs
 ^^^^^^^^^^^^^^^
 
 The pass infra is designed in a hierarchical manner, and it could work at
-different granularities of Relax/TensorIR programs. A pure virtual class ``PassNode`` is
+different granularities of Relax/TensorIR programs. A pure virtual class ``PassObj`` is
 introduced to serve as the base of the different optimization passes. This class
 contains several virtual methods that must be implemented by the
 subclasses at the level of modules, functions, or sequences of passes.
 
 .. code:: c++
 
-    class PassNode : Object {
+    class PassObj : Object {
       virtual PassInfo Info() const = 0;
       virtual Module operator()(const IRModule& mod
                                 const PassContext& pass_ctx) const = 0;
@@ -187,10 +124,8 @@ always update the whole module.
 
 Several subclasses have been created to implement different types of
 optimization passes, e.g., function-level passes, module-level passes, and
-sequential passes.  Each subclass itself could act as a pass manager. For
-instance, they could collect the required passes and execute them or build
-a dependency graph based on the given metadata. The full definition of them
-can be found in `src/ir/transform.cc`_.
+sequential passes. Each adapts its transformation to the same module-to-module
+interface. Their definitions can be found in `src/ir/transform.cc`_.
 
 Module-Level Passes
 ^^^^^^^^^^^^^^^^^^^
@@ -204,7 +139,7 @@ passes
 
 .. code:: c++
 
-    class ModulePassNode : PassNode {
+    class ModulePassObj : PassObj {
       PassInfo pass_info;
       std::function<Module(Module, PassContext)> pass_func;
       Module operator()(const Module& mod, const PassContext& pass_ctx) const final;
@@ -225,7 +160,7 @@ Function-Level Passes
 Function-level passes are used to implement various intra-function level
 optimizations for a given Relax/TensorIR module. It fetches one function at a time from
 the function list of a module for optimization and yields a rewritten Relax
-``Function`` or TensorIR ``PrimFunc``. Most of passes can be classified into this category, such as
+``Function`` or TensorIR ``Function``. Most of passes can be classified into this category, such as
 common subexpression elimination and inference simplification in Relax as well as vectorization
 and flattening storage in TensorIR, etc.
 
@@ -235,7 +170,7 @@ the global information.
 
 .. code:: c++
 
-    class FunctionPassNode : PassNode {
+    class FunctionPassObj : PassObj {
       PassInfo pass_info;
       std::function<Function(Function, Module, PassContext)> pass_func;
       Module operator()(const Module& mod, const PassContext& pass_ctx) const final;
@@ -251,16 +186,15 @@ may use it for reporting errors. A function could be annotated with
 Sequential Passes
 ^^^^^^^^^^^^^^^^^
 
-``SequentialPass`` is similar to Pytorch ``nn.Sequential`` that contains a host
-of passes for execution.
+``Sequential`` applies its passes in the supplied order. A nested
+``Sequential`` preserves the same ordered composition.
 
 .. code:: c++
 
-    class SequentialPassNode : PassNode {
+    class SequentialObj : PassObj {
       PassInfo pass_info;
       // Passes need to be executed.
       ffi::Array<Pass> passes;
-      bool PassEnabled(const PassInfo& info) const;
       Module operator()(const Module& mod, const PassContext& pass_ctx) const final;
     };
 
@@ -270,16 +204,13 @@ order that they were appended to the pass list.
 
 .. code:: c++
 
-    Module SequentialNode::operator()(const Module& module,
+    Module SequentialObj::operator()(const Module& module,
                                       const PassContext& pass_ctx) const {
       Module mod = module;
       for (const Pass& pass : passes) {
         TVM_FFI_ICHECK(pass.defined()) << "Found undefined pass for optimization.";
         const PassInfo& pass_info = pass->Info();
-        if (!PassEnabled(pass_info))  continue;
-        for (const auto& it : pass_info->required) {
-          mod = GetPass(it)(std::move(mod), pass_ctx);
-        }
+        if (!pass_ctx.PassEnabled(pass_info)) continue;
         mod = pass(mod, pass_ctx);
       }
       return mod;
@@ -290,21 +221,17 @@ done by first checking if the pass is explicitly disabled by a user, followed by
 inspecting if it is specified as a required pass by the user. If it is still
 undetermined whether this pass is enabled, its ``opt_level`` will be checked.
 This pass will be enabled and therefore executed only when its optimization
-level is not less than the configured optimization level in the pass context.
+level is at most the configured optimization level in the pass context.
 
-To execute the pass, we need first to retrieve the registered pass in the TVM
-packed function registry using the pass name. This is possible because every
-pass is registered with an API endpoint as we will show later.
+Callers construct the passes directly, including any prerequisites, before
+creating a sequence. For example:
 
-.. code:: c++
+.. code:: python
 
-    Pass GetPass(const std::string& pass_name) {
-      std::string fpass_name = "relax.transform." + pass_name;
-      const std::optional<tvm::ffi::Function> f = tvm::ffi::Function::GetGlobal(fpass_name);
-      TVM_FFI_ICHECK(f.has_value()) << "Cannot find " << fpass_name
-                            << "to create the pass " << pass_name;
-      return (*f)();
-    }
+    pipeline = tvm.ir.transform.Sequential([
+        relax.transform.Normalize(),
+        relax.transform.FoldConstant(),
+    ])
 
 Some helper functions are provided to create each type of these aforementioned
 passes. These helpers are also exposed to the Python frontend for users to
@@ -315,23 +242,17 @@ favorably use Python APIs to create a specific pass object.
     Pass CreateFunctionPass(
         std::function<Function(Function, IRModule, PassContext)> pass_func,
         int opt_level,
-        ffi::String name,
-        ffi::Array<ffi::String> required,
-        bool traceable = false);
+        ffi::String name);
 
-    Pass CreatePrimFuncPass(
-        std::function<PrimFunc(PrimFunc, IRModule, PassContext)> pass_func,
+    Pass CreateFunctionPass(
+        std::function<Function(Function, IRModule, PassContext)> pass_func,
         int opt_level,
-        ffi::String name,
-        ffi::Array<ffi::String> required,
-        bool traceable = false);
+        ffi::String name);
 
     Pass CreateModulePass(
         std::function<IRModule(IRModule, PassContext)> pass_func,
         int opt_level,
-        ffi::String name,
-        ffi::Array<ffi::String> required,
-        bool traceable = false);
+        ffi::String name);
 
     Pass Sequential(tvm::ffi::Array<Pass> passes, PassInfo pass_info);
 
@@ -354,14 +275,12 @@ In order to register this pass to the pass infra, we first need to decide at
 which level this pass will be performed. As const folding happens on individual
 functions, we should intuitively create a ``FunctionPass`` for it through
 ``CreateFunctionPass``. The ``pass_func`` is returned as a packed function that
-invokes the ``Expr`` to ``Expr`` API on each function in a `IRModule`. ``{}``
-indicates that no prerequisite is required for this pass. Otherwise, the pass
-developer has to identify and list them.
+invokes the ``Expr`` to ``Expr`` API on each function in an ``IRModule``.
 
 Meanwhile, a pass API endpoint is registered with the name
 ``"relax.transform.FoldConstant"``. This pass, therefore, becomes an entry in the
-registry that can be accessed by both C++ (e.g. the ``GetPass`` above) and
-Python when needed.
+registry that exposes the factory to Python. C++ callers use the declared
+factory directly.
 
 .. code:: c++
 
@@ -370,7 +289,7 @@ Python when needed.
     Pass FoldConstant() {
       auto pass_func =
           [=](Function f, IRModule m, PassContext pc) { return ConstantFolder::Fold(f, m); };
-      return CreateFunctionPass(pass_func, 0, "FoldConstant", {});
+      return CreateFunctionPass(pass_func, 0, "FoldConstant");
     }
 
     TVM_FFI_STATIC_INIT_BLOCK() {
@@ -410,7 +329,7 @@ of the ``PassContext`` instance.
 
 ``InstrumentExitPassContext`` is called when leaving the scope of ``PassContext``,
 or exceptions occur during the execution of passes.
-This method is also called when instruments is being overridden by ``override_instruments`` in :py:class:`tvm.transform.PassContext`.
+This method is also called when instruments is being overridden by ``override_instruments`` in :py:class:`tvm.ir.transform.PassContext`.
 See :ref:`pass_instrument_overriden`.
 
 ``InstrumentBeforePass`` is called before execution.
@@ -433,25 +352,25 @@ Multiple ``PassInstrument`` instances can be registed into a single
 
 .. code:: c++
 
-    namespace instrument {
+    namespace transform {
 
-    class PassInstrumentNode : public Object {
+    class PassInstrumentObj : public Object {
      public:
       ffi::String name;
       virtual void EnterPassContext() const = 0;
       virtual void ExitPassContext() const = 0;
-      virtual bool ShouldRun(const IRModule& mod, const transform::PassInfo& info) const = 0;
-      virtual void RunBeforePass(const IRModule& mod, const transform::PassInfo& info) const = 0;
-      virtual void RunAfterPass(const IRModule& mod, const transform::PassInfo& info) const = 0;
+      virtual bool ShouldRun(const IRModule& mod, const PassInfo& info) const = 0;
+      virtual void RunBeforePass(const IRModule& mod, const PassInfo& info) const = 0;
+      virtual void RunAfterPass(const IRModule& mod, const PassInfo& info) const = 0;
       /* Other fields are omitted. */
     };
 
     class PassInstrument : public ObjectRef {
      public:
-      TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(PassInstrument, ObjectRef, PassInstrumentNode);
+      TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(PassInstrument, ObjectRef, PassInstrumentObj);
     };
 
-    }  // namespace instrument
+    }  // namespace transform
 
 Python frontend are provided to implement ``PassInstrument`` quickly. See :ref:`pass_instrument_py_frontend`.
 
@@ -519,19 +438,19 @@ There are several built-in instruments.
 
   * Profile the execution time of passes.
 
-- PrintBeforeAll (see `python/tvm/ir/instrument.py`_)
+- PrintBeforeAll (see `python/tvm/ir/transform/instrument.py`_)
 
   * Print the IR module and pass info before each pass executes.
 
-- PrintAfterAll (see `python/tvm/ir/instrument.py`_)
+- PrintAfterAll (see `python/tvm/ir/transform/instrument.py`_)
 
   * Print the IR module and pass info after each pass executes.
 
-- PassPrintingInstrument (see `python/tvm/ir/instrument.py`_)
+- PassPrintingInstrument (see `python/tvm/ir/transform/instrument.py`_)
 
   * Selectively print the IR module before or after specific named passes.
 
-- DumpIR (see `python/tvm/ir/instrument.py`_)
+- DumpIR (see `python/tvm/ir/transform/instrument.py`_)
 
   * Dump the IR module to files after each pass executes.
 
@@ -541,7 +460,7 @@ Python Frontend
 Only some simple APIs are needed for the frontend side. For example, we can
 provide users the following APIs to create and execute a pass (full
 implementation is provided in `python/tvm/relax/transform/transform.py`_ and
-`python/tvm/ir/transform.py`_). The backend
+`python/tvm/ir/transform/core.py`_). The backend
 receives the information and decides which function it should use to create
 a Pass object.
 
@@ -556,7 +475,7 @@ a certain scope.
 .. code:: python
 
     @tvm_ffi.register_object("transform.PassContext")
-    class PassContext(tvm.runtime.Object):
+    class PassContext(tvm_ffi.Object):
         def __enter__(self):
             _transform.EnterPassContext(self)
             return self
@@ -572,14 +491,25 @@ a certain scope.
 A ``PassContext`` is used to configure the compilation options, including the
 optimization level and required/disabled passes. It can also take a dictionary
 of configs so that different passes can conveniently fetch the passed data, such
-as fallback device info and step/depth for loop unrolling, etc. In order to
-enable fetching the required config, the key must be registered through
-``TVM_REGISTER_PASS_CONFIG_OPTION``. For example, the following is used by the
-loop unrolling pass
+as fallback device info and loop-unrolling limits. Register each configuration
+key and value type directly in a static initialization block:
 
 .. code:: c++
 
-    TVM_REGISTER_PASS_CONFIG_OPTION("tirx.UnrollLoop", UnrollLoopConfig);
+    TVM_FFI_STATIC_INIT_BLOCK() {
+      tvm::transform::PassContext::RegisterConfigOption<UnrollLoopConfig>("tirx.UnrollLoop");
+    }
+
+``GetConfig<T>(key)`` returns an optional value. Scalar and target-dependent
+defaults are explicit at the call site. ``GetConfigOrDefault<TConfig>(key)``
+returns a configured object or, only when absent, constructs a fresh object
+using its reflection-defined defaults. Both APIs take only the key.
+
+.. code:: c++
+
+    auto ctx = tvm::transform::PassContext::Current();
+    bool noalias = ctx->GetConfig<bool>("tirx.noalias").value_or(true);
+    auto unroll = ctx->GetConfigOrDefault<UnrollLoopConfig>("tirx.UnrollLoop");
 
 Please refer to `src/tirx/transform/unroll_loop.cc`_ for more details.
 
@@ -589,9 +519,8 @@ Pass Instrument
 ^^^^^^^^^^^^^^^
 
 One can implement a ``PassInstrument`` by using the ``pass_instrument``
-decorator(`python/tvm/ir/instrument.py`_) on a class implementing following methods.
-Note that it is recommended to use the ``pass_instrument`` decorator to implement
-``PassInstrument``, instead of overriding or subclassing.
+decorator (`python/tvm/ir/transform/core.py`_) or by subclassing
+``tvm.ir.transform.PassInstrument``. Implement any of the following callbacks:
 
 - ``enter_pass_ctx``
 
@@ -615,9 +544,11 @@ Note that it is recommended to use the ``pass_instrument`` decorator to implemen
   * This method is run right after a pass has been executed.
 
 ``PassInstrument`` instances can be registered through ``instruments`` argument in
-:py:class:`tvm.transform.PassContext`.
+:py:class:`tvm.ir.transform.PassContext`.
 
-See `python/tvm/ir/instrument.py`_ for examples of how to implement ``PassInstrument`` with Python APIs.
+Core interfaces are exported from ``tvm.ir.transform``. Concrete tools, including
+``PassTimingInstrument`` and ``DumpIR``, live in ``tvm.ir.transform.instrument``;
+see `python/tvm/ir/transform/instrument.py`_ for examples.
 
 .. _pass_instrument_overriden:
 
@@ -630,7 +561,7 @@ one can still register ``PassInstrument`` into the global ``PassContext`` by:
 
 .. code:: python
 
-    cur_pass_ctx = tvm.transform.PassContext.current()
+    cur_pass_ctx = tvm.ir.transform.PassContext.current()
     # override PassInstrument instances
     cur_pass_ctx.override_instruments([pass_inst])
     mod = pass_seq(mod)
@@ -639,10 +570,6 @@ one can still register ``PassInstrument`` into the global ``PassContext`` by:
 Note that when ``override_instruments`` is called, the ``exit_pass_ctx`` method of
 old ``PassInstrument`` instances are called. Then the ``enter_pass_ctx`` method of
 new ``PassInstrument`` are called.
-
-.. _Sequential: https://pytorch.org/docs/stable/nn.html?highlight=sequential#torch.nn.Sequential
-
-.. _Block: https://pytorch.org/docs/stable/generated/torch.nn.Module.html
 
 .. _include/tvm/ir/transform.h: https://github.com/apache/tvm/blob/main/include/tvm/ir/transform.h
 
@@ -660,10 +587,10 @@ new ``PassInstrument`` are called.
 
 .. _include/tvm/relax/transform.h: https://github.com/apache/tvm/blob/main/include/tvm/relax/transform.h
 
-.. _python/tvm/ir/transform.py: https://github.com/apache/tvm/blob/main/python/tvm/ir/transform.py
+.. _python/tvm/ir/transform/core.py: https://github.com/apache/tvm/blob/main/python/tvm/ir/transform/core.py
 
-.. _python/tvm/ir/instrument.py: https://github.com/apache/tvm/blob/main/python/tvm/ir/instrument.py
+.. _python/tvm/ir/transform/instrument.py: https://github.com/apache/tvm/blob/main/python/tvm/ir/transform/instrument.py
 
-.. _src/tirx/transform/unroll_loop.cc: https://github.com/apache/tvm/blob/main/src/tirx/transform/unroll_loop.cc
+.. _src/tirx/transform/unroll_loop.cc: https://github.com/apache/tvm-tirx/blob/main/src/tirx/transform/unroll_loop.cc
 
 .. _use pass infra: https://github.com/apache/tvm/blob/main/docs/how_to/tutorials/customize_opt.py

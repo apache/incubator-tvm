@@ -25,39 +25,38 @@ namespace s_tir {
 namespace meta_schedule {
 
 MeasureCandidate::MeasureCandidate(s_tir::Schedule sch, ffi::Array<ArgInfo> args_info) {
-  ffi::ObjectPtr<MeasureCandidateNode> n = ffi::make_object<MeasureCandidateNode>();
-  n->sch = sch;
+  ffi::ObjectPtr<MeasureCandidateObj> n = ffi::make_object<MeasureCandidateObj>(std::move(sch));
   n->args_info = args_info;
   data_ = std::move(n);
 }
 
-void PySearchStrategyNode::InitializeWithTuneContext(const TuneContext& context) {
+void PySearchStrategyObj::InitializeWithTuneContext(const TuneContext& context) {
   TVM_FFI_ICHECK(f_initialize_with_tune_context != nullptr)
       << "PySearchStrategy's InitializeWithTuneContext method not implemented!";
   f_initialize_with_tune_context(context);
 }
 
-void PySearchStrategyNode::PreTuning(int max_trials, int num_trials_per_iter,
-                                     const ffi::Array<s_tir::Schedule>& design_spaces,
-                                     const ffi::Optional<Database>& database,
-                                     const ffi::Optional<CostModel>& cost_model) {
+void PySearchStrategyObj::PreTuning(int max_trials, int num_trials_per_iter,
+                                    const ffi::Array<s_tir::Schedule>& design_spaces,
+                                    const ffi::Optional<Database>& database,
+                                    const ffi::Optional<CostModel>& cost_model) {
   TVM_FFI_ICHECK(f_pre_tuning != nullptr) << "PySearchStrategy's PreTuning method not implemented!";
   f_pre_tuning(max_trials, num_trials_per_iter, design_spaces, database, cost_model);
 }
 
-void PySearchStrategyNode::PostTuning() {
+void PySearchStrategyObj::PostTuning() {
   TVM_FFI_ICHECK(f_post_tuning != nullptr)
       << "PySearchStrategy's PostTuning method not implemented!";
   f_post_tuning();
 }
 
-ffi::Optional<ffi::Array<MeasureCandidate>> PySearchStrategyNode::GenerateMeasureCandidates() {
+ffi::Optional<ffi::Array<MeasureCandidate>> PySearchStrategyObj::GenerateMeasureCandidates() {
   TVM_FFI_ICHECK(f_generate_measure_candidates != nullptr)
       << "PySearchStrategy's GenerateMeasureCandidates method not implemented!";
   return f_generate_measure_candidates();
 }
 
-void PySearchStrategyNode::NotifyRunnerResults(
+void PySearchStrategyObj::NotifyRunnerResults(
     const ffi::Array<MeasureCandidate>& measure_candidates,
     const ffi::Array<RunnerResult>& results) {
   TVM_FFI_ICHECK(f_notify_runner_results != nullptr)
@@ -65,31 +64,31 @@ void PySearchStrategyNode::NotifyRunnerResults(
   f_notify_runner_results(measure_candidates, results);
 }
 
-SearchStrategy PySearchStrategyNode::Clone() const {
+SearchStrategy PySearchStrategyObj::Clone() const {
   TVM_FFI_ICHECK(f_clone != nullptr) << "PySearchStrategy's Clone method not implemented!";
   return f_clone();
 }
 
 SearchStrategy SearchStrategy::PySearchStrategy(
-    PySearchStrategyNode::FInitializeWithTuneContext f_initialize_with_tune_context,  //
-    PySearchStrategyNode::FPreTuning f_pre_tuning,                                    //
-    PySearchStrategyNode::FPostTuning f_post_tuning,                                  //
-    PySearchStrategyNode::FGenerateMeasureCandidates f_generate_measure_candidates,   //
-    PySearchStrategyNode::FNotifyRunnerResults f_notify_runner_results,               //
-    PySearchStrategyNode::FClone f_clone) {
-  ffi::ObjectPtr<PySearchStrategyNode> n = ffi::make_object<PySearchStrategyNode>();
+    PySearchStrategyObj::FInitializeWithTuneContext f_initialize_with_tune_context,  //
+    PySearchStrategyObj::FPreTuning f_pre_tuning,                                    //
+    PySearchStrategyObj::FPostTuning f_post_tuning,                                  //
+    PySearchStrategyObj::FGenerateMeasureCandidates f_generate_measure_candidates,   //
+    PySearchStrategyObj::FNotifyRunnerResults f_notify_runner_results,               //
+    PySearchStrategyObj::FClone f_clone) {
+  ffi::ObjectPtr<PySearchStrategyObj> n = ffi::make_object<PySearchStrategyObj>();
   n->f_initialize_with_tune_context = f_initialize_with_tune_context;
   n->f_pre_tuning = f_pre_tuning;
   n->f_post_tuning = f_post_tuning;
   n->f_generate_measure_candidates = f_generate_measure_candidates;
   n->f_notify_runner_results = f_notify_runner_results;
   n->f_clone = f_clone;
-  return SearchStrategy(n);
+  return SearchStrategy(ffi::UnsafeInit{}, n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  MeasureCandidateNode::RegisterReflection();
-  PySearchStrategyNode::RegisterReflection();
+  MeasureCandidateObj::RegisterReflection();
+  PySearchStrategyObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -100,14 +99,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                -> MeasureCandidate { return MeasureCandidate(sch, args_info.value_or({})); })
       .def("s_tir.meta_schedule.SearchStrategyPySearchStrategy", SearchStrategy::PySearchStrategy)
       .def_method("s_tir.meta_schedule.SearchStrategyInitializeWithTuneContext",
-                  &SearchStrategyNode::InitializeWithTuneContext)
-      .def_method("s_tir.meta_schedule.SearchStrategyPreTuning", &SearchStrategyNode::PreTuning)
-      .def_method("s_tir.meta_schedule.SearchStrategyPostTuning", &SearchStrategyNode::PostTuning)
+                  &SearchStrategyObj::InitializeWithTuneContext)
+      .def_method("s_tir.meta_schedule.SearchStrategyPreTuning", &SearchStrategyObj::PreTuning)
+      .def_method("s_tir.meta_schedule.SearchStrategyPostTuning", &SearchStrategyObj::PostTuning)
       .def_method("s_tir.meta_schedule.SearchStrategyGenerateMeasureCandidates",
-                  &SearchStrategyNode::GenerateMeasureCandidates)
+                  &SearchStrategyObj::GenerateMeasureCandidates)
       .def_method("s_tir.meta_schedule.SearchStrategyNotifyRunnerResults",
-                  &SearchStrategyNode::NotifyRunnerResults)
-      .def_method("s_tir.meta_schedule.SearchStrategyClone", &SearchStrategyNode::Clone);
+                  &SearchStrategyObj::NotifyRunnerResults)
+      .def_method("s_tir.meta_schedule.SearchStrategyClone", &SearchStrategyObj::Clone);
 }
 
 }  // namespace meta_schedule

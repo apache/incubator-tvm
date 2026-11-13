@@ -18,15 +18,16 @@
 
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
 from tvm.relax.analysis import name_to_binding
 from tvm.relax.binding_rewrite import DataflowBlockRewrite
 from tvm.relax.expr import DataflowVar, Var
-from tvm.script import relax as R
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Identity:
     @R.function
     def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -62,7 +63,7 @@ def test_simple_add():
     # check "tmp" added
     assert "tmp" in name_to_binding(rwt.mutated_root_fn())
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -72,7 +73,7 @@ def test_simple_add():
                 R.output(lv0)
             return lv0
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
 def test_simple_auto_add_var():
@@ -101,7 +102,7 @@ def test_simple_auto_add_dfvar():
 
 
 def test_simple_remove_unused():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class IdentityUnused:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -124,7 +125,7 @@ def test_simple_remove_unused():
     # check "unused" removed
     assert "unused" not in name_to_binding(rwt.mutated_root_fn())
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -133,7 +134,7 @@ def test_simple_remove_unused():
                 R.output(lv0)
             return lv0
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
 def test_remove_unused_undef():
@@ -151,7 +152,7 @@ def test_remove_unused_undef():
 
 
 def test_simple_rm_all_unused():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class IdentityUnused:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -168,7 +169,7 @@ def test_simple_rm_all_unused():
     rwt = DataflowBlockRewrite(dfb, root_fn)
     rwt.remove_all_unused()
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -177,10 +178,10 @@ def test_simple_rm_all_unused():
                 R.output(lv0)
             return lv0
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class DeadDFBlock:
     @R.function
     def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor((32, 32), "float32"):
@@ -197,13 +198,13 @@ def test_empty_dfb_after_removal():
     rwt = DataflowBlockRewrite(dfb, root_fn)
     rwt.remove_unused(DeadDFBlock["main"].body.blocks[0].bindings[0].var)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor((32, 32), "float32"):
             return x
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
 def test_empty_dfb_after_all_removal():
@@ -213,25 +214,29 @@ def test_empty_dfb_after_all_removal():
     rwt = DataflowBlockRewrite(dfb, root_fn)
     rwt.remove_all_unused()
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor((32, 32), "float32"):
             return x
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
 def test_chained_rm_all_unused():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class IdentityChainedUnused:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
             with R.dataflow():
                 lv0 = x
-                unused0 = R.call_dps_packed("my_sigmoid", (x,), R.Tensor((32, 32), dtype="float32"))
+                unused0 = R.call_dps_packed(
+                    _ExternFunc("my_sigmoid"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
+                )
                 unused1 = R.call_dps_packed(
-                    "my_sigmoid", (unused0,), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_sigmoid"),
+                    (unused0,),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 R.output(lv0)
             return lv0
@@ -242,7 +247,7 @@ def test_chained_rm_all_unused():
     rwt = DataflowBlockRewrite(dfb, root_fn)
     rwt.remove_all_unused()
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -251,11 +256,11 @@ def test_chained_rm_all_unused():
                 R.output(lv0)
             return lv0
 
-    tvm.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
+    tvm_tirx.ir.assert_structural_equal(rwt.mutated_root_fn(), GroundTruth["main"])
 
 
 def test_simple_replace_all_uses():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Lv0To1:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor((32, 32), "float32"):
@@ -266,19 +271,21 @@ def test_simple_replace_all_uses():
             #   lv4
             with R.dataflow():
                 lv0: R.Tensor((32, 32), "float32") = R.call_dps_packed(
-                    "my_relu", (x,), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_relu"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
                 )
                 lv1: R.Tensor((32, 32), "float32") = R.call_dps_packed(
-                    "my_sigmoid", (x,), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_sigmoid"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
                 )
                 lv2: R.Tensor((32, 32), "float32") = R.call_dps_packed(
-                    "my_add", (x, lv0), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_add"), (x, lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
                 )
                 lv3: R.Tensor((32, 32), "float32") = R.call_dps_packed(
-                    "my_mul", (x, lv0), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_mul"), (x, lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
                 )
                 lv4: R.Tensor((32, 32), "float32") = R.call_dps_packed(
-                    "my_whatever", (lv2, lv3), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("my_whatever"),
+                    (lv2, lv3),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 R.output(lv4)
             return lv4
@@ -306,7 +313,7 @@ def test_simple_replace_all_uses():
 
 
 def test_simple_module_update():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Identity:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -327,7 +334,7 @@ def test_simple_module_update():
     assert new_ir != Identity
     assert 2 == len(new_ir["main"].body.blocks[0].bindings)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GroundTruth:
         @R.function
         def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -337,8 +344,8 @@ def test_simple_module_update():
                 R.output(lv0)
             return lv0
 
-    tvm.ir.assert_structural_equal(new_ir, GroundTruth)
+    tvm_tirx.ir.assert_structural_equal(new_ir, GroundTruth)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

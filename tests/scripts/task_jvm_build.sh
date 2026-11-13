@@ -33,13 +33,21 @@ fi
 
 ROOTDIR="$(cd "$(dirname "$0")/../.." && pwd)"
 TVM_BUILD_PATH="${TVM_BUILD_PATH:-${ROOTDIR}/build}"
-TVM_BUILD_PATH="$(realpath "${TVM_BUILD_PATH}")"
 
-DLPACK_PATH="${DLPACK_PATH:-${ROOTDIR}/3rdparty/tvm-ffi/3rdparty/dlpack}"
-
-INCLUDE_FLAGS="-I${ROOTDIR}/include -I${DLPACK_PATH}/include"
-PKG_CFLAGS="-Wall -O3 ${INCLUDE_FLAGS} -fPIC"
-PKG_LDFLAGS=""
+TVM_INCLUDE_DIR="$(python3 -m tvm_tirx.config --includedir)"
+FFI_INCLUDE_DIR="$(python3 -m tvm_ffi.config --includedir)"
+TVM_LIB_DIR="$(python3 -m tvm_tirx.config --libdir)"
+FFI_LIB_DIR="$(python3 -m tvm_ffi.config --libdir)"
+PKG_CFLAGS="-Wall -O3 -fPIC -I${TVM_INCLUDE_DIR} $(python3 -m tvm_ffi.config --cflags)"
+PKG_LDFLAGS="-L${TVM_LIB_DIR} -ltvm_runtime $(python3 -m tvm_ffi.config --ldflags --libs)"
+# Each config flag prints one line; Maven expects one compiler/linker argument list.
+PKG_LDFLAGS="${PKG_LDFLAGS//$'\n'/ }"
+NATIVE_ARGS=(
+    "-Dtvm.include.dir=${TVM_INCLUDE_DIR}"
+    "-Dtvm.ffi.include.dir=${FFI_INCLUDE_DIR}"
+    "-Dtvm.lib.dir=${TVM_LIB_DIR}"
+    "-Dtvm.ffi.lib.dir=${FFI_LIB_DIR}"
+)
 
 if [ "$(uname -s)" = "Darwin" ]; then
     JVM_PKG_PROFILE="osx-x86_64"
@@ -53,6 +61,8 @@ else
 fi
 
 JVM_TEST_ARGS="${JVM_TEST_ARGS:--DskipTests -Dcheckstyle.skip=true}"
+# Native-library assembly needs more heap than some container JVM defaults provide.
+export MAVEN_OPTS="${MAVEN_OPTS:--Xmx1g}"
 
 cd "${ROOTDIR}/jvm"
 # shellcheck disable=SC2086
@@ -62,5 +72,6 @@ mvn ${GOAL} \
     "-Dcflags=${PKG_CFLAGS}" \
     "-Dldflags=${PKG_LDFLAGS}" \
     "-Dcurrent_libdir=${TVM_BUILD_PATH}" \
+    "${NATIVE_ARGS[@]}" \
     ${JVM_TEST_ARGS} \
     "$@"

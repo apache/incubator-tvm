@@ -20,6 +20,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_MUTATOR_H_
 #define TVM_S_TIR_META_SCHEDULE_MUTATOR_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/optional.h>
 #include <tvm/ffi/reflection/registry.h>
@@ -37,14 +38,14 @@ class TuneContext;
 class Mutator;
 
 /*! \brief Mutator is designed to mutate the trace to explore the design space. */
-class MutatorNode : public ffi::Object {
+class MutatorObj : public ffi::Object {
  public:
   /*! \brief Virtual destructor. */
-  virtual ~MutatorNode() = default;
+  virtual ~MutatorObj() = default;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MutatorNode>();
+    refl::ObjectDef<MutatorObj>();
   }
 
   /*!
@@ -70,15 +71,19 @@ class MutatorNode : public ffi::Object {
   virtual Mutator Clone() const = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Mutator", MutatorNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Mutator", MutatorObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to MutatorNode
- * \sa MutatorNode
+ * \brief Managed reference to MutatorObj
+ * \sa MutatorObj
  */
 class Mutator : public ffi::ObjectRef {
  public:
+  explicit Mutator(ffi::UnsafeInit tag, ffi::ObjectPtr<MutatorObj> data) : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief The function type of `InitializeWithTuneContext` method.
    * \param context The tuning context for initialization.
@@ -132,16 +137,14 @@ class Mutator : public ffi::ObjectRef {
   TVM_DLL static ffi::Map<Mutator, FloatImm, void> DefaultLLVM();
   /*! \brief Create default mutators for CUDA */
   TVM_DLL static ffi::Map<Mutator, FloatImm, void> DefaultCUDA();
-  /*! \brief Create default mutators for CUDA with TensorCore */
-  TVM_DLL static ffi::Map<Mutator, FloatImm, void> DefaultCUDATensorCore();
   /*! \brief Create default mutators for Hexagon */
   TVM_DLL static ffi::Map<Mutator, FloatImm, void> DefaultHexagon();
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(Mutator, ffi::ObjectRef, MutatorNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Mutator, ffi::ObjectRef, MutatorObj);
 };
 
 /*! \brief The mutator with customized methods on the python-side. */
-class PyMutatorNode : public MutatorNode {
+class PyMutatorObj : public MutatorObj {
  public:
   using FInitializeWithTuneContext = Mutator::FInitializeWithTuneContext;
   using FApply = Mutator::FApply;
@@ -155,7 +158,7 @@ class PyMutatorNode : public MutatorNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyMutatorNode>();
+    refl::ObjectDef<PyMutatorObj>();
     // `f_initialize_with_tune_context` is not registered
     // `f_apply` is not registered
     // `f_clone` is not registered
@@ -165,7 +168,7 @@ class PyMutatorNode : public MutatorNode {
   ffi::Optional<s_tir::Trace> Apply(const s_tir::Trace& trace,
                                     LinearCongruentialEngine::TRandState* rand_state) final;
   Mutator Clone() const final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyMutator", PyMutatorNode, MutatorNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyMutator", PyMutatorObj, MutatorObj);
 };
 
 }  // namespace meta_schedule

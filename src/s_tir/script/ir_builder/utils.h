@@ -20,17 +20,14 @@
 #define TVM_S_TIR_SCRIPT_IR_BUILDER_UTILS_H_
 
 #include <tvm/s_tir/script/ir_builder/frame.h>
-
-#include "../../../tirx/script/ir_builder/utils.h"
+#include <tvm/script/ir_builder/frame.h>
 
 namespace tvm {
 namespace script {
 namespace ir_builder {
 namespace s_tir {
 
-using tirx::AddToParent;
-using tirx::AsStmt;
-using tirx::BufferRegionFromLoad;
+using ir::AddToParent;
 
 /*!
  * \brief Check whether the top frame in IRBuilder frame stack is SBlockFrame.

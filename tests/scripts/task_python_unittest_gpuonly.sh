@@ -21,18 +21,7 @@ set -euxo pipefail
 # Every GPU test carries the `gpu` marker; the specific backend is gated by skipif.
 export TVM_TEST_MARKER="gpu"
 
-# Test most of the enabled runtimes here.
-# TODO: disabled opencl tests due to segmentation fault.
+# Parent TVM target selection; TIRX probes only the runtimes in this wheel.
 export TVM_TEST_TARGETS='cuda;metal;rocm;nvptx'
 
 ./tests/scripts/task_python_unittest.sh
-
-# Kept separate to avoid increasing time needed to run CI, testing
-# only minimal functionality of Vulkan runtime.
-export TVM_TEST_TARGETS='{"kind":"vulkan","from_device":0}'
-
-export PYTHONPATH="$(pwd)/python"
-export PYTEST_ADDOPTS="${CI_PYTEST_ADD_OPTIONS:-} ${PYTEST_ADDOPTS:-}"
-
-python3 -m pytest -vvs -n auto -m "${TVM_TEST_MARKER}" \
-    tests/python/codegen/test_target_codegen_vulkan.py

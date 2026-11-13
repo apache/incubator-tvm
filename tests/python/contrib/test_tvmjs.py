@@ -24,10 +24,10 @@ import tempfile
 import numpy as np
 import pytest
 
-import tvm.testing
+import tvm_tirx.testing
 from tvm.contrib import tvmjs
 
-dtype = tvm.testing.parameter(
+_dtype_params = (
     "int8",
     "int16",
     "int32",
@@ -44,6 +44,11 @@ dtype = tvm.testing.parameter(
 )
 
 
+@pytest.fixture(params=_dtype_params, scope="session")
+def dtype(request):
+    return request.param
+
+
 def test_save_load_float8(dtype):
     if "float8" in dtype or "bfloat16" in dtype:
         ml_dtypes = pytest.importorskip("ml_dtypes")
@@ -55,7 +60,7 @@ def test_save_load_float8(dtype):
 
     with tempfile.TemporaryDirectory(prefix="tvm_") as temp_dir:
         tvmjs.dump_tensor_cache({"arr": arr}, temp_dir)
-        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm.cpu())
+        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm_tirx.cpu())
 
     after_roundtrip = cache["arr"].numpy()
 
@@ -81,9 +86,9 @@ def test_dump_tensor_cache_supports_per_parameter_encoding_roundtrip():
             temp_dir,
             encode_format={"raw": "raw", "*": "f32-to-bf16"},
         )
-        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm.cpu())
+        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm_tirx.cpu())
         b16_cache, _ = tvmjs.load_tensor_cache(
-            os.path.join(temp_dir, "tensor-cache-b16.json"), tvm.cpu()
+            os.path.join(temp_dir, "tensor-cache-b16.json"), tvm_tirx.cpu()
         )
 
         records, _ = _records_by_name(os.path.join(temp_dir, "tensor-cache.json"))
@@ -118,7 +123,7 @@ def test_dump_tensor_cache_supports_generator_input():
             temp_dir,
             encode_format={"raw": "raw", "*": "f32-to-bf16"},
         )
-        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm.cpu())
+        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm_tirx.cpu())
 
     np.testing.assert_array_equal(cache["raw"].numpy(), np.arange(4, dtype="float32"))
     np.testing.assert_allclose(
@@ -150,9 +155,9 @@ def test_dump_tensor_cache_updates_mixed_encoding_manifests():
             update_if_exists=True,
         )
 
-        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm.cpu())
+        cache, _ = tvmjs.load_tensor_cache(temp_dir, tvm_tirx.cpu())
         b16_cache, _ = tvmjs.load_tensor_cache(
-            os.path.join(temp_dir, "tensor-cache-b16.json"), tvm.cpu()
+            os.path.join(temp_dir, "tensor-cache-b16.json"), tvm_tirx.cpu()
         )
         _, manifest = _records_by_name(os.path.join(temp_dir, "tensor-cache.json"))
         _, b16_manifest = _records_by_name(os.path.join(temp_dir, "tensor-cache-b16.json"))
@@ -193,4 +198,4 @@ def test_dump_tensor_cache_requires_a_format_for_every_parameter():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

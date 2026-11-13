@@ -19,15 +19,20 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
+from tvm.testing import device_enabled
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
-axis = tvm.testing.parameter(0, 1)
+
+@pytest.fixture(params=[0, 1], scope="session")
+def axis(request):
+    return request.param
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_scalar_tensor_as_index(axis):
     """The index of R.take may be a scalar tensor
 
@@ -36,7 +41,7 @@ def test_take_scalar_tensor_as_index(axis):
 
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -49,14 +54,14 @@ def test_take_scalar_tensor_as_index(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[16, 16]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np_input.take(1, axis=axis)
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_1d_tensor_as_index(axis):
     """The index of R.take may be a non-scalar tensor
 
@@ -64,7 +69,7 @@ def test_take_1d_tensor_as_index(axis):
     `data.ndim + indices.ndim - 1`.
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -77,18 +82,18 @@ def test_take_1d_tensor_as_index(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[16, 16]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np_input.take([1], axis=axis)
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_2d_tensor_as_index(axis):
     """The index of R.take may be a 2-d tensor"""
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -101,14 +106,14 @@ def test_take_2d_tensor_as_index(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[16, 16]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np_input.take([[1, 3], [5, 7]], axis=axis)
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_constant_prim_value_as_index(axis):
     """The index of R.take may be a R.prim_value
 
@@ -117,7 +122,7 @@ def test_take_constant_prim_value_as_index(axis):
 
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -130,14 +135,14 @@ def test_take_constant_prim_value_as_index(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[16, 16]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np_input.take(1, axis=axis)
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_dynamic_prim_value_as_index(axis):
     """The index of R.take may be a dynamic R.prim_value
 
@@ -146,9 +151,9 @@ def test_take_dynamic_prim_value_as_index(axis):
 
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -161,20 +166,20 @@ def test_take_dynamic_prim_value_as_index(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[16, 16]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np_input.take(15, axis=axis)
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_nan_mode_OOB_indices(axis):
     """Test R.take with mode="nan" and out-of-bounds indices.
     This test checks that out-of-bounds indices produce NaN values in the output tensor.
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -187,7 +192,7 @@ def test_take_nan_mode_OOB_indices(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.array([[1.0, 2.0, 3.0], [4.0, 5.0, 6.0], [7.0, 8.0, 9.0]], dtype="float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     if axis == 0:
         np_expected = np.array(
@@ -200,16 +205,16 @@ def test_take_nan_mode_OOB_indices(axis):
             dtype="float16",
         )
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_wrap_mode_OOB_indices(axis):
     """Test R.take with mode="wrap" and out-of-bounds indices.
     This test checks that out-of-bounds indices wrap around to the valid range.
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -222,20 +227,20 @@ def test_take_wrap_mode_OOB_indices(axis):
     vm = tvm.relax.VirtualMachine(built, dev)
 
     np_input = np.random.random(size=[3, 3]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np.take(np_input, [0, 1, 2, 3], axis=axis, mode="wrap")
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_take_clip_mode_OOB_indices(axis):
     """Test R.take with mode="clip" and out-of-bounds indices.
     This test checks that out-of-bounds indices are clipped to the valid range.
     """
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
 
     @I.ir_module
     class Module:
@@ -247,12 +252,12 @@ def test_take_clip_mode_OOB_indices(axis):
     built = tvm.compile(Module, target=target)
     vm = tvm.relax.VirtualMachine(built, dev)
     np_input = np.random.random(size=[3, 3]).astype("float16")
-    tvm_input = tvm.runtime.tensor(np_input, dev)
+    tvm_input = tvm_tirx.runtime.tensor(np_input, dev)
     tvm_output = vm["main"](tvm_input)
     np_expected = np.take(np_input, [0, 1, 2, 3], axis=axis, mode="clip")
 
-    tvm.testing.assert_allclose(tvm_output.numpy(), np_expected)
+    tvm_tirx.testing.assert_allclose(tvm_output.numpy(), np_expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

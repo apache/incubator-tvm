@@ -19,12 +19,13 @@
 
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import te, tirx, topi
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import te, topi
 from tvm.s_tir import dlight as dl
 from tvm.s_tir.dlight.cpu import Reduction
-from tvm.target import Target
+from tvm_tirx import tirx
+from tvm_tirx.target import Target
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -50,8 +51,8 @@ def _rvv_target():
 def _build_softmax(batch, features, fast=False):
     A = te.placeholder((batch, features), dtype="float32", name="A")
     B = topi.nn.fast_softmax(A, axis=1) if fast else topi.nn.softmax(A, axis=1)
-    func = te.create_prim_func([A, B])
-    return tvm.IRModule({"main": func})
+    func = te.create_function([A, B])
+    return tvm_tirx.IRModule({"main": func})
 
 
 def _apply_and_check(mod, target):
@@ -108,8 +109,7 @@ def test_softmax_schedule_structure():
     assert scheduled_mod is not None
 
     # Verify via ApplyDefaultSchedule path
-    with target:
-        scheduled = dl.ApplyDefaultSchedule(Reduction())(mod)
+    scheduled = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     func = scheduled["main"]
 
     # Check tirx.is_scheduled is set
@@ -141,11 +141,11 @@ def _codegen_llvm_ir(mod, target):
     bound = tirx.transform.BindTarget(target.with_host(target))(mod)
     pipeline, finalize_host, _ = tirx.get_tir_pipeline("s_tir")
     lowered = pipeline(bound)
-    from tvm.tirx.build import split_host_device_mods
+    from tvm_tirx.tirx._compile import _split_host_device_modules
 
-    host_mod, _ = split_host_device_mods(lowered)
+    host_mod, _ = _split_host_device_modules(lowered)
     host_mod = finalize_host()(host_mod)
-    built = tvm.target.codegen.build_module(host_mod, target)
+    built = tvm_tirx.codegen.build_module(host_mod, target)
     return built.inspect_source("ll")
 
 
@@ -154,11 +154,11 @@ def _codegen_asm(mod, target):
     bound = tirx.transform.BindTarget(target.with_host(target))(mod)
     pipeline, finalize_host, _ = tirx.get_tir_pipeline("s_tir")
     lowered = pipeline(bound)
-    from tvm.tirx.build import split_host_device_mods
+    from tvm_tirx.tirx._compile import _split_host_device_modules
 
-    host_mod, _ = split_host_device_mods(lowered)
+    host_mod, _ = _split_host_device_modules(lowered)
     host_mod = finalize_host()(host_mod)
-    built = tvm.target.codegen.build_module(host_mod, target)
+    built = tvm_tirx.codegen.build_module(host_mod, target)
     return built.inspect_source("s")
 
 
@@ -178,8 +178,7 @@ def test_rvv_code_size_reduction(fast):
     n_unsched = len(ir_unsched.splitlines())
 
     # Scheduled
-    with target:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     ir_sched = _codegen_llvm_ir(mod_sched, target)
     n_sched = len(ir_sched.splitlines())
 
@@ -201,8 +200,7 @@ def test_rvv_fast_softmax_vectorizes_exp():
     for the polynomial exp approximation (no scalar exp calls)."""
     target = _rvv_target()
     mod = _build_softmax(14, 185, fast=True)
-    with target:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     ir = _codegen_llvm_ir(mod_sched, target)
 
     # Should have zero scalar exp calls (fast_exp uses polynomial)
@@ -251,8 +249,7 @@ def test_rvv_asm_instruction_reduction():
     )
 
     # RVV scheduled
-    with rvv:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=rvv)(mod)
     asm_sched = _codegen_asm(mod_sched, rvv)
     n_sched = len(
         [

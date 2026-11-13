@@ -16,7 +16,7 @@
 # under the License.
 """Base schedule rule for CPU operators."""
 
-from tvm.target import Target
+from tvm_tirx.target import Target
 
 from ..base import ScheduleRule
 

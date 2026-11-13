@@ -78,7 +78,7 @@ the space of possible schedules.
 import os
 import tempfile
 
-import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend import nn
 
@@ -100,8 +100,8 @@ class DemoModel(nn.Module):
 input_shape = (1, 784)
 mod, params = DemoModel().export_tvm({"forward": {"x": nn.spec.Tensor(input_shape, "float32")}})
 
-device = tvm.cuda(0)
-target = tvm.target.Target.from_device(device)
+device = tvm_tirx.cuda(0)
+target = tvm_tirx.target.Target.from_device(device)
 
 ######################################################################
 # User-Facing Entry Points
@@ -128,15 +128,14 @@ target = tvm.target.Target.from_device(device)
 #    To save CI time and avoid flakiness, we skip the tuning process in CI.
 
 if os.getenv("CI", "") != "true":
-    with target, tempfile.TemporaryDirectory() as tmp_dir:
-        tuned_mod = tvm.ir.transform.Sequential(
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        tuned_mod = tvm_tirx.ir.transform.Sequential(
             [
-                relax.get_pipeline("zero"),
+                relax.get_pipeline("zero", target=target),
                 relax.transform.MetaScheduleTuneTIR(
-                    work_dir=tmp_dir,
-                    max_trials_global=300,
+                    work_dir=tmp_dir, max_trials_global=300, target=target
                 ),
-                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir),
+                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir, target=target),
             ]
         )(mod)
 
@@ -149,8 +148,7 @@ if os.getenv("CI", "") != "true":
 
 from tvm.s_tir.meta_schedule.relax_integration import extract_tasks
 
-with target:
-    legalized_mod = relax.get_pipeline("zero")(mod)
+legalized_mod = relax.get_pipeline("zero", target=target)(mod)
 
 tasks = extract_tasks(legalized_mod, target)
 for i, task in enumerate(tasks):
@@ -159,7 +157,7 @@ for i, task in enumerate(tasks):
 ######################################################################
 # Each ``ExtractedTask`` has:
 #
-# - ``task_name``: Derived from the PrimFunc name (e.g., ``"fused_matmul_add_relu"``).
+# - ``task_name``: Derived from the Function name (e.g., ``"fused_matmul_add_relu"``).
 # - ``weight``: How many ``call_tir`` sites invoke this workload. The task
 #   scheduler uses weights to allocate more budget to frequently-called operators.
 # - ``dispatched``: List of candidate TIR modules for this workload.
@@ -172,16 +170,16 @@ for i, task in enumerate(tasks):
 #
 # .. code-block:: python
 #
-#     with target:
-#         mod = tvm.ir.transform.Sequential([
-#             relax.transform.MetaScheduleTuneIRMod(
-#                 params={},
-#                 work_dir="./tuning_logs",
-#                 max_trials_global=300,
-#                 op_names=["matmul"],  # Only tune matmul-related operators
-#             ),
-#             relax.transform.MetaScheduleApplyDatabase(work_dir="./tuning_logs"),
-#         ])(mod)
+#     mod = tvm.ir.transform.Sequential([
+#         relax.transform.MetaScheduleTuneIRMod(
+#             params={},
+#             target=target,
+#             work_dir="./tuning_logs",
+#             max_trials_global=300,
+#             op_names=["matmul"],  # Only tune matmul-related operators
+#         ),
+#         relax.transform.MetaScheduleApplyDatabase(work_dir="./tuning_logs", target=target),
+#     ])(mod)
 #
 # Operators without tuning records are left unscheduled -- you can apply DLight or
 # other rule-based schedules to cover them afterward.
@@ -217,10 +215,9 @@ for i, task in enumerate(tasks):
 #
 # .. code-block:: python
 #
-#     with target:
-#         mod = relax.transform.MetaScheduleApplyDatabase(
-#             work_dir="./tuning_logs"
-#         )(mod)
+#     mod = relax.transform.MetaScheduleApplyDatabase(
+#         work_dir="./tuning_logs", target=target
+#     )(mod)
 #
 # Database Implementations
 # ~~~~~~~~~~~~~~~~~~~~~~~~
@@ -260,8 +257,8 @@ for i, task in enumerate(tasks):
 #     shared_db = JSONDatabase(work_dir="/shared/tuning_db")
 #     combined_db = OrderedUnionDatabase(local_db, shared_db)
 #
-#     with target, combined_db:
-#         mod = relax.transform.MetaScheduleApplyDatabase()(mod)
+#     with combined_db:
+#         mod = relax.transform.MetaScheduleApplyDatabase(target=target)(mod)
 
 ######################################################################
 # Key Parameters Reference

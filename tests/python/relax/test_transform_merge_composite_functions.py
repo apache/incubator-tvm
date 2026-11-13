@@ -16,15 +16,15 @@
 # under the License.
 import pytest
 
-import tvm
+import tvm_tirx
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2:
     @R.function
     def main(
@@ -76,7 +76,7 @@ class Conv2dReLUx2:
         return gv2
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2_merged:
     @R.function
     def main(
@@ -140,7 +140,7 @@ class Conv2dReLUx2_merged:
         return gv3
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Diamond:
     @R.function
     def main(
@@ -205,7 +205,7 @@ class Diamond:
         return gv4
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Diamond_merged:
     @R.function
     def fused_relax_nn_conv2d_relax_nn_relu_relax_nn_gelu_relax_add_compiler_A(
@@ -302,7 +302,7 @@ class Diamond_merged:
         return gv5
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Diamond_cyclic_dep:
     @R.function
     def main(
@@ -367,7 +367,7 @@ class Diamond_cyclic_dep:
         return gv4
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Diamond_cyclic_dep_merged:
     @R.function
     def main(
@@ -472,7 +472,7 @@ class Diamond_cyclic_dep_merged:
         return gv6
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MultipleProducers:
     @R.function
     def main(
@@ -519,7 +519,7 @@ class MultipleProducers:
         return gv
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MultipleProducers_merged:
     @R.function
     def fused_relax_nn_relu_relax_nn_gelu_relax_nn_relu_relax_nn_gelu_relax_add_compiler_A(
@@ -585,7 +585,7 @@ class MultipleProducers_merged:
         return gv4
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MultipleProducersCyclic:
     @R.function
     def main(x1: R.Tensor((10,), dtype="float32")) -> R.Tensor((10,), dtype="float32"):
@@ -629,7 +629,7 @@ class MultipleProducersCyclic:
         return gv
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MultipleProducersCyclic_merged:
     @R.function
     def main(x1: R.Tensor((10,), dtype="float32")) -> R.Tensor((10,), dtype="float32"):
@@ -701,7 +701,7 @@ class MultipleProducersCyclic_merged:
         return gv5
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MergeCompilerRegionsExample:
     @R.function
     def main(
@@ -752,7 +752,7 @@ class MergeCompilerRegionsExample:
         return gv3
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MergeCompilerRegionsExampleRef:
     @R.function
     def fused_relax_add_relax_add_relax_nn_relu_compiler_A(
@@ -855,7 +855,7 @@ class MergeCompilerRegionsExampleRef:
         return gv6
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class ModuleWithNonComposite:
     @R.function
     def main(
@@ -885,7 +885,7 @@ class ModuleWithNonComposite:
         return gv
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class ModuleWithNonComposite_ref:
     @R.function
     def main(
@@ -929,7 +929,7 @@ class ModuleWithNonComposite_ref:
 
 def check(mod, expected):
     partitioned = relax.transform.MergeCompositeFunctions()(mod)
-    tvm.ir.assert_structural_equal(partitioned, expected)
+    tvm_tirx.ir.assert_structural_equal(partitioned, expected)
 
 
 def get_codegen_regions(mod):
@@ -1015,7 +1015,7 @@ def test_mixed_non_composite():
 
 
 def test_reshape():
-    # Verify that the non-CallNode input (shape in reshape) can be handled properly.
+    # Verify that the non-CallObj input (shape in reshape) can be handled properly.
     @I.ir_module
     class Module:
         @R.function(private=True)
@@ -1131,7 +1131,7 @@ def test_handle_existence_of_call_tir():
             cls = Before
             with R.dataflow():
                 B = cls.fused_relax_nn_relu(A)
-                C = R.call_tir(cls.relu, (B,), out_ty=R.Tensor([10], dtype="float32"))
+                C = R.call_tir(cls.relu, (B,), ty_args=[R.Tensor([10], dtype="float32")])
                 D = cls.fused_relax_nn_gelu(C)
                 R.output(D)
             return D
@@ -1146,10 +1146,10 @@ def test_handle_existence_of_call_tir():
                 R.output(Output)
             return Output
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def relu(
-            Input: T.Buffer(T.int64(10), "float32"),
-            Output: T.Buffer(T.int64(10), "float32"),
+            Input: T.Tensor(T.int64(10), "float32"),
+            Output: T.Tensor(T.int64(10), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i in range(T.int64(10)):
@@ -1174,7 +1174,7 @@ def test_handle_existence_of_call_tir():
             cls = Expected
             with R.dataflow():
                 B = cls.fused_relax_nn_relu1_compiler_A(A)
-                C = R.call_tir(cls.relu, (B,), out_ty=R.Tensor([10], dtype="float32"))
+                C = R.call_tir(cls.relu, (B,), ty_args=[R.Tensor([10], dtype="float32")])
                 D = cls.fused_relax_nn_gelu1_compiler_A(C)
                 R.output(D)
             return D
@@ -1198,10 +1198,10 @@ def test_handle_existence_of_call_tir():
             Output = composite_lambda(Input)
             return Output
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def relu(
-            Input: T.Buffer(T.int64(10), "float32"),
-            Output: T.Buffer(T.int64(10), "float32"),
+            Input: T.Tensor(T.int64(10), "float32"),
+            Output: T.Tensor(T.int64(10), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i in range(T.int64(10)):
@@ -1229,13 +1229,13 @@ def test_handle_existence_of_call_tir():
             return Output
 
     After = relax.transform.MergeCompositeFunctions()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_tuple_projection_merging():
     """Merge projections without changing their indices; visit inline tuple arguments."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function(private=True)
         def split(
@@ -1259,7 +1259,7 @@ def test_tuple_projection_merging():
                 parts = cls.split(x)
                 left = parts[0]
                 right = parts[1]
-                repacked = R.tuple(left, right)
+                repacked = (left, right)
                 reordered_left = repacked[0]
                 reordered_right = repacked[1]
                 difference = cls.subtract(reordered_right, reordered_left)
@@ -1269,7 +1269,7 @@ def test_tuple_projection_merging():
 
     after = relax.transform.MergeCompositeFunctions()(Before)
     assert get_codegen_regions(after) == {"fused_split_subtract_compiler_A": "compiler_A"}
-    relax.analysis.well_formed(after)
+    relax.analysis.check_well_formed(after)
 
     region = next(
         func
@@ -1298,7 +1298,7 @@ def test_tuple_projection_merging():
 def test_tuple_projection_preserves_real_cycle_boundary():
     """Transparent projections must not bridge a dependency through another codegen."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function(private=True)
         def split(
@@ -1340,13 +1340,13 @@ def test_tuple_projection_preserves_real_cycle_boundary():
         "fused_foreign_relu_compiler_B": "compiler_B",
         "fused_split_compiler_A": "compiler_A",
     }
-    relax.analysis.well_formed(after)
+    relax.analysis.check_well_formed(after)
 
 
 def test_tuple_projection_rejects_escaping_tuple():
     """Keep the projection outside when the complete tuple also crosses the region boundary."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function(private=True)
         def split(
@@ -1375,7 +1375,7 @@ def test_tuple_projection_rejects_escaping_tuple():
                 alias = parts
                 left = alias[0]
                 out = cls.relu(left)
-                result = R.tuple(alias, out)
+                result = (alias, out)
                 R.output(result)
             return result
 
@@ -1384,7 +1384,7 @@ def test_tuple_projection_rejects_escaping_tuple():
         "fused_relu_compiler_A": "compiler_A",
         "fused_split_compiler_A": "compiler_A",
     }
-    relax.analysis.well_formed(after)
+    relax.analysis.check_well_formed(after)
 
     bindings = [binding for block in after["main"].body.blocks for binding in block.bindings]
     split_result = next(

@@ -20,6 +20,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_SCHEDULE_RULE_H_
 #define TVM_S_TIR_META_SCHEDULE_SCHEDULE_RULE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/container/map.h>
 #include <tvm/ffi/function.h>
@@ -38,14 +39,14 @@ class TuneContext;
 class ScheduleRule;
 
 /*! \brief Rules to modify a block in a schedule. */
-class ScheduleRuleNode : public ffi::Object {
+class ScheduleRuleObj : public ffi::Object {
  public:
   /*! \brief Virtual destructor. */
-  virtual ~ScheduleRuleNode() = default;
+  virtual ~ScheduleRuleObj() = default;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ScheduleRuleNode>();
+    refl::ObjectDef<ScheduleRuleObj>();
   }
 
   /*!
@@ -71,15 +72,20 @@ class ScheduleRuleNode : public ffi::Object {
   virtual ScheduleRule Clone() const = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.ScheduleRule", ScheduleRuleNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.ScheduleRule", ScheduleRuleObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to ScheduleRuleNode
- * \sa ScheduleRuleNode
+ * \brief Managed reference to ScheduleRuleObj
+ * \sa ScheduleRuleObj
  */
 class ScheduleRule : public ffi::ObjectRef {
  public:
+  explicit ScheduleRule(ffi::UnsafeInit tag, ffi::ObjectPtr<ScheduleRuleObj> data)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief The function type of `InitializeWithTuneContext` method.
    * \param context The tuning context for initialization.
@@ -188,36 +194,8 @@ class ScheduleRule : public ffi::ObjectRef {
       ffi::Optional<ffi::Map<ffi::String, ffi::Any>> reuse_write);
 
   /*!
-   * \brief Extension of MultiLevelTiling for auto-tensorization with multiple groups of candidate
-   * tensor core intrinsics
-   * \param intrin_groups A list of groups of tensor core intrinsics. The map should contains key
-   * "init", "load_a", "load_b", "compute", "store", which represent the tensor intrin for
-   * initialization, loading operand A, loading operand B, tensor core computation, storing the
-   * result. The value of the map should be names of tensor intrinsics, must be registered via
-   * TensorIntrin.register(...) beforehand
-   * \param structure The tiling structure. Recommended:
-   * - 'SSSRRSRS' on GPU
-   * \param tile_binds For each level of tiles, which thread axis it is bound to. Recommended:
-   * - [blockIdx.y, blockIdx.x, threadIdx.y] on GPU
-   * \param max_innermost_factor The maximum size of the innermost factor. std::nullopt means no
-   * limit \param vector_load_lens The length of vector lane in vectorized cooperative fetching.
-   * std::nullopt means disable vectorization
-   * \param reuse_read Data reuse configuration for reading. std::nullopt means no reuse.
-   * \param reuse_write Data reuse configuration for writing. std::nullopt means no reuse.
-   * \param use_software_pipeline Whether use the software pipeline.
-   * \return The schedule rule created
-   */
-  TVM_DLL static ScheduleRule MultiLevelTilingTensorCore(
-      ffi::Array<ffi::Map<ffi::String, ffi::String>> intrin_groups, ffi::String structure,
-      ffi::Optional<ffi::Array<ffi::String>> tile_binds,
-      ffi::Optional<int64_t> max_innermost_factor,
-      ffi::Optional<ffi::Array<int64_t>> vector_load_lens,
-      ffi::Optional<ffi::Map<ffi::String, ffi::Any>> reuse_read,
-      ffi::Optional<ffi::Map<ffi::String, ffi::Any>> reuse_write, bool use_software_pipeline);
-
-  /*!
    * \brief Extension of MultiLevelTiling for backends with wide vectors.
-   * The loop over the innermost spatial axis of the output buffer is always vectorized with the
+   * The loop over the innermost spatial axis of the output tensor is always vectorized with the
    * maximum vector length.
    * \param structure The tiling structure. 'SSRSRS' is recommended.
    * \param vector_length_in_bits The length of a vector register in bits.
@@ -299,20 +277,18 @@ class ScheduleRule : public ffi::ObjectRef {
   TVM_DLL static ffi::Array<ScheduleRule, void> DefaultX86(const ffi::String& type);
   /*! \brief Create default schedule rules for CUDA */
   TVM_DLL static ffi::Array<ScheduleRule, void> DefaultCUDA();
-  /*! \brief Create default postprocessors for CUDA with TensorCore */
-  TVM_DLL static ffi::Array<ScheduleRule, void> DefaultCUDATensorCore();
   /*! \brief Create default schedule rules for Hexagon */
   TVM_DLL static ffi::Array<ScheduleRule, void> DefaultHexagon();
   /*! \brief Create default schedule rules for ARM CPU (NEON and DOTPROD) */
   TVM_DLL static ffi::Array<ScheduleRule, void> DefaultARM(const ffi::String& type);
   /*! \brief Create default schedule rules for RISCV CPU (RVV) */
-  TVM_DLL static ffi::Array<ScheduleRule, void> DefaultRISCV(int vlen);
+  TVM_DLL static ffi::Array<ScheduleRule, void> DefaultRISCV(Target target, int vlen);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(ScheduleRule, ffi::ObjectRef, ScheduleRuleNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ScheduleRule, ffi::ObjectRef, ScheduleRuleObj);
 };
 
 /*! \brief The schedule rule with customized methods on the python-side. */
-class PyScheduleRuleNode : public ScheduleRuleNode {
+class PyScheduleRuleObj : public ScheduleRuleObj {
  public:
   using FInitializeWithTuneContext = ScheduleRule::FInitializeWithTuneContext;
   using FApply = ScheduleRule::FApply;
@@ -330,14 +306,14 @@ class PyScheduleRuleNode : public ScheduleRuleNode {
     // `f_apply` is not registered
     // `f_clone` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyScheduleRuleNode>();
+    refl::ObjectDef<PyScheduleRuleObj>();
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final;
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch, const s_tir::SBlockRV& block) final;
   ScheduleRule Clone() const final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyScheduleRule", PyScheduleRuleNode,
-                                    ScheduleRuleNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyScheduleRule", PyScheduleRuleObj,
+                                    ScheduleRuleObj);
 };
 
 }  // namespace meta_schedule

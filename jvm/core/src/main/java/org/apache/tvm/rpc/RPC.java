@@ -25,7 +25,6 @@ public class RPC {
   public static final int RPC_TRACKER_MAGIC = 0x2f271;
   public static final int RPC_MAGIC = 0xff271;
   public static final int RPC_CODE_MISMATCH = RPC_MAGIC + 2;
-  public static final int RPC_SESS_MASK = 128;
 
   public static final String TIMEOUT_ARG = "-timeout=";
 

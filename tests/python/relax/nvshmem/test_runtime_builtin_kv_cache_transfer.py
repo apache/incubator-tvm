@@ -31,7 +31,8 @@ import tvm_ffi
 from tvm_ffi import Shape
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.frontend.nn.llm.kv_cache import (
     AttnKind,
     RopeMode,
@@ -126,29 +127,29 @@ def set_global_func(head_dim, dtype, target):
     global fmerge_state, fsplit_rotary, fattention_rotary, fcopy_single_page, fcompact_copy
     global fnvshmem_get_uid, fnvshmem_init, fdisagg_mark_send, fdisagg_prepare_recv
 
-    fclear = tvm.get_global_func("vm.builtin.kv_state_clear")
-    fadd_sequence = tvm.get_global_func("vm.builtin.kv_state_add_sequence")
-    fremove_sequence = tvm.get_global_func("vm.builtin.kv_state_remove_sequence")
-    ffork_sequence = tvm.get_global_func("vm.builtin.kv_state_fork_sequence")
-    fenable_sliding_window_for_seq = tvm.get_global_func(
+    fclear = tvm_ffi.get_global_func("vm.builtin.kv_state_clear")
+    fadd_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_add_sequence")
+    fremove_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_remove_sequence")
+    ffork_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_fork_sequence")
+    fenable_sliding_window_for_seq = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_enable_sliding_window_for_seq"
     )
-    fpopn = tvm.get_global_func("vm.builtin.kv_state_popn")
-    fbegin_forward = tvm.get_global_func("vm.builtin.kv_state_begin_forward")
-    fend_forward = tvm.get_global_func("vm.builtin.kv_state_end_forward")
-    fcommit_accepted_token_tree_nodes = tvm.get_global_func(
+    fpopn = tvm_ffi.get_global_func("vm.builtin.kv_state_popn")
+    fbegin_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_begin_forward")
+    fend_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_end_forward")
+    fcommit_accepted_token_tree_nodes = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_commit_accepted_token_tree_nodes"
     )
-    fattention_with_fuse_qkv = tvm.get_global_func(
+    fattention_with_fuse_qkv = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_attention_with_fused_qkv"
     )
-    fis_empty = tvm.get_global_func("vm.builtin.attention_kv_cache_empty")
-    fdebug_get_kv = tvm.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
+    fis_empty = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_empty")
+    fdebug_get_kv = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
 
-    fnvshmem_get_uid = tvm.get_global_func("runtime.disco.nvshmem.init_nvshmem_uid")
-    fnvshmem_init = tvm.get_global_func("runtime.disco.nvshmem.init_nvshmem")
-    fdisagg_mark_send = tvm.get_global_func("vm.builtin.kv_cache_disagg_mark_send")
-    fdisagg_prepare_recv = tvm.get_global_func("vm.builtin.kv_cache_disagg_prepare_recv")
+    fnvshmem_get_uid = tvm_ffi.get_global_func("runtime.disco.nvshmem.init_nvshmem_uid")
+    fnvshmem_init = tvm_ffi.get_global_func("runtime.disco.nvshmem.init_nvshmem")
+    fdisagg_mark_send = tvm_ffi.get_global_func("vm.builtin.kv_cache_disagg_mark_send")
+    fdisagg_prepare_recv = tvm_ffi.get_global_func("vm.builtin.kv_cache_disagg_prepare_recv")
 
     builts = []
     for tir_func in [
@@ -174,10 +175,9 @@ def set_global_func(head_dim, dtype, target):
         _copy_single_page(num_kv_heads, page_size, head_dim, dtype, target),
         _compact_kv_copy(num_kv_heads, head_dim, dtype, target),
     ]:
-        mod = tvm.IRModule({"main": tir_func})
-        with target:
-            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
-        f = tvm.tirx.build(mod["main"], target=target)
+        mod = tvm_tirx.IRModule({"main": tir_func})
+        mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
+        f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
         builts.append(f.main)
 
     (
@@ -198,7 +198,7 @@ def set_global_func(head_dim, dtype, target):
 
 
 def create_kv_cache(head_dim, dtype, rope_mode, support_sliding_window):
-    fcreate = tvm.get_global_func("vm.builtin.paged_attention_kv_cache_create")
+    fcreate = tvm_ffi.get_global_func("vm.builtin.paged_attention_kv_cache_create")
     cache = fcreate(
         tvm_ffi.Shape(
             [
@@ -220,7 +220,7 @@ def create_kv_cache(head_dim, dtype, rope_mode, support_sliding_window):
         rope_scale,
         rope_theta,
         None,  # rope_ext_factors
-        tvm.runtime.empty((), dtype, device=device),
+        tvm_tirx.runtime.empty((), dtype, device=device),
         ftranspose_append,
         None,  # f_transpose_append_mla
         ["tirx", fattn_prefill_ragged],
@@ -260,13 +260,13 @@ def kv_cache_and_config(request):
     global head_dim, sm_scale, dtype
     head_dim, dtype, rope_mode, support_sliding_window = request.param
     sm_scale = head_dim ** (-0.5)
-    target = tvm.testing.run_with_gpu_lock(_get_cuda_target)
+    target = tvm_tirx.testing.run_with_gpu_lock(_get_cuda_target)
     set_global_func(head_dim, dtype, target)
     return request.param
 
 
 def _get_cuda_target():
-    return tvm.target.Target.from_device(tvm.cuda(rank))
+    return tvm_tirx.target.Target.from_device(tvm_tirx.cuda(rank))
 
 
 def _run_with_kv_cache(test):
@@ -274,7 +274,7 @@ def _run_with_kv_cache(test):
     def wrapper(kv_cache_and_config):
         def run_device_session():
             global device
-            device = tvm.cuda(rank)
+            device = tvm_tirx.cuda(rank)
             head_dim, dtype, rope_mode, support_sliding_window = kv_cache_and_config
             try:
                 cache = create_kv_cache(head_dim, dtype, rope_mode, support_sliding_window)
@@ -292,7 +292,7 @@ def _run_with_kv_cache(test):
                 comm.Barrier()
 
         if comm is None or rank == 0:
-            return tvm.testing.run_with_gpu_lock(run_and_check)
+            return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
         return run_and_check()
 
     return wrapper
@@ -304,8 +304,8 @@ def verify_cached_kv(kv_cache, seq_ids, expected_k, expected_v):
         values_expected = expected_v[seq_id]
         assert keys_expected.shape == values_expected.shape
         seq_length = expected_k[seq_id].shape[1]
-        keys = tvm.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
-        values = tvm.runtime.empty(values_expected.shape, dtype=dtype, device=device)
+        keys = tvm_tirx.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
+        values = tvm_tirx.runtime.empty(values_expected.shape, dtype=dtype, device=device)
         fdebug_get_kv(kv_cache, seq_id, 0, seq_length, keys, values)
         torch.testing.assert_close(
             torch.from_numpy(keys.numpy()).to(device_torch), keys_expected, rtol=1e-3, atol=1e-3
@@ -502,10 +502,10 @@ def apply_attention(
         queries_np = global_new_q[layer_id]
         keys_np = global_new_k[layer_id]
         values_np = global_new_v[layer_id]
-        qkv = tvm.runtime.tensor(
+        qkv = tvm_tirx.runtime.tensor(
             torch.cat([queries_np, keys_np, values_np], dim=1).cpu().numpy(), device
         )
-        outputs = tvm.runtime.empty(queries_np.shape, dtype, device=device)
+        outputs = tvm_tirx.runtime.empty(queries_np.shape, dtype, device=device)
         if not only_update_host:
             fattention_with_fuse_qkv(kv_cache, layer_id, sm_scale, qkv, outputs)
 
@@ -755,14 +755,14 @@ def test_paged_attention_kv_cache_transfer(kv_cache_and_config):
 
 def init_nvshmem(num_workers, pe_offset):
     if rank == 0:
-        f_init_nvshmem_uid = tvm.get_global_func("runtime.disco.nvshmem.init_nvshmem_uid")
+        f_init_nvshmem_uid = tvm_ffi.get_global_func("runtime.disco.nvshmem.init_nvshmem_uid")
         uid = f_init_nvshmem_uid()
     else:
         uid = None
     uid = comm.bcast(uid, root=0)
-    init_func = tvm.get_global_func("runtime.disco.nvshmem.init_nvshmem")
+    init_func = tvm_ffi.get_global_func("runtime.disco.nvshmem.init_nvshmem")
     init_func(uid, num_workers, pe_offset)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

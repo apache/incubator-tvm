@@ -14,22 +14,22 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""Define SBlockDependenceInfoNode that uses the SBlockScope and StmtSRef objects
+"""Define SBlockDependenceInfoObj that uses the SBlockScope and StmtSRef objects
 to store the block level dependences"""
 
+import tvm_ffi
 from tvm_ffi import register_object
 
-from tvm.ir.module import IRModule
-from tvm.runtime import Object
 from tvm.s_tir import SBlock
-from tvm.tirx import PrimFunc
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.tirx import Function
 
 from . import _ffi_api
 from .sblock_scope import SBlockScope, StmtSRef
 
 
 @register_object("s_tir.SBlockDependenceInfo")
-class SBlockDependenceInfo(Object):
+class SBlockDependenceInfo(tvm_ffi.Object):
     """
     SBlockDependenceInfo
     An object that helps build and query block level dependences using the 2 core objects
@@ -46,11 +46,11 @@ class SBlockDependenceInfo(Object):
 
     mod: IRModule
 
-    def __init__(self, mod: IRModule | PrimFunc):
-        if isinstance(mod, PrimFunc):
+    def __init__(self, mod: IRModule | Function):
+        if isinstance(mod, Function):
             mod = IRModule({"main": mod})
         if not isinstance(mod, IRModule):
-            raise TypeError(f"Expected `mod` to be PrimFunc or IRModule, but gets: {mod}")
+            raise TypeError(f"Expected `mod` to be Function or IRModule, but gets: {mod}")
         self.__init_handle_by_constructor__(
             _ffi_api.SBlockDependenceInfo,  # type: ignore # pylint: disable=no-member
             mod,

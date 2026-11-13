@@ -24,9 +24,8 @@ from typing import Any
 import numpy as np  # type: ignore
 from tvm_ffi import Array, Function, Map, get_global_func, register_global_func
 
-from tvm.ir import IRModule
 from tvm.rpc import RPCSession
-from tvm.tirx import FloatImm, IntImm
+from tvm_tirx.ir import FloatImm, IntImm, IRModule
 
 
 @register_global_func("s_tir.meta_schedule.cpu_count")

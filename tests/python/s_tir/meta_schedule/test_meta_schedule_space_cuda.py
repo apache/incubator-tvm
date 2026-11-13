@@ -18,15 +18,15 @@
 """Tests for MetaSchedule search space on CUDA"""
 
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
     print_sketches,
 )
 from tvm.s_tir.meta_schedule.testing.te_workload import create_te_workload
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _target():
@@ -44,19 +44,19 @@ def _design_space(mod):
 
 def test_cuda_c1d():
     # fmt: off
-    @Ts.prim_func
-    def c1d_0(inputs: T.Buffer((1, 256, 64), "float32"), weight: T.Buffer((3, 64, 128), "float32"), conv1d_nlc: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def c1d_0(inputs: T.Tensor((1, 256, 64), "float32"), weight: T.Tensor((3, 64, 128), "float32"), conv1d_nlc: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            conv1d_nlc_local = Ts.sblock_alloc_buffer((1, 128, 128), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 258, 64), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((3, 64, 128), scope="shared")
-            for n_0_l_0_co_0_fused in T.thread_binding(4, thread="blockIdx.x"):
-                for n_1_l_1_co_1_fused in T.thread_binding(16, thread="vthread.x"):
-                    for n_2_l_2_co_2_fused in T.thread_binding(4, thread="threadIdx.x"):
+            conv1d_nlc_local = Ts.sblock_alloc_tensor((1, 128, 128), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 258, 64), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((3, 64, 128), scope="shared")
+            for n_0_l_0_co_0_fused in T.parallel(4, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_l_1_co_1_fused in T.parallel(16, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_l_2_co_2_fused in T.parallel(4, annotations={"thread_binding": "threadIdx.x"}):
                         for rl_0, rc_0 in T.grid(1, 16):
                             for ax0_ax1_ax2_fused in range(260):
                                 with Ts.sblock("PadInput_shared"):
@@ -122,19 +122,19 @@ def test_cuda_c1d():
 
 def test_cuda_c2d():
     # fmt: off
-    @Ts.prim_func
-    def c2d_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c2d_0(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 112, 112, 64), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 230, 230, 3), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((7, 7, 3, 64), scope="shared")
-            for n_0_h_0_w_0_co_0_fused in T.thread_binding(16, thread="blockIdx.x"):
-                for n_1_h_1_w_1_co_1_fused in T.thread_binding(56, thread="vthread.x"):
-                    for n_2_h_2_w_2_co_2_fused in T.thread_binding(14, thread="threadIdx.x"):
+            conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 112, 112, 64), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 230, 230, 3), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((7, 7, 3, 64), scope="shared")
+            for n_0_h_0_w_0_co_0_fused in T.parallel(16, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_co_1_fused in T.parallel(56, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_co_2_fused in T.parallel(14, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0, rc_0 in T.grid(1, 1, 1):
                             for ax0_ax1_ax2_ax3_fused in range(80379):
                                 with Ts.sblock("PadInput_shared"):
@@ -206,19 +206,19 @@ def test_cuda_c2d():
 
 def test_cuda_c3d():
     # fmt: off
-    @Ts.prim_func
-    def c3d_0(inputs: T.Buffer((1, 16, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Buffer((1, 8, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def c3d_0(inputs: T.Tensor((1, 16, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 7, 3, 64), "float32"), conv3d_ndhwc: T.Tensor((1, 8, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            conv3d_ndhwc_local = Ts.sblock_alloc_buffer((1, 8, 112, 112, 64), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 22, 230, 230, 3), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((7, 7, 7, 3, 64), scope="shared")
-            for n_0_d_0_h_0_w_0_co_0_fused in T.thread_binding(2, thread="blockIdx.x"):
-                for n_1_d_1_h_1_w_1_co_1_fused in T.thread_binding(8, thread="vthread.x"):
-                    for n_2_d_2_h_2_w_2_co_2_fused in T.thread_binding(392, thread="threadIdx.x"):
+            conv3d_ndhwc_local = Ts.sblock_alloc_tensor((1, 8, 112, 112, 64), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 22, 230, 230, 3), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((7, 7, 7, 3, 64), scope="shared")
+            for n_0_d_0_h_0_w_0_co_0_fused in T.parallel(2, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_d_1_h_1_w_1_co_1_fused in T.parallel(8, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_d_2_h_2_w_2_co_2_fused in T.parallel(392, annotations={"thread_binding": "threadIdx.x"}):
                         for rd_0, rh_0, rw_0, rc_0 in T.grid(1, 1, 1, 1):
                             for ax0_ax1_ax2_ax3_ax4_fused in range(1687959):
                                 with Ts.sblock("PadInput_shared"):
@@ -296,19 +296,19 @@ def test_cuda_c3d():
 
 def test_cuda_cap():
     # fmt: off
-    @Ts.prim_func
-    def cap_0(inputs: T.Buffer((1, 16, 16, 4, 4, 32), "float32"), weight: T.Buffer((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Buffer((1, 8, 8, 4, 4, 32), "float32")) -> None:
+    @Ts.function
+    def cap_0(inputs: T.Tensor((1, 16, 16, 4, 4, 32), "float32"), weight: T.Tensor((3, 3, 4, 4, 32, 32), "float32"), conv2d_capsule_nhwijc: T.Tensor((1, 8, 8, 4, 4, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 64})
-            conv2d_capsule_nhwijc_local = Ts.sblock_alloc_buffer((1, 8, 8, 4, 4, 32), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 18, 18, 4, 4, 32), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((3, 3, 4, 4, 32, 32), scope="shared")
-            for n_0_h_0_w_0_cap_i_0_cap_j_0_co_0_fused in T.thread_binding(256, thread="blockIdx.x"):
-                for n_1_h_1_w_1_cap_i_1_cap_j_1_co_1_fused in T.thread_binding(1, thread="vthread.x"):
-                    for n_2_h_2_w_2_cap_i_2_cap_j_2_co_2_fused in T.thread_binding(4, thread="threadIdx.x"):
+            conv2d_capsule_nhwijc_local = Ts.sblock_alloc_tensor((1, 8, 8, 4, 4, 32), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 18, 18, 4, 4, 32), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((3, 3, 4, 4, 32, 32), scope="shared")
+            for n_0_h_0_w_0_cap_i_0_cap_j_0_co_0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_cap_i_1_cap_j_1_co_1_fused in T.parallel(1, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_cap_i_2_cap_j_2_co_2_fused in T.parallel(4, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0, cap_k_0, rc_0 in T.grid(3, 3, 2, 8):
                             for ax0_ax1_ax2_ax3_ax4_ax5_fused in range(48):
                                 with Ts.sblock("PadInput_shared"):
@@ -390,19 +390,19 @@ def test_cuda_cap():
 
 def test_cuda_dep():
     # fmt: off
-    @Ts.prim_func
-    def dep_0(placeholder: T.Buffer((1, 112, 112, 32), "float32"), placeholder_1: T.Buffer((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Buffer((1, 112, 112, 32), "float32")) -> None:
+    @Ts.function
+    def dep_0(placeholder: T.Tensor((1, 112, 112, 32), "float32"), placeholder_1: T.Tensor((1, 3, 3, 32), "float32"), depth_conv2d_nhwc: T.Tensor((1, 112, 112, 32), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            depth_conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 112, 112, 32), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 114, 114, 32), scope="shared")
-            placeholder_shared = Ts.sblock_alloc_buffer((1, 3, 3, 32), scope="shared")
-            for n_0_h_0_w_0_c_0_fused in T.thread_binding(1, thread="blockIdx.x"):
-                for n_1_h_1_w_1_c_1_fused in T.thread_binding(8, thread="vthread.x"):
-                    for n_2_h_2_w_2_c_2_fused in T.thread_binding(14, thread="threadIdx.x"):
+            depth_conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 112, 112, 32), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 114, 114, 32), scope="shared")
+            placeholder_shared = Ts.sblock_alloc_tensor((1, 3, 3, 32), scope="shared")
+            for n_0_h_0_w_0_c_0_fused in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_c_1_fused in T.parallel(8, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_c_2_fused in T.parallel(14, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0 in T.grid(1, 1):
                             for ax0_ax1_ax2_ax3_fused in range(415872):
                                 with Ts.sblock("PadInput_shared"):
@@ -471,19 +471,19 @@ def test_cuda_dep():
 
 def test_cuda_dil():
     # fmt: off
-    @Ts.prim_func
-    def dil_0(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 109, 109, 64), "float32")) -> None:
+    @Ts.function
+    def dil_0(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 109, 109, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 512})
-            conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 109, 109, 64), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 230, 230, 3), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((7, 7, 3, 64), scope="shared")
-            for n_0_h_0_w_0_co_0_fused in T.thread_binding(218, thread="blockIdx.x"):
-                for n_1_h_1_w_1_co_1_fused in T.thread_binding(109, thread="vthread.x"):
-                    for n_2_h_2_w_2_co_2_fused in T.thread_binding(1, thread="threadIdx.x"):
+            conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 109, 109, 64), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 230, 230, 3), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((7, 7, 3, 64), scope="shared")
+            for n_0_h_0_w_0_co_0_fused in T.parallel(218, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_co_1_fused in T.parallel(109, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_co_2_fused in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0, rc_0 in T.grid(7, 7, 3):
                             for ax0_ax1_ax2_ax3_fused in range(217):
                                 with Ts.sblock("PadInput_shared"):
@@ -552,19 +552,19 @@ def test_cuda_dil():
 
 def test_cuda_gmm():
     # fmt: off
-    @Ts.prim_func
-    def gmm_0(X: T.Buffer((1, 128, 128), "float32"), Y: T.Buffer((1, 128, 128), "float32"), Z: T.Buffer((1, 128, 128), "float32")) -> None:
+    @Ts.function
+    def gmm_0(X: T.Tensor((1, 128, 128), "float32"), Y: T.Tensor((1, 128, 128), "float32"), Z: T.Tensor((1, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 1024})
-            Z_local = Ts.sblock_alloc_buffer((1, 128, 128), scope="local")
-            X_shared = Ts.sblock_alloc_buffer((1, 128, 128), scope="shared")
-            Y_shared = Ts.sblock_alloc_buffer((1, 128, 128), scope="shared")
-            for b_0_i_0_j_0_fused in T.thread_binding(1, thread="blockIdx.x"):
-                for b_1_i_1_j_1_fused in T.thread_binding(32, thread="vthread.x"):
-                    for b_2_i_2_j_2_fused in T.thread_binding(2, thread="threadIdx.x"):
+            Z_local = Ts.sblock_alloc_tensor((1, 128, 128), scope="local")
+            X_shared = Ts.sblock_alloc_tensor((1, 128, 128), scope="shared")
+            Y_shared = Ts.sblock_alloc_tensor((1, 128, 128), scope="shared")
+            for b_0_i_0_j_0_fused in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for b_1_i_1_j_1_fused in T.parallel(32, annotations={"thread_binding": "vthread.x"}):
+                    for b_2_i_2_j_2_fused in T.parallel(2, annotations={"thread_binding": "threadIdx.x"}):
                         for k_0 in range(1):
                             for ax0_ax1_ax2_fused in range(16384):
                                 with Ts.sblock("X_shared"):
@@ -626,19 +626,19 @@ def test_cuda_gmm():
 
 def test_cuda_grp():
     # fmt: off
-    @Ts.prim_func
-    def grp_0(inputs: T.Buffer((1, 56, 56, 64), "float32"), weight: T.Buffer((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Buffer((1, 28, 28, 128), "float32")) -> None:
+    @Ts.function
+    def grp_0(inputs: T.Tensor((1, 56, 56, 64), "float32"), weight: T.Tensor((3, 3, 16, 128), "float32"), conv2d_nhwc: T.Tensor((1, 28, 28, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 28, 28, 128), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 58, 58, 64), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((3, 3, 16, 128), scope="shared")
-            for n_0_h_0_w_0_co_0_fused in T.thread_binding(2, thread="blockIdx.x"):
-                for n_1_h_1_w_1_co_1_fused in T.thread_binding(1, thread="vthread.x"):
-                    for n_2_h_2_w_2_co_2_fused in T.thread_binding(112, thread="threadIdx.x"):
+            conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 28, 28, 128), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 58, 58, 64), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((3, 3, 16, 128), scope="shared")
+            for n_0_h_0_w_0_co_0_fused in T.parallel(2, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_co_1_fused in T.parallel(1, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_co_2_fused in T.parallel(112, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0, rc_0 in T.grid(3, 3, 1):
                             for ax0_ax1_ax2_ax3_fused in range(95040):
                                 with Ts.sblock("PadInput_shared"):
@@ -708,19 +708,19 @@ def test_cuda_grp():
 
 def test_cuda_t2d():
     # fmt: off
-    @Ts.prim_func
-    def t2d_0(inputs: T.Buffer((1, 4, 4, 512), "float32"), weight: T.Buffer((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Buffer((1, 8, 8, 256), "float32")) -> None:
+    @Ts.function
+    def t2d_0(inputs: T.Tensor((1, 4, 4, 512), "float32"), weight: T.Tensor((4, 4, 512, 256), "float32"), conv2d_transpose_nhwc: T.Tensor((1, 8, 8, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 64})
-            conv2d_transpose_nhwc_local = Ts.sblock_alloc_buffer((1, 8, 8, 256), scope="local")
-            PadInput_shared = Ts.sblock_alloc_buffer((1, 6, 6, 512), scope="shared")
-            weight_shared = Ts.sblock_alloc_buffer((4, 4, 512, 256), scope="shared")
-            for n_0_h_0_w_0_co_0_fused in T.thread_binding(256, thread="blockIdx.x"):
-                for n_1_h_1_w_1_co_1_fused in T.thread_binding(2, thread="vthread.x"):
-                    for n_2_h_2_w_2_co_2_fused in T.thread_binding(1, thread="threadIdx.x"):
+            conv2d_transpose_nhwc_local = Ts.sblock_alloc_tensor((1, 8, 8, 256), scope="local")
+            PadInput_shared = Ts.sblock_alloc_tensor((1, 6, 6, 512), scope="shared")
+            weight_shared = Ts.sblock_alloc_tensor((4, 4, 512, 256), scope="shared")
+            for n_0_h_0_w_0_co_0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+                for n_1_h_1_w_1_co_1_fused in T.parallel(2, annotations={"thread_binding": "vthread.x"}):
+                    for n_2_h_2_w_2_co_2_fused in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                         for rh_0, rw_0, rc_0 in T.grid(4, 1, 16):
                             for ax0_ax1_ax2_ax3_fused in range(rh_0 % 2 * 96 + 96):
                                 with Ts.sblock("PadInput_shared"):
@@ -792,16 +792,16 @@ def test_cuda_t2d():
 
 def test_cuda_nrm():
     # fmt: off
-    @Ts.prim_func
-    def nrm_0(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
+    @Ts.function
+    def nrm_0(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor(1, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 512})
-            C = Ts.sblock_alloc_buffer((1,))
-            for b_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for b_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+            C = Ts.sblock_alloc_tensor((1,))
+            for b_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for b_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                     for i, j in T.grid(256, 256):
                         with Ts.sblock("C"):
                             v_b = Ts.axis.spatial(1, 0)
@@ -811,24 +811,24 @@ def test_cuda_nrm():
                             with Ts.init():
                                 C[v_b] = T.float32(0)
                             C[v_b] = C[v_b] + A[v_b, v_i, v_j] * A[v_b, v_i, v_j]
-            for b_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for b_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+            for b_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for b_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("D"):
                         v_b = Ts.axis.spatial(1, 0)
                         Ts.reads(C[v_b])
                         Ts.writes(D[v_b])
                         D[v_b] = T.sqrt(C[v_b])
-    @Ts.prim_func
-    def nrm_1(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer(1, "float32")) -> None:
+    @Ts.function
+    def nrm_1(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor(1, "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 1024})
-            C_shared = Ts.sblock_alloc_buffer((1,), scope="shared")
-            for b_0_fused in T.thread_binding(1, thread="blockIdx.x"):
+            C_shared = Ts.sblock_alloc_tensor((1,), scope="shared")
+            for b_0_fused in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
                 for ax0, ax1_ax2_fused_0 in T.grid(1, 512):
-                    for ax1_ax2_fused_1 in T.thread_binding(128, thread="threadIdx.x"):
+                    for ax1_ax2_fused_1 in T.parallel(128, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("C"):
                             v_b = Ts.axis.spatial(1, ax0)
                             v_i = Ts.axis.reduce(256, (ax1_ax2_fused_0 * 128 + ax1_ax2_fused_1) // 256)
@@ -838,7 +838,7 @@ def test_cuda_nrm():
                             with Ts.init():
                                 C_shared[v_b] = T.float32(0)
                             C_shared[v_b] = C_shared[v_b] + A[v_b, v_i, v_j] * A[v_b, v_i, v_j]
-                for b_1 in T.thread_binding(128, thread="threadIdx.x"):
+                for b_1 in T.parallel(128, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("D"):
                         v_b = Ts.axis.spatial(1, b_1)
                         Ts.where(T.Mul(0, 128) + b_1 < 1)
@@ -865,17 +865,17 @@ def test_cuda_nrm():
 
 def test_cuda_sfm():
     # fmt: off
-    @Ts.prim_func
-    def sfm_0(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_0(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 0})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            for i0_fused_0 in T.thread_binding(2, thread="blockIdx.x"):
-                for i0_fused_1 in T.thread_binding(128, thread="threadIdx.x"):
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            for i0_fused_0 in T.parallel(2, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_fused_1 in T.parallel(128, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(256):
                         with Ts.sblock("T_softmax_maxelem"):
                             v_i0 = Ts.axis.spatial(256, i0_fused_0 * 128 + i0_fused_1)
@@ -885,8 +885,8 @@ def test_cuda_sfm():
                             with Ts.init():
                                 T_softmax_maxelem[v_i0] = T.float32(-3.4028234663852886e+38)
                             T_softmax_maxelem[v_i0] = T.max(T_softmax_maxelem[v_i0], A[v_i0, v_k])
-            for i0_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for i0_fused_1 in T.thread_binding(256, thread="threadIdx.x"):
+            for i0_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_fused_1 in T.parallel(256, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(256):
                         with Ts.sblock("T_softmax_expsum"):
                             v_i0 = Ts.axis.spatial(256, i0_fused_0 * 256 + i0_fused_1)
@@ -896,8 +896,8 @@ def test_cuda_sfm():
                             with Ts.init():
                                 T_softmax_expsum[v_i0] = T.float32(0)
                             T_softmax_expsum[v_i0] = T_softmax_expsum[v_i0] + T.exp(A[v_i0, v_k] - T_softmax_maxelem[v_i0])
-            for i0_i1_fused_0 in T.thread_binding(1024, thread="blockIdx.x"):
-                for i0_i1_fused_1 in T.thread_binding(64, thread="threadIdx.x"):
+            for i0_i1_fused_0 in T.parallel(1024, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_fused_1 in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_softmax_norm"):
                         v_i0 = Ts.axis.spatial(256, (i0_i1_fused_0 * 64 + i0_i1_fused_1) // 256)
                         v_i1 = Ts.axis.spatial(256, (i0_i1_fused_0 * 64 + i0_i1_fused_1) % 256)
@@ -905,18 +905,18 @@ def test_cuda_sfm():
                         Ts.writes(T_softmax_norm[v_i0, v_i1])
                         Ts.sblock_attr({"axis": 1})
                         T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_1(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_1(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum = Ts.sblock_alloc_buffer((256,))
-            for i0_fused in T.thread_binding(256, thread="blockIdx.x"):
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum = Ts.sblock_alloc_tensor((256,))
+            for i0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
                 for k_0 in range(64):
-                    for k_1 in T.thread_binding(4, thread="threadIdx.x"):
+                    for k_1 in T.parallel(4, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_maxelem"):
                             v_i0 = Ts.axis.spatial(256, i0_fused)
                             v_k = Ts.axis.reduce(256, k_0 * 4 + k_1)
@@ -925,8 +925,8 @@ def test_cuda_sfm():
                             with Ts.init():
                                 T_softmax_maxelem[v_i0] = T.float32(-3.4028234663852886e+38)
                             T_softmax_maxelem[v_i0] = T.max(T_softmax_maxelem[v_i0], A[v_i0, v_k])
-            for i0_fused_0 in T.thread_binding(4, thread="blockIdx.x"):
-                for i0_fused_1 in T.thread_binding(64, thread="threadIdx.x"):
+            for i0_fused_0 in T.parallel(4, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_fused_1 in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(256):
                         with Ts.sblock("T_softmax_expsum"):
                             v_i0 = Ts.axis.spatial(256, i0_fused_0 * 64 + i0_fused_1)
@@ -936,8 +936,8 @@ def test_cuda_sfm():
                             with Ts.init():
                                 T_softmax_expsum[v_i0] = T.float32(0)
                             T_softmax_expsum[v_i0] = T_softmax_expsum[v_i0] + T.exp(A[v_i0, v_k] - T_softmax_maxelem[v_i0])
-            for i0_i1_fused_0 in T.thread_binding(256, thread="blockIdx.x"):
-                for i0_i1_fused_1 in T.thread_binding(256, thread="threadIdx.x"):
+            for i0_i1_fused_0 in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_fused_1 in T.parallel(256, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_softmax_norm"):
                         v_i0 = Ts.axis.spatial(256, (i0_i1_fused_0 * 256 + i0_i1_fused_1) // 256)
                         v_i1 = Ts.axis.spatial(256, (i0_i1_fused_0 * 256 + i0_i1_fused_1) % 256)
@@ -945,17 +945,17 @@ def test_cuda_sfm():
                         Ts.writes(T_softmax_norm[v_i0, v_i1])
                         Ts.sblock_attr({"axis": 1})
                         T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum[v_i0]
-    @Ts.prim_func
-    def sfm_2(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_2(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 512})
-            T_softmax_maxelem = Ts.sblock_alloc_buffer((256,))
-            T_softmax_expsum_shared = Ts.sblock_alloc_buffer((256,), scope="shared")
-            for i0_fused_0 in T.thread_binding(8, thread="blockIdx.x"):
-                for i0_fused_1 in T.thread_binding(32, thread="threadIdx.x"):
+            T_softmax_maxelem = Ts.sblock_alloc_tensor((256,))
+            T_softmax_expsum_shared = Ts.sblock_alloc_tensor((256,), scope="shared")
+            for i0_fused_0 in T.parallel(8, annotations={"thread_binding": "blockIdx.x"}):
+                for i0_fused_1 in T.parallel(32, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(256):
                         with Ts.sblock("T_softmax_maxelem"):
                             v_i0 = Ts.axis.spatial(256, i0_fused_0 * 32 + i0_fused_1)
@@ -965,9 +965,9 @@ def test_cuda_sfm():
                             with Ts.init():
                                 T_softmax_maxelem[v_i0] = T.float32(-3.4028234663852886e+38)
                             T_softmax_maxelem[v_i0] = T.max(T_softmax_maxelem[v_i0], A[v_i0, v_k])
-            for i0_fused in T.thread_binding(256, thread="blockIdx.x"):
+            for i0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
                 for ax0, ax1_0 in T.grid(1, 1):
-                    for ax1_1 in T.thread_binding(512, thread="threadIdx.x"):
+                    for ax1_1 in T.parallel(512, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_expsum"):
                             v_i0 = Ts.axis.spatial(256, i0_fused + ax0)
                             v_k = Ts.axis.reduce(256, ax1_0 * 512 + ax1_1)
@@ -978,7 +978,7 @@ def test_cuda_sfm():
                                 T_softmax_expsum_shared[v_i0] = T.float32(0)
                             T_softmax_expsum_shared[v_i0] = T_softmax_expsum_shared[v_i0] + T.exp(A[v_i0, v_k] - T_softmax_maxelem[v_i0])
                 for i1_0 in range(1):
-                    for i1_1 in T.thread_binding(512, thread="threadIdx.x"):
+                    for i1_1 in T.parallel(512, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_norm"):
                             v_i0 = Ts.axis.spatial(256, i0_fused)
                             v_i1 = Ts.axis.spatial(256, i1_0 * 512 + i1_1)
@@ -987,18 +987,18 @@ def test_cuda_sfm():
                             Ts.writes(T_softmax_norm[v_i0, v_i1])
                             Ts.sblock_attr({"axis": 1})
                             T_softmax_norm[v_i0, v_i1] = T.exp(A[v_i0, v_i1] - T_softmax_maxelem[v_i0]) / T_softmax_expsum_shared[v_i0]
-    @Ts.prim_func
-    def sfm_3(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
+    @Ts.function
+    def sfm_3(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 0})
-            T_softmax_maxelem_shared = Ts.sblock_alloc_buffer((256,), scope="shared")
-            T_softmax_expsum_shared = Ts.sblock_alloc_buffer((256,), scope="shared")
-            for i0_fused in T.thread_binding(256, thread="blockIdx.x"):
+            T_softmax_maxelem_shared = Ts.sblock_alloc_tensor((256,), scope="shared")
+            T_softmax_expsum_shared = Ts.sblock_alloc_tensor((256,), scope="shared")
+            for i0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
                 for ax0, ax1_0 in T.grid(1, 1):
-                    for ax1_1 in T.thread_binding(512, thread="threadIdx.x"):
+                    for ax1_1 in T.parallel(512, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_maxelem"):
                             v_i0 = Ts.axis.spatial(256, i0_fused + ax0)
                             v_k = Ts.axis.reduce(256, ax1_0 * 512 + ax1_1)
@@ -1009,7 +1009,7 @@ def test_cuda_sfm():
                                 T_softmax_maxelem_shared[v_i0] = T.float32(-3.4028234663852886e+38)
                             T_softmax_maxelem_shared[v_i0] = T.max(T_softmax_maxelem_shared[v_i0], A[v_i0, v_k])
                 for ax0, ax1_0 in T.grid(1, 1):
-                    for ax1_1 in T.thread_binding(512, thread="threadIdx.x"):
+                    for ax1_1 in T.parallel(512, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_expsum"):
                             v_i0 = Ts.axis.spatial(256, i0_fused + ax0)
                             v_k = Ts.axis.reduce(256, ax1_0 * 512 + ax1_1)
@@ -1020,7 +1020,7 @@ def test_cuda_sfm():
                                 T_softmax_expsum_shared[v_i0] = T.float32(0)
                             T_softmax_expsum_shared[v_i0] = T_softmax_expsum_shared[v_i0] + T.exp(A[v_i0, v_k] - T_softmax_maxelem_shared[v_i0])
                 for i1_0 in range(1):
-                    for i1_1 in T.thread_binding(512, thread="threadIdx.x"):
+                    for i1_1 in T.parallel(512, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("T_softmax_norm"):
                             v_i0 = Ts.axis.spatial(256, i0_fused)
                             v_i1 = Ts.axis.spatial(256, i1_0 * 512 + i1_1)
@@ -1064,19 +1064,19 @@ def test_cuda_sfm():
 
 def test_cuda_cbr():
     # fmt: off
-    @Ts.prim_func
-    def cbr_0(data: T.Buffer((1, 224, 224, 3), "float32"), kernel: T.Buffer((7, 7, 3, 64), "float32"), bias: T.Buffer(64, "float32"), bn_offset: T.Buffer(64, "float32"), bn_scale: T.Buffer(64, "float32"), compute: T.Buffer((1, 112, 112, 64), "float32")) -> None:
+    @Ts.function
+    def cbr_0(data: T.Tensor((1, 224, 224, 3), "float32"), kernel: T.Tensor((7, 7, 3, 64), "float32"), bias: T.Tensor(64, "float32"), bn_offset: T.Tensor(64, "float32"), bn_scale: T.Tensor(64, "float32"), compute: T.Tensor((1, 112, 112, 64), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 512})
-            Conv2dOutput_local = Ts.sblock_alloc_buffer((1, 112, 112, 64), scope="local")
-            PaddedInput_shared = Ts.sblock_alloc_buffer((1, 230, 230, 3), scope="shared")
-            kernel_shared = Ts.sblock_alloc_buffer((7, 7, 3, 64), scope="shared")
-            for nn_0_yy_0_xx_0_ff_0_fused in T.thread_binding(14, thread="blockIdx.x"):
-                for nn_1_yy_1_xx_1_ff_1_fused in T.thread_binding(4, thread="vthread.x"):
-                    for nn_2_yy_2_xx_2_ff_2_fused in T.thread_binding(128, thread="threadIdx.x"):
+            Conv2dOutput_local = Ts.sblock_alloc_tensor((1, 112, 112, 64), scope="local")
+            PaddedInput_shared = Ts.sblock_alloc_tensor((1, 230, 230, 3), scope="shared")
+            kernel_shared = Ts.sblock_alloc_tensor((7, 7, 3, 64), scope="shared")
+            for nn_0_yy_0_xx_0_ff_0_fused in T.parallel(14, annotations={"thread_binding": "blockIdx.x"}):
+                for nn_1_yy_1_xx_1_ff_1_fused in T.parallel(4, annotations={"thread_binding": "vthread.x"}):
+                    for nn_2_yy_2_xx_2_ff_2_fused in T.parallel(128, annotations={"thread_binding": "threadIdx.x"}):
                         for ry_0, rx_0, rc_0 in T.grid(7, 1, 3):
                             for ax0_ax1_ax2_ax3_fused in range(8251):
                                 with Ts.sblock("PaddedInput_shared"):
@@ -1147,19 +1147,19 @@ def test_cuda_cbr():
 
 def test_cuda_tbg():
     # fmt: off
-    @Ts.prim_func
-    def tbg_0(query: T.Buffer((1, 128, 12, 64), "float32"), value: T.Buffer((1, 128, 12, 64), "float32"), C: T.Buffer((1, 12, 128, 128), "float32")) -> None:
+    @Ts.function
+    def tbg_0(query: T.Tensor((1, 128, 12, 64), "float32"), value: T.Tensor((1, 128, 12, 64), "float32"), C: T.Tensor((1, 12, 128, 128), "float32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
             Ts.reads()
             Ts.writes()
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 1024})
-            C_local = Ts.sblock_alloc_buffer((1, 12, 128, 128), scope="local")
-            query_T_shared = Ts.sblock_alloc_buffer((1, 12, 128, 64), scope="shared")
-            value_T_shared = Ts.sblock_alloc_buffer((1, 12, 64, 128), scope="shared")
-            for b_0_h_0_i_0_j_0_fused in T.thread_binding(4, thread="blockIdx.x"):
-                for b_1_h_1_i_1_j_1_fused in T.thread_binding(192, thread="vthread.x"):
-                    for b_2_h_2_i_2_j_2_fused in T.thread_binding(32, thread="threadIdx.x"):
+            C_local = Ts.sblock_alloc_tensor((1, 12, 128, 128), scope="local")
+            query_T_shared = Ts.sblock_alloc_tensor((1, 12, 128, 64), scope="shared")
+            value_T_shared = Ts.sblock_alloc_tensor((1, 12, 64, 128), scope="shared")
+            for b_0_h_0_i_0_j_0_fused in T.parallel(4, annotations={"thread_binding": "blockIdx.x"}):
+                for b_1_h_1_i_1_j_1_fused in T.parallel(192, annotations={"thread_binding": "vthread.x"}):
+                    for b_2_h_2_i_2_j_2_fused in T.parallel(32, annotations={"thread_binding": "threadIdx.x"}):
                         for k_0 in range(8):
                             for ax0_ax1_ax2_ax3_fused in range(12288):
                                 with Ts.sblock("query_T_shared"):

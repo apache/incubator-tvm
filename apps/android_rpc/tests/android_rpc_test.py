@@ -25,10 +25,12 @@ Use "android" as the key if you wish to avoid modifying this script.
 import os
 
 import numpy as np
+import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm import rpc, te
-from tvm.support import ndk, utils
+from tvm_tirx.support import ndk, utils
 
 # Set to be address of tvm proxy.
 tracker_host = os.environ["TVM_TRACKER_HOST"]
@@ -48,7 +50,7 @@ test_vulkan = False
 
 def test_rpc_module():
     # graph
-    n = tvm.runtime.convert(1024)
+    n = tvm_ffi.convert(1024)
     A = te.placeholder((n,), name="A")
     B = te.compute(A.shape, lambda *i: A(*i) + 1.0, name="B")
     a_np = np.random.uniform(size=1024).astype(A.dtype)
@@ -58,7 +60,9 @@ def test_rpc_module():
     tracker = rpc.connect_tracker(tracker_host, tracker_port)
     remote = tracker.request(key, priority=0, session_timeout=60)
 
-    mod = tvm.IRModule.from_expr(te.create_prim_func([A, B]).with_attr("global_symbol", "myadd"))
+    mod = tvm_tirx.IRModule.from_expr(
+        te.create_function([A, B]).with_attr("global_symbol", "myadd")
+    )
     sch = tvm.s_tir.Schedule(mod)
     (x,) = sch.get_loops(block=sch.get_sblock("B"))
     xo, xi = sch.split(i, [None, 32])
@@ -66,7 +70,7 @@ def test_rpc_module():
     sch.bind(xi, "threadIdx.x")
 
     if test_opencl:
-        f = tvm.compile(sch.mod, target=tvm.target.Target("opencl", host=target))
+        f = tvm.compile(sch.mod, target=tvm_tirx.target.Target("opencl", host=target))
         path_dso_cl = temp.relpath("dev_lib_cl.so")
         f.export_library(path_dso_cl, fcompile=ndk.create_shared)
 
@@ -74,9 +78,9 @@ def test_rpc_module():
         dev = remote.cl(0)
         remote.upload(path_dso_cl)
         f1 = remote.load_module("dev_lib_cl.so")
-        a = tvm.runtime.tensor(a_np, dev)
-        b = tvm.runtime.tensor(np.zeros(1024, dtype=A.dtype), dev)
-        time_f = f1.time_evaluator(f1.entry_name, dev, number=10)
+        a = dev.tensor(a_np)
+        b = dev.tensor(np.zeros(1024, dtype=A.dtype))
+        time_f = tvm.runtime.time_evaluator(f1, f1.entry_name, dev, number=10)
         cost = time_f(a, b).mean
         print(f"{cost:g} secs/op\n")
         np.testing.assert_equal(b.numpy(), a.numpy() + 1)

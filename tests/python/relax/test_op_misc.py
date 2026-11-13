@@ -17,21 +17,21 @@
 # ruff: noqa: F841
 import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 
-@tvm.register_global_func("test.op.identity", override=True)
+@tvm_ffi.register_global_func("test.op.identity", override=True)
 def identity_packed(a):
-    return tvm.runtime.tensor(a.numpy())
+    return tvm_tirx.runtime.tensor(a.numpy())
 
 
-@Ts.prim_func
-def identity_tir(A: T.Buffer([54, 96]), B: T.Buffer([54, 96])) -> None:
+@Ts.function
+def identity_tir(A: T.Tensor([54, 96], "float32"), B: T.Tensor([54, 96], "float32")) -> None:
     for i, j in T.grid(54, 96):
         with Ts.sblock("compute"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -39,21 +39,25 @@ def identity_tir(A: T.Buffer([54, 96]), B: T.Buffer([54, 96])) -> None:
 
 
 def test_call_tir() -> None:
+    callee = rx.BlockBuilder().add_func(identity_tir, "identity_tir")
     v0 = rx.Var("v0", R.Tensor([54, 96], "float32"))
-    v1 = rx.call_dps_packed(rx.extern("test.op.identity"), [v0], R.Tensor((54, 96), "float32"))
-    v1 = rx.call_tir(identity_tir, [v0], R.Tensor((54, 96), "float32"))
+    v1 = rx.call_dps_packed(
+        rx.extern("test.op.identity"), [v0], ty_args=[R.Tensor((54, 96), "float32")]
+    )
+    v1 = rx.call_tir(callee, [v0], ty_args=[R.Tensor((54, 96), "float32")])
 
 
 def test_call_tir_with_grad():
+    callee = rx.BlockBuilder().add_func(identity_tir, "identity_tir")
     v0 = rx.Var("v0", R.Tensor([54, 96], "float32"))
     v1 = rx.call_tir_with_grad(
-        identity_tir, (v0,), R.Tensor((54, 96), "float32"), te_grad_name="identity_grad"
+        callee, (v0,), ty_args=[R.Tensor((54, 96), "float32")], te_grad_name="identity_grad"
     )
     assert v1.attrs.te_grad_name == "identity_grad"
     v2 = rx.call_tir_with_grad(
-        identity_tir,
+        callee,
         (v0,),
-        R.Tensor((54, 96), "float32"),
+        ty_args=[R.Tensor((54, 96), "float32")],
         te_grad_name="identity_k_grad",
         te_grad_kwargs={"k": 1.0},
     )
@@ -64,7 +68,7 @@ def test_call_tir_with_grad():
 
 
 def test_implicit_op():
-    m, n = tvm.tirx.Var("m", "int64"), tvm.tirx.Var("n", "int64")
+    m, n = tvm_tirx.tirx.Var("m", "int64"), tvm_tirx.tirx.Var("n", "int64")
     x = rx.Var("x", R.Tensor([m, n], "float32"))
     y = rx.Var("y", R.Tensor([m, n], "float32"))
     func = rx.Var(
@@ -82,7 +86,7 @@ def test_implicit_op():
         assert isinstance(expr, rx.Call)
         if not op_name.startswith("relax."):
             op_name = "relax." + op_name
-        op = tvm.ir.Op.get(op_name)
+        op = tvm_tirx.ir.Op.get(op_name)
         assert expr.op == op
 
     # Comparison operators
@@ -130,7 +134,7 @@ def test_vm_alloc_tensor():
     storage = rx.Var("storage", rx.TensorType(dtype="float32"))
     alloc = rx.op.vm.alloc_tensor(storage, offset=0, shape=rx.ShapeExpr([4, 5]), dtype="float32")
     alloc = bb.normalize(alloc)
-    tvm.ir.assert_structural_equal(alloc.ty, R.Tensor([4, 5], "float32"))
+    tvm_tirx.ir.assert_structural_equal(alloc.ty, R.Tensor([4, 5], "float32"))
 
 
 def test_vm_alloc_tensor_infer_ty():
@@ -139,7 +143,7 @@ def test_vm_alloc_tensor_infer_ty():
     storage = rx.Var("storage", rx.TensorType(dtype="float32"))
     alloc = rx.op.vm.alloc_tensor(storage, offset=0, shape=s1, dtype="float32")
     ret = bb.normalize(alloc)
-    tvm.ir.assert_structural_equal(ret.ty, R.Tensor(dtype="float32", ndim=3))
+    tvm_tirx.ir.assert_structural_equal(ret.ty, R.Tensor(dtype="float32", ndim=3))
 
 
 def test_vm_kill_object():
@@ -147,7 +151,7 @@ def test_vm_kill_object():
     storage = rx.Var("storage", rx.TensorType(dtype="float32"))
     kill = rx.op.vm.kill_object(storage)
     ret = bb.normalize(kill)
-    tvm.ir.assert_structural_equal(ret.ty, R.Tuple([]))
+    tvm_tirx.ir.assert_structural_equal(ret.ty, R.Tuple([]))
 
 
 def test_builtin_stop_lift_params():
@@ -155,8 +159,8 @@ def test_builtin_stop_lift_params():
     x = rx.Var("x", rx.TensorType(shape=[4, 5], dtype="float32"))
     x1 = rx.op.builtin.stop_lift_params(x)
     x1 = bb.normalize(x1)
-    tvm.ir.assert_structural_equal(x1.ty, R.Tensor([4, 5], "float32"))
+    tvm_tirx.ir.assert_structural_equal(x1.ty, R.Tensor([4, 5], "float32"))
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

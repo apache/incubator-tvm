@@ -23,12 +23,13 @@
  */
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/ir/prim/builtin.h>
+#include <tvm/ir/expr.h>
 #include <tvm/ir/prim/expr.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/s_tir/transform.h>
-#include <tvm/tirx/builtin.h>
-#include <tvm/tirx/op_attr_types.h>
+#include <tvm/tirx/op/attr.h>
+#include <tvm/tirx/op/memory.h>
 
 namespace tvm {
 namespace s_tir {
@@ -36,16 +37,16 @@ using namespace tvm::tirx;
 
 // For now, rewrite unsafe select expression to if_then_else
 // TODO(tqchen) pattern matching to support masked load
-class UnsafeExprDetector : public tirx::ExprFunctor<bool(const Expr& n)> {
+class UnsafeExprDetector : public tvm::ExprFunctor<bool(const Expr& n)> {
  public:
   // select itself is always considered safe if condition is safe
   // Because we will issue guard to make sure it is.
-  bool Dispatch_(const prim::SelectNode* op) { return Dispatch(op->condition); }
-  bool Dispatch_(const CallNode* op) {
-    if (op->op.same_as(prim::builtin::if_then_else())) {
+  bool Dispatch_(const prim::SelectObj* op) { return Dispatch(op->condition); }
+  bool Dispatch_(const CallObj* op) {
+    if (op->op.same_as(prim::if_then_else_op())) {
       return Dispatch(op->args[0].as_or_throw<PrimExpr>());
-    } else if (op->op.same_as(tirx::builtin::address_of())) {
-      if (const auto* load = op->args[0].as<TensorLoadNode>()) {
+    } else if (op->op.same_as(tirx::address_of_op())) {
+      if (const auto* load = op->args[0].as<TensorLoadObj>()) {
         for (const auto& index : load->indices) {
           if (Dispatch(index)) {
             return true;
@@ -55,7 +56,7 @@ class UnsafeExprDetector : public tirx::ExprFunctor<bool(const Expr& n)> {
       }
       return Dispatch(op->args[0]);
     } else if (auto opt = op->op.as<Op>()) {
-      auto effect_kind = static_cast<CallEffectKind>(op_call_effect_[opt.value()]);
+      auto effect_kind = op_call_effect_[opt.value()];
       if (effect_kind == CallEffectKind::kPure || effect_kind == CallEffectKind::kExprAnnotation) {
         for (const Expr& arg : op->args) {
           if (Dispatch(arg)) return true;
@@ -68,52 +69,50 @@ class UnsafeExprDetector : public tirx::ExprFunctor<bool(const Expr& n)> {
       return true;
     }
   }
-  bool Dispatch_(const TensorLoadNode* op) {
+  bool Dispatch_(const TensorLoadObj* op) {
     // Load is considered unsafe.
     return true;
   }
-  bool Dispatch_(const prim::AddNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::SubNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::MulNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::DivNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::ModNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::FloorDivNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::FloorModNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::MinNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::MaxNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::EQNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::NENode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::LTNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::LENode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::GTNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::GENode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::AndNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::OrNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::LShiftNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::RShiftNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::BitwiseAndNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::BitwiseOrNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::BitwiseXorNode* op) final { return BinaryOp(op); }
-  bool Dispatch_(const prim::BitwiseNotNode* op) final { return Dispatch(op->a); }
-  bool Dispatch_(const prim::NotNode* op) final { return Dispatch(op->a); }
-  bool Dispatch_(const prim::LetNode* op) final {
-    return Dispatch(op->body) || Dispatch(op->value);
-  }
-  bool Dispatch_(const prim::CastNode* op) final { return Dispatch(op->value); }
-  bool Dispatch_(const prim::BroadcastNode* op) final { return Dispatch(op->value); }
-  bool Dispatch_(const prim::RampNode* op) final {
+  bool Dispatch_(const prim::AddObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::SubObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::MulObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::DivObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::ModObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::FloorDivObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::FloorModObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::MinObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::MaxObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::EQObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::NEObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::LTObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::LEObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::GTObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::GEObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::AndObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::OrObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::LShiftObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::RShiftObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::BitwiseAndObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::BitwiseOrObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::BitwiseXorObj* op) final { return BinaryOp(op); }
+  bool Dispatch_(const prim::BitwiseNotObj* op) final { return Dispatch(op->a); }
+  bool Dispatch_(const prim::NotObj* op) final { return Dispatch(op->a); }
+  bool Dispatch_(const prim::LetObj* op) final { return Dispatch(op->body) || Dispatch(op->value); }
+  bool Dispatch_(const prim::CastObj* op) final { return Dispatch(op->value); }
+  bool Dispatch_(const prim::BroadcastObj* op) final { return Dispatch(op->value); }
+  bool Dispatch_(const prim::RampObj* op) final {
     return Dispatch(op->base) && Dispatch(op->stride);
   }
-  bool Dispatch_(const prim::ShuffleNode* op) final {
+  bool Dispatch_(const prim::ShuffleObj* op) final {
     for (PrimExpr e : op->vectors) {
       if (Dispatch(e)) return true;
     }
     return false;
   }
-  bool Dispatch_(const VarNode* op) final { return false; }
-  bool Dispatch_(const IntImmNode* op) final { return false; }
-  bool Dispatch_(const FloatImmNode* op) final { return false; }
-  bool Dispatch_(const StringImmNode* op) final { return false; }
+  bool Dispatch_(const VarObj* op) final { return false; }
+  bool Dispatch_(const IntImmObj* op) final { return false; }
+  bool Dispatch_(const FloatImmObj* op) final { return false; }
+  bool Dispatch_(const StringImmObj* op) final { return false; }
 
  private:
   template <typename T>
@@ -121,7 +120,7 @@ class UnsafeExprDetector : public tirx::ExprFunctor<bool(const Expr& n)> {
     return Dispatch(op->a) || Dispatch(op->b);
   }
 
-  OpAttrMap<TCallEffectKind> op_call_effect_ = Op::GetAttrMap<TCallEffectKind>("TCallEffectKind");
+  OpAttrMap<CallEffectKind> op_call_effect_ = Op::GetAttrMap(tvm::op_attr::kCallEffectKind);
 };
 
 class UnsafeSelectRewriter : public StmtExprMutator {
@@ -129,16 +128,16 @@ class UnsafeSelectRewriter : public StmtExprMutator {
   using StmtExprMutator::Mutate;
   using StmtExprMutator::Mutate_;
 
-  UnchangedOr<PrimExpr> Mutate_(const prim::SelectNode* op, InplaceMode inplace_mode) {
+  UnchangedOr<PrimExpr> Mutate_(const prim::SelectObj* op, InplaceMode inplace_mode) {
     PrimExpr expr =
         StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<PrimExpr>(op));
-    op = expr.as<prim::SelectNode>();
+    op = expr.as<prim::SelectObj>();
     UnsafeExprDetector unsafe;
     PrimType cond_ty = op->condition.ty();
     bool cond_is_scalar_bool = cond_ty.MatchesCode(DLDataTypeCode::kDLBool) && cond_ty.IsScalar();
     if ((unsafe.Dispatch(op->true_value) || unsafe.Dispatch(op->false_value)) &&
         cond_is_scalar_bool) {
-      return Call(op->ty.as_or_throw<PrimType>(), prim::builtin::if_then_else(),
+      return Call(op->ty.as_or_throw<PrimType>(), prim::if_then_else_op(),
                   {op->condition, op->true_value, op->false_value})
           .as_or_throw<PrimExpr>();
     } else {
@@ -156,14 +155,14 @@ Stmt RewriteUnsafeSelect(Stmt stmt) {
 namespace transform {
 
 Pass RewriteUnsafeSelect() {
-  auto pass_func = [](PrimFunc f, IRModule m, PassContext ctx) {
+  auto pass_func = [](Function f, IRModule m, PassContext ctx) {
     auto* n = f.CopyOnWrite();
     n->body = ffi::make_object<UnsafeSelectRewriter>()
                   ->Mutate(n->body, InplaceMode::kAllow)
                   .ValueOrUnchanged(std::move(n->body));
     return f;
   };
-  return CreatePrimFuncPass(pass_func, 0, "s_tir.RewriteUnsafeSelect", {});
+  return CreateFunctionPass(pass_func, 0, "s_tir.RewriteUnsafeSelect");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

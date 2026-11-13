@@ -19,7 +19,7 @@
 
 import tvm_ffi
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 
@@ -50,7 +50,7 @@ def fully_connected_inference(lhs, rhs, nthreads=1):
     return te.extern(
         (m,),
         [lhs, rhs],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.nnpack.fully_connected_inference", ins[0], ins[1], outs[0], nthreads
         ),
         name="C",
@@ -114,7 +114,7 @@ def convolution_inference(
     return te.extern(
         (batch, output_channels, output_height, output_width),
         [data, kernel, bias] if bias is not None else [data, kernel],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.nnpack.convolution_inference",
             ins[0],
             ins[1],
@@ -177,7 +177,7 @@ def convolution_inference_without_weight_transform(
     return te.extern(
         (batch, output_channels, output_height, output_width),
         [data, transformed_kernel, bias] if bias is not None else [data, transformed_kernel],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.nnpack.convolution_inference_without_weight_transform",
             ins[0],
             ins[1],
@@ -223,7 +223,7 @@ def convolution_inference_weight_transform(
     return te.extern(
         (output_channels, input_channels, transform_tile_size, transform_tile_size),
         [kernel],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.nnpack.convolution_inference_weight_transform",
             ins[0],
             outs[0],

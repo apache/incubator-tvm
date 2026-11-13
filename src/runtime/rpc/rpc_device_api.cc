@@ -17,147 +17,157 @@
  * under the License.
  */
 
-/*!
- * \file rpc_device_api.cc
+/*! \file rpc_device_api.cc
+ *  \brief Explicit device and tensor operations owned by RPC.
  */
-#include <tvm/ffi/error.h>
-#include <tvm/ffi/function.h>
-#include <tvm/ffi/reflection/registry.h>
-#include <tvm/runtime/device_api.h>
+#include <limits>
 
-#include <utility>
-
-#include "rpc_session.h"
+#include "rpc_remote.h"
 
 namespace tvm {
 namespace runtime {
 
-class RPCDeviceAPI final : public DeviceAPI {
- public:
-  void SetDevice(Device dev) final {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    GetSess(dev)->GetDeviceAPI(remote_dev)->SetDevice(remote_dev);
+// Check before allocation or view arithmetic; ffi::GetDataSize assumes valid dimensions.
+static uint64_t RemoteTensorBytes(const ffi::Shape& shape, DLDataType dtype) {
+  TVM_FFI_CHECK(dtype.bits > 0 && dtype.lanes > 0, ValueError) << "Invalid tensor dtype";
+  uint64_t size = 1;
+  for (int64_t dim : shape) {
+    TVM_FFI_CHECK_GE(dim, 0, ValueError) << "Negative tensor dimension";
+    TVM_FFI_CHECK(dim == 0 || size <= std::numeric_limits<uint64_t>::max() / dim, ValueError)
+        << "Tensor size overflow";
+    size *= dim;
   }
+  uint64_t element_bits = static_cast<uint64_t>(dtype.bits) * dtype.lanes;
+  TVM_FFI_CHECK_LE(size, (std::numeric_limits<uint64_t>::max() - 7) / element_bits, ValueError)
+      << "Tensor size overflow";
+  return (size * element_bits + 7) / 8;
+}
 
-  void GetAttr(Device dev, DeviceAttrKind kind, ffi::Any* rv) final {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    GetSess(dev)->GetDeviceAPI(remote_dev)->GetAttr(remote_dev, kind, rv);
-  }
+static RemoteTensor RemoteEmpty(ffi::Shape shape, DLDataType dtype, RemoteDevice dev,
+                                ffi::Optional<MemoryScope> scope) {
+  RemoteTensorBytes(shape, dtype);
+  auto n = ffi::make_object<RemoteTensorObj>();
+  n->device = dev;
+  n->shape = shape;
+  n->dtype = dtype;
+  auto storage = std::make_shared<RemoteTensorStorage>();
+  storage->sess = dev->sess;
+  storage->device = dev->endpoint_device;
+  storage->data = dev->session()->AllocTensor(dev->endpoint_device, shape, dtype, scope);
+  storage->owns_allocation = true;
+  n->storage = std::move(storage);
+  return RemoteTensor(n);
+}
 
-  void* AllocDataSpace(Device dev, int ndim, const int64_t* shape, DLDataType dtype,
-                       ffi::Optional<ffi::String> mem_scope) final {
-    auto sess = GetSess(dev);
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    void* data =
-        sess->GetDeviceAPI(remote_dev)->AllocDataSpace(remote_dev, ndim, shape, dtype, mem_scope);
-    RemoteSpace* space = new RemoteSpace();
-    space->data = data;
-    space->sess = std::move(sess);
-    return space;
-  }
-
-  void* AllocDataSpace(Device dev, size_t nbytes, size_t alignment, DLDataType type_hint) final {
-    auto sess = GetSess(dev);
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    void* data =
-        sess->GetDeviceAPI(remote_dev)->AllocDataSpace(remote_dev, nbytes, alignment, type_hint);
-
-    RemoteSpace* space = new RemoteSpace();
-    space->data = data;
-    space->sess = std::move(sess);
-    return space;
-  }
-  void FreeDataSpace(Device dev, void* ptr) final {
-    RemoteSpace* space = static_cast<RemoteSpace*>(ptr);
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    try {
-      GetSess(dev)->GetDeviceAPI(remote_dev)->FreeDataSpace(remote_dev, space->data);
-    } catch (const ffi::Error& e) {
-      // fault tolerance to remote close.
-    }
-    delete space;
-  }
-
-  void CopyDataFromTo(DLTensor* from, DLTensor* to, TVMStreamHandle stream) final {
-    DLDevice dev_from = from->device;
-    DLDevice dev_to = to->device;
-    if (IsRPCSessionDevice(dev_from) && IsRPCSessionDevice(dev_to)) {
-      TVM_FFI_ICHECK(dev_from.device_type == dev_to.device_type)
-          << "Cannot copy across two different remote session";
-      DLTensor from_tensor = *from;
-      from_tensor.device = RemoveRPCSessionMask(dev_from);
-      from_tensor.data = static_cast<const RemoteSpace*>(from->data)->data;
-      DLTensor to_tensor = *to;
-      to_tensor.device = RemoveRPCSessionMask(dev_to);
-      to_tensor.data = static_cast<const RemoteSpace*>(to->data)->data;
-      auto remote_dev = from_tensor.device;
-      if (remote_dev.device_type == kDLCPU) remote_dev = to_tensor.device;
-      GetSess(dev_from)->GetDeviceAPI(remote_dev)->CopyDataFromTo(&from_tensor, &to_tensor, stream);
-    } else if (IsRPCSessionDevice(dev_from) && dev_to.device_type == kDLCPU) {
-      DLTensor from_tensor = *from;
-      from_tensor.device = RemoveRPCSessionMask(dev_from);
-      from_tensor.data = static_cast<const RemoteSpace*>(from->data)->data;
-      void* to_bytes = static_cast<char*>(to->data) + to->byte_offset;
-      size_t nbytes = ffi::GetDataSize(*to);
-      GetSess(dev_from)->CopyFromRemote(&from_tensor, to_bytes, nbytes);
-    } else if (dev_from.device_type == kDLCPU && IsRPCSessionDevice(dev_to)) {
-      DLTensor to_tensor = *to;
-      to_tensor.device = RemoveRPCSessionMask(dev_to);
-      to_tensor.data = static_cast<const RemoteSpace*>(to->data)->data;
-      void* from_bytes = static_cast<char*>(from->data) + from->byte_offset;
-      size_t nbytes = ffi::GetDataSize(*from);
-      GetSess(dev_to)->CopyToRemote(from_bytes, &to_tensor, nbytes);
-    } else {
-      TVM_FFI_THROW(InternalError) << "expect copy from/to remote or between remote";
-    }
-  }
-
-  TVMStreamHandle CreateStream(Device dev) {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    return GetSess(dev)->GetDeviceAPI(remote_dev)->CreateStream(remote_dev);
-  }
-
-  void FreeStream(Device dev, TVMStreamHandle stream) {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    GetSess(dev)->GetDeviceAPI(remote_dev)->FreeStream(remote_dev, stream);
-  }
-
-  void StreamSync(Device dev, TVMStreamHandle stream) final {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    GetSess(dev)->GetDeviceAPI(remote_dev)->StreamSync(remote_dev, stream);
-  }
-
-  void SetStream(Device dev, TVMStreamHandle stream) final {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    GetSess(dev)->GetDeviceAPI(remote_dev)->SetStream(remote_dev, stream);
-  }
-
-  TVMStreamHandle GetCurrentStream(Device dev) final {
-    auto remote_dev = RemoveRPCSessionMask(dev);
-    return GetSess(dev)->GetDeviceAPI(remote_dev)->GetCurrentStream(remote_dev);
-  }
-
- protected:
-  void CopyDataFromTo(const void* from, size_t from_offset, void* to, size_t to_offset,
-                      size_t num_bytes, Device dev_from, Device dev_to, DLDataType type_hint,
-                      TVMStreamHandle stream) final {
-    TVM_FFI_THROW(InternalError) << "Not implemented.";
-  }
-
- private:
-  std::shared_ptr<RPCSession> GetSess(Device dev) {
-    int tbl_index = GetRPCSessionIndex(dev);
-    return RPCSession::Get(tbl_index);
-  }
-};
+static void CopyRemote(RemoteTensor from, RemoteTensor to, ffi::Optional<RemoteStream> stream) {
+  TVM_FFI_CHECK(from->device->sess == to->device->sess, ValueError)
+      << "Cannot copy across different remote sessions";
+  TVM_FFI_CHECK_EQ(RemoteTensorBytes(from->shape, from->dtype),
+                   RemoteTensorBytes(to->shape, to->dtype), ValueError)
+      << "Tensor copy size mismatch";
+  auto src = from->descriptor();
+  auto dst = to->descriptor();
+  auto dev = src.device.device_type == kDLCPU ? to->device : from->device;
+  auto handle = CheckRemoteStream(dev, stream);
+  dev->session()->CopyDataFromTo(&src, &dst, handle);
+}
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def_packed("device_api.rpc", [](ffi::PackedArgs args, ffi::Any* rv) {
-    static RPCDeviceAPI inst;
-    DeviceAPI* ptr = &inst;
-    *rv = static_cast<void*>(ptr);
-  });
+  refl::ObjectDef<RemoteDeviceObj>().def_ro("endpoint_device", &RemoteDeviceObj::endpoint_device);
+  refl::ObjectDef<RemoteTensorObj>()
+      .def_ro("device", &RemoteTensorObj::device)
+      .def_ro("shape", &RemoteTensorObj::shape)
+      .def_ro("dtype", &RemoteTensorObj::dtype);
+  refl::ObjectDef<RemoteStreamObj>();
+  refl::GlobalDef()
+      .def("rpc.RemoteDevice",
+           [](ffi::Module mod, Device dev) {
+             return MakeRemoteDevice(RPCModuleGetSession(mod), dev);
+           })
+      .def("rpc.DeviceGetAttr",
+           [](RemoteDevice dev, ffi::String attr) {
+             dev->sess->EnsureOpen();
+             return dev->sess->GetAttr(dev->endpoint_device, attr);
+           })
+      .def("rpc.DeviceSetDevice",
+           [](RemoteDevice dev) { dev->session()->SetDevice(dev->endpoint_device); })
+      .def("rpc.DeviceCreateStream",
+           [](RemoteDevice dev) {
+             auto n = ffi::make_object<RemoteStreamObj>();
+             n->device = dev;
+             n->state = dev->sess->TrackStream(
+                 dev->endpoint_device, dev->session()->CreateStream(dev->endpoint_device), true);
+             return RemoteStream(n);
+           })
+      .def("rpc.DeviceCurrentStream",
+           [](RemoteDevice dev) {
+             auto n = ffi::make_object<RemoteStreamObj>();
+             n->device = dev;
+             n->state = dev->sess->TrackStream(
+                 dev->endpoint_device, dev->session()->GetCurrentStream(dev->endpoint_device),
+                 false);
+             return RemoteStream(n);
+           })
+      .def("rpc.DeviceFreeStream",
+           [](RemoteDevice dev, RemoteStream stream) {
+             CheckRemoteStream(dev, stream);
+             dev->sess->FreeStream(stream->state);
+           })
+      .def("rpc.DeviceSetStream",
+           [](RemoteDevice dev, ffi::Optional<RemoteStream> stream) {
+             auto handle = CheckRemoteStream(dev, stream);
+             dev->session()->SetStream(dev->endpoint_device, handle);
+           })
+      .def("rpc.DeviceSync",
+           [](RemoteDevice dev, ffi::Optional<RemoteStream> stream) {
+             auto handle = CheckRemoteStream(dev, stream);
+             dev->session()->StreamSync(dev->endpoint_device, handle);
+           })
+      .def("rpc.Empty", RemoteEmpty)
+      .def("rpc.CopyFromTo", CopyRemote)
+      .def("rpc.CopyFromLocal",
+           [](ffi::TensorView from, RemoteTensor to) {
+             TVM_FFI_CHECK(from.device().device_type == kDLCPU && from.IsContiguous(), ValueError)
+                 << "RPC transfer requires a contiguous local CPU tensor";
+             TVM_FFI_CHECK_EQ(ffi::GetDataSize(from), RemoteTensorBytes(to->shape, to->dtype),
+                              ValueError)
+                 << "Tensor copy size mismatch";
+             auto dst = to->descriptor();
+             void* bytes = static_cast<char*>(from.data_ptr()) + from.byte_offset();
+             to->device->sess->CopyToRemote(bytes, &dst, ffi::GetDataSize(from));
+           })
+      .def("rpc.CopyToLocal",
+           [](RemoteTensor from, ffi::TensorView to) {
+             TVM_FFI_CHECK(to.device().device_type == kDLCPU && to.IsContiguous(), ValueError)
+                 << "RPC transfer requires a contiguous local CPU tensor";
+             TVM_FFI_CHECK_EQ(RemoteTensorBytes(from->shape, from->dtype), ffi::GetDataSize(to),
+                              ValueError)
+                 << "Tensor copy size mismatch";
+             auto src = from->descriptor();
+             void* bytes = static_cast<char*>(to.data_ptr()) + to.byte_offset();
+             from->device->sess->CopyFromRemote(&src, bytes, ffi::GetDataSize(to));
+           })
+      .def("rpc.CreateView", [](RemoteTensor source, ffi::Shape shape, DLDataType dtype,
+                                int64_t offset) {
+        source->device->sess->EnsureOpen();
+        uint64_t source_bytes = RemoteTensorBytes(source->shape, source->dtype);
+        uint64_t view_bytes = RemoteTensorBytes(shape, dtype);
+        TVM_FFI_CHECK(offset >= 0 && static_cast<uint64_t>(offset) <= source_bytes &&
+                          view_bytes <= source_bytes - offset,
+                      ValueError)
+            << "Remote tensor view exceeds source bounds";
+        TVM_FFI_CHECK_LE(static_cast<uint64_t>(offset),
+                         std::numeric_limits<uint64_t>::max() - source->byte_offset, ValueError)
+            << "Remote tensor view offset overflow";
+        auto n = ffi::make_object<RemoteTensorObj>();
+        n->device = source->device;
+        n->shape = shape;
+        n->dtype = dtype;
+        n->byte_offset = source->byte_offset + offset;
+        n->storage = source->storage;
+        return RemoteTensor(n);
+      });
 }
 }  // namespace runtime
 }  // namespace tvm

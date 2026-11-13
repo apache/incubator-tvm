@@ -15,10 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if(USE_SORT)
+if(TVM_USE_SORT)
   message(STATUS "Build with contrib.sort")
-  tvm_file_glob(GLOB SORT_CONTRIB_SRC src/runtime/extra/contrib/sort/*.cc)
+  file(GLOB SORT_CONTRIB_SRC CONFIGURE_DEPENDS src/runtime/extra/contrib/sort/*.cc)
   add_library(tvm_sort_objs OBJECT ${SORT_CONTRIB_SRC})
+  tvm_configure_target(tvm_sort_objs)
   target_link_libraries(tvm_sort_objs PRIVATE tvm_runtime_extra_defs)
   target_link_libraries(tvm_runtime_extra PRIVATE tvm_sort_objs)
-endif(USE_SORT)
+endif(TVM_USE_SORT)

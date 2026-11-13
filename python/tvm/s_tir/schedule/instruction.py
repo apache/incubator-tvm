@@ -18,9 +18,8 @@
 
 from typing import TYPE_CHECKING, Any
 
+import tvm_ffi
 from tvm_ffi import register_object as _register_object
-
-from tvm.runtime import Object
 
 from . import _ffi_api
 
@@ -35,7 +34,7 @@ else:
 
 
 @_register_object("s_tir.InstructionKind")
-class InstructionKind(Object):
+class InstructionKind(tvm_ffi.Object):
     """Kind of an instruction, e.g. Split, Reorder, etc.
     Besides the name, every kind of instruction has its own properties, including:
     1) A boolean indicating if the instruction is pure, i.e. change nothing in the schedule state
@@ -44,7 +43,7 @@ class InstructionKind(Object):
     4) A functor that serialize its attributes to JSON
     5) A functor that deserialize its attributes from JSON
 
-    Unlike `tvm.ir.op`, `InstructionKind` doesn't support unstructured properties,
+    Unlike `tvm_tirx.ir.op`, `InstructionKind` doesn't support unstructured properties,
     mainly because there is no such usecase yet to add any other property.
 
     Attributes
@@ -91,7 +90,7 @@ class InstructionKind(Object):
 
 
 @_register_object("s_tir.Instruction")
-class Instruction(Object):
+class Instruction(tvm_ffi.Object):
     """Schedule instructions each corresponds to a schedule primitive
 
     Attributes

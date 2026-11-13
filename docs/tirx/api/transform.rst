@@ -19,7 +19,7 @@
 Compiler Transforms
 ===================
 
-.. automodule:: tvm.tirx.transform
+.. automodule:: tvm_tirx.tirx.transform
    :members:
    :exclude-members: Attrs, PrimExpr, Op, Call
    :imported-members:

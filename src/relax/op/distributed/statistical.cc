@@ -56,7 +56,7 @@ Type InferDistTypeStatistical(const Call& call, const BlockBuilder& ctx) {
   // - axes is not None, keepdims is false -> the returned shape does not contain the input axes.
   // - axes is not None, keepdims is true -> the returned shape has value 1 at the positions of the
   // input axes
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
 
   if (data_shape == nullptr) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Input of distributed operator must be known shape";

@@ -16,146 +16,171 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <algorithm>
+#include <tvm/ffi/extra/structural_equal.h>
+#include <tvm/ir/function.h>
+#include <tvm/script/printer/doc_translator.h>
+#include <tvm/script/printer/printer.h>
+#include <tvm/script/printer/support.h>
+#include <tvm/tirx/type.h>
 
-#include "./utils.h"
+#include <algorithm>
+#include <optional>
+#include <utility>
+#include <vector>
+
+#include "utils.h"
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-static bool HasDefaultExternFuncType(const relax::ExternFunc& n) {
-  const auto* ty = n->ty.as<relax::FuncTypeNode>();
-  if (ty == nullptr || ty->params.has_value() || ty->purity ||
-      !ty->ret->IsInstance<AnyTypeNode>()) {
-    return false;
-  }
-  return true;
-}
+namespace {
 
-bool AtTopLevelFunction(const IRDocsifier& d) {
-  // fewer than 2 frames: not in a function at all
-  if (d->frames.size() < 2) {
-    return false;
-  }
-  // if the first frame is a RelaxFrame, then this is not inside a module.
-  // 2 frames => we are at a function (more than 2 => nested function)
-  if (d->frames[0]->IsInstance<RelaxFrameNode>()) {
-    return d->frames.size() == 2;
-  }
-  // otherwise the first two frames pertain to an IR module,
-  // so 3 frames => we are at a top-level function (more than 3 => nested function)
-  return d->frames.size() == 3;
-}
+ffi::Optional<ExprDoc> FunctionDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                            const ffi::Object* destination) {
+  const auto* func =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FunctionObj>(input);
+  TVM_FFI_CHECK(destination == nullptr, TypeError)
+      << "printer statement-only node cannot fulfill a destination";
 
-TVM_FFI_STATIC_INIT_BLOCK() { RelaxFrameNode::RegisterReflection(); }
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::Function>(
-      "", [](relax::Function n, AccessPath n_p, IRDocsifier d) -> Doc {
-        std::unordered_set<const VarNode*> func_vars;
-        std::unordered_set<const VarNode*> type_vars;
-        std::unordered_set<const VarNode*> prim_params;
-        With<RelaxFrame> f(d);
-
-        IdDoc func_name("");
-        // if we are binding a local definition, then calling d->Define
-        // will result in a repeated definition and an incorrect displayed name
-        if (ffi::Optional<ffi::String> name = GetBindingName(d)) {
-          func_name = IdDoc(name.value());
-        } else {
-          func_name = IdDoc(FindFunctionName(d, n).value_or("main"));
+  auto bound_name = d->GetOrCreateExtraState<ffi::Optional<ffi::String>>("ir.function_name");
+  d->WithExtraStateScope<ffi::Optional<ffi::String>>("ir.function_name", std::nullopt, [&]() {
+    auto completed = d->WithVarScope([&]() {
+      auto global_symbol = func->GetAttr(tvm::attr::kGlobalSymbol);
+      ffi::String name = bound_name.value_or(global_symbol.value_or("main"));
+      ffi::Array<AssignDoc> args;
+      ffi::Array<IdDoc> param_ids;
+      // A prior annotation may depend on a later scalar parameter.
+      for (const Var& param : func->params) {
+        param_ids.push_back(VarDoc(d, param));
+      }
+      size_t param_index = 0;
+      for (const Var& param : func->params) {
+        IdDoc lhs = param_ids[param_index++];
+        ffi::Optional<ExprDoc> annotation = std::nullopt;
+        if (!param->ty.as<MissingType>().has_value()) annotation = d->Translate(param->ty).value();
+        AssignDoc argument(lhs, std::nullopt, annotation);
+        d->RecordOrigin(argument, param);
+        args.push_back(argument);
+      }
+      ffi::Map<Var, IdDoc> signature_candidates;
+      // GetImplicitDefs is live: keep an owning snapshot before translating the body.
+      for (const auto& [var, id] : d->GetImplicitDefs()) signature_candidates.Set(var, id);
+      ffi::Optional<ExprDoc> ret_type = std::nullopt;
+      if (!func->ret_ty.as<MissingType>().has_value()) {
+        ret_type = d->Translate(func->ret_ty).value();
+      }
+      ffi::Array<ffi::String> decorator_keys;
+      ffi::Array<ExprDoc> decorator_values;
+      if (!func->is_pure) {
+        decorator_keys.push_back("pure");
+        decorator_values.push_back(LiteralDoc::Boolean(false, std::nullopt));
+      }
+      if (!func->GetAttr(tvm::attr::kGlobalSymbol)) {
+        decorator_keys.push_back("private");
+        decorator_values.push_back(LiteralDoc::Boolean(true, std::nullopt));
+      }
+      ExprDoc decorator = NamespaceDoc("relax")->Attr("function");
+      if (!decorator_keys.empty())
+        decorator = decorator->Call({}, decorator_keys, decorator_values);
+      auto docs = d->WithDocScope([&]() {
+        std::vector<std::pair<ffi::String, ffi::Any>> attrs;
+        for (const auto& [key, value] : func->attrs->dict) {
+          if (key != tvm::attr::kGlobalSymbol.name) attrs.emplace_back(key, value);
         }
-        (*f)->AddDispatchToken(d, "relax");
-        (*f)->is_func = true;
-        (*f)->func_vars = &func_vars;
-        (*f)->type_vars = &type_vars;
-        (*f)->prim_params = &prim_params;
-        for (const Var& param : n->params) {
-          if (param->ty.as<PrimTypeNode>()) {
-            prim_params.insert(param.get());
+        if (!attrs.empty()) {
+          std::sort(attrs.begin(), attrs.end(),
+                    [](const auto& a, const auto& b) { return a.first < b.first; });
+          ffi::Array<ExprDoc> keys;
+          ffi::Array<ExprDoc> values;
+          for (const auto& [key, value] : attrs) {
+            keys.push_back(LiteralDoc::Str(key, std::nullopt));
+            values.push_back(d->WithExtraStateScope<bool>(
+                "ir.explicit_value_type", true, [&] { return d->Translate(value).value(); }));
           }
+          d->Emit(
+              ExprStmtDoc(NamespaceDoc("relax")->Attr("func_attr")->Call({DictDoc(keys, values)})),
+              ffi::GetRef<ffi::ObjectRef>(func));
         }
-        if (!prim_params.empty()) {
-          d->ir_usage.insert("future_annotations");
+        for (const relax::BindingBlock& block : func->body->blocks) d->Translate(block);
+        ExprDoc result = d->Translate(func->body->body).value();
+        if (auto integer = func->body->body.as<IntImmObj>();
+            integer && ffi::StructuralEqual()(integer->ty, func->ret_ty)) {
+          // The declared primitive return type reconstructs this literal's dtype.
+          result = LiteralDoc::Int(ffi::GetRef<IntImm>(integer), std::nullopt);
         }
-        // Step 1. Print params
-        ffi::Array<AssignDoc> params;
-        {
-          AccessPath params_p = n_p->Attr("params");
-          for (int i = 0, l = n->params.size(); i < l; ++i) {
-            params.push_back(AssignDoc(
-                /*lhs=*/DefineRelaxVar(n->params[i], *f, d),
-                /*rhs=*/std::nullopt,
-                TypeAsAnn(n->params[i], params_p->ArrayItem(i), d, std::nullopt)));
-          }
-        }
-        // Step 2. Print the return type
-        ffi::Optional<ExprDoc> ret_type = d->AsDoc<ExprDoc>(n->ret_ty, n_p->Attr("ret_ty"));
-        // Step 3. Clean up func variables
-        (*f)->func_vars = nullptr;
-        (*f)->type_vars = nullptr;
-        (*f)->prim_params = nullptr;
-        // Step 4. Print attributes
-        ffi::Map<ffi::String, Any> printable_attrs;
-        for (const auto& [key, value] : n->attrs->dict) {
-          // A matching global symbol is implicit for a top-level function.
-          if (key == tvm::attr::kGlobalSymbol && AtTopLevelFunction(d) &&
-              value.as_or_throw<ffi::String>() == func_name->name) {
-            continue;
-          }
-          printable_attrs.Set(key, value);
-        }
-        if (!printable_attrs.empty()) {
-          (*f)->stmts.push_back(ExprStmtDoc(
-              Relax(d, "func_attr")  //
-                  ->Call({d->AsDoc<ExprDoc>(DictAttrs(printable_attrs), n_p->Attr("attrs"))})));
-        }
-        // Step 5. Prepare the decorator (include purity if it's impure)
-        ExprDoc decorator = Relax(d, "function");
-        ffi::Array<ExprDoc, void> pos_args = {};
-        ffi::Array<ffi::String, void> dec_keys;
-        ffi::Array<ExprDoc, void> dec_values;
-        if (!n->is_pure) {
-          dec_keys.push_back("pure");
-          dec_values.push_back(LiteralDoc::Boolean(false, ffi::Optional<AccessPath>()));
-        }
-        // if the function is global or is not in a module and does not have a global symbol,
-        // indicate that it's private
-        if (AtTopLevelFunction(d) && !n->attrs->dict.count(tvm::attr::kGlobalSymbol)) {
-          dec_keys.push_back("private");
-          dec_values.push_back(LiteralDoc::Boolean(true, ffi::Optional<AccessPath>()));
-        }
-        if (dec_keys.size()) {
-          decorator = decorator->Call(pos_args, dec_keys, dec_values);
-        }
-
-        // Step 6. Print body
-        ffi::Array<StmtDoc> body = PrintSeqExpr(n->body, n_p->Attr("body"), d, /*use_ret=*/true);
-        (*f)->stmts.insert((*f)->stmts.end(), body.begin(), body.end());
-        auto type_var_docs = DefineTypeVarDocs(type_vars, d);
-        return WrapFunctionDocWithTypeVars(
-            d, FunctionDoc(func_name, params, {decorator}, ret_type, (*f)->stmts), type_var_docs);
+        d->Emit(ReturnDoc(result), ffi::GetRef<ffi::ObjectRef>(func));
       });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::ExternFunc>(  //
-      "", [](relax::ExternFunc n, AccessPath n_p, IRDocsifier d) -> Doc {
-        ffi::Array<ExprDoc> args;
-        args.push_back(LiteralDoc::Str(n->global_symbol, n_p->Attr("global_symbol")));
-        if (!HasDefaultExternFuncType(n)) {
-          args.push_back(d->AsDoc<ExprDoc>(n->ty, n_p->Attr("ty")));
+      auto body = ToStmtDocArray(docs);
+      if (bound_name && global_symbol && global_symbol.value() != bound_name.value()) {
+        body.insert(
+            body.begin(),
+            ExprStmtDoc(
+                NamespaceDoc("relax")
+                    ->Attr("func_attr")
+                    ->Call({DictDoc({LiteralDoc::Str(tvm::attr::kGlobalSymbol.name, std::nullopt)},
+                                    {LiteralDoc::Str(global_symbol.value(), std::nullopt)})})));
+      }
+      FunctionDoc function(IdDoc(name), args, {decorator}, ret_type, body);
+      auto module = d->GetOrCreateExtraState<ffi::Optional<IRModule>>("ir.module");
+      auto pending = d->GetImplicitDefs();
+      if (!module.has_value()) {
+        for (const auto& [var, signature_id] : signature_candidates) {
+          if (!pending.count(var) || !var->ty.as<PrimTypeObj>()) continue;
+          IdDoc id = VarDoc(d, var);
+          if (var->ty.as_or_throw<PrimType>()->dtype == (DLDataType{kDLInt, 32, 1})) {
+            function->type_params.push_back(id);
+          } else {
+            function->type_params.push_back(
+                AssignDoc(id, std::nullopt, d->Translate(var->ty).value()));
+          }
         }
-        return Relax(d, "ExternFunc")->Call(args);
-      });
+      }
+      return function;
+    });
+    d->Emit(completed, ffi::GetRef<ffi::ObjectRef>(func));
+  });
+  return std::nullopt;
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  TVMScriptPrinter::Register<relax::FunctionNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::ExternFuncNode>(ReprPrintRelax);
+  RegisterNamespaceAlias("relax.prefix", "R");
+  ffi::reflection::TypeAttrDef<relax::FunctionObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&FunctionDocTranslate>());
 }
 
+ffi::Optional<ExprDoc> ExternFuncDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                              const ffi::Object*) {
+  const auto* func =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ExternFuncObj>(input);
+  if (!func->ty.as<relax::FuncTypeObj>()) {
+    // The ExternFunc constructor requires a FuncType; retain diagnostic IR in metadata.
+    return AddMetadata(d, ffi::GetRef<relax::ExternFunc>(func));
+  }
+  ffi::Array<ExprDoc> args = {LiteralDoc::Str(func->global_symbol, std::nullopt)};
+  if (!ffi::StructuralEqual()(func->ty, relax::ExternFunc(func->global_symbol)->ty)) {
+    ExprDoc type = d->Translate(func->ty).value();
+    if (auto opaque = func->ty.as<relax::FuncTypeObj>();
+        opaque && !opaque->params.has_value() && opaque->ret.as<AnyTypeObj>() && !opaque->purity &&
+        !opaque->derive_func.has_value()) {
+      type = type->Call({});
+    }
+    args.push_back(type);
+  }
+  return NamespaceDoc("relax")->Attr("ExternFunc")->Call(args);
+}
+
+TVM_FFI_STATIC_INIT_BLOCK() {
+  ffi::reflection::TypeAttrDef<relax::ExternFuncObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&ExternFuncDocTranslate>());
+}
+
+}  // namespace
+
+}  // namespace details
 }  // namespace printer
 }  // namespace script
 }  // namespace tvm

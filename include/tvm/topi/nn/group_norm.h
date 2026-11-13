@@ -36,14 +36,14 @@ namespace nn {
 
 using namespace tvm::te;
 
-inline Tensor group_norm(const Tensor& data, const Tensor& gamma, const Tensor& beta,
-                         int num_groups, int channel_axis, const ffi::Array<int64_t>& axes,
-                         double epsilon, std::string name = "T_group_norm",
-                         std::string tag = kInjective) {
+inline Tensor group_norm(const Tensor& data, const ffi::Optional<Tensor>& gamma,
+                         const ffi::Optional<Tensor>& beta, int num_groups, int channel_axis,
+                         const ffi::Array<int64_t>& axes, double epsilon,
+                         std::string name = "T_group_norm", std::string tag = kInjective) {
   using namespace tvm::prim;
   const auto& data_type = data->dtype;
-  const auto& gamma_type = gamma.defined() ? gamma->dtype : data_type;
-  const auto& beta_type = beta.defined() ? beta->dtype : data_type;
+  const auto& gamma_type = gamma.has_value() ? gamma.value()->dtype : data_type;
+  const auto& beta_type = beta.has_value() ? beta.value()->dtype : data_type;
   TVM_FFI_ICHECK(data_type == gamma_type && data_type == beta_type)
       << "group_norm: data, gamma and beta must have the same type";
   TVM_FFI_ICHECK(data_type == PrimType::Float(32) || data_type == PrimType::Float(16))
@@ -64,20 +64,18 @@ inline Tensor group_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
       new_shape.push_back(shape[i]);
     }
   }
-  Tensor data_reshaped;
+  Tensor data_reshaped = reshape(data, new_shape);
   if (is_float16) {
-    data_reshaped = cast(reshape(data, new_shape), PrimType::Float(32));
-  } else {
-    data_reshaped = reshape(data, new_shape);
+    data_reshaped = cast(data_reshaped, PrimType::Float(32));
   }
   // reshape gamma and beta, C -> G, C/G, cast to float32 if float16
-  Tensor gamma_reshaped;
-  if (gamma.defined()) {
-    gamma_reshaped = reshape(gamma, {num_groups, group_size});
+  ffi::Optional<Tensor> gamma_reshaped;
+  if (gamma.has_value()) {
+    gamma_reshaped = reshape(gamma.value(), {num_groups, group_size});
   }
-  Tensor beta_reshaped;
-  if (beta.defined()) {
-    beta_reshaped = reshape(beta, {num_groups, group_size});
+  ffi::Optional<Tensor> beta_reshaped;
+  if (beta.has_value()) {
+    beta_reshaped = reshape(beta.value(), {num_groups, group_size});
   }
 
   // get the new axes to normalize after reshape
@@ -123,7 +121,7 @@ inline Tensor group_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
   };
 
   auto temp_x_x2 =
-      tvm::te::compute(target_shape, compute, data->op->name + "_red_temp", kCommReduce);
+      tvm::te::compute(target_shape, compute, data->op.value()->name + "_red_temp", kCommReduce);
 
   auto temp_x = temp_x_x2[0];
   auto temp_x2 = temp_x_x2[1];
@@ -143,16 +141,16 @@ inline Tensor group_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
     gamma_indices = {indices[channel_axis], indices[channel_axis + 1]};
     auto mean = temp_x(non_reduce_indices) / reduce_extent;
     auto var = temp_x2(non_reduce_indices) / reduce_extent - mean * mean;
-    PrimExpr group_norm = (data_reshaped(indices) - mean) *
-                          tvm::prim::rsqrt(var + MakeConst(PrimType(data->dtype), epsilon));
+    PrimExpr group_norm =
+        (data_reshaped(indices) - mean) * tvm::prim::rsqrt(var + MakeConst(var.ty(), epsilon));
     if (is_float16) {
       group_norm = prim::Cast(PrimType::Float(16), group_norm);
     }
-    if (gamma.defined()) {
-      group_norm = topi::multiply(group_norm, gamma_reshaped(gamma_indices));
+    if (gamma.has_value()) {
+      group_norm = topi::multiply(group_norm, gamma_reshaped.value()(gamma_indices));
     }
-    if (beta.defined()) {
-      group_norm = topi::add(group_norm, beta_reshaped(gamma_indices));
+    if (beta.has_value()) {
+      group_norm = topi::add(group_norm, beta_reshaped.value()(gamma_indices));
     }
     return group_norm;
   };

@@ -15,18 +15,23 @@
 # specific language governing permissions and limitations
 """Relax vm primitives."""
 
-from tvm.ir import Call, DataTypeImm, GenericConst, StringImm
+from tvm_tirx.ir import Call, DataTypeImm, GenericConst, StringImm
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+from tvm_tirx.runtime import MemoryScope
 
 from ...expr import Expr, Tuple, prim_value
 from ...utils import convert_to_expr
-from . import _ffi_api
 
 
 def alloc_storage(
     shape: Expr,
     runtime_device_index: int | Expr,
     dtype: str | Expr,
-    storage_scope: str | StringImm = "global",
+    storage_scope: str | MemoryScope | StringImm = "global",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Call:
     """Construct a Call to allocate a storage with specific size,
     runtime_device_index, and dtype.
@@ -43,7 +48,7 @@ def alloc_storage(
     dtype : Union[str, Expr]
         The datatype of the storage to be allocated.
 
-    storage_scope : Union[str, StringImm]
+    storage_scope : Union[str, MemoryScope, StringImm]
         The storage scope of the storage to allocate. Default is global.
 
     Returns
@@ -54,11 +59,18 @@ def alloc_storage(
     shape = convert_to_expr(shape)
     if isinstance(dtype, str | GenericConst):
         dtype = DataTypeImm(dtype.value if isinstance(dtype, GenericConst) else dtype)
+    if isinstance(storage_scope, MemoryScope):
+        storage_scope = storage_scope.name
     if isinstance(storage_scope, str):
         storage_scope = StringImm(storage_scope)
     if isinstance(runtime_device_index, int):
         runtime_device_index = prim_value(runtime_device_index)
-    return _ffi_api.alloc_storage(shape, runtime_device_index, dtype, storage_scope)  # type: ignore
+    return _Call(
+        "relax.vm.alloc_storage",
+        [shape, runtime_device_index, dtype, storage_scope],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
 def alloc_tensor(
@@ -67,6 +79,9 @@ def alloc_tensor(
     shape: Expr,
     dtype: str | Expr,
     runtime_device_ind: int | Expr = prim_value(0),
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Call:
     """Construct a Call to allocate a tensor on a certain storage starting from the given offset.
 
@@ -100,10 +115,15 @@ def alloc_tensor(
         dtype = DataTypeImm(dtype.value if isinstance(dtype, GenericConst) else dtype)
     if isinstance(runtime_device_ind, int):
         runtime_device_ind = prim_value(runtime_device_ind)
-    return _ffi_api.alloc_tensor(storage, offset, shape, dtype, runtime_device_ind)  # type: ignore
+    return _Call(
+        "relax.vm.alloc_tensor",
+        [storage, offset, shape, dtype, runtime_device_ind],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def kill_object(obj: Expr) -> Call:
+def kill_object(obj: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Call:
     """Construct a Call to set the register corresponding to the input object to
     null at runtime, in order to kill the input object.
 
@@ -115,19 +135,19 @@ def kill_object(obj: Expr) -> Call:
     Returns
     -------
     result : Call
-        CallNode that kills the input object.
+        CallObj that kills the input object.
     """
-    return _ffi_api.kill_object(obj)  # type: ignore
+    return _Call("relax.vm.kill_object", [obj], loc=loc, ty=ty)  # type: ignore
 
 
-def call_tir_dyn(func: Expr, args: Tuple) -> Call:
-    """Construct a Call to call_tir_dyn (invoke the given TIR PrimFunc)
+def call_tir_dyn(func: Expr, args: Tuple, *, ty=None, loc: Location = UNKNOWN_LOC) -> Call:
+    """Construct a Call to call_tir_dyn (invoke the given TIR Function)
     consisting of the input tensors and the shape of the result.
 
     Parameters
     ----------
     func : Expr
-        An expression evaluating to a TIR PrimFunc.
+        An expression evaluating to a TIR Function.
 
     args : Tuple
         The input args, includes a list of tensors, and a ShapeExpr.
@@ -141,4 +161,9 @@ def call_tir_dyn(func: Expr, args: Tuple) -> Call:
     if isinstance(args, list | tuple):
         args = Tuple(args)
 
-    return _ffi_api.call_tir_dyn(func, args)  # type: ignore
+    return _Call(
+        "relax.vm.call_tir_dyn",
+        [func, args],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

@@ -72,7 +72,7 @@ class CoreMLModel {
    *
    * \return Tensor corresponding to given output node index.
    */
-  Tensor GetOutput(int index) const;
+  ffi::Tensor GetOutput(int index) const;
   /*!
    * \brief Return the number of outputs
    *

@@ -20,9 +20,12 @@ import itertools
 from collections.abc import Callable
 from typing import Any
 
-import tvm.runtime
+import tvm_ffi
 
-from ....runtime import Device, Module
+import tvm_tirx.runtime
+from tvm.runtime import time_evaluator
+from tvm_tirx.runtime import Device
+
 from .config import EvaluatorConfig
 
 T_ARG_INFO_JSON_OBJ = list[Any]  # pylint: disable=invalid-name
@@ -36,6 +39,7 @@ def alloc_argument_common(
     device: Device,
     args_info: T_ARG_INFO_JSON_OBJ_LIST,
     alloc_repeat: int,
+    f_alloc: Callable | None = None,
 ) -> list[T_ARGUMENT_LIST]:
     """Common function to allocate the arguments
 
@@ -56,8 +60,12 @@ def alloc_argument_common(
         The allocation args
     """
 
-    def alloc_tensor(_, dtype, shape) -> tvm.runtime.Tensor:
-        arg = tvm.runtime.empty(shape=shape, dtype=dtype, device=device)
+    def alloc_tensor(_, dtype, shape) -> tvm_tirx.runtime.Tensor:
+        arg = (
+            f_alloc(shape, dtype)
+            if f_alloc is not None
+            else tvm_tirx.runtime.empty(shape=shape, dtype=dtype, device=device)
+        )
         f_random_fill(arg)
         return arg
 
@@ -82,7 +90,7 @@ def alloc_argument_common(
 
 
 def run_evaluator_common(
-    rt_mod: Module,
+    rt_mod: tvm_ffi.Module,
     device: Device,
     evaluator_config: EvaluatorConfig,
     repeated_args: list[T_ARGUMENT_LIST],
@@ -91,7 +99,7 @@ def run_evaluator_common(
 
     Parameters
     ----------
-    rt_mod: Module
+    rt_mod: tvm_ffi.Module
         The runtime module
     device: Device
         The device to run the evaluator
@@ -105,13 +113,14 @@ def run_evaluator_common(
     costs: List[float]
         The evaluator results
     """
-    evaluator = rt_mod.time_evaluator(
+    evaluator = time_evaluator(
+        rt_mod,
         func_name=rt_mod.entry_name,
-        dev=device,
+        device=device,
         number=evaluator_config.number,
         repeat=evaluator_config.repeat,
         min_repeat_ms=evaluator_config.min_repeat_ms,
-        f_preproc="cache_flush_cpu_non_first_arg"
+        f_preproc="runtime.CacheFlushCPUArguments"
         if evaluator_config.enable_cpu_cache_flush
         else "",
     )

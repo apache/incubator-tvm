@@ -36,7 +36,8 @@
 // IExecutionContext::execute, obj->destroy(), ...). Emit a clear error instead of a flood of
 // "has no member" diagnostics on older releases.
 #if !defined(NV_TENSORRT_MAJOR) || NV_TENSORRT_MAJOR < 10
-#error "TVM's TensorRT runtime requires TensorRT 10.0 or newer (or set USE_TENSORRT_RUNTIME=OFF)."
+#error \
+    "TVM's TensorRT runtime requires TensorRT 10.0 or newer (or set TVM_USE_TENSORRT_RUNTIME=OFF)."
 #endif
 
 // There is a conflict between cpplint and clang-format-10.

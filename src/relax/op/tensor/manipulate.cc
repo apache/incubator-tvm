@@ -27,6 +27,8 @@
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/op.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/runtime/logging.h>
 
 #include <algorithm>
@@ -39,6 +41,163 @@
 
 namespace tvm {
 namespace relax {
+
+void ConcatAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ConcatAttrs>().def_ro("axis", &ConcatAttrs::axis,
+                                        "The axis at which the input arrays are concatenated."
+                                        "Should lie in range `[-ndim, ndim)`.",
+                                        refl::DefaultValue(ffi::Optional<int64_t>{0}));
+}
+
+void ExpandDimsAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ExpandDimsAttrs>().def_ro(
+      "axis", &ExpandDimsAttrs::axis,
+      "The axes at which the input array are expanded. "
+      "All values are required to lie in range `[-data.ndim - 1, data.ndim]`, "
+      "with the convention of negative indexing.");
+}
+
+void LayoutTransformAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<LayoutTransformAttrs>()
+      .def_ro("index_map", &LayoutTransformAttrs::index_map, "The layout transformation to apply.")
+      .def_ro(
+          "pad_value", &LayoutTransformAttrs::pad_value,
+          "The specific value to be used to pad if the layout transform would result in implicit "
+          "padding. If not specified, the compiler is free to choose any value.",
+          refl::DefaultValue(ffi::Optional<PrimExpr>{}));
+}
+
+void PermuteDimsAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<PermuteDimsAttrs>().def_ro(
+      "axes", &PermuteDimsAttrs::axes, "The target axes order, reverse order if not specified.",
+      refl::DefaultValue(ffi::Optional<ffi::Array<int64_t>>{}));
+}
+
+void SplitAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<SplitAttrs>()
+      .def_ro("indices_or_sections", &SplitAttrs::indices_or_sections,
+              "The input array of indices or the number of split sections.")
+      .def_ro("axis", &SplitAttrs::axis, "The axis to be splitted", refl::DefaultValue(0));
+}
+
+void SqueezeAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<SqueezeAttrs>().def_ro("axis", &SqueezeAttrs::axis,
+                                         "The axis to squeeze in the input tensor."
+                                         "If `axis = None`, all axis of dimension 1 get squeezed;"
+                                         "Else, the dimension in axes get squeezed."
+                                         "It is an error if an axis does not has dimension 1.",
+                                         refl::DefaultValue(ffi::Optional<ffi::Array<int64_t>>{}));
+}
+
+void StackAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<StackAttrs>().def_ro("axis", &StackAttrs::axis,
+                                       "The axis along which to stack the input tensors. "
+                                       "The axis will be inserted at this position in the output, "
+                                       "so it must be in range [-ndim-1, ndim] where ndim is the "
+                                       "number of dimensions of the input tensors.",
+                                       refl::DefaultValue(ffi::Optional<int64_t>{0}));
+}
+
+void RepeatAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<RepeatAttrs>()
+      .def_ro("repeats", &RepeatAttrs::repeats, "The number of repetitions.")
+      .def_ro("axis", &RepeatAttrs::axis,
+              "The axis along which to repeat values. The negative numbers are interpreted "
+              "counting from the backward. By default, use the flattened input array, and "
+              "return a flat output array.",
+              refl::DefaultValue(ffi::Optional<int64_t>{}));
+}
+
+void TileAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<TileAttrs>().def_ro("repeats", &TileAttrs::repeats,
+                                      "The number of repetitions of data along each axis.");
+}
+
+void FlipAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<FlipAttrs>().def_ro("axis", &FlipAttrs::axis,
+                                      "The axis along which to flip over.");
+}
+
+void ReverseSequenceAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ReverseSequenceAttrs>()
+      .def_ro("seq_axis", &ReverseSequenceAttrs::seq_axis,
+              "The axis along which to reverse variable length slices.", refl::DefaultValue(1))
+      .def_ro("batch_axis", &ReverseSequenceAttrs::batch_axis, "The axis that indexes the batch.",
+              refl::DefaultValue(0));
+}
+
+void GatherElementsAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<GatherElementsAttrs>().def_ro(
+      "axis", &GatherElementsAttrs::axis, "The axis along which to index.", refl::DefaultValue(0));
+}
+
+void GatherNDAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<GatherNDAttrs>().def_ro("batch_dims", &GatherNDAttrs::batch_dims,
+                                          "The number of batch dims.", refl::DefaultValue(0));
+}
+
+void IndexPutAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<IndexPutAttrs>().def_ro("accumulate", &IndexPutAttrs::accumulate,
+                                          "Whether to accumulate (add) values rather than replace. "
+                                          "If true, performs tensor[indices] += values, "
+                                          "otherwise performs tensor[indices] = values.",
+                                          refl::DefaultValue(false));
+}
+
+void MeshgridAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<MeshgridAttrs>().def_ro("indexing", &MeshgridAttrs::indexing,
+                                          "Specifies how the grid dimensions are ordered.",
+                                          refl::DefaultValue(ffi::String("ij")));
+}
+
+void ScatterElementsAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ScatterElementsAttrs>()
+      .def_ro("axis", &ScatterElementsAttrs::axis, "The axis over which to select values.",
+              refl::DefaultValue(0))
+      .def_ro("reduction", &ScatterElementsAttrs::reduction,
+              "Reduction mode of the scatter elements, "
+              "either \"update\", \"add\", \"mul\", \"mean\", \"min\" or \"max\".",
+              refl::DefaultValue("update"));
+}
+
+void ScatterNDAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ScatterNDAttrs>().def_ro(
+      "reduction", &ScatterNDAttrs::reduction,
+      "Accumulation mode of the ScatterND, "
+      "either \"update\", \"add\", \"mul\", \"min\" or \"max\".",
+      refl::DefaultValue("update"));
+}
+
+void SliceScatterAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<SliceScatterAttrs>().def_ro("axis", &SliceScatterAttrs::axis,
+                                              "the dimension to insert the slice into ",
+                                              refl::DefaultValue(0));
+}
+
+void OneHotAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<OneHotAttrs>()
+      .def_ro("depth", &OneHotAttrs::depth, "Depth of the one hot dimension.")
+      .def_ro("axis", &OneHotAttrs::axis, "Axis to fill.", refl::DefaultValue(-1));
+}
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   ConcatAttrs::RegisterReflection();
@@ -65,7 +224,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 /* relax.broadcast_to */
 Expr broadcast_to(Expr x, Expr shape) {
   static const Op op = Op::Get("relax.broadcast_to");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x), std::move(shape)}, Attrs(), {});
+  return Call(Type::Missing(), op, {std::move(x), std::move(shape)}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -77,8 +236,8 @@ Type InferTypeBroadcastTo(const Call& call, const BlockBuilder& ctx) {
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "broadcast_to should take 2 arguments.";
   }
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* tgt_shape_ty = GetTypeAs<ShapeTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* tgt_shape_ty = GetTypeAs<ShapeTypeObj>(call->args[1]);
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "broadcast_to requires the input data to be Tensor. However, the given one is "
@@ -115,7 +274,7 @@ Type InferTypeBroadcastTo(const Call& call, const BlockBuilder& ctx) {
   for (int i = 0; i < old_ndim; ++i) {
     PrimExpr old_len = old_shape_value[old_ndim - i - 1];
     PrimExpr tgt_len = tgt_shape_value[tgt_ndim - i - 1];
-    const auto* old_len_int = old_len.as<IntImmNode>();
+    const auto* old_len_int = old_len.as<IntImmObj>();
     if (old_len_int != nullptr && old_len_int->value == 1) {
       continue;
     } else if (analyzer->CanProve(old_len != tgt_len)) {
@@ -134,9 +293,9 @@ Type InferTypeBroadcastTo(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.broadcast_to")
       .signature(sig::arg("x", "The input tensor."), sig::arg("shape", "The target shape."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeBroadcastTo)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeBroadcastTo)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.concat */
@@ -146,7 +305,7 @@ Expr concat(Expr tensors, ffi::Optional<int64_t> axis) {
   attrs->axis = std::move(axis);
 
   static const Op op = Op::Get("relax.concat");
-  return Call::Unchecked(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -257,7 +416,7 @@ Type InferTypeConcat(const Call& call, const BlockBuilder& ctx) {
       if (ty->vdevice.has_value()) {
         if (!vdev.has_value()) {
           vdev = ty->vdevice.value();
-        } else if (ty->vdevice.value()->target.defined()) {
+        } else if (ty->vdevice.value()->target.has_value()) {
           // mismatch
           if (ty->vdevice.value() != vdev.value()) {
             vdevice_unknown = true;
@@ -267,7 +426,7 @@ Type InferTypeConcat(const Call& call, const BlockBuilder& ctx) {
     }
 
     // Update the shape values for best effort check.
-    const auto* shape_expr = ty->shape.as<ShapeExprNode>();
+    const auto* shape_expr = ty->shape.as<ShapeExprObj>();
     if (shape_expr != nullptr) {
       shape_values.push_back(shape_expr->values);
       continue;
@@ -347,27 +506,31 @@ InferLayoutOutput InferLayoutConcat(
   for (auto n_layout : nlayout_array) {
     TVM_FFI_ICHECK(n_layout.IsLeaf());
     LayoutDecision in_layout = n_layout.LeafValue();
-    if (in_layout->layout.ndim() != in_layout->layout.ndim_primal()) {
-      const auto* tuple_ty = GetTypeAs<TupleTypeNode>(call->args[0]);
+    if ((in_layout->layout.has_value() ? in_layout->layout.value().ndim() : 0) !=
+        (in_layout->layout.has_value() ? in_layout->layout.value().ndim_primal() : 0)) {
+      const auto* tuple_ty = GetTypeAs<TupleTypeObj>(call->args[0]);
       TVM_FFI_ICHECK(tuple_ty != nullptr)
           << " expects the input to be a Tuple of Tensors. However, the given input is "
           << call->args[0]->ty->GetTypeKey();
       for (size_t i = 0; i < tuple_ty->fields.size(); ++i) {
         Type field_ty = tuple_ty->fields[i];
-        const auto* field_tensor_ty = field_ty.as<TensorTypeNode>();
+        const auto* field_tensor_ty = field_ty.as<TensorTypeObj>();
         TVM_FFI_ICHECK(field_tensor_ty != nullptr)
             << call->op
             << " expects the input to be a Tuple of Tensors. However, the given input is "
             << call->args[0]->ty;
         auto t_ty = ffi::GetRef<TensorType>(field_tensor_ty);
-        ffi::Optional<ShapeExpr> t_shape = ffi::GetRef<ShapeExpr>(t_ty->shape.as<ShapeExprNode>());
+        ffi::Optional<ShapeExpr> t_shape = ffi::GetRef<ShapeExpr>(t_ty->shape.as<ShapeExprObj>());
         LayoutDecision curr_layout = nlayout_array[i].LeafValue();
         if (!CanProveLayoutTransform(curr_layout->layout, in_layout->layout,
                                      t_shape.value()->values)) {
           // Some tensor unhappy with sub indexed layout, lets pick first regular layout
           for (auto pick_layout : nlayout_array) {
-            if (pick_layout.LeafValue()->layout.ndim() ==
-                pick_layout.LeafValue()->layout.ndim_primal()) {
+            if ((pick_layout.LeafValue()->layout.has_value()
+                     ? pick_layout.LeafValue()->layout.value().ndim()
+                     : 0) == (pick_layout.LeafValue()->layout.has_value()
+                                  ? pick_layout.LeafValue()->layout.value().ndim_primal()
+                                  : 0)) {
               in_layout = pick_layout.LeafValue();
               break;
             }
@@ -386,17 +549,17 @@ InferLayoutOutput InferLayoutConcat(
   }
   output_layouts.push_back(layout);
   ffi::ObjectPtr<ConcatAttrs> new_attrs = ffi::make_object<ConcatAttrs>(*attrs);
-  new_attrs->axis = FindAxis(layout->layout, attrs->axis.value_or(0));
+  new_attrs->axis = FindAxis(layout->layout.value(), attrs->axis.value_or(0));
   return InferLayoutOutput({NLayout(input_layouts)}, output_layouts, Attrs(new_attrs));
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.concat")
       .signature(sig::arg("tensors", "The input list of tensors."), sig::call_attrs<ConcatAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeConcat)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutConcat)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeConcat)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutConcat)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.expand_dims */
@@ -406,7 +569,7 @@ Expr expand_dims(Expr x, ffi::Array<int64_t> axis) {
   attrs->axis = std::move(axis);
 
   static const Op op = Op::Get("relax.expand_dims");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -414,8 +577,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.expand_dims", expand_dims);
 }
 
-Type InferTypeExpandDims(const CallNode* call_node) {
+Type InferTypeExpandDims(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<ExpandDimsAttrs>();
   if (attrs->axis.empty()) {
@@ -430,25 +594,21 @@ Type InferTypeExpandDims(const CallNode* call_node) {
   int output_ndim = data_ty->ndim + n_new_dim;
   std::vector<int> axes = NormalizeAxes(call, output_ndim, attrs->axis);
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     return TensorType(data_ty->dtype, output_ndim, data_ty->vdevice);
   }
 
   std::vector<PrimExpr> output_shape;
-  output_shape.resize(output_ndim, PrimExpr());
-  for (int i = 0; i < n_new_dim; ++i) {
-    output_shape[axes[i]] = IntImm::Int64(1);
-  }
-
+  output_shape.reserve(output_ndim);
   int i_data_shape = 0;
   for (int i = 0; i < output_ndim; ++i) {
-    if (output_shape[i].defined()) {
-      continue;
+    if (std::find(axes.begin(), axes.end(), i) != axes.end()) {
+      output_shape.push_back(IntImm::Int64(1));
+    } else {
+      TVM_FFI_ICHECK_LT(i_data_shape, data_ty->ndim);
+      output_shape.push_back(data_shape->values[i_data_shape++]);
     }
-    TVM_FFI_ICHECK_LT(i_data_shape, data_ty->ndim);
-    output_shape[i] = data_shape->values[i_data_shape];
-    ++i_data_shape;
   }
   TVM_FFI_ICHECK_EQ(i_data_shape, data_ty->ndim);
   return TensorType(ShapeExpr(output_shape), data_ty->dtype, data_ty->vdevice);
@@ -460,14 +620,15 @@ InferLayoutOutput InferLayoutExpandDims(
   TVM_FFI_ICHECK(NoDesiredLayout(call, desired_layouts));
   const auto* attrs = call->attrs.as<ExpandDimsAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
 
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
   int ndim = tensor_ty->ndim;
   // Can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
   int n_new_dim = attrs->axis.size();
@@ -491,17 +652,17 @@ InferLayoutOutput InferLayoutExpandDims(
       output_layout.push_back(new_layout.at(j++));
     }
   }
-  return InferLayoutOutput({existing_layout}, {LayoutDecision(SLayout(output_layout))},
-                           Attrs(call->attrs));
+  return InferLayoutOutput({existing_layout}, {LayoutDecision(SLayout::Create(output_layout))},
+                           call->attrs);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.expand_dims")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<ExpandDimsAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeExpandDims>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutExpandDims)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeExpandDims>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutExpandDims)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 // Helper function for flatten and reshape.
@@ -516,7 +677,7 @@ PrimExpr ComputeShapeProduct(const ffi::Array<PrimExpr>& shape_values) {
 /* relax.flatten */
 Expr flatten(Expr x) {
   static const Op op = Op::Get("relax.flatten");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, {}, {});
+  return Call(Type::Missing(), op, {std::move(x)}, {}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -524,7 +685,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.flatten", flatten);
 }
 
-Type InferTypeFlatten(const CallNode* call_node) {
+Type InferTypeFlatten(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   if (data_ty->IsUnknownNdim()) {
@@ -535,7 +696,7 @@ Type InferTypeFlatten(const CallNode* call_node) {
     return data_ty;
   }
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     return TensorType(data_ty->dtype, /*ndim=*/1, data_ty->vdevice);
   }
@@ -546,16 +707,16 @@ Type InferTypeFlatten(const CallNode* call_node) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.flatten")
       .signature(sig::arg("x", "The input tensor."))
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeFlatten>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeFlatten>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.index_tensor */
 
 Expr index_tensor(Expr first, Expr tensors) {
   static const Op op = Op::Get("relax.index_tensor");
-  return Call::Unchecked(Type::Missing(), op, {std::move(first), std::move(tensors)}, Attrs(), {});
+  return Call(Type::Missing(), op, {std::move(first), std::move(tensors)}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -604,7 +765,7 @@ Type InferTypeIndexTensor(const Call& call, const BlockBuilder& ctx) {
   int max_index_ndim = 0;
 
   for (const auto& s : indices_ty) {
-    const auto* shp = s->shape.as<ShapeExprNode>();
+    const auto* shp = s->shape.as<ShapeExprObj>();
     if (!shp) {
       all_index_have_shape_value = false;
     } else {
@@ -636,8 +797,8 @@ Type InferTypeIndexTensor(const Call& call, const BlockBuilder& ctx) {
         PrimExpr lhs_dim = out_shape[lhs_axis];
         PrimExpr rhs_dim = ishape[rhs_axis];
 
-        const auto* lhs_int = lhs_dim.as<IntImmNode>();
-        const auto* rhs_int = rhs_dim.as<IntImmNode>();
+        const auto* lhs_int = lhs_dim.as<IntImmObj>();
+        const auto* rhs_int = rhs_dim.as<IntImmObj>();
 
         // Case 1: current broadcast slot is 1 -> always replace
         if (lhs_int && lhs_int->value == 1) {
@@ -679,7 +840,7 @@ Type InferTypeIndexTensor(const Call& call, const BlockBuilder& ctx) {
 
   // Derive output shape
   if (broadcast_shape.has_value()) {
-    const auto* data_shape_expr = data_ty->shape.as<ShapeExprNode>();
+    const auto* data_shape_expr = data_ty->shape.as<ShapeExprObj>();
     if (data_shape_expr) {
       ffi::Array<PrimExpr> result_shape = broadcast_shape.value();
       for (int i = n_indices; i < data_ty->ndim; ++i) {
@@ -697,19 +858,19 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.index_tensor")
       .signature(sig::arg("data", "The input data."),
                  sig::arg("indices", "The indices used to index."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeIndexTensor)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeIndexTensor)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.layout_transform */
 
 Expr layout_transform(Expr x, tirx::IndexMap index_map, ffi::Optional<PrimExpr> pad_value) {
-  ffi::ObjectPtr<LayoutTransformAttrs> attrs = ffi::make_object<LayoutTransformAttrs>();
-  attrs->index_map = std::move(index_map);
+  ffi::ObjectPtr<LayoutTransformAttrs> attrs =
+      ffi::make_object<LayoutTransformAttrs>(std::move(index_map));
   attrs->pad_value = std::move(pad_value);
 
   static const Op op = Op::Get("relax.layout_transform");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -717,7 +878,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.layout_transform", layout_transform);
 }
 
-Type InferTypeLayoutTransform(const CallNode* call_node) {
+Type InferTypeLayoutTransform(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<LayoutTransformAttrs>();
@@ -765,9 +926,9 @@ Type InferTypeLayoutTransform(const CallNode* call_node) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.layout_transform")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<LayoutTransformAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeLayoutTransform>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeLayoutTransform>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.permute_dims */
@@ -777,7 +938,7 @@ Expr permute_dims(Expr x, ffi::Optional<ffi::Array<int64_t>> axes) {
   attrs->axes = std::move(axes);
 
   static const Op op = Op::Get("relax.permute_dims");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -794,8 +955,9 @@ bool IsIdentityPermutation(const std::vector<int>& permutation) {
   return true;
 }
 
-Type InferTypePermuteDims(const CallNode* call_node) {
+Type InferTypePermuteDims(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
   TensorType data_ty = GetUnaryInputTensorType(call);
 
   const auto* attrs = call->attrs.as<PermuteDimsAttrs>();
@@ -828,7 +990,7 @@ Type InferTypePermuteDims(const CallNode* call_node) {
     return data_ty;
   }
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     return TensorType(data_ty->dtype, data_ty->ndim, data_ty->vdevice);
   }
@@ -847,7 +1009,7 @@ InferLayoutOutput InferLayoutPermuteDims(
 
   const auto* attrs = call->attrs.as<PermuteDimsAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
   int ndim = tensor_ty->ndim;
@@ -855,7 +1017,8 @@ InferLayoutOutput InferLayoutPermuteDims(
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
 
   // permute_dims can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
 
@@ -872,8 +1035,8 @@ InferLayoutOutput InferLayoutPermuteDims(
   for (int64_t axis : order) {
     order_str.push_back(static_cast<char>(axis + 'A'));
   }
-  ffi::String new_axes =
-      TransposeStrLike(InitialLayout(ndim).name(), existing_layout->layout, order_str);
+  ffi::String new_axes = TransposeStrLike(InitialLayout(ndim).name(), existing_layout->layout,
+                                          SLayout::Create(order_str));
   ffi::Array<int64_t> new_order;
   for (size_t i = 0; i < new_axes.size(); ++i) {
     new_order.push_back(new_axes.at(i) - 'A');
@@ -886,21 +1049,21 @@ InferLayoutOutput InferLayoutPermuteDims(
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.permute_dims")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<PermuteDimsAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypePermuteDims>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutPermuteDims)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypePermuteDims>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutPermuteDims)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.reshape */
 Expr ConvertNewShapeToExpr(const Expr& data,
-                           const ffi::Variant<Expr, ffi::Array<PrimExpr>>& shape) {
+                           const ffi::Variant<ffi::Array<PrimExpr>, Expr>& shape) {
   const ffi::ArrayObj* array;
   // Treat shape expressions as constant arrays to handle special values.
-  if (const auto* e = shape.as<ShapeExprNode>()) {
+  if (const auto* e = shape.as<ShapeExprObj>()) {
     array = e->values.as<ffi::ArrayObj>();
     // Other non-shape expressions are used directly.
-  } else if (const auto* e = shape.as<ExprNode>()) {
+  } else if (const auto* e = shape.as<ExprObj>()) {
     return ffi::GetRef<Expr>(e);
     // Process special values in constants and produce an expression.
   } else {
@@ -920,13 +1083,13 @@ Expr ConvertNewShapeToExpr(const Expr& data,
            "Array of PrimExprs. However, the given new shape is "
         << shape;
     PrimExpr len = prim_len.value();
-    TVM_FFI_CHECK(!len.as<DataflowVarNode>(), TypeError)
+    TVM_FFI_CHECK(!len.as<DataflowVarObj>(), TypeError)
         << "Reshape shape dimensions must be symbolic primitive expressions, but received " << len;
     TVM_FFI_ICHECK(len.ty().code() == DLDataTypeCode::kDLInt)
         << "Reshape requires the new shape values to be all "
            "integers. However, the give new shape is "
         << shape;
-    const auto* int_len = len.as<IntImmNode>();
+    const auto* int_len = len.as<IntImmObj>();
     if (int_len != nullptr && int_len->value == 0) {
       // Note that this dimension should be copied from the original shape.
       zero_dims.push_back(i);
@@ -952,14 +1115,14 @@ Expr ConvertNewShapeToExpr(const Expr& data,
   }
 
   // Otherwise, we require the input tensor to have known shape value for inference.
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(data);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(data);
   TVM_FFI_ICHECK(data_ty != nullptr)
       << "Reshape expects the input data to be a Tensor. However, the given input is "
       << data->ty->GetTypeKey();
   TVM_FFI_ICHECK(data_ty->shape.has_value())
       << "Reshape expects the input tensor to have known shape when there is some dimension length "
          "to infer. However, the given input has no shape.";
-  const auto* shape_ty = GetTypeAs<ShapeTypeNode>(data_ty->shape.value());
+  const auto* shape_ty = GetTypeAs<ShapeTypeObj>(data_ty->shape.value());
   TVM_FFI_ICHECK(shape_ty != nullptr && shape_ty->values.has_value())
       << "Reshape expects the input tensor to have known shape when there is some dimension length "
          "to infer. However, the given input shape is "
@@ -977,7 +1140,7 @@ Expr ConvertNewShapeToExpr(const Expr& data,
   PrimExpr new_shape_prod = IntImm::Int64(1);
   for (int i = 0; i < static_cast<int>(array_ref.size()); ++i) {
     PrimExpr new_dim = array_ref[i];
-    const auto* int_dim = new_dim.as<IntImmNode>();
+    const auto* int_dim = new_dim.as<IntImmObj>();
     // We expect any symbolic not to signal the intent of -1, and therefore do no check for
     // symbolic value here.
     if (int_dim == nullptr || int_dim->value > 0) {
@@ -994,24 +1157,26 @@ Expr ConvertNewShapeToExpr(const Expr& data,
   return ShapeExpr(array_ref);
 }
 
-Expr reshape(Expr x, ffi::Variant<Expr, ffi::Array<PrimExpr>> shape) {
+// Prefer shape arrays to the generic Expr conversion of sequences to tuples.
+Expr reshape(Expr x, ffi::Variant<ffi::Array<PrimExpr>, Expr> shape) {
   Expr shape_in_expr = ConvertNewShapeToExpr(x, shape);
   static const Op op = Op::Get("relax.reshape");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x), std::move(shape_in_expr)}, Attrs(),
-                         {});
+  return Call(Type::Missing(), op, {std::move(x), std::move(shape_in_expr)}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("relax.op.reshape", reshape);
+  refl::GlobalDef()
+      .def("relax.op.reshape", reshape)
+      .def("relax.op._NormalizeReshapeShape", ConvertNewShapeToExpr);
 }
 
 Type InferTypeReshape(const Call& call, const BlockBuilder& ctx) {
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Reshape op should take 2 arguments";
   }
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* new_shape_ty = GetTypeAs<ShapeTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* new_shape_ty = GetTypeAs<ShapeTypeObj>(call->args[1]);
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Reshape requires the input data to be Tensor. However, the given one is "
@@ -1025,7 +1190,7 @@ Type InferTypeReshape(const Call& call, const BlockBuilder& ctx) {
 
   ffi::Optional<ffi::Array<PrimExpr>> old_shape_values;
   if (data_ty->shape.has_value()) {
-    const auto* old_shape_ty = GetTypeAs<ShapeTypeNode>(data_ty->shape.value());
+    const auto* old_shape_ty = GetTypeAs<ShapeTypeObj>(data_ty->shape.value());
     TVM_FFI_ICHECK_NOTNULL(old_shape_ty);
     old_shape_values = old_shape_ty->values;
   }
@@ -1043,7 +1208,7 @@ Type InferTypeReshape(const Call& call, const BlockBuilder& ctx) {
   }
   Expr target_shape = call->args[1];
   // If shape values are defined, use them
-  if (target_shape->IsInstance<VarNode>() && new_shape_ty->values.has_value()) {
+  if (target_shape->IsInstance<VarObj>() && new_shape_ty->values.has_value()) {
     return TensorType(ShapeExpr(new_shape_ty->values.value()), data_ty->dtype, data_ty->vdevice);
   }
   return TensorType(target_shape, data_ty->dtype, data_ty->vdevice);
@@ -1052,9 +1217,9 @@ Type InferTypeReshape(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.reshape")
       .signature(sig::arg("x", "The input tensor."), sig::arg("shape", "The input new shape."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeReshape)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeReshape)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.split */
@@ -1065,7 +1230,7 @@ Expr split(Expr x, ffi::Variant<IntImm, ffi::Array<IntImm>> indices_or_sections,
 
   if (const auto* indices = indices_or_sections.as<ffi::ArrayObj>()) {
     for (int i = 0; i < static_cast<int>(indices->size()); ++i) {
-      const auto* idx = indices->at(i).as<IntImmNode>();
+      const auto* idx = indices->at(i).as<IntImmObj>();
       TVM_FFI_ICHECK(idx != nullptr)
           << "Split op only accepts an array of integers as the indices. "
              "However, the given indices "
@@ -1073,7 +1238,7 @@ Expr split(Expr x, ffi::Variant<IntImm, ffi::Array<IntImm>> indices_or_sections,
     }
     indices_or_sections_obj = ConvertIntImmToInt64(
         ffi::GetRef<ffi::ObjectRef>(indices).as_or_throw<ffi::Array<IntImm>>());
-  } else if (const auto* n_section = indices_or_sections.as<IntImmNode>()) {
+  } else if (const auto* n_section = indices_or_sections.as<IntImmObj>()) {
     TVM_FFI_ICHECK_GT(n_section->value, 0)
         << "Split op expects the input number of sections to be a "
            "positive integer. However, the given number of sections is "
@@ -1088,7 +1253,7 @@ Expr split(Expr x, ffi::Variant<IntImm, ffi::Array<IntImm>> indices_or_sections,
   attrs->axis = axis;
 
   static const Op op = Op::Get("relax.split");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1099,7 +1264,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 Type InferTypeSplit(const Call& call, const BlockBuilder& ctx) {
   TensorType data_ty = GetUnaryInputTensorType(call, ctx);
   const auto* attrs = call->attrs.as<SplitAttrs>();
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   int axis = data_ty->IsUnknownNdim() ? -1 : NormalizeAxis(call, ctx, data_ty->ndim, attrs->axis);
 
   if (auto opt_indices = attrs->indices_or_sections.as<ffi::Array<IntImm>>()) {
@@ -1120,19 +1285,9 @@ Type InferTypeSplit(const Call& call, const BlockBuilder& ctx) {
 
     std::vector<Type> output_ty;
     for (size_t i = 0; i < p_indices.size() + 1; i++) {
-      PrimExpr left;
-      if (i == 0) {
-        left = zero;
-      } else {
-        left = p_indices[i - 1];
-      }
+      PrimExpr left = i == 0 ? zero : p_indices[i - 1];
 
-      PrimExpr right;
-      if (i < p_indices.size()) {
-        right = p_indices[i];
-      } else {
-        right = data_shape->values[axis];
-      }
+      PrimExpr right = i < p_indices.size() ? p_indices[i] : data_shape->values[axis];
 
       left = tvm::min(tvm::max(left, 0), data_shape->values[axis]);
       right = tvm::min(tvm::max(right, 0), data_shape->values[axis]);
@@ -1146,7 +1301,7 @@ Type InferTypeSplit(const Call& call, const BlockBuilder& ctx) {
       output_ty.push_back(TensorType(ShapeExpr(shape), data_ty->dtype, data_ty->vdevice));
     }
     return TupleType(output_ty);
-  } else if (const auto* p_n_section = attrs->indices_or_sections.as<IntImmNode>()) {
+  } else if (const auto* p_n_section = attrs->indices_or_sections.as<IntImmObj>()) {
     TVM_FFI_ICHECK_GT(p_n_section->value, 0);
     int n_section = p_n_section->value.as<int>().value();
     // When the number of section is one, return the input tensor's type.
@@ -1186,25 +1341,26 @@ InferLayoutOutput InferLayoutSplit(
 
   const auto* attrs = call->attrs.as<SplitAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support known ndim";
 
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
   Type out_ty = InferTypeSplit(call, BlockBuilder::Create(IRModule()));
-  const auto* out_tuple = out_ty.as<TupleTypeNode>();
+  const auto* out_tuple = out_ty.as<TupleTypeObj>();
 
   /*
    * Fallback if the outputs can't be represented in input sub indexed layout
    * This can happen after sub indexing, if we can't split the corresponding primal axis
    */
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     for (const auto& si : out_tuple->fields) {
-      TVM_FFI_ICHECK(si->IsInstance<TensorTypeNode>()) << "Fields of TupleType must be TensorType"
-                                                          "output structinfo, but got "
-                                                       << si;
+      TVM_FFI_ICHECK(si->IsInstance<TensorTypeObj>()) << "Fields of TupleType must be TensorType"
+                                                         "output structinfo, but got "
+                                                      << si;
       auto ty = si.as_or_throw<TensorType>();
-      ffi::Optional<ShapeExpr> shape_expr = ffi::GetRef<ShapeExpr>(ty->shape.as<ShapeExprNode>());
+      ffi::Optional<ShapeExpr> shape_expr = ffi::GetRef<ShapeExpr>(ty->shape.as<ShapeExprObj>());
       TVM_FFI_ICHECK(shape_expr.has_value());
       auto shape_arr = shape_expr.value();
       if (!CanProveLayoutTransform(InitialLayout(tensor_ty->ndim), existing_layout->layout,
@@ -1216,7 +1372,7 @@ InferLayoutOutput InferLayoutSplit(
   }
 
   ffi::ObjectPtr<SplitAttrs> new_attrs = ffi::make_object<SplitAttrs>(*attrs);
-  new_attrs->axis = FindAxis(existing_layout->layout, attrs->axis);
+  new_attrs->axis = FindAxis(existing_layout->layout.value(), attrs->axis);
   TVM_FFI_ICHECK(out_tuple != nullptr) << "Invalid Call";
   NLayout tuple_layouts(ffi::Array<NLayout>(out_tuple->fields.size(), existing_layout));
   return InferLayoutOutput({existing_layout}, {tuple_layouts}, Attrs(new_attrs));
@@ -1225,10 +1381,10 @@ InferLayoutOutput InferLayoutSplit(
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.split")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<SplitAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeSplit)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutSplit)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeSplit)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutSplit)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.squeeze */
@@ -1238,7 +1394,7 @@ Expr squeeze(Expr x, ffi::Optional<ffi::Array<int64_t>> axis) {
   attrs->axis = std::move(axis);
 
   static const Op op = Op::Get("relax.squeeze");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1246,8 +1402,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.squeeze", squeeze);
 }
 
-Type InferTypeSqueeze(const CallNode* call_node) {
+Type InferTypeSqueeze(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<SqueezeAttrs>();
   if (attrs->axis.has_value() && attrs->axis.value().empty()) {
@@ -1275,7 +1432,7 @@ Type InferTypeSqueeze(const CallNode* call_node) {
     for (int i = 0; i < static_cast<int>(axes.size()); ++i) {
       // Todo(relax-team): revisit here for better check on if the axis being squeezed has length 1.
       // When `axis` is given, the dim lengths at the axes must be integer 1 when it is not symbolic
-      const auto* int_len = shape_value.value()[axes[i]].as<IntImmNode>();
+      const auto* int_len = shape_value.value()[axes[i]].as<IntImmObj>();
       // If a dimension is not 1, silently skip it (no-op), matching PyTorch behavior.
       if ((int_len != nullptr && int_len->value == 1) || int_len == nullptr) {
         axis_removal_mask[axes[i]] = true;
@@ -1291,7 +1448,7 @@ Type InferTypeSqueeze(const CallNode* call_node) {
     }
     for (int i = 0; i < data_ty->ndim; ++i) {
       // Whenever a dimension length is symbolic, fall back to unknown ndim.
-      const auto* int_len = shape_value.value()[i].as<IntImmNode>();
+      const auto* int_len = shape_value.value()[i].as<IntImmObj>();
       if (int_len == nullptr) {
         return TensorType(data_ty->dtype, kUnknownNDim, data_ty->vdevice);
       }
@@ -1309,7 +1466,7 @@ Type InferTypeSqueeze(const CallNode* call_node) {
     }
   }
 
-  if (data_ty->shape.value()->IsInstance<VarNode>()) {
+  if (data_ty->shape.value()->IsInstance<VarObj>()) {
     if (static_cast<int>(output_shape.size()) == data_ty->ndim) {
       return data_ty;
     } else if (attrs->axis.has_value()) {
@@ -1329,12 +1486,12 @@ InferLayoutOutput InferLayoutSqueeze(
 
   const auto* attrs = call->attrs.as<SqueezeAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
   TVM_FFI_ICHECK(tensor_ty->shape.has_value()) << "Only support static shape for now";
   int ndim = tensor_ty->ndim;
-  const auto* shape = tensor_ty->shape.as<ShapeExprNode>();
+  const auto* shape = tensor_ty->shape.as<ShapeExprObj>();
   TVM_FFI_ICHECK(shape != nullptr) << "Only support static shape for now";
 
   ffi::Array<int64_t> axis;
@@ -1343,7 +1500,7 @@ InferLayoutOutput InferLayoutSqueeze(
   } else {
     axis.reserve(ndim);
     for (int i = 0; i < ndim; ++i) {
-      if (tvm::prim::is_one(shape->values[i])) {
+      if (tvm::prim::IsOne(shape->values[i])) {
         axis.push_back(i);
       }
     }
@@ -1361,7 +1518,8 @@ InferLayoutOutput InferLayoutSqueeze(
 
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
   // Can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
   ffi::String new_axis_str =
@@ -1378,17 +1536,17 @@ InferLayoutOutput InferLayoutSqueeze(
 
   ffi::ObjectPtr<SqueezeAttrs> new_attrs = ffi::make_object<SqueezeAttrs>(*attrs);
   new_attrs->axis = new_axis;
-  return InferLayoutOutput({existing_layout}, {LayoutDecision(SLayout(output_layout))},
+  return InferLayoutOutput({existing_layout}, {LayoutDecision(SLayout::Create(output_layout))},
                            Attrs(new_attrs));
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.squeeze")
       .signature(sig::arg("x", "The input tensor."), sig::call_attrs<SqueezeAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeSqueeze>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutSqueeze)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeSqueeze>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutSqueeze)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 void CheckCollapseShape(const Call& call, const BlockBuilder& ctx,
@@ -1407,8 +1565,8 @@ void CheckCollapseShape(const Call& call, const BlockBuilder& ctx,
     }
     const PrimExpr& dim0 = data_shape[data_ax];
     const PrimExpr& dim1 = target_shape[target_ax];
-    const auto* int_dim0 = dim0.as<IntImmNode>();
-    const auto* int_dim1 = dim1.as<IntImmNode>();
+    const auto* int_dim0 = dim0.as<IntImmObj>();
+    const auto* int_dim1 = dim1.as<IntImmObj>();
 
     if (analyzer->CanProveEqual(dim0, dim1) || (int_dim1 != nullptr && int_dim1->value == 1)) {
       --target_ax;
@@ -1437,7 +1595,7 @@ Expr stack(Expr tensors, ffi::Optional<int64_t> axis) {
   attrs->axis = std::move(axis);
 
   static const Op op = Op::Get("relax.stack");
-  return Call::Unchecked(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1537,7 +1695,7 @@ Type InferTypeStack(const Call& call, const BlockBuilder& ctx) {
     }
 
     // Collect shape information
-    const auto* shape_expr = ty->shape.as<ShapeExprNode>();
+    const auto* shape_expr = ty->shape.as<ShapeExprObj>();
     if (shape_expr != nullptr) {
       shape_values.push_back(shape_expr->values);
       continue;
@@ -1623,14 +1781,15 @@ InferLayoutOutput InferLayoutStack(
   }
 
   // For stack, we need to adjust the output layout by inserting a new axis
-  std::string layout_str = layout->layout.name();
+  std::string layout_str =
+      (layout->layout.has_value() ? layout->layout.value().name() : "__undef__");
   int axis = attrs->axis.has_value() ? static_cast<int>(attrs->axis.value()) : 0;
   layout_str.insert(static_cast<size_t>(axis), "S");  // Add stack dimension
   SLayout output_layout = SLayout(layout_str);
   output_layouts.push_back(LayoutDecision(output_layout));
 
   ffi::ObjectPtr<StackAttrs> new_attrs = ffi::make_object<StackAttrs>(*attrs);
-  new_attrs->axis = static_cast<int64_t>(FindAxis(layout->layout, axis));
+  new_attrs->axis = static_cast<int64_t>(FindAxis(layout->layout.value(), axis));
   return InferLayoutOutput({NLayout(input_layouts)}, output_layouts, Attrs(new_attrs));
 }
 
@@ -1638,17 +1797,16 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.stack")
       .signature(sig::arg("tensors", "The input list of tensors to stack"),
                  sig::call_attrs<StackAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeStack)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutStack)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeStack)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutStack)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.collapse_sum_like */
 Expr collapse_sum_like(Expr data, Expr collapse_target) {
   static const Op op = Op::Get("relax.collapse_sum_like");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data), std::move(collapse_target)},
-                         Attrs(), {});
+  return Call(Type::Missing(), op, {std::move(data), std::move(collapse_target)}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1665,12 +1823,12 @@ Type InferTypeCollapseSumLike(const Call& call, const BlockBuilder& ctx) {
 
   ffi::Optional<ffi::Array<PrimExpr>> data_shape_value;
   if (data_ty->shape.has_value()) {
-    data_shape_value = GetTypeAs<ShapeTypeNode>(data_ty->shape.value())->values;
+    data_shape_value = GetTypeAs<ShapeTypeObj>(data_ty->shape.value())->values;
   }
   ffi::Optional<ffi::Array<PrimExpr>> collapse_target_shape_value;
   if (collapse_target_ty->shape.has_value()) {
     collapse_target_shape_value =
-        GetTypeAs<ShapeTypeNode>(collapse_target_ty->shape.value())->values;
+        GetTypeAs<ShapeTypeObj>(collapse_target_ty->shape.value())->values;
   }
 
   if (data_shape_value.has_value() && collapse_target_shape_value.has_value()) {
@@ -1688,14 +1846,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.collapse_sum_like")
       .signature(sig::arg("data", "The input tensor."),
                  sig::arg("collapse_target", "The tensor whose shape is the shape to collapse to."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeCollapseSumLike)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeCollapseSumLike)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.collapse_sum_to */
 Expr collapse_sum_to(Expr data, Expr shape) {
   static const Op op = Op::Get("relax.collapse_sum_to");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data), std::move(shape)}, Attrs(), {});
+  return Call(Type::Missing(), op, {std::move(data), std::move(shape)}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1708,8 +1866,8 @@ Type InferTypeCollapseSumTo(const Call& call, const BlockBuilder& ctx) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "CollapseSumTo should have 2 arguments";
   }
 
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* shape_ty = GetTypeAs<ShapeTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* shape_ty = GetTypeAs<ShapeTypeObj>(call->args[1]);
 
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
@@ -1726,7 +1884,7 @@ Type InferTypeCollapseSumTo(const Call& call, const BlockBuilder& ctx) {
 
   ffi::Optional<ffi::Array<PrimExpr>> data_shape_value;
   if (data_ty->shape.has_value()) {
-    data_shape_value = GetTypeAs<ShapeTypeNode>(data_ty->shape.value())->values;
+    data_shape_value = GetTypeAs<ShapeTypeObj>(data_ty->shape.value())->values;
   }
 
   if (data_shape_value.has_value() && shape_ty->values.has_value()) {
@@ -1739,8 +1897,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.collapse_sum_to")
       .signature(sig::arg("data", "The input tensor."),
                  sig::arg("shape", "The shape to collapse to."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeCollapseSumTo)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeCollapseSumTo)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.repeat */
@@ -1751,7 +1909,7 @@ Expr repeat(Expr data, int repeats, ffi::Optional<int64_t> axis) {
   attrs->axis = std::move(axis);
 
   static const Op op = Op::Get("relax.repeat");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1763,7 +1921,7 @@ Type InferTypeRepeat(const Call& call, const BlockBuilder& ctx) {
   sym::Analyzer analyzer = ctx->GetAnalyzer();
   TensorType data_ty = GetUnaryInputTensorType(call, ctx);
   const auto* attrs = call->attrs.as<RepeatAttrs>();
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
 
   if (attrs->axis.has_value() && !data_ty->IsUnknownNdim()) {
     int axis = attrs->axis.value();
@@ -1809,7 +1967,7 @@ InferLayoutOutput InferLayoutRepeat(
 
   const auto* attrs = call->attrs.as<RepeatAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
 
@@ -1817,13 +1975,14 @@ InferLayoutOutput InferLayoutRepeat(
   int ndim = tensor_ty->ndim;
 
   // Can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
 
   // When axis is not specified, the output is 1D (flattened)
   if (!attrs->axis.has_value()) {
-    return InferLayoutOutput({existing_layout}, {InitialLayoutDecision(1)}, Attrs(call->attrs));
+    return InferLayoutOutput({existing_layout}, {InitialLayoutDecision(1)}, call->attrs);
   }
 
   // Transform the axis based on the layout
@@ -1863,9 +2022,9 @@ InferLayoutOutput InferLayoutRepeat(
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.repeat")
       .signature(sig::arg("data", "The input tensor."), sig::call_attrs<RepeatAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeRepeat)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutRepeat)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeRepeat)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutRepeat)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.tile */
@@ -1875,7 +2034,7 @@ Expr tile(Expr data, ffi::Array<int64_t> repeats) {
   attrs->repeats = std::move(repeats);
 
   static const Op op = Op::Get("relax.tile");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -1887,7 +2046,7 @@ Type InferTypeTile(const Call& call, const BlockBuilder& ctx) {
   sym::Analyzer analyzer = ctx->GetAnalyzer();
   TensorType data_ty = GetUnaryInputTensorType(call, ctx);
   const auto* attrs = call->attrs.as<TileAttrs>();
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   int l = attrs->repeats.size();
   int ndim = data_ty->ndim;
 
@@ -1933,7 +2092,7 @@ InferLayoutOutput InferLayoutTile(
 
   const auto* attrs = call->attrs.as<TileAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
 
@@ -1943,14 +2102,15 @@ InferLayoutOutput InferLayoutTile(
   int out_ndim = std::max(l, ndim);
 
   // Can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
 
   // Tile operation repeats data along each axis.
   // When layout changes, we need to transform the repeats array to match the new layout.
   SLayout initial_layout = InitialLayout(ndim);
-  SLayout existing_layout_obj = existing_layout->layout;
+  SLayout existing_layout_obj = existing_layout->layout.value();
 
   // Transform repeats array according to layout change.
   // The repeats array semantics:
@@ -2007,9 +2167,9 @@ InferLayoutOutput InferLayoutTile(
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.tile")
       .signature(sig::arg("data", "The input tensor."), sig::call_attrs<TileAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeTile)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutTile)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeTile)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutTile)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.flip */
@@ -2018,7 +2178,7 @@ Expr flip(Expr data, int64_t axis) {
   auto attrs = ffi::make_object<FlipAttrs>();
   attrs->axis = axis;
   static const Op op = Op::Get("relax.flip");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(data)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2026,7 +2186,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.flip", flip);
 }
 
-Type InferTypeFlip(const CallNode* call_node) {
+Type InferTypeFlip(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 1) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Flip op should take 1 argument";
@@ -2052,14 +2212,15 @@ InferLayoutOutput InferLayoutFlip(
 
   const auto* attrs = call->attrs.as<FlipAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
 
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
   int ndim = tensor_ty->ndim;
 
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(ndim));
   }
 
@@ -2068,7 +2229,7 @@ InferLayoutOutput InferLayoutFlip(
     axis += ndim;
   }
 
-  const int new_axis = FindAxis(existing_layout->layout, axis);
+  const int new_axis = FindAxis(existing_layout->layout.value(), axis);
   TVM_FFI_ICHECK_GE(new_axis, 0) << "Failed to find transformed axis";
 
   ffi::ObjectPtr<FlipAttrs> new_attrs = ffi::make_object<FlipAttrs>(*attrs);
@@ -2080,9 +2241,9 @@ InferLayoutOutput InferLayoutFlip(
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.flip")
       .signature(sig::arg("data", "The input tensor."), sig::call_attrs<FlipAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeFlip>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutFlip)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeFlip>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutFlip)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.reverse_sequence */
@@ -2092,8 +2253,7 @@ Expr reverse_sequence(Expr data, Expr seq_lengths, int64_t seq_axis, int64_t bat
   attrs->seq_axis = seq_axis;
   attrs->batch_axis = batch_axis;
   static const Op op = Op::Get("relax.reverse_sequence");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data), std::move(seq_lengths)},
-                         Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(data), std::move(seq_lengths)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2151,8 +2311,8 @@ Type InferTypeReverseSequence(const Call& call, const BlockBuilder& ctx) {
     }
 
     if (data_ty->shape.has_value() && seq_lengths_ty->shape.has_value()) {
-      const auto* data_shape_ty = GetTypeAs<ShapeTypeNode>(data_ty->shape.value());
-      const auto* seq_lengths_shape_ty = GetTypeAs<ShapeTypeNode>(seq_lengths_ty->shape.value());
+      const auto* data_shape_ty = GetTypeAs<ShapeTypeObj>(data_ty->shape.value());
+      const auto* seq_lengths_shape_ty = GetTypeAs<ShapeTypeObj>(seq_lengths_ty->shape.value());
       if (data_shape_ty != nullptr && seq_lengths_shape_ty != nullptr &&
           data_shape_ty->values.has_value() && seq_lengths_shape_ty->values.has_value()) {
         PrimExpr batch_extent = data_shape_ty->values.value()[batch_axis];
@@ -2176,8 +2336,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("data", "The input tensor."),
                  sig::arg("seq_lengths", "The sequence length tensor."),
                  sig::call_attrs<ReverseSequenceAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeReverseSequence)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeReverseSequence)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.gather_elements */
@@ -2186,7 +2346,7 @@ Expr gather_elements(Expr data, Expr indices, int axis) {
   auto attrs = ffi::make_object<GatherElementsAttrs>();
   attrs->axis = axis;
   static const Op op = Op::Get("relax.gather_elements");
-  return Call::Unchecked(Type::Missing(), op, {data, indices}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, indices}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2194,10 +2354,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.gather_elements", gather_elements);
 }
 
-Type InferTypeGatherElements(const CallNode* call_node) {
+Type InferTypeGatherElements(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* indices_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* indices_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   const auto* attrs = call->attrs.as<GatherElementsAttrs>();
 
   if (data_ty == nullptr) {
@@ -2254,15 +2415,21 @@ InferLayoutOutput InferLayoutGatherElements(
   LayoutDecision layout = data_layout;
   // If data_layout is initial and indices_layout is not, prefer indices_layout.
   bool data_is_initial =
-      data_layout->layout.name() == InitialLayout(data_layout->layout.ndim()).name();
+      (data_layout->layout.has_value() ? data_layout->layout.value().name() : "__undef__") ==
+      InitialLayout((data_layout->layout.has_value() ? data_layout->layout.value().ndim() : 0))
+          .name();
   bool indices_is_initial =
-      indices_layout->layout.name() == InitialLayout(indices_layout->layout.ndim()).name();
+      (indices_layout->layout.has_value() ? indices_layout->layout.value().name() : "__undef__") ==
+      InitialLayout(
+          (indices_layout->layout.has_value() ? indices_layout->layout.value().ndim() : 0))
+          .name();
   if (data_is_initial && !indices_is_initial) {
     layout = indices_layout;
   }
 
-  if (layout->layout.ndim() != layout->layout.ndim_primal()) {
-    const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  if ((layout->layout.has_value() ? layout->layout.value().ndim() : 0) !=
+      (layout->layout.has_value() ? layout->layout.value().ndim_primal() : 0)) {
+    const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
     TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
     TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
     int ndim = tensor_ty->ndim;
@@ -2270,7 +2437,7 @@ InferLayoutOutput InferLayoutGatherElements(
   }
 
   ffi::ObjectPtr<GatherElementsAttrs> new_attrs = ffi::make_object<GatherElementsAttrs>(*attrs);
-  new_attrs->axis = FindAxis(layout->layout, attrs->axis);
+  new_attrs->axis = FindAxis(layout->layout.value(), attrs->axis);
   return InferLayoutOutput({layout, layout}, {layout}, Attrs(new_attrs));
 }
 
@@ -2278,9 +2445,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.gather_elements")
       .signature(sig::arg("data", "The input tensor."), sig::arg("indices", "The indices tensor."),
                  sig::call_attrs<GatherElementsAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeGatherElements>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutGatherElements)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeGatherElements>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutGatherElements)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.gather_nd */
@@ -2289,7 +2456,7 @@ Expr gather_nd(Expr data, Expr indices, int batch_dims) {
   auto attrs = ffi::make_object<GatherNDAttrs>();
   attrs->batch_dims = batch_dims;
   static const Op op = Op::Get("relax.gather_nd");
-  return Call::Unchecked(Type::Missing(), op, {data, indices}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, indices}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2297,10 +2464,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.gather_nd", gather_nd);
 }
 
-Type InferTypeGatherND(const CallNode* call_node) {
+Type InferTypeGatherND(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* indices_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* indices_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   const auto* attrs = call->attrs.as<GatherNDAttrs>();
 
   if (data_ty == nullptr) {
@@ -2339,12 +2507,12 @@ Type InferTypeGatherND(const CallNode* call_node) {
   }
 
   // Check if indices shape is known
-  const auto* indices_shape = indices_ty->shape.as<ShapeExprNode>();
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
-  if (!indices_shape || !indices_shape->values.back()->IsInstance<IntImmNode>()) {
+  const auto* indices_shape = indices_ty->shape.as<ShapeExprObj>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
+  if (!indices_shape || !indices_shape->values.back()->IsInstance<IntImmObj>()) {
     return TensorType(data_ty->dtype, kUnknownNDim, data_ty->vdevice);
   }
-  int l = indices_shape->values.back().as<IntImmNode>()->value.as<int>().value();
+  int l = indices_shape->values.back().as<IntImmObj>()->value.as<int>().value();
   int output_ndim = indices_ty->ndim + input_dims - l - 1 - batch_dims;
   if (!data_shape) {
     return TensorType(data_ty->dtype, output_ndim, data_ty->vdevice);
@@ -2373,8 +2541,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.gather_nd")
       .signature(sig::arg("data", "The input tensor."), sig::arg("indices", "The indices tensor."),
                  sig::call_attrs<GatherNDAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeGatherND>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeGatherND>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.index_put */
@@ -2383,7 +2551,7 @@ Expr index_put(Expr data, Expr indices, Expr values, bool accumulate) {
   auto attrs = ffi::make_object<IndexPutAttrs>();
   attrs->accumulate = std::move(accumulate);
   static const Op op = Op::Get("relax.index_put");
-  return Call::Unchecked(Type::Missing(), op, {data, indices, values}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, indices, values}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2391,12 +2559,12 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.index_put", index_put);
 }
 
-Type InferTypeIndexPut(const CallNode* call_node) {
+Type InferTypeIndexPut(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* values_ty = GetTypeAs<TensorTypeNode>(call->args[2]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* values_ty = GetTypeAs<TensorTypeObj>(call->args[2]);
 
-  auto diag_def = [&](const TensorTypeNode* ty, ffi::String name, ffi::String type_key) {
+  auto diag_def = [&](const TensorTypeObj* ty, ffi::String name, ffi::String type_key) {
     if (ty == nullptr) {
       TVM_FFI_VISIT_THROW(TypeError, call)
           << "IndexPut requires the input " << name << " to be a Tensor. However, the given one is "
@@ -2410,10 +2578,10 @@ Type InferTypeIndexPut(const CallNode* call_node) {
   // Handle indices: either a single tensor or a tuple of tensors
   ffi::Array<TensorType> indices_tensors;
 
-  if (const auto* tuple_ty = GetTypeAs<TupleTypeNode>(call->args[1])) {
+  if (const auto* tuple_ty = GetTypeAs<TupleTypeObj>(call->args[1])) {
     // Indices is a tuple of tensors
     for (size_t i = 0; i < tuple_ty->fields.size(); ++i) {
-      const auto* tensor_ty = tuple_ty->fields[i].as<TensorTypeNode>();
+      const auto* tensor_ty = tuple_ty->fields[i].as<TensorTypeObj>();
       if (tensor_ty == nullptr) {
         TVM_FFI_VISIT_THROW(TypeError, call)
             << "IndexPut requires each index in the indices tuple to be a Tensor. "
@@ -2421,7 +2589,7 @@ Type InferTypeIndexPut(const CallNode* call_node) {
       }
       indices_tensors.push_back(ffi::GetRef<TensorType>(tensor_ty));
     }
-  } else if (const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[1])) {
+  } else if (const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[1])) {
     // Indices is a single tensor
     indices_tensors.push_back(ffi::GetRef<TensorType>(tensor_ty));
   } else {
@@ -2469,7 +2637,7 @@ Type InferTypeIndexPut(const CallNode* call_node) {
       const auto& tensor_ty = indices_tensors[i];
       if (!tensor_ty->IsUnknownNdim() && tensor_ty->ndim > 1) {
         // Check that multi-dimensional indices are broadcastable
-        const auto* shape = tensor_ty->shape.as<ShapeExprNode>();
+        const auto* shape = tensor_ty->shape.as<ShapeExprObj>();
         if (shape) {
           // Verify trailing dimensions can broadcast
           // For now, we accept any multi-dimensional index and rely on runtime validation
@@ -2489,7 +2657,7 @@ Type InferTypeIndexPut(const CallNode* call_node) {
 
   // Check data and values dtype compatibility
   if (data_ty->IsUnknownDtype() || values_ty->IsUnknownDtype()) {
-    auto diag_dtype = [&](const TensorTypeNode* ty, ffi::String name) {
+    auto diag_dtype = [&](const TensorTypeObj* ty, ffi::String name) {
       if (ty->IsUnknownDtype()) {
         LOG(WARNING) << "Data type of " << name
                      << " has not been specified. Assume it has an integer type.";
@@ -2505,7 +2673,7 @@ Type InferTypeIndexPut(const CallNode* call_node) {
   }
 
   // Check values shape compatibility
-  const auto* values_shape = values_ty->shape.as<ShapeExprNode>();
+  const auto* values_shape = values_ty->shape.as<ShapeExprObj>();
   if (values_shape) {
     if (values_ty->ndim != 1) {
       LOG(WARNING) << "IndexPut typically expects values to be 1D, but got ndim="
@@ -2513,7 +2681,7 @@ Type InferTypeIndexPut(const CallNode* call_node) {
     }
   }
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape) {
     return TensorType(ShapeExpr(data_shape->values), data_ty->dtype, data_ty->vdevice);
   }
@@ -2525,8 +2693,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("data", "The input tensor."),
                  sig::arg("indices", "The indices tensor(s)."),
                  sig::arg("values", "The values to put."), sig::call_attrs<IndexPutAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeIndexPut>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeIndexPut>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.meshgrid */
@@ -2535,7 +2703,7 @@ Expr meshgrid(Expr tensors, ffi::Optional<ffi::String> indexing) {
   ffi::ObjectPtr<MeshgridAttrs> attrs = ffi::make_object<MeshgridAttrs>();
   attrs->indexing = indexing;
   static const Op op = Op::Get("relax.meshgrid");
-  return Call::Unchecked(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(tensors)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2543,7 +2711,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.meshgrid", meshgrid);
 }
 
-Type InferTypeMeshgrid(const CallNode* call_node) {
+Type InferTypeMeshgrid(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 1) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "meshgrid op expects 1 Tuple input argument.";
@@ -2582,7 +2750,7 @@ Type InferTypeMeshgrid(const CallNode* call_node) {
           << " and " << common_dtype;
     }
 
-    const auto* shape_expr = ty->shape.as<ShapeExprNode>();
+    const auto* shape_expr = ty->shape.as<ShapeExprObj>();
     if (shape_expr && shape_expr->values.size() == 1) {
       lengths.push_back(shape_expr->values[0]);
     } else {
@@ -2631,9 +2799,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.meshgrid")
       .signature(sig::arg("tensors", "The input list of tensors."),
                  sig::call_attrs<MeshgridAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeMeshgrid>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeMeshgrid>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.scatter_elements */
@@ -2643,7 +2811,7 @@ Expr scatter_elements(Expr data, Expr indices, Expr updates, int axis, ffi::Stri
   attrs->axis = std::move(axis);
   attrs->reduction = std::move(reduction);
   static const Op op = Op::Get("relax.scatter_elements");
-  return Call::Unchecked(Type::Missing(), op, {data, indices, updates}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, indices, updates}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2653,11 +2821,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 Type InferTypeScatterElements(const Call& call, const BlockBuilder& ctx) {
   sym::Analyzer analyzer = ctx->GetAnalyzer();
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* indices_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
-  const auto* updates_ty = GetTypeAs<TensorTypeNode>(call->args[2]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* indices_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
+  const auto* updates_ty = GetTypeAs<TensorTypeObj>(call->args[2]);
 
-  auto diag_def = [&](const TensorTypeNode* ty, ffi::String name, ffi::String type_key) {
+  auto diag_def = [&](const TensorTypeObj* ty, ffi::String name, ffi::String type_key) {
     if (ty == nullptr) {
       TVM_FFI_VISIT_THROW(TypeError, call)
           << "ScatterElements requires the input " << name
@@ -2692,7 +2860,7 @@ Type InferTypeScatterElements(const Call& call, const BlockBuilder& ctx) {
   }
 
   if (data_ty->IsUnknownDtype() || updates_ty->IsUnknownDtype()) {
-    auto diag_dtype = [&](const TensorTypeNode* ty, ffi::String name) {
+    auto diag_dtype = [&](const TensorTypeObj* ty, ffi::String name) {
       if (ty->IsUnknownDtype()) {
         LOG(WARNING) << "Data type of " << name
                      << " has not been specified. Assume it has an integer type.";
@@ -2722,8 +2890,8 @@ Type InferTypeScatterElements(const Call& call, const BlockBuilder& ctx) {
     }
   }
 
-  const auto* indices_shape = indices_ty->shape.as<ShapeExprNode>();
-  const auto* updates_shape = updates_ty->shape.as<ShapeExprNode>();
+  const auto* indices_shape = indices_ty->shape.as<ShapeExprObj>();
+  const auto* updates_shape = updates_ty->shape.as<ShapeExprObj>();
   if (indices_shape && updates_shape) {
     for (int i = 0; i < indices_ty->ndim; i++) {
       if (analyzer->CanProve(indices_shape->values[i] != updates_shape->values[i])) {
@@ -2735,7 +2903,7 @@ Type InferTypeScatterElements(const Call& call, const BlockBuilder& ctx) {
       }
     }
   }
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape) {
     return TensorType(ShapeExpr(data_shape->values), data_ty->dtype, data_ty->vdevice);
   }
@@ -2758,8 +2926,9 @@ InferLayoutOutput InferLayoutScatterElements(
     layout = indices_layout;
   }
 
-  if (layout->layout.ndim() != layout->layout.ndim_primal()) {
-    const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  if ((layout->layout.has_value() ? layout->layout.value().ndim() : 0) !=
+      (layout->layout.has_value() ? layout->layout.value().ndim_primal() : 0)) {
+    const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
     TVM_FFI_ICHECK(tensor_ty != nullptr) << "Invalid Call";
     TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim()) << "Only support static ndim for now";
     int ndim = tensor_ty->ndim;
@@ -2767,7 +2936,7 @@ InferLayoutOutput InferLayoutScatterElements(
   }
 
   ffi::ObjectPtr<ScatterElementsAttrs> new_attrs = ffi::make_object<ScatterElementsAttrs>(*attrs);
-  new_attrs->axis = FindAxis(layout->layout, attrs->axis);
+  new_attrs->axis = FindAxis(layout->layout.value(), attrs->axis);
   return InferLayoutOutput({layout, layout, layout}, {layout}, Attrs(new_attrs));
 }
 
@@ -2776,9 +2945,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("data", "The input tensor."), sig::arg("indices", "The indices tensor."),
                  sig::arg("updates", "The input tensor of updates."),
                  sig::call_attrs<ScatterElementsAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeScatterElements)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutScatterElements)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeScatterElements)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutScatterElements)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.scatter_nd */
@@ -2787,7 +2956,7 @@ Expr scatter_nd(Expr data, Expr indices, Expr updates, ffi::String reduction) {
   auto attrs = ffi::make_object<ScatterNDAttrs>();
   attrs->reduction = std::move(reduction);
   static const Op op = Op::Get("relax.scatter_nd");
-  return Call::Unchecked(Type::Missing(), op, {data, indices, updates}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, indices, updates}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2799,9 +2968,9 @@ Type InferTypeScatterND(const Call& call, const BlockBuilder& ctx) {
   // `call->args` contains: [data, indices, updates]
   sym::Analyzer analyzer = ctx->GetAnalyzer();
   TVM_FFI_ICHECK_EQ(call->args.size(), 3);
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* indices_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
-  const auto* updates_ty = GetTypeAs<TensorTypeNode>(call->args[2]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* indices_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
+  const auto* updates_ty = GetTypeAs<TensorTypeObj>(call->args[2]);
 
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
@@ -2846,12 +3015,12 @@ Type InferTypeScatterND(const Call& call, const BlockBuilder& ctx) {
     }
   }
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
-  const auto* indices_shape = indices_ty->shape.as<ShapeExprNode>();
-  const auto* updates_shape = updates_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
+  const auto* indices_shape = indices_ty->shape.as<ShapeExprObj>();
+  const auto* updates_shape = updates_ty->shape.as<ShapeExprObj>();
 
   if (data_shape && indices_shape && updates_shape) {
-    const IntImmNode* k_dim = indices_shape->values[indices_ty->ndim - 1].as<IntImmNode>();
+    const IntImmObj* k_dim = indices_shape->values[indices_ty->ndim - 1].as<IntImmObj>();
     if (!k_dim) {
       TVM_FFI_VISIT_THROW(ValueError, call)
           << "ScatterND needs a static shape for the last axis of indices, got "
@@ -2919,8 +3088,8 @@ InferLayoutOutput InferLayoutScatterND(
   LayoutDecision indices_layout = GetLayoutDecision(var_layout_map, call->args[1]);
   LayoutDecision updates_layout = GetLayoutDecision(var_layout_map, call->args[2]);
 
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* updates_ty = GetTypeAs<TensorTypeNode>(call->args[2]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* updates_ty = GetTypeAs<TensorTypeObj>(call->args[2]);
   TVM_FFI_ICHECK(data_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(updates_ty != nullptr) << "Invalid Call";
   TVM_FFI_ICHECK(!data_ty->IsUnknownNdim()) << "Only support static ndim for now";
@@ -2930,7 +3099,9 @@ InferLayoutOutput InferLayoutScatterND(
   LayoutDecision out_updates_layout = updates_layout;
 
   // Check if data has a sub-indexed layout
-  bool has_sub_indexed_layout = layout->layout.ndim() != layout->layout.ndim_primal();
+  bool has_sub_indexed_layout =
+      (layout->layout.has_value() ? layout->layout.value().ndim() : 0) !=
+      (layout->layout.has_value() ? layout->layout.value().ndim_primal() : 0);
 
   if (has_sub_indexed_layout) {
     // Fall back to initial layouts for both data and updates
@@ -2945,8 +3116,7 @@ InferLayoutOutput InferLayoutScatterND(
     out_updates_layout = LayoutDecision(InitialLayout(updates_ty->ndim));
   }
 
-  return InferLayoutOutput({layout, indices_layout, out_updates_layout}, {layout},
-                           Attrs(call->attrs));
+  return InferLayoutOutput({layout, indices_layout, out_updates_layout}, {layout}, call->attrs);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2954,9 +3124,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("data", "The input tensor."), sig::arg("indices", "The indices tensor."),
                  sig::arg("updates", "The input tensor of updates."),
                  sig::call_attrs<ScatterNDAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeScatterND)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutScatterND)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeScatterND)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutScatterND)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.scatter_nd */
@@ -2965,7 +3135,7 @@ Expr slice_scatter(Expr input, Expr src, int axis, PrimExpr start, PrimExpr end,
   auto attrs = ffi::make_object<SliceScatterAttrs>();
   attrs->axis = std::move(axis);
   static const Op op = Op::Get("relax.slice_scatter");
-  return Call::Unchecked(Type::Missing(), op, {input, src, start, end, step}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {input, src, start, end, step}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -2975,11 +3145,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 Type InferTypeSliceScatter(const Call& call, const BlockBuilder& ctx) {
   sym::Analyzer analyzer = ctx->GetAnalyzer();
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* src_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* src_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   auto* attrs = call->attrs.as<SliceScatterAttrs>();
 
-  auto diag_tensor_check = [&](const TensorTypeNode* ty, const Expr& arg_expr, ffi::String name) {
+  auto diag_tensor_check = [&](const TensorTypeObj* ty, const Expr& arg_expr, ffi::String name) {
     if (ty == nullptr) {
       TVM_FFI_VISIT_THROW(TypeError, call)
           << "SliceScatter requires the input " << name
@@ -3013,7 +3183,7 @@ Type InferTypeSliceScatter(const Call& call, const BlockBuilder& ctx) {
   }
 
   if (data_ty->IsUnknownDtype() || src_ty->IsUnknownDtype()) {
-    auto diag_dtype_warn = [&](const TensorTypeNode* ty, ffi::String name) {
+    auto diag_dtype_warn = [&](const TensorTypeObj* ty, ffi::String name) {
       if (ty->IsUnknownDtype()) {
         LOG(WARNING) << "SliceScatter: Data type of " << name
                      << " has not been specified for call node " << call
@@ -3064,8 +3234,8 @@ Type InferTypeSliceScatter(const Call& call, const BlockBuilder& ctx) {
 
   int axis = NormalizeAxis(call, ctx, ndim, attrs->axis);
 
-  const auto* data_shape_node = data_ty->shape.as<ShapeExprNode>();
-  const auto* src_shape_node = src_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape_node = data_ty->shape.as<ShapeExprObj>();
+  const auto* src_shape_node = src_ty->shape.as<ShapeExprObj>();
 
   if (data_shape_node && src_shape_node && !src_ty->IsUnknownNdim()) {
     TVM_FFI_ICHECK_EQ(data_shape_node->values.size(), static_cast<size_t>(ndim))
@@ -3105,13 +3275,13 @@ Type InferTypeSliceScatter(const Call& call, const BlockBuilder& ctx) {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.slice_scatter")
-      .signature(sig::arg("input", "The input tensor."),
-                 sig::arg("src", "The source tensor to scatter."),
-                 sig::arg("start", "The starting index of the slice (inclusive)."),
-                 sig::arg("end", "The ending index of the slice (exclusive)."),
-                 sig::arg("step", "The step of the slice."), sig::call_attrs<SliceScatterAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeSliceScatter)
-      .set_attr<bool>("FPurity", true);
+      .signature(
+          sig::arg("input", "The input tensor."), sig::arg("src", "The source tensor to scatter."),
+          sig::arg<IntExpr>("start", "The starting index of the slice (inclusive)."),
+          sig::arg<IntExpr>("end", "The ending index of the slice (exclusive)."),
+          sig::arg<IntExpr>("step", "The step of the slice."), sig::call_attrs<SliceScatterAttrs>())
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeSliceScatter)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.one_hot */
@@ -3131,7 +3301,7 @@ Expr one_hot(Expr indices, PrimExpr on_value, PrimExpr off_value, int depth, int
   TVM_FFI_ICHECK(depth > 0) << "one_hot: depth must be positive, but got " << depth;
 
   static const Op op = Op::Get("relax.one_hot");
-  return Call::Unchecked(Type::Missing(), op, {indices, on_value, off_value}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {indices, on_value, off_value}, Attrs(attrs), {});
 }  // namespace relax
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -3139,7 +3309,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.one_hot", one_hot);
 }
 
-Type InferTypeOneHot(const CallNode* call_node) {
+Type InferTypeOneHot(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType indices_ty = GetInputTensorType(call, 0);
   const auto* attrs = call->attrs.as<OneHotAttrs>();
@@ -3171,7 +3341,7 @@ Type InferTypeOneHot(const CallNode* call_node) {
     return TensorType(dtype, kUnknownNDim, indices_ty->vdevice);
   }
   // Get the shape of indices
-  const auto* indices_shape = indices_ty->shape.as<ShapeExprNode>();
+  const auto* indices_shape = indices_ty->shape.as<ShapeExprObj>();
   if (indices_shape == nullptr) {
     return TensorType(dtype, indices_ty->ndim + 1, indices_ty->vdevice);
   }
@@ -3195,8 +3365,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  sig::arg("on_value", "The value to fill at specified indices."),
                  sig::arg("off_value", "The value to fill at other indices."),
                  sig::call_attrs<OneHotAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeOneHot>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeOneHot>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 }  // namespace relax

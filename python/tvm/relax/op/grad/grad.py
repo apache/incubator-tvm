@@ -22,11 +22,15 @@ gradients for forward operators. The ty inference for grad operators just return
 ty of the input.
 """
 
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC as _UNKNOWN_LOC
+from tvm_tirx.ir.location import Location as _Location
+
 from ...expr import Expr
-from . import _ffi_api
 
 
-def no_grad(input: Expr) -> Expr:
+def no_grad(input: Expr, *, ty=None, loc: _Location = _UNKNOWN_LOC) -> Expr:
     """No gradient dummy operator w.r.t. the input.
 
     Parameters
@@ -39,10 +43,10 @@ def no_grad(input: Expr) -> Expr:
     result : relax.Expr
       The no-gradient representation w.r.t. input.
     """
-    return _ffi_api.no_grad(input)  # type: ignore
+    return _Call("relax.grad.no_grad", [input], loc=loc, ty=ty)  # type: ignore
 
 
-def start_checkpoint(input: Expr) -> Expr:
+def start_checkpoint(input: Expr, *, ty=None, loc: _Location = _UNKNOWN_LOC) -> Expr:
     """Mark the start of the checkpoint stage. The computation between start_checkpoint and
     end_checkpoint will be marked as the checkpoint stage.
 
@@ -76,10 +80,15 @@ def start_checkpoint(input: Expr) -> Expr:
     result : relax.Expr
       The same tensor as the input.
     """
-    return _ffi_api.start_checkpoint(input)  # type: ignore
+    return _Call(
+        "relax.grad.start_checkpoint",
+        [input],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def end_checkpoint(input: Expr) -> Expr:
+def end_checkpoint(input: Expr, *, ty=None, loc: _Location = _UNKNOWN_LOC) -> Expr:
     """Mark the end of checkpoint stage. See tvm.relax.op.grad.start_checkpoint.
 
     Parameters
@@ -92,7 +101,12 @@ def end_checkpoint(input: Expr) -> Expr:
     result : relax.Expr
       The same tensor as the input.
     """
-    return _ffi_api.end_checkpoint(input)  # type: ignore
+    return _Call(
+        "relax.grad.end_checkpoint",
+        [input],
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
 def nll_loss_backward(
@@ -102,6 +116,9 @@ def nll_loss_backward(
     weights: Expr | None = None,
     reduction: str = "mean",
     ignore_index: int = -100,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ) -> Expr:
     """Backward operator of relax.nn.nll_loss. All parameters except output_grad is the same as
     relax.nn.nll_loss. Returns the gradient w.r.t. predictions.
@@ -116,8 +133,14 @@ def nll_loss_backward(
     result : relax.Expr
       The gradient w.r.t. predictions.
     """
-    return _ffi_api.nll_loss_backward(  # type: ignore
-        output_grad, predictions, targets, weights, reduction, ignore_index
+    return _Call(
+        "relax.grad.nll_loss_backward",
+        [output_grad, predictions, targets, *([] if weights is None else [weights])],
+        attrs=_make_attrs(
+            "relax.attrs.NLLLossAttrs", reduction=reduction, ignore_index=ignore_index
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
@@ -132,6 +155,9 @@ def max_pool2d_backward(
     count_include_pad: bool = False,
     layout: str = "NCHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ) -> Expr:
     """Backward operator of relax.nn.max_pool2d. All parameters except output_grad is the same as
     relax.nn.max_pool2d. Returns the gradient w.r.t. data.
@@ -146,17 +172,30 @@ def max_pool2d_backward(
     result : relax.Expr
       The gradient w.r.t. data.
     """
-    return _ffi_api.max_pool2d_backward(  # type: ignore
-        output_grad,
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 2
+    return _Call(
+        "relax.grad.max_pool2d_backward",
+        [output_grad, data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool2DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
@@ -171,6 +210,9 @@ def avg_pool2d_backward(
     count_include_pad: bool = False,
     layout: str = "NCHW",
     out_layout: str | None = None,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ) -> Expr:
     """Backward operator of relax.nn.avg_pool2d. All parameters except output_grad is the same as
     relax.nn.avg_pool2d. Returns the gradient w.r.t. data.
@@ -185,21 +227,42 @@ def avg_pool2d_backward(
     result : relax.Expr
       The gradient w.r.t. data.
     """
-    return _ffi_api.avg_pool2d_backward(  # type: ignore
-        output_grad,
-        data,
-        pool_size,
-        strides,
-        padding,
-        dilation,
-        ceil_mode,
-        count_include_pad,
-        layout,
-        out_layout,
+    if len(padding) == 2:
+        padding = tuple(padding) + tuple(padding)
+    if len(strides) == 1:
+        strides = tuple(strides) * 2
+    if len(dilation) == 1:
+        dilation = tuple(dilation) * 2
+    if len(pool_size) == 1:
+        pool_size = tuple(pool_size) * 2
+    return _Call(
+        "relax.grad.avg_pool2d_backward",
+        [output_grad, data],
+        attrs=_make_attrs(
+            "relax.attrs.Pool2DAttrs",
+            pool_size=pool_size,
+            strides=strides,
+            padding=padding,
+            dilation=dilation,
+            ceil_mode=ceil_mode,
+            count_include_pad=count_include_pad,
+            layout=layout,
+            out_layout=(layout if out_layout is None else out_layout),
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
-def take_backward(output_grad: Expr, x: Expr, indices: Expr, axis: int | None = None) -> Expr:
+def take_backward(
+    output_grad: Expr,
+    x: Expr,
+    indices: Expr,
+    axis: int | None = None,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
+) -> Expr:
     """Backward operator of relax.take. All parameters except output_grad is the same as
     relax.take. Returns the gradient w.r.t. x.
 
@@ -213,4 +276,10 @@ def take_backward(output_grad: Expr, x: Expr, indices: Expr, axis: int | None = 
     result : relax.Expr
       The gradient w.r.t. x.
     """
-    return _ffi_api.take_backward(output_grad, x, indices, axis)  # type: ignore
+    return _Call(
+        "relax.grad.take_backward",
+        [output_grad, x, indices],
+        attrs=_make_attrs("relax.attrs.TakeBackwardAttrs", axis=axis),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

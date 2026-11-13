@@ -25,12 +25,12 @@
 #include "./script_complete.h"
 
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/analysis.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/sym/int_set.h>
 #include <tvm/tirx/analysis.h>
-#include <tvm/tirx/op.h>
 
 #include <utility>
 
@@ -44,16 +44,22 @@ class ScriptCompleter : public s_tir::StmtExprMutator {
  public:
   using s_tir::StmtExprMutator::Mutate;
   UnchangedOr<ffi::Any> Mutate(ffi::AnyView value, InplaceMode inplace_mode) final {
-    if (value.as<ExprNode>()) return ffi::Unchanged();
+    if (value.as<ExprObj>()) return ffi::Unchanged();
     return s_tir::StmtExprMutator::Mutate(value, inplace_mode);
   }
 
-  explicit ScriptCompleter(ffi::Map<Var, BufferVar>* buffer_var_map)
-      : buffer_var_map_(buffer_var_map) {}
+  explicit ScriptCompleter(ffi::Map<Var, TensorVar>* tensor_var_map)
+      : tensor_var_map_(tensor_var_map) {}
 
  private:
-  ffi::Map<Var, BufferVar>* buffer_var_map_;
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockRealizeNode* op, InplaceMode inplace_mode) final {
+  ffi::Map<Var, TensorVar>* tensor_var_map_;
+
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
+    GetThreadBinding(op);
+    return s_tir::StmtExprMutator::Mutate_(op, inplace_mode);
+  }
+
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockRealizeObj* op, InplaceMode inplace_mode) final {
     for (const PrimExpr& value : op->iter_values) {
       PrimType value_ty = value.ty();
       TVM_FFI_ICHECK(value_ty.code() == DLDataTypeCode::kDLInt)
@@ -62,14 +68,14 @@ class ScriptCompleter : public s_tir::StmtExprMutator {
     return s_tir::StmtExprMutator::Mutate_(op, inplace_mode);
   }
 
-  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockNode* op, InplaceMode inplace_mode) final {
-    // Buffers allocated in the block can be accessed by its body.
-    for (const auto& alloc_buffer : op->alloc_buffers) {
-      buffer_var_map_->Set(alloc_buffer.var(), alloc_buffer);
+  UnchangedOr<Stmt> Mutate_(const s_tir::SBlockObj* op, InplaceMode inplace_mode) final {
+    // Tensors allocated in the block can be accessed by its body.
+    for (const auto& alloc_tensor : op->alloc_tensors) {
+      tensor_var_map_->Set(alloc_tensor, alloc_tensor);
     }
-    for (const auto& match_buffer : op->match_buffers) {
-      const BufferVar& target_buffer = match_buffer->buffer;
-      buffer_var_map_->Set(target_buffer.var(), target_buffer);
+    for (const auto& match_tensor : op->match_tensors) {
+      const TensorVar& target_tensor = match_tensor->tensor;
+      tensor_var_map_->Set(target_tensor, target_tensor);
     }
 
     bool is_root_block = this->is_root_block_;
@@ -79,50 +85,50 @@ class ScriptCompleter : public s_tir::StmtExprMutator {
                               .as_or_throw<s_tir::SBlock>();
     this->is_root_block_ = is_root_block;
 
-    // Remove buffers allocated inside block to detect its access region
-    for (const auto& alloc_buffer : op->alloc_buffers) {
-      buffer_var_map_->erase(alloc_buffer.var());
+    // Remove tensors allocated inside block to detect its access region
+    for (const auto& alloc_tensor : op->alloc_tensors) {
+      tensor_var_map_->erase(alloc_tensor);
     }
-    for (const auto& match_buffer : op->match_buffers) {
-      const BufferVar& target_buffer = match_buffer->buffer;
-      buffer_var_map_->erase(target_buffer.var());
+    for (const auto& match_tensor : op->match_tensors) {
+      const TensorVar& target_tensor = match_tensor->tensor;
+      tensor_var_map_->erase(target_tensor);
     }
     // Get access detection mask
     // 0 for provided region, 1 and 3 for need detect read, 2 and 3 for need detect write
     int mask = 0;
-    auto it = op->annotations.find(s_tir::attr::script_parsing_detect_access);
+    auto it = op->annotations.find(tvm::s_tir::attr::kScriptParsingDetectAccess.name);
     if (it != op->annotations.end()) {
-      mask = (*it).second.as_or_throw<IntImm>()->value.as<int>().value();
+      mask = (*it).second.cast<int>();
     }
     // ignore root block or blocks which already has reads/writes regions
     if (mask != 0) {
-      auto access_region = GetSBlockAccessRegion(block, *buffer_var_map_);
+      auto access_region = GetSBlockAccessRegion(block, *tensor_var_map_);
       const ffi::Array<TensorRegion>& reads = access_region[0];
       const ffi::Array<TensorRegion>& writes = access_region[1];
       const ffi::Array<TensorRegion>& opaque = access_region[2];
       TVM_FFI_CHECK(opaque.empty(), ValueError)
-          << "Can not auto detect buffer access region from tirx.Load, tirx.Store or "
-             "direct access by buffer data. Please annotation the access region manually";
+          << "Can not auto detect tensor access region from tirx.Load, tirx.Store or "
+             "direct access by tensor data. Please annotation the access region manually";
       auto* n = block.CopyOnWrite();
       if (!is_root_block) {
         if (mask & 1) n->reads = reads;
         if (mask & 2) n->writes = writes;
       }
       n->annotations = op->annotations;
-      n->annotations.erase(s_tir::attr::script_parsing_detect_access);
+      n->annotations.erase(tvm::s_tir::attr::kScriptParsingDetectAccess.name);
       return block;
     } else {
       return block;
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
     Stmt stmt =
         s_tir::StmtExprMutator::Mutate_(op, inplace_mode).ValueOrUnchanged(ffi::GetRef<Stmt>(op));
-    const Var& var = stmt.as<BindNode>()->var;
-    // A flat definition registers its buffer for access detection in subsequent siblings.
-    if (auto buffer = var.as<BufferVar>(); buffer && !buffer_var_map_->count(var)) {
-      buffer_var_map_->Set(var, buffer.value());
+    const Var& var = stmt.as<BindObj>()->var;
+    // A flat definition registers its tensor for access detection in subsequent siblings.
+    if (auto tensor = var.as<TensorVar>(); tensor && !tensor_var_map_->count(var)) {
+      tensor_var_map_->Set(var, tensor.value());
     }
     return stmt;
   }
@@ -130,15 +136,18 @@ class ScriptCompleter : public s_tir::StmtExprMutator {
   bool is_root_block_ = true;
 };
 
-PrimFunc ScriptComplete(PrimFunc func, const ffi::Array<BufferVar>& root_allocates) {
-  ffi::Map<Var, BufferVar> buffer_var_map;
+Function ScriptComplete(Function func, const ffi::Array<TensorVar>& root_allocates,
+                        const TensorAllocatedAddresses& root_addresses) {
+  func = WithAttr(std::move(func), tvm::attr::kScriptNamespace.name, ffi::String("s_tir"));
+  if (func->GetAttr(tvm::attr::kDeclaration).value_or(false)) return func;
+  ffi::Map<Var, TensorVar> tensor_var_map;
   for (const Var& param : func->params) {
-    if (auto buffer = param.as<BufferVar>()) {
-      buffer_var_map.Set(buffer.value().var(), buffer.value());
+    if (auto tensor = param.as<TensorVar>()) {
+      tensor_var_map.Set(tensor.value(), tensor.value());
     }
   }
   for (const auto& alloc : root_allocates) {
-    buffer_var_map.Set(alloc.var(), alloc);
+    tensor_var_map.Set(alloc, alloc);
   }
 
   Stmt res = func->body;
@@ -150,37 +159,46 @@ PrimFunc ScriptComplete(PrimFunc func, const ffi::Array<BufferVar>& root_allocat
     if (root_allocates.size()) {
       return true;
     }
-    auto* block_realize = func->body.as<s_tir::SBlockRealizeNode>();
+    auto* block_realize =
+        func->body->seq.size() == 1 ? func->body->seq[0].as<s_tir::SBlockRealizeObj>() : nullptr;
     if (block_realize && block_realize->block->iter_vars.size()) {
       return true;
     }
-    if (!block_realize && ContainsNode<s_tir::SBlockRealizeNode>(func->body)) {
+    if (!block_realize && ContainsNode<s_tir::SBlockRealizeObj>(func->body)) {
       return true;
     }
     return false;
   }();
 
   if (should_insert_root) {
-    s_tir::SBlock root_block({}, {}, {}, "root", std::move(res), std::nullopt, root_allocates);
+    ffi::Map<ffi::String, ffi::Any> annotations;
+    if (!root_addresses.empty()) {
+      annotations.Set(s_tir::attr::kTensorAllocatedAddr.name, root_addresses);
+    }
+    s_tir::SBlock root_block({}, {}, {}, "root", std::move(res), std::nullopt, root_allocates, {},
+                             annotations);
     res = s_tir::SBlockRealize({}, IntImm::Bool(true), std::move(root_block));
   }
 
   // generate surrounding loops automatically
-  auto script_completer = ffi::make_object<ScriptCompleter>(&buffer_var_map);
+  auto script_completer = ffi::make_object<ScriptCompleter>(&tensor_var_map);
   res = script_completer->Mutate(res, InplaceMode::kAllow).ValueOrUnchanged(std::move(res));
 
   if (func->body.same_as(res)) {
     return func;
   } else {
     auto fptr = func.CopyOnWrite();
-    fptr->body = res;
+    fptr->body = tvm::SeqStmt(res);
     return func;
   }
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("s_tir.script.Complete", ScriptComplete);
+  refl::GlobalDef().def("s_tir.script.Complete",
+                        [](Function func, const ffi::Array<TensorVar>& root_allocates) {
+                          return ScriptComplete(std::move(func), root_allocates);
+                        });
 }
 
 }  // namespace s_tir

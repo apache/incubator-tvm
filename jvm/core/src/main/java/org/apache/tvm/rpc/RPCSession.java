@@ -33,12 +33,10 @@ import org.apache.tvm.Module;
  */
 public class RPCSession {
   private final Module session;
-  private final int tblIndex;
   private final Map<String, Function> remoteFuncs = new HashMap<String, Function>();
 
   RPCSession(Module sess) {
     session = sess;
-    tblIndex = (int) RPC.getApi("SessTableIndex").pushArg(session).invoke().asLong();
   }
 
   /**
@@ -54,20 +52,19 @@ public class RPCSession {
    * Construct a remote device.
    * @param devType device type.
    * @param devId device id.
-   * @return The corresponding encoded remote device.
+   * @return The session-owned remote device.
    */
-  public Device device(String devType, int devId) {
+  public TVMRemoteDevice device(String devType, int devId) {
     Device dev = new Device(devType, devId);
-    int encode = (tblIndex + 1) * RPC.RPC_SESS_MASK;
-    return new TVMRemoteDevice(dev.deviceType + encode, devId, this);
+    return device(dev.deviceType, devId);
   }
 
   /**
    * Construct a remote device.
    * @param devType device type.
-   * @return The corresponding encoded remote device.
+   * @return The session-owned remote device.
    */
-  public Device device(String devType) {
+  public TVMRemoteDevice device(String devType) {
     return device(devType, 0);
   }
 
@@ -75,19 +72,18 @@ public class RPCSession {
    * Construct a remote device.
    * @param devType device type.
    * @param devId device id.
-   * @return The corresponding encoded remote device.
+   * @return The session-owned remote device.
    */
-  public Device device(int devType, int devId) {
-    int encode = (tblIndex + 1) * RPC.RPC_SESS_MASK;
-    return new TVMRemoteDevice(devType + encode, devId, this);
+  public TVMRemoteDevice device(int devType, int devId) {
+    return (TVMRemoteDevice) RPC.getApi("RemoteDevice").call(session, new Device(devType, devId));
   }
 
   /**
    * Construct a remote device.
    * @param devType device type.
-   * @return The corresponding encoded remote device.
+   * @return The session-owned remote device.
    */
-  public Device device(int devType) {
+  public TVMRemoteDevice device(int devType) {
     return device(devType, 0);
   }
 
@@ -96,15 +92,15 @@ public class RPCSession {
    * @param devId device id.
    * @return Remote CPU device.
    */
-  public Device cpu(int devId) {
-    return Device.cpu(devId);
+  public TVMRemoteDevice cpu(int devId) {
+    return device("cpu", devId);
   }
 
   /**
    * Construct remote CPU device.
    * @return Remote CPU device.
    */
-  public Device cpu() {
+  public TVMRemoteDevice cpu() {
     return cpu(0);
   }
 
@@ -113,15 +109,15 @@ public class RPCSession {
    * @param devId device id.
    * @return Remote CUDA GPU device.
    */
-  public Device cuda(int devId) {
-    return Device.cuda(devId);
+  public TVMRemoteDevice cuda(int devId) {
+    return device("cuda", devId);
   }
 
   /**
    * Construct remote CUDA GPU device.
    * @return Remote CUDA GPU device.
    */
-  public Device cuda() {
+  public TVMRemoteDevice cuda() {
     return cuda(0);
   }
 
@@ -130,15 +126,15 @@ public class RPCSession {
    * @param devId device id.
    * @return Remote OpenCL device.
    */
-  public Device cl(int devId) {
-    return Device.opencl(devId);
+  public TVMRemoteDevice cl(int devId) {
+    return device("opencl", devId);
   }
 
   /**
    * Construct remote OpenCL device.
    * @return Remote OpenCL device.
    */
-  public Device cl() {
+  public TVMRemoteDevice cl() {
     return cl(0);
   }
 
@@ -147,15 +143,15 @@ public class RPCSession {
    * @param devId device id.
    * @return Remote OpenCL device.
    */
-  public Device vulkan(int devId) {
-    return Device.vulkan(devId);
+  public TVMRemoteDevice vulkan(int devId) {
+    return device("vulkan", devId);
   }
 
   /**
    * Construct remote OpenCL device.
    * @return Remote OpenCL device.
    */
-  public Device vulkan() {
+  public TVMRemoteDevice vulkan() {
     return vulkan(0);
   }
 
@@ -164,15 +160,15 @@ public class RPCSession {
    * @param devId device id.
    * @return Remote metal device.
    */
-  public Device metal(int devId) {
-    return Device.metal(devId);
+  public TVMRemoteDevice metal(int devId) {
+    return device("metal", devId);
   }
 
   /**
    * Construct remote Metal device.
    * @return Remote metal device.
    */
-  public Device metal() {
+  public TVMRemoteDevice metal() {
     return metal(0);
   }
 

@@ -17,9 +17,10 @@
 # pylint: disable=invalid-name, unused-argument, pointless-exception-statement
 """Pattern table for CLML backend"""
 
-import tvm
-from tvm import IRModule, relax, tirx
-from tvm.ir.transform import PassContext, module_pass
+import tvm_ffi
+
+import tvm_tirx
+from tvm import relax
 from tvm.relax import transform
 from tvm.relax.dpl.pattern import (
     GlobalVarPattern,
@@ -32,12 +33,14 @@ from tvm.relax.dpl.pattern import (
 from tvm.relax.expr import TupleGetItem, VarBinding
 from tvm.relax.expr_functor import PyExprMutator, mutator
 from tvm.relax.transform import PatternCheckContext
+from tvm_tirx import IRModule
+from tvm_tirx.ir.transform import PassContext, module_pass
 
 from ..pattern_registry import register_patterns
 
 
 def _dtype_str(dtype):
-    return str(dtype.dtype) if isinstance(dtype, tvm.ir.PrimType) else str(dtype)
+    return str(dtype.dtype) if isinstance(dtype, tvm_tirx.ir.PrimType) else str(dtype)
 
 
 @mutator
@@ -62,7 +65,7 @@ class AppendReshapeToBNRewriter(PyExprMutator):
 
     def visit_tuple_getitem_(self, op: TupleGetItem):
         tuple_value = op.tuple_value
-        reshape_op = tvm.ir.Op.get("relax.reshape")
+        reshape_op = tvm_tirx.ir.Op.get("relax.reshape")
 
         if isinstance(tuple_value, relax.Var) and tuple_value in self.bn_vars:
             bn_call = self.bn_vars[tuple_value]
@@ -82,7 +85,7 @@ class AppendReshapeToBNRewriter(PyExprMutator):
 @transform.function_pass(opt_level=0, name="AppendReshapeToBN")
 class AppendReshapeToBNRewriterPass:
     def transform_function(
-        self, func: relax.Function, mod: IRModule, _ctx: tvm.transform.PassContext
+        self, func: relax.Function, mod: IRModule, _ctx: tvm_tirx.ir.transform.PassContext
     ) -> relax.Function:
         updated_func = AppendReshapeToBNRewriter(mod).visit_expr(func)
         updated_func = relax.analysis.remove_all_unused(updated_func)
@@ -98,7 +101,7 @@ def clml_sdk_version():
     # Registry: "relax.get_openclml_version" — returns the CLML SDK version
     # that TVM was built against; registered unconditionally in codegen.cc.
     # Grep hint: grep -rn 'relax.get_openclml_version' src/
-    get_version = tvm.get_global_func("relax.get_openclml_version", allow_missing=True)
+    get_version = tvm_ffi.get_global_func("relax.get_openclml_version", allow_missing=True)
     if get_version is None:
         return 2
     return int(get_version())
@@ -112,7 +115,7 @@ def is_clml_runtime_enabled():
     ret: bool
         True if present, False if not.
     """
-    check_enabled = tvm.get_global_func("relax.op.is_openclml_runtime_enabled", True)
+    check_enabled = tvm_ffi.get_global_func("relax.op.is_openclml_runtime_enabled", True)
     if check_enabled:
         return check_enabled()
     return False
@@ -450,7 +453,7 @@ def clml_pattern_table():
         }
 
         for param in params.values():
-            if not isinstance(param, tvm.ir.GenericConst):
+            if not isinstance(param, tvm_tirx.ir.GenericConst):
                 return False
 
         base_shape = None
@@ -612,7 +615,7 @@ class OpenCLMLOffLoad:
             "relax.nn.conv2d": ["NCHW", "OIHW"],
             "relax.nn.conv2d_transpose": ["NCHW", "OIHW"],
         }
-        seq = tvm.transform.Sequential(
+        seq = tvm_tirx.ir.transform.Sequential(
             [
                 transform.ConvertLayout(clml_layouts),
                 transform.Normalize(),
@@ -644,7 +647,7 @@ def _check_dequantize_matmul(ctx: relax.transform.PatternCheckContext) -> bool:
 
     if not (
         (len(root.ty.shape) == 3)
-        and isinstance(root.ty.shape[0], tirx.IntImm)
+        and isinstance(root.ty.shape[0], tvm_tirx.ir.IntImm)
         and (_dtype_str(root.ty.dtype) == "float16")
         and (root.ty.shape[0] == 1)
     ):
@@ -695,15 +698,15 @@ clml_llm_patterns = [
 register_patterns(clml_llm_patterns)
 
 
-@tvm.transform.module_pass(opt_level=0, name="OpenCLMLOffLoadForLLM")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="OpenCLMLOffLoadForLLM")
 class OpenCLMLOffLoadForLLM:
     """A compiler pass that partition the graph with dequant Matmul to CLML backend offload."""
 
-    def __init__(self, target: tvm.target.Target) -> None:
+    def __init__(self, target: tvm_tirx.target.Target) -> None:
         """Initializer.
         Parameters
         ----------
-        target : tvm.target.Target
+        target : tvm_tirx.target.Target
             Target device.
         """
         self.target = target
@@ -711,12 +714,12 @@ class OpenCLMLOffLoadForLLM:
     def transform_module(
         self,
         mod: IRModule,
-        _ctx: tvm.transform.PassContext,
+        _ctx: tvm_tirx.ir.transform.PassContext,
     ) -> IRModule:
         """Apply required passed to transform"""
 
         if "adreno" in self.target.keys and (clml_sdk_version() >= 5):
-            mod = tvm.transform.Sequential(
+            mod = tvm_tirx.ir.transform.Sequential(
                 [
                     transform.Normalize(),
                     transform.FuseOpsByPattern(clml_llm_patterns, annotate_codegen=True),

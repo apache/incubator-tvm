@@ -33,7 +33,7 @@ tvm::transform::Pass ApplyEmptyCppMutator() {
     return mutator.VisitExpr(std::move(func)).as_or_throw<Function>();
   };
   return tvm::relax::transform::CreateFunctionPass(pass_func, 0,
-                                                   "relax.testing.ApplyEmptyCppMutator", {});
+                                                   "relax.testing.ApplyEmptyCppMutator");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

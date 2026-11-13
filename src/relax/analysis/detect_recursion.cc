@@ -26,9 +26,9 @@
 
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/expr_functor.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/expr_functor.h>
-#include <tvm/tirx/expr_functor.h>
 
 namespace tvm {
 namespace relax {
@@ -86,9 +86,9 @@ class DependencyGatherer : public ExprVisitor {
     return deps_;
   }
 
-  void VisitExpr_(const GlobalVarNode* gv) override {
-    // disregard PrimFuncs
-    if (!m_->Lookup(ffi::GetRef<GlobalVar>(gv)).as<relax::FunctionNode>()) {
+  void VisitExpr_(const GlobalVarObj* gv) override {
+    // disregard Functions
+    if (!m_->Lookup(ffi::GetRef<GlobalVar>(gv)).as<relax::FunctionObj>()) {
       return;
     }
     deps_.insert(gv->name_hint);
@@ -106,8 +106,8 @@ using adjacency_index = std::vector<node_set>;
 adjacency_map GatherDependencyGraph(const IRModule& m) {
   adjacency_map ret;
   for (auto gv_func : m->functions) {
-    const relax::FunctionNode* func = gv_func.second.as<relax::FunctionNode>();
-    // disregard PrimFuncs and the like
+    const relax::FunctionObj* func = gv_func.second.as<relax::FunctionObj>();
+    // disregard Functions and the like
     if (!func) {
       continue;
     }

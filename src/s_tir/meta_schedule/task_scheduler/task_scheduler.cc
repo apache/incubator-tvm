@@ -28,13 +28,13 @@ namespace s_tir {
 namespace meta_schedule {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  TaskRecordNode::RegisterReflection();
-  TaskSchedulerNode::RegisterReflection();
-  PyTaskSchedulerNode::RegisterReflection();
+  TaskRecordObj::RegisterReflection();
+  TaskSchedulerObj::RegisterReflection();
+  PyTaskSchedulerObj::RegisterReflection();
 }
 
 TaskRecord::TaskRecord(TuneContext ctx, double task_weight) {
-  ffi::ObjectPtr<TaskRecordNode> n = ffi::make_object<TaskRecordNode>();
+  ffi::ObjectPtr<TaskRecordObj> n = ffi::make_object<TaskRecordObj>();
   n->ctx = ctx;
   n->task_weight = task_weight;
   n->flop = 1.0;
@@ -50,7 +50,7 @@ TaskRecord::TaskRecord(TuneContext ctx, double task_weight) {
   this->data_ = std::move(n);
 }
 
-void SendToBuilder(TaskRecordNode* self, const Builder& builder) {
+void SendToBuilder(TaskRecordObj* self, const Builder& builder) {
   auto _ = Profiler::TimedScope("SendToBuilder");
   ffi::Array<MeasureCandidate> candidates = self->measure_candidates.value();
   Target target = self->ctx->target.value();
@@ -62,7 +62,7 @@ void SendToBuilder(TaskRecordNode* self, const Builder& builder) {
   self->builder_results = builder->Build(inputs);
 }
 
-void SendToRunner(TaskRecordNode* self, const Runner& runner) {
+void SendToRunner(TaskRecordObj* self, const Runner& runner) {
   auto _ = Profiler::TimedScope("SendToRunner");
   ffi::Array<MeasureCandidate> candidates = self->measure_candidates.value();
   ffi::Array<BuilderResult> builder_results = self->builder_results.value();
@@ -107,7 +107,7 @@ void SendToRunner(TaskRecordNode* self, const Runner& runner) {
   self->runner_futures = results;
 }
 
-void TaskCleanUp(TaskRecordNode* self, int task_id, const ffi::Array<RunnerResult>& results) {
+void TaskCleanUp(TaskRecordObj* self, int task_id, const ffi::Array<RunnerResult>& results) {
   TVM_FFI_ICHECK_EQ(self->builder_results.value().size(), results.size());
   TVM_FFI_ICHECK_EQ(self->runner_futures.value().size(), results.size());
   int n = results.size();
@@ -153,12 +153,11 @@ void TaskCleanUp(TaskRecordNode* self, int task_id, const ffi::Array<RunnerResul
   self->runner_futures = std::nullopt;
 }
 
-void TaskSchedulerNode::Tune(ffi::Array<TuneContext> ctxs, ffi::Array<FloatImm> task_weights,
-                             int max_trials_global, int max_trials_per_task,
-                             int num_trials_per_iter, Builder builder, Runner runner,
-                             ffi::Array<MeasureCallback> measure_callbacks,
-                             ffi::Optional<Database> database,
-                             ffi::Optional<CostModel> cost_model) {
+void TaskSchedulerObj::Tune(ffi::Array<TuneContext> ctxs, ffi::Array<FloatImm> task_weights,
+                            int max_trials_global, int max_trials_per_task, int num_trials_per_iter,
+                            Builder builder, Runner runner,
+                            ffi::Array<MeasureCallback> measure_callbacks,
+                            ffi::Optional<Database> database, ffi::Optional<CostModel> cost_model) {
   TVM_FFI_CHECK_EQ(ctxs.size(), task_weights.size(), ValueError)
       << "`task_weights` must have the same "
          "length as `ctxs`";
@@ -194,7 +193,7 @@ void TaskSchedulerNode::Tune(ffi::Array<TuneContext> ctxs, ffi::Array<FloatImm> 
   for (int task_id; num_trials_already < max_trials_global && (task_id = NextTaskId()) != -1;) {
     TVM_PY_LOG(INFO, this->logger)
         << "TaskScheduler picks Task #" << task_id << ": " << tasks_[task_id]->ctx->task_name;
-    TaskRecordNode* task = tasks_[task_id].get();
+    TaskRecordObj* task = tasks_[task_id].get();
     TVM_FFI_ICHECK(!task->is_terminated);
     TVM_FFI_ICHECK(!task->runner_futures.has_value());
     if (static_cast<int>(task->latency_ms.size()) >= max_trials_per_task) {
@@ -223,7 +222,7 @@ void TaskSchedulerNode::Tune(ffi::Array<TuneContext> ctxs, ffi::Array<FloatImm> 
     }
   }
   for (int task_id = 0; task_id < n_tasks; ++task_id) {
-    TaskRecordNode* task = this->tasks_[task_id].get();
+    TaskRecordObj* task = this->tasks_[task_id].get();
     if (!task->is_terminated) {
       if (task->runner_futures.has_value()) {
         JoinRunningTask(task_id);
@@ -234,8 +233,8 @@ void TaskSchedulerNode::Tune(ffi::Array<TuneContext> ctxs, ffi::Array<FloatImm> 
   }
 }
 
-ffi::Array<RunnerResult> TaskSchedulerNode::JoinRunningTask(int task_id) {
-  TaskRecordNode* task = this->tasks_[task_id].get();
+ffi::Array<RunnerResult> TaskSchedulerObj::JoinRunningTask(int task_id) {
+  TaskRecordObj* task = this->tasks_[task_id].get();
   TVM_FFI_ICHECK(task->runner_futures.has_value());
   ffi::Array<RunnerResult> results;
   {
@@ -263,8 +262,8 @@ ffi::Array<RunnerResult> TaskSchedulerNode::JoinRunningTask(int task_id) {
   return results;
 }
 
-void TaskSchedulerNode::TouchTask(int task_id) {
-  TaskRecordNode* task = this->tasks_[task_id].get();
+void TaskSchedulerObj::TouchTask(int task_id) {
+  TaskRecordObj* task = this->tasks_[task_id].get();
   if (!task->is_terminated && task->runner_futures.has_value()) {
     for (const RunnerFuture future : task->runner_futures.value()) {
       if (!future->Done()) {
@@ -275,8 +274,8 @@ void TaskSchedulerNode::TouchTask(int task_id) {
   }
 }
 
-void TaskSchedulerNode::TerminateTask(int task_id) {
-  TaskRecordNode* task = this->tasks_[task_id].get();
+void TaskSchedulerObj::TerminateTask(int task_id) {
+  TaskRecordObj* task = this->tasks_[task_id].get();
   TVM_FFI_ICHECK(!task->is_terminated);
   task->is_terminated = true;
   --this->remaining_tasks_;
@@ -286,7 +285,7 @@ void TaskSchedulerNode::TerminateTask(int task_id) {
   this->PrintTuningStatistics();
 }
 
-void TaskSchedulerNode::PrintTuningStatistics() {
+void TaskSchedulerObj::PrintTuningStatistics() {
   std::ostringstream os;
   int n_tasks = this->tasks_.size();
   int total_trials = 0;
@@ -303,7 +302,7 @@ void TaskSchedulerNode::PrintTuningStatistics() {
           << "Done";
   p.Separator();
   for (int i = 0; i < n_tasks; ++i) {
-    const TaskRecordNode* task = this->tasks_[i].get();
+    const TaskRecordObj* task = this->tasks_[i].get();
     auto row = p.Row();
     int trials = task->latency_ms.size();
     row << /*id=*/i << /*name=*/task->ctx->task_name.value()  //
@@ -346,10 +345,10 @@ void TaskSchedulerNode::PrintTuningStatistics() {
 }
 
 TaskScheduler TaskScheduler::PyTaskScheduler(
-    ffi::Function logger, PyTaskSchedulerNode::FNextTaskId f_next_task_id,
-    PyTaskSchedulerNode::FJoinRunningTask f_join_running_task, PyTaskSchedulerNode::FTune f_tune) {
+    ffi::Function logger, PyTaskSchedulerObj::FNextTaskId f_next_task_id,
+    PyTaskSchedulerObj::FJoinRunningTask f_join_running_task, PyTaskSchedulerObj::FTune f_tune) {
   TVM_FFI_CHECK(f_next_task_id != nullptr, ValueError) << "next_task_id is not defined";
-  ffi::ObjectPtr<PyTaskSchedulerNode> n = ffi::make_object<PyTaskSchedulerNode>();
+  ffi::ObjectPtr<PyTaskSchedulerObj> n = ffi::make_object<PyTaskSchedulerObj>();
   n->logger = logger;
   n->f_next_task_id = f_next_task_id;
   n->f_join_running_task = f_join_running_task;
@@ -357,30 +356,30 @@ TaskScheduler TaskScheduler::PyTaskScheduler(
   return TaskScheduler(n);
 }
 
-int PyTaskSchedulerNode::NextTaskId() {
+int PyTaskSchedulerObj::NextTaskId() {
   TVM_FFI_ICHECK(f_next_task_id != nullptr)
       << "PyTaskScheduler's NextTaskId method not implemented!";
   return f_next_task_id();
 }
 
-ffi::Array<RunnerResult> PyTaskSchedulerNode::JoinRunningTask(int task_id) {
+ffi::Array<RunnerResult> PyTaskSchedulerObj::JoinRunningTask(int task_id) {
   if (f_join_running_task == nullptr) {
-    return TaskSchedulerNode::JoinRunningTask(task_id);
+    return TaskSchedulerObj::JoinRunningTask(task_id);
   } else {
     return f_join_running_task(task_id);
   }
 }
 
-void PyTaskSchedulerNode::Tune(ffi::Array<TuneContext> tasks, ffi::Array<FloatImm> task_weights,
-                               int max_trials_global, int max_trials_per_task,
-                               int num_trials_per_iter, Builder builder, Runner runner,
-                               ffi::Array<MeasureCallback> measure_callbacks,
-                               ffi::Optional<Database> database,
-                               ffi::Optional<CostModel> cost_model) {
+void PyTaskSchedulerObj::Tune(ffi::Array<TuneContext> tasks, ffi::Array<FloatImm> task_weights,
+                              int max_trials_global, int max_trials_per_task,
+                              int num_trials_per_iter, Builder builder, Runner runner,
+                              ffi::Array<MeasureCallback> measure_callbacks,
+                              ffi::Optional<Database> database,
+                              ffi::Optional<CostModel> cost_model) {
   if (f_tune == nullptr) {
-    TaskSchedulerNode::Tune(tasks, task_weights, max_trials_global, max_trials_per_task,
-                            num_trials_per_iter, builder, runner, measure_callbacks, database,
-                            cost_model);
+    TaskSchedulerObj::Tune(tasks, task_weights, max_trials_global, max_trials_per_task,
+                           num_trials_per_iter, builder, runner, measure_callbacks, database,
+                           cost_model);
   } else {
     f_tune(tasks, task_weights, max_trials_global, max_trials_per_task, num_trials_per_iter,
            builder, runner, measure_callbacks, database, cost_model);
@@ -391,15 +390,15 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def("s_tir.meta_schedule.TaskSchedulerPyTaskScheduler", TaskScheduler::PyTaskScheduler)
-      .def_method("s_tir.meta_schedule.TaskSchedulerTune", &TaskSchedulerNode::Tune)
+      .def_method("s_tir.meta_schedule.TaskSchedulerTune", &TaskSchedulerObj::Tune)
       .def_method("s_tir.meta_schedule.TaskSchedulerJoinRunningTask",
-                  &TaskSchedulerNode::JoinRunningTask)
-      .def_method("s_tir.meta_schedule.TaskSchedulerNextTaskId", &TaskSchedulerNode::NextTaskId)
+                  &TaskSchedulerObj::JoinRunningTask)
+      .def_method("s_tir.meta_schedule.TaskSchedulerNextTaskId", &TaskSchedulerObj::NextTaskId)
       .def_method("s_tir.meta_schedule.TaskSchedulerTerminateTask",
-                  &TaskSchedulerNode::TerminateTask)
-      .def_method("s_tir.meta_schedule.TaskSchedulerTouchTask", &TaskSchedulerNode::TouchTask)
+                  &TaskSchedulerObj::TerminateTask)
+      .def_method("s_tir.meta_schedule.TaskSchedulerTouchTask", &TaskSchedulerObj::TouchTask)
       .def_method("s_tir.meta_schedule.TaskSchedulerPrintTuningStatistics",
-                  &TaskSchedulerNode::PrintTuningStatistics);
+                  &TaskSchedulerObj::PrintTuningStatistics);
 }
 
 }  // namespace meta_schedule

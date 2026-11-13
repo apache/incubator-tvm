@@ -17,13 +17,14 @@
  * under the License.
  */
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/script/ir_builder/ir.h>
 #include <tvm/relax/type.h>
 #include <tvm/runtime/logging.h>
-#include <tvm/tirx/op.h>
+#include <tvm/script/ir_builder/frame.h>
 
-#include "../../../script/ir_builder/utils.h"
 #include "./utils.h"
 
 namespace tvm {
@@ -33,7 +34,7 @@ using namespace tvm::prim;
 namespace ir_builder {
 namespace relax {
 
-tvm::relax::VDevice LookupVDevice(ffi::String target_kind, int device_index) {
+ffi::Optional<tvm::relax::VDevice> LookupVDevice(ffi::String target_kind, int device_index) {
   if (IRBuilder::IsInScope()) {
     ir::IRModuleFrame frame = ir::FindModuleFrame();
     if (frame->global_infos.empty()) {
@@ -50,7 +51,7 @@ tvm::relax::VDevice LookupVDevice(ffi::String target_kind, int device_index) {
     int count = 0;
     for (auto vdevice : vdevices) {
       auto vdev = vdevice.as_or_throw<tvm::relax::VDevice>();
-      if (vdev->target->kind->name == target_kind) {
+      if (vdev->target.has_value() && vdev->target.value()->kind->name == target_kind) {
         if (count == device_index) {
           return vdev;
         }
@@ -59,7 +60,7 @@ tvm::relax::VDevice LookupVDevice(ffi::String target_kind, int device_index) {
     }
   }
   LOG(WARNING) << "The annotated device was not found, please check your vdevice list.";
-  return tvm::relax::VDevice();
+  return std::nullopt;
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -69,39 +70,33 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 ///////////////////////////////// Vars //////////////////////////////////
 
-using tvm::script::ir_builder::details::Namer;
+using tvm::script::ir_builder::detail::Namer;
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  Namer::vtable().SetDispatch<tvm::relax::DataflowVarNode>(
+  Namer::vtable().SetDispatch<tvm::relax::DataflowVarObj>(
       [](const ffi::ObjectRef& node, ffi::String name) -> void {
-        using tvm::relax::DataflowVarNode;
-        DataflowVarNode* var = const_cast<DataflowVarNode*>(node.as<DataflowVarNode>());
+        using tvm::relax::DataflowVarObj;
+        DataflowVarObj* var = const_cast<DataflowVarObj*>(node.as<DataflowVarObj>());
         var->name = name;
       });
 }
 
 /////////////////////////////// Function ////////////////////////////////
 
-FunctionFrame Function(bool is_pure, bool is_private) {
-  ffi::ObjectPtr<FunctionFrameNode> n = ffi::make_object<FunctionFrameNode>();
+FunctionFrame Function(bool is_pure, bool is_private, bool is_declaration, bool local) {
   const IRBuilder& ir_builder = IRBuilder::Current();
   ffi::Optional<tvm::IRModule> mod = std::nullopt;
   if (const ffi::Optional<ir::IRModuleFrame> mod_frame =
           ir_builder->GetLastFrame<ir::IRModuleFrame>()) {
     mod = tvm::IRModule(mod_frame.value()->functions);
   }
-  n->block_builder = tvm::relax::BlockBuilder::Create(
-      /*mod=*/mod, tvm::relax::BlockBuilder::DisableOperatorSpecificNormalizationForTVMScript());
+  auto n = ffi::make_object<FunctionFrameObj>(tvm::relax::BlockBuilder::Create(
+      /*mod=*/mod, tvm::relax::BlockBuilder::DisableOperatorSpecificNormalizationForTVMScript()));
   n->is_pure = is_pure;
-  n->is_private = is_private;
+  n->is_private = is_private || local;
+  n->declaration = is_declaration;
+  n->local = local;
   return FunctionFrame(n);
-}
-
-FunctionFrame DeclFunction(bool is_pure, bool is_private, bool local) {
-  FunctionFrame frame = Function(is_pure, is_private || local);
-  frame->declaration = true;
-  frame->local = local;
-  return frame;
 }
 
 FunctionFrame LocalFunction(bool is_pure, const tvm::Var& reference) {
@@ -144,9 +139,9 @@ void FuncName(const ffi::String& name) {
 void FuncAttrs(ffi::Map<ffi::String, ffi::Any> attrs) {
   FunctionFrame frame = FindFunctionFrame("R.func_attr");
   for (const auto& [key, value] : attrs) {
-    if (key == tvm::attr::kGlobalSymbol && frame->is_private.value_or(false)) {
+    if (key == tvm::attr::kGlobalSymbol.name && frame->is_private.value_or(false)) {
       TVM_FFI_THROW(ValueError) << "A private function may not have the kGlobalSymbol (\""
-                                << tvm::attr::kGlobalSymbol << "\") attribute.  "
+                                << tvm::attr::kGlobalSymbol.name << "\") attribute.  "
                                 << "However, a private function specified the global symbol as "
                                 << value;
     }
@@ -183,7 +178,7 @@ void FuncRetValue(const tvm::relax::Expr& value) {
   if (auto opt = ir_builder->GetLastFrame<BindingBlockFrame>()) {
     auto block_frame = opt.value();
     for (const auto& var : tvm::relax::FreeVars(normalized_value)) {
-      if (var->IsInstance<tvm::relax::DataflowVarNode>()) {
+      if (var->IsInstance<tvm::relax::DataflowVarObj>()) {
         block_frame->output_vars.push_back(var);
       }
     }
@@ -204,7 +199,6 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def("script.ir_builder.relax.Function", Function)
-      .def("script.ir_builder.relax.DeclFunction", DeclFunction)
       .def("script.ir_builder.relax.LocalFunction", LocalFunction)
       .def("script.ir_builder.relax.ArgVar", ArgVar)
       .def("script.ir_builder.relax.Arg", Arg)
@@ -217,14 +211,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ///////////////////////////// BindingBlock //////////////////////////////
 
 BindingBlockFrame Dataflow() {
-  ffi::ObjectPtr<BindingBlockFrameNode> n = ffi::make_object<BindingBlockFrameNode>();
+  ffi::ObjectPtr<BindingBlockFrameObj> n = ffi::make_object<BindingBlockFrameObj>();
   n->is_dataflow = true;
   n->block_ended = false;
   return BindingBlockFrame(n);
 }
 
 BindingBlockFrame BindingBlock() {
-  ffi::ObjectPtr<BindingBlockFrameNode> n = ffi::make_object<BindingBlockFrameNode>();
+  ffi::ObjectPtr<BindingBlockFrameObj> n = ffi::make_object<BindingBlockFrameObj>();
   n->is_dataflow = false;
   n->block_ended = false;
   return BindingBlockFrame(n);
@@ -274,7 +268,7 @@ tvm::Var Emit(const tvm::relax::Expr& expr, const ffi::Optional<tvm::Type>& anno
   const tvm::relax::BlockBuilder& block_builder = GetBlockBuilder();
   if (annotate_ty.has_value()) {
     const auto& ty = annotate_ty.value();
-    if (expr->ty.IsMissing()) {
+    if (expr->ty.as<MissingType>().has_value()) {
       tvm::relax::UpdateType(expr, ty);
     } else {
       TVM_FFI_ICHECK(tvm::relax::TypeBaseCheck(ty, GetType(expr)) !=
@@ -306,27 +300,25 @@ tvm::Var EmitVarBinding(const tvm::relax::VarBinding& binding) {
 
 namespace {
 
-tvm::Var RecordBindingSpan(tvm::Var var, const ffi::Optional<Span>& name_span,
-                           const ffi::Optional<Span>& statement_span) {
-  Span span = IRBuilder::Current()->GetCurrentSourceSpan(statement_span.value_or(Span()));
-  if (span.defined()) {
-    CheckBindingBlockFrameExistAndUnended()->binding_spans.Set(var, span);
+tvm::Var RecordBindingLoc(tvm::Var var, const Location& name_loc, const Location& statement_loc) {
+  Location loc = IRBuilder::Current()->ResolveLoc(statement_loc);
+  if (!loc.as<UnknownLocObj>()) {
+    CheckBindingBlockFrameExistAndUnended()->binding_locs.Set(var, loc);
   }
-  var->span = name_span.value_or(span);
+  var->loc = name_loc.as<UnknownLocObj>() ? loc : name_loc;
   return var;
 }
 
 }  // namespace
 
-tvm::Var EmitWithSpan(const tvm::relax::Expr& value, const ffi::Optional<tvm::Type>& annotate_ty,
-                      const ffi::Optional<Span>& name_span, const ffi::Optional<Span>& span) {
-  return RecordBindingSpan(Emit(value, annotate_ty), name_span, span);
+tvm::Var EmitWithLoc(const tvm::relax::Expr& value, const ffi::Optional<tvm::Type>& annotate_ty,
+                     const Location& name_loc, const Location& loc) {
+  return RecordBindingLoc(Emit(value, annotate_ty), name_loc, loc);
 }
 
-tvm::Var EmitMatchCastWithSpan(const tvm::relax::Expr& value, const tvm::Type& ty,
-                               const ffi::Optional<Span>& name_span,
-                               const ffi::Optional<Span>& span) {
-  return RecordBindingSpan(EmitMatchCast(value, ty), name_span, span);
+tvm::Var EmitMatchCastWithLoc(const tvm::relax::Expr& value, const tvm::Type& ty,
+                              const Location& name_loc, const Location& loc) {
+  return RecordBindingLoc(EmitMatchCast(value, ty), name_loc, loc);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -335,14 +327,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("script.ir_builder.relax.Emit", Emit)
       .def("script.ir_builder.relax.EmitMatchCast", EmitMatchCast)
       .def("script.ir_builder.relax.EmitVarBinding", EmitVarBinding)
-      .def("script.ir_builder.relax.EmitWithSpan", EmitWithSpan)
-      .def("script.ir_builder.relax.EmitMatchCastWithSpan", EmitMatchCastWithSpan);
+      .def("script.ir_builder.relax.EmitWithLoc", EmitWithLoc)
+      .def("script.ir_builder.relax.EmitMatchCastWithLoc", EmitMatchCastWithLoc);
 }
 
 /////////////////////////////// SeqExpr ///////////////////////////////
 
 SeqExprFrame SeqExpr() {
-  ffi::ObjectPtr<SeqExprFrameNode> n = ffi::make_object<SeqExprFrameNode>();
+  ffi::ObjectPtr<SeqExprFrameObj> n = ffi::make_object<SeqExprFrameObj>();
   return SeqExprFrame(n);
 }
 
@@ -354,20 +346,19 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 ///////////////////////////// If Then Else /////////////////////////////
 
 IfFrame If(tvm::relax::Expr condition) {
-  ffi::ObjectPtr<IfFrameNode> n = ffi::make_object<IfFrameNode>();
-  n->condition = condition;
+  ffi::ObjectPtr<IfFrameObj> n = ffi::make_object<IfFrameObj>(condition);
   n->then_expr = std::nullopt;
   n->else_expr = std::nullopt;
   return IfFrame(n);
 }
 
 ThenFrame Then() {
-  ffi::ObjectPtr<ThenFrameNode> n = ffi::make_object<ThenFrameNode>();
+  ffi::ObjectPtr<ThenFrameObj> n = ffi::make_object<ThenFrameObj>();
   return ThenFrame(n);
 }
 
 ElseFrame Else() {
-  ffi::ObjectPtr<ElseFrameNode> n = ffi::make_object<ElseFrameNode>();
+  ffi::ObjectPtr<ElseFrameObj> n = ffi::make_object<ElseFrameObj>();
   return ElseFrame(n);
 }
 

@@ -20,8 +20,8 @@
 import tvm_ffi
 from tvm_ffi import Shape
 
-from tvm.ir import Range
-from tvm.ir.global_info import GlobalInfo
+from tvm_tirx.ir import Range
+from tvm_tirx.ir.global_info import GlobalInfo
 
 from . import _ffi_api as ffi
 

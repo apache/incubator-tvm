@@ -18,7 +18,7 @@
 Random cost model
 """
 
-from tvm.ir.utils import derived_object
+from tvm.s_tir.utils import derived_object
 
 from ..cost_model import PyCostModel
 from ..runner import RunnerResult

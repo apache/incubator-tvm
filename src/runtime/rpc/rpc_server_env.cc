@@ -24,11 +24,19 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/logging.h>
+#include <tvm/support/file_utils.h>
 
-#include "../file_utils.h"
+#include <cstdio>
 
 namespace tvm {
 namespace runtime {
+
+namespace {
+void RemoveFile(const std::string& file_name) {
+  // Preserve the RPC removal operation's unchecked return code.
+  std::remove(file_name.c_str());
+}
+}  // namespace
 
 std::string RPCGetPath(const std::string& name) {
   // do live lookup everytime as workpath can change.
@@ -44,13 +52,12 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                   [](ffi::PackedArgs args, ffi::Any* rv) {
                     std::string file_name = RPCGetPath(args[0].cast<std::string>());
                     auto data = args[1].cast<std::string>();
-                    SaveBinaryToFile(file_name, data);
+                    support::WriteBytesToFile(file_name, data);
                   })
       .def_packed("tvm.rpc.server.download",
                   [](ffi::PackedArgs args, ffi::Any* rv) {
                     std::string file_name = RPCGetPath(args[0].cast<std::string>());
-                    std::string data;
-                    LoadBinaryFromFile(file_name, &data);
+                    std::string data = support::ReadBytesFromFile(file_name);
                     LOG(INFO) << "Download " << file_name << "... nbytes=" << data.size();
                     *rv = ffi::Bytes(data);
                   })

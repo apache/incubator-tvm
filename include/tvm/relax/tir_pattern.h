@@ -25,38 +25,42 @@
 #ifndef TVM_RELAX_TIR_PATTERN_H_
 #define TVM_RELAX_TIR_PATTERN_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/tirx/function.h>
 
 namespace tvm {
 namespace relax {
 
-using TIRPattern = tirx::PrimFunc;
+using TIRPattern = tirx::Function;
 
 /*
  * \brief The match result of a TIR pattern.
  */
-class MatchResultNode : public ffi::Object {
+class MatchResultObj : public ffi::Object {
  public:
+  explicit MatchResultObj(TIRPattern pattern) : pattern(std::move(pattern)) {}
+  explicit MatchResultObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+
   /*! The matched tirx pattern*/
   TIRPattern pattern;
   /*! \brief The evaluated values of symbolic vars. */
   ffi::Array<PrimExpr> symbol_values;
-  /*! \brief The matched buffers of input and output. */
-  ffi::Array<tirx::BufferVar> matched_buffers;
+  /*! \brief The matched tensors of input and output. */
+  ffi::Array<tirx::TensorVar> matched_tensors;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MatchResultNode>()
-        .def_ro("pattern", &MatchResultNode::pattern)
-        .def_ro("symbol_values", &MatchResultNode::symbol_values)
-        .def_ro("matched_buffers", &MatchResultNode::matched_buffers);
+    refl::ObjectDef<MatchResultObj>()
+        .def_ro("pattern", &MatchResultObj::pattern)
+        .def_ro("symbol_values", &MatchResultObj::symbol_values)
+        .def_ro("matched_tensors", &MatchResultObj::matched_tensors);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.MatchResult", MatchResultNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.MatchResult", MatchResultObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to MatchResultNode.
+ * \brief Managed reference to MatchResultObj.
  */
 class MatchResult : public ffi::ObjectRef {
  public:
@@ -64,12 +68,12 @@ class MatchResult : public ffi::ObjectRef {
    * \brief Constructor
    * \param pattern The matched tirx pattern.
    * \param symbol_values The evaluated values of symbolic vars.
-   * \param matched_buffers The matched buffers of input and output.
+   * \param matched_tensors The matched tensors of input and output.
    */
   TVM_DLL explicit MatchResult(TIRPattern pattern, ffi::Array<PrimExpr> symbol_values,
-                               ffi::Array<tirx::BufferVar> matched_buffers);
+                               ffi::Array<tirx::TensorVar> matched_tensors);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(MatchResult, ffi::ObjectRef, MatchResultNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(MatchResult, ffi::ObjectRef, MatchResultObj);
 };
 
 using FCodegen = ffi::TypedFunction<ffi::Array<ffi::Any>(ffi::Array<MatchResult> match_results)>;

@@ -24,11 +24,11 @@ timers and ``nsys`` tell you how long a launch took, but not how that time split
 across the regions *inside* one kernel — the TMA loads, the mainloop MMAs, the
 softmax, the epilogue.
 
-``tvm.tirx.bench.CudaProfiler`` is a lightweight, in-kernel event tracer for
+``tvm_tirx.testing.bench.CudaProfiler`` is a lightweight, in-kernel event tracer for
 exactly this. You bracket regions of device code with ``start`` / ``end``
 markers; at runtime one leader thread per ``(block, group)`` track stamps the GPU
-global timer into a buffer you pass in as an ordinary kernel argument. After the
-launch you read the buffer back and decode it into per-region durations or a
+global timer into a tensor you pass in as an ordinary kernel argument. After the
+launch you read the tensor back and decode it into per-region durations or a
 Perfetto timeline.
 
 It is *not* zero cost — every event reads the low 32 bits through
@@ -49,11 +49,11 @@ are a plain ``enum.Enum`` whose integer values start at 0 and index a names list
     import numpy as np
     import tvm
     from tvm.script import tirx as Tx
-    from tvm.tirx.bench import CudaProfiler, export_to_perfetto_trace
+    from tvm_tirx.testing.bench import CudaProfiler, export_to_perfetto_trace
 
     NUM_BLOCKS, BLOCK, NUM_GROUPS = 4, 128, 1
     WRITE_STRIDE = NUM_BLOCKS * NUM_GROUPS  # >= number of (block, group) lanes
-    PROF_SIZE = 4096  # uint64 slots in the profiler buffer
+    PROF_SIZE = 4096  # uint64 slots in the profiler tensor
     N = NUM_BLOCKS * BLOCK
 
 
@@ -66,23 +66,23 @@ are a plain ``enum.Enum`` whose integer values start at 0 and index a names list
     EV_NAMES = ["load", "compute", "store"]
 
 
-    @Tx.prim_func
+    @Tx.function
     def profiled_kernel(
-        out: Tx.Buffer((N,), "float32"),
-        inp: Tx.Buffer((N,), "float32"),
-        prof: Tx.Buffer((PROF_SIZE,), "uint64"),
+        out: Tx.Tensor((N,), "float32"),
+        inp: Tx.Tensor((N,), "float32"),
+        prof: Tx.Tensor((PROF_SIZE,), "uint64"),
     ):
 
-        Tx.device_entry()
-        bid = Tx.cta_id([NUM_BLOCKS])
-        tid = Tx.thread_id([BLOCK])
+        Tx.device_entry(launch=Tx.cuda.LaunchConfig(grid=(NUM_BLOCKS,), block=(BLOCK,)))
+        bid = Tx.cuda.block_idx("x")
+        tid = Tx.cuda.thread_idx("x")
         idx = bid * BLOCK + tid
 
         # Construct the profiler inside the kernel; only the leader thread writes.
         p = CudaProfiler(
             prof, write_stride=WRITE_STRIDE, num_groups=NUM_GROUPS, default_leader=(tid == 0)
         )
-        p.init(0)  # group_id = 0; also stamps the buffer header at slot 0
+        p.init(0)  # group_id = 0; also stamps the tensor header at slot 0
 
         p.start(Ev.Load)
         x: Tx.f32 = inp[idx]
@@ -103,7 +103,7 @@ are a plain ``enum.Enum`` whose integer values start at 0 and index a names list
 Run it and read the trace
 -------------------------
 
-Allocate a zeroed ``uint64`` buffer, pass it as the last argument, then read it
+Allocate a zeroed ``uint64`` tensor, pass it as the last argument, then read it
 back. Each record is one ``uint64``: the high 32 bits are the timestamp, the low
 32 bits a packed tag, so decoding is plain bit-twiddling on the host.
 
@@ -181,14 +181,14 @@ The API
 Construct the profiler **inside** the kernel body and call four methods:
 
 * ``init(group_id)`` — once per thread; ``group_id`` selects the sub-track and
-  stamps the buffer header at slot 0.
+  stamps the tensor header at slot 0.
 * ``start(event_type, leader=None)`` / ``end(event_type, leader=None)`` — open and
   close a region. Every thread executes them, but only the leader stores a record.
 * ``finalize(leader=None)`` — write a terminal record for this lane.
 
 Constructor arguments:
 
-* ``profiler_buffer`` — the ``uint64`` buffer you pass into the kernel.
+* ``profiler_tensor`` — the ``uint64`` tensor you pass into the kernel.
 * ``write_stride`` — how far each leader advances between writes. Must be ``>=``
   the number of ``(block, group)`` lanes so per-lane streams never collide;
   ``NUM_BLOCKS * NUM_GROUPS`` is the tight value, a persistent-grid kernel uses
@@ -288,12 +288,12 @@ write cursor — and every record is written by:
 .. code-block:: c++
 
     // tvm_builtin_get_timestamp() == asm("mov.u32 %0, %globaltimer_lo;")
-    profiler_buffer[profiler_write_offset[0]] =
+    profiler_tensor[profiler_write_offset[0]] =
         ((uint64_t)tvm_builtin_get_timestamp() << 32) | (profiler_tag[0] | event_bits);
     profiler_write_offset[0] += profiler_write_stride;   // global store; only the leader runs this
 
 ``init`` computes ``BLOCK_GROUP_IDX = block_idx * num_groups + group_id``, writes
-the header ``profiler_buffer[0] = ((uint64_t)num_groups << 32) | num_blocks`` from
+the header ``profiler_tensor[0] = ((uint64_t)num_groups << 32) | num_blocks`` from
 block 0 / ``threadIdx.x == 0``, and seeds this lane's cursor to ``1 +
 BLOCK_GROUP_IDX`` and tag to ``BLOCK_GROUP_IDX << 12``. ``start`` writes the record
 (``event_bits = (event << 2) | 0``) then ``__threadfence_block()``; ``end`` fences
@@ -304,7 +304,7 @@ brackets the region's memory traffic, and why the markers perturb the kernel.
 Usage notes and caveats
 -----------------------
 
-* **Zero the buffer before the launch.** The decoder treats ``0`` as "empty" and
+* **Zero the tensor before the launch.** The decoder treats ``0`` as "empty" and
   reads the grid shape from slot 0, which only block 0 / thread 0 writes.
 * **Exactly one leader per (block, group).** Each thread keeps its own cursor,
   initialized to ``1 + block_group``; two leaders in the same lane write the same
@@ -312,7 +312,7 @@ Usage notes and caveats
   warp.
 * **Call ``init`` once, before any ``start``.** It seeds each thread's tag and
   cursor; without it both are garbage.
-* **Size ``write_stride`` and the buffer together.** The largest slot a lane
+* **Size ``write_stride`` and the tensor together.** The largest slot a lane
   touches is ``1 + block_group + (records_per_lane - 1) * write_stride``;
   over-allocate, unused slots stay ``0`` and are skipped.
 * **``%globaltimer_lo`` is only the low 32 bits of the nanosecond timer.** It wraps

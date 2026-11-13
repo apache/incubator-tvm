@@ -17,20 +17,21 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 # ruff: noqa: E501, F841
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.postproc import RewriteParallelVectorizeUnroll
 from tvm.s_tir.schedule import Schedule
 from tvm.s_tir.schedule.testing import assert_structural_equal_ignore_global_symbol
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=invalid-name,no-member,line-too-long,too-many-nested-blocks,no-self-argument,not-callable,misplaced-comparison-constant
 # fmt: off
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Move_PUV:
-    @Ts.prim_func
-    def main(A: T.Buffer([1024, 1024, 1024], dtype='float32'), B: T.Buffer([1024, 1024, 1024], dtype='float32')) -> None:
+    @Ts.function
+    def main(A: T.Tensor([1024, 1024, 1024], dtype='float32'), B: T.Tensor([1024, 1024, 1024], dtype='float32')) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main"})
 
@@ -47,8 +48,8 @@ class Move_PUV:
                     Ts.writes([B[vi, vj, vk]])
                     B[vi, vj, vk] = A[vi, vj, vk]
 
-@Ts.prim_func
-def Move_PUV0(A: T.Buffer([1024, 1024, 1024], dtype='float32'), B: T.Buffer([1024, 1024, 1024], dtype='float32')) -> None:
+@Ts.function
+def Move_PUV0(A: T.Tensor([1024, 1024, 1024], dtype='float32'), B: T.Tensor([1024, 1024, 1024], dtype='float32')) -> None:
     # function attr dict
     T.func_attr({"global_symbol": "main"})
 
@@ -70,10 +71,10 @@ def Move_PUV0(A: T.Buffer([1024, 1024, 1024], dtype='float32'), B: T.Buffer([102
                         Ts.writes([B[vi, vj, vk]])
                         B[vi, vj, vk] = A[vi, vj, vk]
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Fused_NN_Dense:
-    @Ts.prim_func
-    def main(placeholder: T.Buffer((64, 768), "float32"), placeholder_1: T.Buffer((768, 768), "float32"), T_matmul_NT: T.Buffer((64, 768), "float32")) -> None:
+    @Ts.function
+    def main(placeholder: T.Tensor((64, 768), "float32"), placeholder_1: T.Tensor((768, 768), "float32"), T_matmul_NT: T.Tensor((64, 768), "float32")) -> None:
         for i0, i1, i2 in T.grid(64, 768, 768):
             with Ts.sblock("T_matmul_NT"):
                 i, j, k = Ts.axis.remap("SSR", [i0, i1, i2])
@@ -83,17 +84,17 @@ class Fused_NN_Dense:
                     T_matmul_NT[i, j] = T.float32(0)
                 T_matmul_NT[i, j] = T_matmul_NT[i, j] + placeholder[i, k] * placeholder_1[j, k]
 
-@Ts.prim_func
+@Ts.function
 def before_matmul_vectorize(
-    placeholder: T.Buffer((64, 768), "float32"),
-    placeholder_1: T.Buffer((768, 768), "float32"),
-    T_matmul_NT: T.Buffer((64, 768), "float32"),
+    placeholder: T.Tensor((64, 768), "float32"),
+    placeholder_1: T.Tensor((768, 768), "float32"),
+    T_matmul_NT: T.Tensor((64, 768), "float32"),
 ) -> None:
     with Ts.sblock("root"):
         Ts.reads()
         Ts.writes()
         Ts.sblock_attr({"meta_schedule.vectorize":64})
-        T_matmul_NT_global = Ts.sblock_alloc_buffer([64, 768], dtype="float32")
+        T_matmul_NT_global = Ts.sblock_alloc_tensor([64, 768], dtype="float32")
         for i0_0, i1_0, i0_1, i1_1 in T.grid(1, 16, 1, 3):
             for i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(48, 8, 1, 16, 8, 16):
                 with Ts.sblock("T_matmul_NT"):
@@ -113,13 +114,13 @@ def before_matmul_vectorize(
                     Ts.writes(T_matmul_NT[v0, v1])
                     T_matmul_NT[v0, v1] = T_matmul_NT_global[v0, v1]
 
-@Ts.prim_func
+@Ts.function
 def after_matmul_vectorize(
-    placeholder: T.Buffer((64, 768), "float32"),
-    placeholder_1: T.Buffer((768, 768), "float32"),
-    T_matmul_NT: T.Buffer((64, 768), "float32"),
+    placeholder: T.Tensor((64, 768), "float32"),
+    placeholder_1: T.Tensor((768, 768), "float32"),
+    T_matmul_NT: T.Tensor((64, 768), "float32"),
 ) -> None:
-    T_matmul_NT_global = Ts.sblock_alloc_buffer([64, 768], dtype="float32")
+    T_matmul_NT_global = Ts.sblock_alloc_tensor([64, 768], dtype="float32")
     for i0_0, i1_0, i0_1, i1_1 in T.grid(1, 16, 1, 3):
         for i2_0, i0_2, i1_2, i2_1, i0_3 in T.grid(48, 8, 1, 16, 8):
             for i1_3_fused in T.vectorized(16):
@@ -141,11 +142,11 @@ def after_matmul_vectorize(
                     Ts.writes(T_matmul_NT[v0, v1])
                     T_matmul_NT[v0, v1] = T_matmul_NT_global[v0, v1]
 
-@Ts.prim_func
+@Ts.function
 def before_postproc_add(
-    lhs: T.Buffer((1, 8, 56, 56, 32), "uint8"),
-    rhs: T.Buffer((1, 8, 56, 56, 32), "uint8"),
-    add_compute: T.Buffer((1, 8, 56, 56, 32), "uint8"),
+    lhs: T.Tensor((1, 8, 56, 56, 32), "uint8"),
+    rhs: T.Tensor((1, 8, 56, 56, 32), "uint8"),
+    add_compute: T.Tensor((1, 8, 56, 56, 32), "uint8"),
 ) -> None:
     with Ts.sblock("root"):
         Ts.sblock_attr({"meta_schedule.parallel":64, "meta_schedule.vectorize":128})
@@ -156,11 +157,11 @@ def before_postproc_add(
                 Ts.writes(add_compute[v0, v1, v2, v3, v4])
                 add_compute[v0, v1, v2, v3, v4] = lhs[v0, v1, v2, v3, v4] + rhs[v0, v1, v2, v3, v4]
 
-@Ts.prim_func
+@Ts.function
 def after_postproc_add(
-    lhs: T.Buffer((1, 8, 56, 56, 32), "uint8"),
-    rhs: T.Buffer((1, 8, 56, 56, 32), "uint8"),
-    add_compute: T.Buffer((1, 8, 56, 56, 32), "uint8"),
+    lhs: T.Tensor((1, 8, 56, 56, 32), "uint8"),
+    rhs: T.Tensor((1, 8, 56, 56, 32), "uint8"),
+    add_compute: T.Tensor((1, 8, 56, 56, 32), "uint8"),
 ) -> None:
     with Ts.sblock("root"):
         for n_c0_h_w_c1_fused_0 in T.parallel(0, 6272):
@@ -177,10 +178,10 @@ def after_postproc_add(
 
 n = T.dynamic("n")
 
-@Ts.prim_func
+@Ts.function
 def before_postproc_dynamic_shape_vectorize(
-    A: T.Buffer((n,), dtype='float32'),
-    B: T.Buffer((n,), dtype='float32'),
+    A: T.Tensor((n,), dtype='float32'),
+    B: T.Tensor((n,), dtype='float32'),
 ) -> None:
 
     with Ts.sblock("root"):
@@ -201,7 +202,7 @@ def test_meta_schedule_postproc_rewrite_parallel_unroll_vectorize():
     sch = Schedule(Move_PUV)
     assert postproc.apply(sch)
     mod = tvm.s_tir.transform.StmtSimplify()(sch.mod)
-    tvm.ir.assert_structural_equal(mod["main"], Move_PUV0)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], Move_PUV0)
 
 
 def test_vectorize_inner_loop():
@@ -220,12 +221,12 @@ def test_parallel_vectorize_add():
 
 def test_no_unroll_for_spatial_block():
     # fmt: off
-    @Ts.prim_func
-    def layer_norm(A: T.Buffer((1, 4, 4, 32), "float32"), B: T.Buffer((4, 4, 32), "float32"), C: T.Buffer((4, 4, 32), "float32"), T_layer_norm: T.Buffer((1, 4, 4, 32), "float32")):
+    @Ts.function
+    def layer_norm(A: T.Tensor((1, 4, 4, 32), "float32"), B: T.Tensor((4, 4, 32), "float32"), C: T.Tensor((4, 4, 32), "float32"), T_layer_norm: T.Tensor((1, 4, 4, 32), "float32")):
         with Ts.sblock("root"):
             Ts.sblock_attr({"meta_schedule.unroll_explicit": 512})
-            A_red_temp_v0 = Ts.sblock_alloc_buffer((1,))
-            A_red_temp_v1 = Ts.sblock_alloc_buffer((1,))
+            A_red_temp_v0 = Ts.sblock_alloc_tensor((1,))
+            A_red_temp_v1 = Ts.sblock_alloc_tensor((1,))
             for ax0, k1, k2, k3 in T.grid(1, 4, 4, 32):
                 with Ts.sblock("A_red_temp"):
                     v_ax0, v_k1, v_k2, v_k3 = Ts.axis.remap("SRRR", [ax0, k1, k2, k3])
@@ -245,12 +246,12 @@ def test_no_unroll_for_spatial_block():
                     Ts.writes(T_layer_norm[v_ax0, v_ax1, v_ax2, v_ax3])
                     T_layer_norm[v_ax0, v_ax1, v_ax2, v_ax3] = (A[v_ax0, v_ax1, v_ax2, v_ax3] - A_red_temp_v0[v_ax0] * T.float32(0.001953125)) * T.rsqrt(A_red_temp_v1[v_ax0] * T.float32(0.001953125) - A_red_temp_v0[v_ax0] * T.float32(0.001953125) * (A_red_temp_v0[v_ax0] * T.float32(0.001953125)) + T.float32(1.0000000000000001e-05)) * B[v_ax1, v_ax2, v_ax3] + C[v_ax1, v_ax2, v_ax3]
 
-    @Ts.prim_func
-    def expected(A: T.Buffer((1, 4, 4, 32), "float32"), B: T.Buffer((4, 4, 32), "float32"), C: T.Buffer((4, 4, 32), "float32"), T_layer_norm: T.Buffer((1, 4, 4, 32), "float32")):
+    @Ts.function
+    def expected(A: T.Tensor((1, 4, 4, 32), "float32"), B: T.Tensor((4, 4, 32), "float32"), C: T.Tensor((4, 4, 32), "float32"), T_layer_norm: T.Tensor((1, 4, 4, 32), "float32")):
         with Ts.sblock("root"):
-            A_red_temp_v0 = Ts.sblock_alloc_buffer((1,))
-            A_red_temp_v1 = Ts.sblock_alloc_buffer((1,))
-            for ax0 in T.serial(1, annotations={"pragma_auto_unroll_max_step": 512, "pragma_unroll_explicit": 1}):
+            A_red_temp_v0 = Ts.sblock_alloc_tensor((1,))
+            A_red_temp_v1 = Ts.sblock_alloc_tensor((1,))
+            for ax0 in T.serial(1, annotations={"tirx.auto_unroll_max_step": 512, "tirx.unroll_explicit": 1}):
                 for k1, k2, k3 in T.grid(4, 4, 32):
                     with Ts.sblock("A_red_temp"):
                         v_ax0 = Ts.axis.spatial(1, 0)
@@ -287,4 +288,4 @@ def test_rewrite_parallel_vectorize_unroll_dynamic_shape_no_crash():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

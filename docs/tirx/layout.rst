@@ -110,9 +110,9 @@ axis ``a_t`` — yielding the set ``L(x)``:
 
 When a shape's total size equals ``∏_k e_k``, flattening and splitting covers
 the complete shard coordinate space exactly once; the same layout can therefore
-be reshaped to any dimensions with that total size. ``CompatibleWithShape``
-does not currently enforce this equality, so authors must avoid combinations
-whose logical extent would run beyond the intended shard coordinate space.
+be reshaped to any dimensions with that total size. Choose the tensor shape
+and layout together so logical indices stay within the intended shard
+coordinate space.
 
 Case study: NVIDIA tensor-core tile
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -254,7 +254,7 @@ scale-factor group feeds all four warps. The atom is then direct-summed with an
 outer over ``(M rows, K scale-factor groups)``, packing ``epc = 32 / SF_bits``
 scale factors into each 32-bit ``TCol`` cell (e.g. four fp8 ``e8m0`` SFs per cell);
 optional stride-0 ``reuse`` and outer ``pipe_depth`` iters express SF reuse across
-MMAs and double-buffering. So the one ``TileLayout`` model expresses both the
+MMAs and double-tensoring. So the one ``TileLayout`` model expresses both the
 accumulator (a pure placement, no replica) and its scale factors (a replicated,
 routed placement) in the same tensor-memory address space.
 
@@ -327,8 +327,8 @@ their 64 logical rows according to
 
 Thus C/F with ``sub_slab=0`` and ``sub_slab=1`` can describe lower- and
 upper-half aliases of the same 128-row Layout D allocation. The
-``tcgen05_ldst`` copy dispatch recognizes the layout and emits the matching
-``row=0`` or ``row=16`` instruction. Layout D already occupies both halves,
+explicit TMEM pattern validates the selected row slab and emits its
+``row=0`` or ``row=16`` address. Layout D already occupies both halves,
 so a nonzero ``sub_slab`` is rejected.
 
 Layout B is the per-CTA accumulator placement for an M=64
@@ -345,17 +345,14 @@ across the two 64-lane halves:
 
 Thus the tile occupies all 128 lanes and ``N/2`` tensor-memory columns, the
 same physical footprint as Layout D ``(128, N/2)``. ``N`` must be even and
-Layout B does not accept ``sub_slab``. Its register image uses the existing
-fragment API:
-
-.. code-block:: python
-
-    frag = Tx.alloc_tcgen05_ldst_frag("32x32b", (64, N), "float32")
-    Tx.tile.wg.copy_async(frag[:, :], paired_accumulator[:, :])
-    Tx.ptx.tcgen05.wait__ld.sync.aligned()
-
-The logical ``(64, N)`` fragment is one physical ``.32x32b`` transfer over
-all 128 lanes; each thread owns ``N/2`` contiguous fp32 registers.
+Layout B does not accept ``sub_slab``. Its logical
+``(64, N)`` register fragment has ``N/2`` values per thread. To load it,
+expose the physical slab as ``(4, 32, N/2)``: the leading axis selects a
+warp, and the remaining axes describe rows and words. Choose an explicit
+``tcgen05.ld.32x32b.xN`` width and split the word axis into repetitions of
+that width. The matching register and TMEM patterns are documented in
+:doc:`cuda_tile_patterns`; the caller issues ``tcgen05.wait::ld`` before
+using the loaded registers.
 
 Beyond GPU registers
 ~~~~~~~~~~~~~~~~~~~~~~
@@ -475,7 +472,7 @@ Design rationale
 ----------------
 
 - **General shape support.** Non-power-of-two shapes are common — in global
-  tensors, multi-stage shared-memory buffers, and capacity-limited on-chip
+  tensors, multi-stage shared-memory tensors, and capacity-limited on-chip
   scratchpads — so the layout supports general shapes directly rather than as a
   special case.
 - **Logical-to-physical mapping.** The map goes from logical coordinates to a set
@@ -486,5 +483,5 @@ Design rationale
   itself, so an expression is unambiguous without external context. For instance
   ``1@tid`` (block-wide thread id) and ``1@tid_in_wg`` (thread id within a
   warpgroup) are distinct rather than a generic ``t`` whose meaning depends on the
-  definition site. Legality and feasibility checks are left to tile primitive
+  definition site. Legality and feasibility checks are left to tile op
   dispatch.

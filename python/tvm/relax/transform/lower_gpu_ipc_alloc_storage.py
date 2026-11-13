@@ -18,18 +18,18 @@
 The pass is written in Python for experiment, fast development.
 """
 
-import tvm
+import tvm_tirx
 from tvm import relax
-from tvm.ir.module import IRModule
 from tvm.relax.expr import Expr
 from tvm.relax.expr_functor import PyExprMutator, mutator
+from tvm_tirx.ir.module import IRModule
 
 
-@tvm.transform.module_pass(opt_level=0, name="LowerGPUIPCAllocStorage")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="LowerGPUIPCAllocStorage")
 class LowerGPUIPCAllocStorage:
     """Lower the storage/tensor allocation on IPC memory."""
 
-    def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
+    def transform_module(self, mod: IRModule, _ctx: tvm_tirx.ir.transform.PassContext) -> IRModule:
         """IRModule-level transformation"""
         return _Rewriter(mod).transform()
 
@@ -39,9 +39,9 @@ class _Rewriter(PyExprMutator):
     def __init__(self, mod: IRModule) -> None:
         super().__init__(mod)
         self.mod = mod
-        self.memory_alloc_storage_op = tvm.ir.Op.get("relax.memory.alloc_storage")
-        self.memory_alloc_tensor_op = tvm.ir.Op.get("relax.memory.alloc_tensor")
-        self.builtin_alloc_tensor_op = tvm.ir.Op.get("relax.builtin.alloc_tensor")
+        self.memory_alloc_storage_op = tvm_tirx.ir.Op.get("relax.memory.alloc_storage")
+        self.memory_alloc_tensor_op = tvm_tirx.ir.Op.get("relax.memory.alloc_tensor")
+        self.builtin_alloc_tensor_op = tvm_tirx.ir.Op.get("relax.builtin.alloc_tensor")
 
     def transform(self) -> IRModule:
         """Entry point"""

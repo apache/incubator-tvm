@@ -51,9 +51,9 @@
 
 #include <tvm/ffi/cast.h>
 #include <tvm/relax/analysis.h>
-#include <tvm/relax/attrs/manipulate.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
+#include <tvm/relax/op/manipulate.h>
 
 #include "../op/tensor/linear_algebra.h"
 #include "../op/tensor/manipulate.h"
@@ -80,7 +80,7 @@ class GradientSimplifier : private ExprMutator {
   }
 
  private:
-  static bool IsTransposeOp(const CallNode* call_node) {
+  static bool IsTransposeOp(const CallObj* call_node) {
     if (!call_node->op.same_as(Op::Get("relax.permute_dims"))) {
       return false;
     }
@@ -126,23 +126,23 @@ class GradientSimplifier : private ExprMutator {
   // permute_dims op
   // Else, return permute_dims(expr)
   Expr GetTransposeAccordingToCtx(const Expr& expr) {
-    if (!expr->IsInstance<VarNode>()) {
+    if (!expr->IsInstance<VarObj>()) {
       return GetTransposeOf(expr);
     }
     auto prev_expr = builder_->LookupBinding(expr.as_or_throw<Var>());
-    if (!prev_expr || !prev_expr.value()->IsInstance<CallNode>()) {
+    if (!prev_expr || !prev_expr.value()->IsInstance<CallObj>()) {
       return GetTransposeOf(expr);
     }
-    auto prev_call_node = prev_expr.as<CallNode>();
+    auto prev_call_node = prev_expr.as<CallObj>();
     if (!IsTransposeOp(prev_call_node)) {
       return GetTransposeOf(expr);
     }
     return prev_call_node->args[0];
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call_node) {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call_node) {
     auto result = ExprMutator::VisitExpr(ffi::GetRef<Expr>(call_node));
-    auto new_call_node = result.as<CallNode>();
+    auto new_call_node = result.as<CallObj>();
     auto reemit_and_return = [&]() {
       ReEmitBinding(binding, result);
       return;
@@ -153,20 +153,20 @@ class GradientSimplifier : private ExprMutator {
     }
 
     auto arg = new_call_node->args[0];
-    if (!arg->IsInstance<VarNode>()) {
+    if (!arg->IsInstance<VarObj>()) {
       return reemit_and_return();
     }
 
     auto prev_expr = builder_->LookupBinding(arg.as_or_throw<Var>());
-    if (!prev_expr || !prev_expr.value()->IsInstance<CallNode>()) {
+    if (!prev_expr || !prev_expr.value()->IsInstance<CallObj>()) {
       return reemit_and_return();
     }
 
-    auto prev_call_node = prev_expr.as<CallNode>();
+    auto prev_call_node = prev_expr.as<CallObj>();
     if (IsTransposeOp(prev_call_node)) {
       // rewrite rule #1: permute_dims(permute_dims(a)) -> a
-      if (prev_call_node->args[0]->IsInstance<VarNode>()) {
-        var_remap_[binding->var] = prev_call_node->args[0].as_or_throw<Var>();
+      if (prev_call_node->args[0]->IsInstance<VarObj>()) {
+        var_remap_.insert_or_assign(binding->var, prev_call_node->args[0].as_or_throw<Var>());
         return;
       } else {
         return reemit_and_return();

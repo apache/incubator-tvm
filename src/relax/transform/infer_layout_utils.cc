@@ -26,7 +26,7 @@
 namespace tvm {
 namespace relax {
 
-using tirx::IterVar;
+using s_tir::IterVar;
 using tirx::SLayout;
 
 std::string TransposeSubLayoutStrLike(const std::string ref_str, const std::string& src_str,
@@ -52,30 +52,38 @@ std::string TransposeSubLayoutStrLike(const std::string ref_str, const std::stri
   return out;
 }
 
-SLayout TransposeSubLayoutLike(const SLayout& ref, const SLayout& src, const SLayout& desired) {
+ffi::Optional<SLayout> TransposeSubLayoutLike(const SLayout& ref, const SLayout& src,
+                                              const SLayout& desired) {
   std::string ref_str = ref.name();
   std::string src_str = src.name();
   std::string desired_str = desired.name();
   std::string out = TransposeSubLayoutStrLike(ref_str, src_str, desired_str);
-  return SLayout(out);
+  return SLayout::Create(out);
 }
 
-SLayout TransposeLike(const SLayout& input, const SLayout& src, const SLayout& dst) {
-  TVM_FFI_ICHECK(src.ndim() == dst.ndim() && input.ndim() == src.ndim())
+SLayout TransposeLike(const ffi::Optional<SLayout>& input, const ffi::Optional<SLayout>& src,
+                      const ffi::Optional<SLayout>& dst) {
+  size_t src_ndim = src.has_value() ? src.value().ndim() : 0;
+  size_t dst_ndim = dst.has_value() ? dst.value().ndim() : 0;
+  size_t input_ndim = input.has_value() ? input.value().ndim() : 0;
+  TVM_FFI_ICHECK(src_ndim == dst_ndim && input_ndim == src_ndim)
       << "Layouts must have the same size";
-  std::vector<IterVar> axes;
-  for (size_t i = 0; i < src.ndim(); ++i) {
-    axes.push_back(input->axes[src.IndexOf(dst[i])]);
+  std::vector<s_tir::IterVar> axes;
+  for (size_t i = 0; i < src_ndim; ++i) {
+    axes.push_back(input.value()->axes[src.value().IndexOf(dst.value()[i])]);
   }
   return SLayout(axes);
 }
 
-ffi::String TransposeStrLike(const ffi::String& input, const SLayout& src, const SLayout& dst) {
-  TVM_FFI_ICHECK(src.ndim() == dst.ndim() && input.size() == src.ndim())
+ffi::String TransposeStrLike(const ffi::String& input, const ffi::Optional<SLayout>& src,
+                             const ffi::Optional<SLayout>& dst) {
+  size_t src_ndim = src.has_value() ? src.value().ndim() : 0;
+  size_t dst_ndim = dst.has_value() ? dst.value().ndim() : 0;
+  TVM_FFI_ICHECK(src_ndim == dst_ndim && input.size() == src_ndim)
       << "Layouts must have the same size";
   std::string axes;
-  for (size_t i = 0; i < src.ndim(); ++i) {
-    axes.push_back(input.at(src.IndexOf(dst[i])));
+  for (size_t i = 0; i < src_ndim; ++i) {
+    axes.push_back(input.at(src.value().IndexOf(dst.value()[i])));
   }
   return axes;
 }
@@ -91,7 +99,7 @@ int FindAxis(const SLayout& dst, int axis) {
 
 SLayout InitialLayout(int ndim) {
   TVM_FFI_ICHECK(ndim >= 0 && ndim <= 26) << "Only support up to 26 dimensions, but got " << ndim;
-  return SLayout("ABCDEFGHIJKLMNOPQRSTUVWXYZ").SubLayout(0, ndim);
+  return SLayout("ABCDEFGHIJKLMNOPQRSTUVWXYZ").SubLayout(0, ndim).value();
 }
 
 LayoutDecision InitialLayoutDecision(int ndim) {
@@ -99,12 +107,12 @@ LayoutDecision InitialLayoutDecision(int ndim) {
     return LayoutDecision::InitUnknownDim();
   }
   TVM_FFI_ICHECK(ndim >= 0 && ndim <= 26) << "Only support up to 26 dimensions, but got " << ndim;
-  return SLayout("ABCDEFGHIJKLMNOPQRSTUVWXYZ").SubLayout(0, ndim);
+  return SLayout("ABCDEFGHIJKLMNOPQRSTUVWXYZ").SubLayout(0, ndim).value();
 }
 
 NLayout InitialNLayout(const Type& ty) {
   auto fmapleaf = [&](const Type& ty) -> NLayout {
-    if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
       return NLayout(InitialLayoutDecision(tensor_ty->ndim));
     }
     return LayoutDecision::InitUnknownDim();
@@ -122,16 +130,16 @@ LayoutDecision GetLayoutDecision(const VarLayoutMap& var_layout_map, const Expr&
 
 NLayout GetNLayout(const VarLayoutMap& var_layout_map, const Expr& arg) {
   auto fmapleaf = [&](const Expr& expr) -> NLayout {
-    if (const auto* var = expr.as<VarNode>()) {
+    if (const auto* var = expr.as<VarObj>()) {
       auto it = var_layout_map.find(ffi::GetRef<Var>(var));
       if (it != var_layout_map.end()) {
         return (*it).second;
       } else {
         return InitialNLayout(expr);
       }
-    } else if (const auto* constant = expr.as<GenericConstNode>();
-               constant && constant->value.as<runtime::Tensor>()) {
-      return InitialLayoutDecision(constant->value.cast<runtime::Tensor>().Shape().size());
+    } else if (const auto* constant = expr.as<GenericConstObj>();
+               constant && constant->value.as<ffi::TensorObj>()) {
+      return InitialLayoutDecision(constant->value.cast<ffi::Tensor>().shape().size());
     }
     return LayoutDecision::InitUnknownDim();
   };
@@ -140,14 +148,14 @@ NLayout GetNLayout(const VarLayoutMap& var_layout_map, const Expr& arg) {
 
 bool NoDesiredLayout(const Call& call,
                      const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts) {
-  const OpNode* op_node = call->op.as<OpNode>();
+  const OpObj* op_node = call->op.as<OpObj>();
   if (op_node == nullptr) return false;
   const auto& it = desired_layouts.find(op_node->name);
   return it == desired_layouts.end();
 }
 
 LayoutDecision FollowDecision(const LayoutDecision& src, int dst_ndim) {
-  int src_ndim = src->layout.ndim();
+  int src_ndim = (src->layout.has_value() ? src->layout.value().ndim() : 0);
   // broadcast case
   if (src_ndim == dst_ndim) {
     return src;
@@ -156,15 +164,16 @@ LayoutDecision FollowDecision(const LayoutDecision& src, int dst_ndim) {
         << "Cannot broadcast from " << src_ndim << " to " << dst_ndim;
     std::string layout = InitialLayout(dst_ndim - src_ndim).name();
     for (int i = 0; i < src_ndim; ++i) {
-      layout.push_back(src->layout.name()[i] + dst_ndim - src_ndim);
+      layout.push_back((src->layout.has_value() ? src->layout.value().name() : "__undef__")[i] +
+                       dst_ndim - src_ndim);
     }
-    return LayoutDecision(SLayout(layout));
+    return LayoutDecision(SLayout::Create(layout));
   }
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  LayoutDecisionNode::RegisterReflection();
-  InferLayoutOutputNode::RegisterReflection();
+  LayoutDecisionObj::RegisterReflection();
+  InferLayoutOutputObj::RegisterReflection();
 }
 
 }  // namespace relax

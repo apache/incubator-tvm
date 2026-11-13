@@ -41,16 +41,16 @@ static ffi::Array<s_tir::LoopRV> ScheduleDataPack(s_tir::Schedule sch, s_tir::SB
   using namespace tvm::tirx;
   TVM_FFI_ICHECK_EQ(tiled.size(), 2);
   TVM_FFI_ICHECK_EQ(unrolled.size(), 4);
-  ffi::Array<ExprRV> factors{ffi::UnsafeInit()};
+  ffi::Array<ffi::Optional<ExprRV>> factors{ffi::UnsafeInit()};
   ffi::Array<LoopRV> loops = sch->GetLoops(block);
   TVM_FFI_ICHECK_EQ(loops.size(), 6);
 
   factors = sch->SamplePerfectTile(loops[tiled[0]], /*n=*/2, /*max_innermost_factor=*/64);
-  ffi::Array<LoopRV> t0 = sch->Split(loops[tiled[0]], {factors.begin(), factors.end()});
+  ffi::Array<LoopRV> t0 = sch->Split(loops[tiled[0]], factors);
   TVM_FFI_ICHECK_EQ(t0.size(), 2);
 
   factors = sch->SamplePerfectTile(loops[tiled[1]], /*n=*/2, /*max_innermost_factor=*/64);
-  ffi::Array<LoopRV> t1 = sch->Split(loops[tiled[1]], {factors.begin(), factors.end()});
+  ffi::Array<LoopRV> t1 = sch->Split(loops[tiled[1]], factors);
   TVM_FFI_ICHECK_EQ(t1.size(), 2);
 
   sch->Unroll(loops[unrolled[0]]);
@@ -84,7 +84,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
              }
              {
                sch->ComputeAt(input_tile, /*loop_rv=*/loops.back(), /*preserve_unit_loops=*/true);
-               sch->SetScope(input_tile, /*buffer_index=*/0, /*storage_scope=*/"local");
+               sch->SetScope(input_tile, /*tensor_index=*/0, /*storage_scope=*/"local");
                sch->ComputeInline(data_pad);
              }
              {
@@ -134,7 +134,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
              }
              {
                sch->ComputeAt(input_tile, /*loop_rv=*/outer, /*preserve_unit_loops=*/true);
-               sch->SetScope(input_tile, /*buffer_index=*/0, /*storage_scope=*/"local");
+               sch->SetScope(input_tile, /*tensor_index=*/0, /*storage_scope=*/"local");
                sch->ComputeInline(data_pad);
              }
              return {sch};
@@ -146,8 +146,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
             // loops on top of the inverse block: [CO, P, tile_size, tile_size, alpha, alpha]
             ffi::BigInt tile_size = sch->Get(inverse)
                                         ->writes[0]
-                                        ->source.as_or_throw<tvm::tirx::BufferVar>()
-                                        ->shape[2]
+                                        ->source.as_or_throw<tvm::tirx::TensorVar>()
+                                        .shape()[2]
                                         .as_or_throw<IntImm>()
                                         ->value;
             LoopRV outer{ffi::UnsafeInit()};
@@ -162,7 +162,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
             }
             {
               sch->ComputeAt(inverse, /*loop_rv=*/outer, /*preserve_unit_loops=*/true);
-              sch->SetScope(inverse, /*buffer_index=*/0, /*storage_scope=*/"local");
+              sch->SetScope(inverse, /*tensor_index=*/0, /*storage_scope=*/"local");
               ffi::Array<LoopRV> loops = sch->GetLoops(inverse);
               TVM_FFI_ICHECK_EQ(loops.size(), 10);
               sch->Unroll(loops[6]);

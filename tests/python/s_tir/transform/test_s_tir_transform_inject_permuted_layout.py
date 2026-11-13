@@ -14,340 +14,59 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# ruff: noqa: E501, E741
+import pytest
+
 import tvm
-import tvm.s_tir
-import tvm.testing
-from tvm import IRModule
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.tirx import PrimFunc
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 
-def _check_primfunc_transform(before: PrimFunc, expected: PrimFunc):
-    before_module = IRModule.from_expr(before)
-    after_module = tvm.s_tir.transform.InjectPermutedLayout()(before_module)
+@pytest.mark.parametrize("columns", [32, 64])
+@pytest.mark.parametrize("scope", ["shared", "shared.dyn"])
+@pytest.mark.parametrize("annotation", [1, "g2s_A"])
+def test_permute_shared_tensor_accesses(columns, scope, annotation):
+    @Ts.function
+    def before(A: T.Tensor((8, columns), "float16"), B: T.Tensor((8, columns), "float16")):
+        shared = Ts.sblock_alloc_tensor((8, columns), "float16", scope=scope)
+        for i, j in T.grid(8, columns):
+            with Ts.sblock("load"):
+                vi, vj = Ts.axis.remap("SS", [i, j])
+                Ts.sblock_attr({"permuted_layout": annotation})
+                shared[vi, vj] = A[vi, vj]
+        for i, j in T.grid(8, columns):
+            with Ts.sblock("store"):
+                vi, vj = Ts.axis.remap("SS", [i, j])
+                Ts.sblock_attr({"permuted_layout": annotation})
+                B[vi, vj] = shared[vi, vj]
 
-    after = after_module["before"].without_attr("global_symbol")
-    expected = expected.without_attr("global_symbol")
+    def permuted_column(i, j):
+        return T.bitwise_xor(j // 8, i // 2 if columns == 32 else i) * 8 + j % 8
 
-    tvm.ir.assert_structural_equal(after, expected)
+    @Ts.function
+    def expected(A: T.Tensor((8, columns), "float16"), B: T.Tensor((8, columns), "float16")):
+        shared = Ts.sblock_alloc_tensor((8, columns), "float16", scope=scope)
+        for i, j in T.grid(8, columns):
+            with Ts.sblock("load"):
+                vi, vj = Ts.axis.remap("SS", [i, j])
+                Ts.reads(A[vi, vj])
+                Ts.writes(shared[vi, vj])
+                shared[vi, permuted_column(vi, vj)] = A[vi, vj]
+        for i, j in T.grid(8, columns):
+            with Ts.sblock("store"):
+                vi, vj = Ts.axis.remap("SS", [i, j])
+                Ts.reads(shared[vi, vj])
+                Ts.writes(B[vi, vj])
+                B[vi, vj] = shared[vi, permuted_column(vi, vj)]
 
-
-# This pass is adapted from another previous pass, so we need to ensure backward compatibility here
-def test_backward_compatibility_shared_a():
-    # fmt: off
-    @Ts.prim_func
-    def before(X: T.Buffer((4096, 4096), "float16")):
-        # with Ts.sblock("root"):
-        for blockIdx_y in T.thread_binding(256, thread="blockIdx.y"):
-            for threadIdx_y in T.thread_binding(4, thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(32, thread="threadIdx.x"):
-                    with Ts.sblock(""):
-                        Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, threadIdx_x % 4 * 8:threadIdx_x % 4 * 8 + 4072])
-                        Ts.writes()
-                        for ax2_0_0 in range(128):
-                            with Ts.sblock(""):
-                                Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, ax2_0_0 * 32 + threadIdx_x % 4 * 8:ax2_0_0 * 32 + threadIdx_x % 4 * 8 + 8])
-                                Ts.writes()
-                                X_reindex_shared_dyn = Ts.sblock_alloc_buffer((128, 32), "float16", strides=(32, 1), scope="shared.dyn")
-                                with Ts.sblock("X_reindex_shared.dyn"):
-                                    Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, ax2_0_0 * 32 + threadIdx_x % 4 * 8:ax2_0_0 * 32 + threadIdx_x % 4 * 8 + 8])
-                                    Ts.writes(X_reindex_shared_dyn[threadIdx_y * 8 + threadIdx_x // 4:threadIdx_y * 8 + threadIdx_x // 4 + 97, threadIdx_x % 4 * 8:threadIdx_x % 4 * 8 + 8])
-                                    Ts.sblock_attr({"permuted_layout": "g2s_A"})
-                                    for ax0_ax1_fused_0 in range(4):
-                                        for ax0_ax1_fused_3 in T.vectorized(8):
-                                            X_reindex_shared_dyn[ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, threadIdx_x % 4 * 8 + ax0_ax1_fused_3] = X[blockIdx_y // 8 * 128 + ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, ax2_0_0 * 32 + threadIdx_x % 4 * 8 + ax0_ax1_fused_3]
-                                for ax2_0_1 in range(4):
-                                    with Ts.sblock(""):
-                                        Ts.reads(X_reindex_shared_dyn[threadIdx_y // 2 * 64:threadIdx_y // 2 * 64 + 64, ax2_0_1 * 8:ax2_0_1 * 8 + 8])
-                                        Ts.writes()
-                                        X_reindex_shared_dyn_m16n8k8_matrixA = Ts.sblock_alloc_buffer((64, 8), "float16", scope="m16n8k8.matrixA")
-                                        for ax0_0, ax1_0 in T.grid(2, 1):
-                                            with Ts.sblock("X_reindex_shared.dyn_m16n8k8.matrixA_o"):
-                                                Ts.reads(X_reindex_shared_dyn[threadIdx_y // 2 * 64 + ax0_0 * 32:threadIdx_y // 2 * 64 + ax0_0 * 32 + 32, ax2_0_1 * 8:ax2_0_1 * 8 + 8])
-                                                Ts.writes(X_reindex_shared_dyn_m16n8k8_matrixA[ax0_0 * 32:ax0_0 * 32 + 32, 0:8])
-                                                Ts.sblock_attr({"permuted_layout": "s2l_A"})
-                                                T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", X_reindex_shared_dyn_m16n8k8_matrixA.data, ax0_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), X_reindex_shared_dyn.data, threadIdx_y // 2 * 2048 + ax0_0 * 1024 + ax2_0_1 * 8, 1024, 1), threadIdx_x * 32)
-
-    @Ts.prim_func
-    def expected(X: T.Buffer((4096, 4096), "float16")):
-        for blockIdx_y in T.thread_binding(256, thread="blockIdx.y"):
-            for threadIdx_y in T.thread_binding(4, thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(32, thread="threadIdx.x"):
-                    with Ts.sblock(""):
-                        for ax2_0_0 in T.serial(128):
-                            with Ts.sblock(""):
-                                X_reindex_shared_dyn = Ts.sblock_alloc_buffer((128, 32), "float16", strides=(32, 1), scope="shared.dyn")
-                                with Ts.sblock("X_reindex_shared.dyn"):
-                                    # annotate the reads and writes because they cannot be inferred from tirx.bitwise_xor
-                                    Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, ax2_0_0 * 32 + threadIdx_x % 4 * 8:ax2_0_0 * 32 + threadIdx_x % 4 * 8 + 8])
-                                    Ts.writes(X_reindex_shared_dyn[threadIdx_y * 8 + threadIdx_x // 4:threadIdx_y * 8 + threadIdx_x // 4 + 97, threadIdx_x % 4 * 8:threadIdx_x % 4 * 8 + 8])
-                                    for ax0_ax1_fused_0 in range(4):
-                                        for ax0_ax1_fused_3 in T.vectorized(8):
-                                            X_reindex_shared_dyn[ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, T.bitwise_xor(threadIdx_x % 4, threadIdx_x // 8) * 8 + ax0_ax1_fused_3] = X[blockIdx_y // 8 * 128 + ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, ax2_0_0 * 32 + threadIdx_x % 4 * 8 + ax0_ax1_fused_3]
-                                for ax2_0_1 in T.serial(4):
-                                    with Ts.sblock(""):
-                                        X_reindex_shared_dyn_m16n8k8_matrixA = Ts.sblock_alloc_buffer((64, 8), "float16", scope="m16n8k8.matrixA")
-                                        for ax0_0, ax1_0 in T.grid(2, 1):
-                                            with Ts.sblock("X_reindex_shared.dyn_m16n8k8.matrixA_o"):
-                                                Ts.reads(X_reindex_shared_dyn[threadIdx_y // 2 * 64 + ax0_0 * 32:threadIdx_y // 2 * 64 + ax0_0 * 32 + 32, ax2_0_1 * 8:ax2_0_1 * 8 + 8])
-                                                Ts.writes(X_reindex_shared_dyn_m16n8k8_matrixA[ax0_0 * 32:ax0_0 * 32 + 32, 0:8])
-                                                T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", X_reindex_shared_dyn_m16n8k8_matrixA.data, ax0_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), X_reindex_shared_dyn.data, threadIdx_y // 2 * 2048 + ax0_0 * 1024 + threadIdx_x * 32 + T.bitwise_xor(ax2_0_1, threadIdx_x % 8 // 2) * 8, 1024, 1), 0)
-    # fmt: on
-    _check_primfunc_transform(before, expected)
-
-
-def test_backward_compatibility_shared_a_and_b():
-    # fmt: off
-    @Ts.prim_func
-    def before(X: T.Buffer((4096, 4096), "float16"), Y: T.Buffer((4096, 4096), "float16")):
-        for blockIdx_x in T.thread_binding(4, thread="blockIdx.x"):
-            for blockIdx_y in T.thread_binding(256, thread="blockIdx.y"):
-                for threadIdx_y in T.thread_binding(4, thread="threadIdx.y"):
-                    for threadIdx_x in T.thread_binding(32, thread="threadIdx.x"):
-                        with Ts.sblock(""):
-                            for ax2_0_0 in T.serial(128):
-                                with Ts.sblock(""):
-                                    X_reindex_shared_dyn = Ts.sblock_alloc_buffer((128, 32), "float16", strides=(32, 1), scope="shared.dyn")
-                                    Y_reindex_shared_dyn = Ts.sblock_alloc_buffer((32, 128), "float16", strides=(128, 1), scope="shared.dyn")
-                                    with Ts.sblock("X_reindex_shared.dyn"):
-                                        Ts.sblock_attr({"permuted_layout": "g2s_A"})
-                                        for ax0_ax1_fused_0 in range(4):
-                                            for ax0_ax1_fused_3 in T.vectorized(8):
-                                                X_reindex_shared_dyn[ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, threadIdx_x % 4 * 8 + ax0_ax1_fused_3] = X[blockIdx_y // 8 * 128 + ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, ax2_0_0 * 32 + threadIdx_x % 4 * 8 + ax0_ax1_fused_3]
-                                    with Ts.sblock("Y_reindex_shared.dyn"):
-                                        Ts.sblock_attr({"permuted_layout": "g2s_B"})
-                                        for ax0_ax1_fused_0 in range(4):
-                                            for ax0_ax1_fused_3 in T.vectorized(8):
-                                                Y_reindex_shared_dyn[ax0_ax1_fused_0 * 8 + threadIdx_y * 2 + threadIdx_x // 16, threadIdx_x % 16 * 8 + ax0_ax1_fused_3] = Y[ax2_0_0 * 32 + ax0_ax1_fused_0 * 8 + threadIdx_y * 2 + threadIdx_x // 16, blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8 + ax0_ax1_fused_3]
-                                    for ax2_0_1 in T.serial(4):
-                                        with Ts.sblock(""):
-                                            X_reindex_shared_dyn_m16n8k8_matrixA = Ts.sblock_alloc_buffer((64, 8), "float16", scope="m16n8k8.matrixA")
-                                            Y_reindex_shared_dyn_m16n8k8_matrixB = Ts.sblock_alloc_buffer((8, 64), "float16", scope="m16n8k8.matrixB")
-                                            for ax0_0, ax1_0 in T.grid(2, 1):
-                                                with Ts.sblock("X_reindex_shared.dyn_m16n8k8.matrixA_o"):
-                                                    Ts.reads(X_reindex_shared_dyn[threadIdx_y // 2 * 64 + ax0_0 * 32:threadIdx_y // 2 * 64 + ax0_0 * 32 + 32, ax2_0_1 * 8:ax2_0_1 * 8 + 8])
-                                                    Ts.writes(X_reindex_shared_dyn_m16n8k8_matrixA[ax0_0 * 32:ax0_0 * 32 + 32, 0:8])
-                                                    Ts.sblock_attr({"permuted_layout": "s2l_A"})
-                                                    T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", X_reindex_shared_dyn_m16n8k8_matrixA.data, ax0_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), X_reindex_shared_dyn.data, threadIdx_y // 2 * 2048 + ax0_0 * 1024 + ax2_0_1 * 8, 1024, 1), threadIdx_x * 32)
-                                            for ax0_0, ax1_0 in T.grid(1, 2):
-                                                with Ts.sblock("Y_reindex_shared.dyn_m16n8k8.matrixB_o"):
-                                                    Ts.reads(Y_reindex_shared_dyn[ax2_0_1 * 8:ax2_0_1 * 8 + 8, threadIdx_y % 2 * 64 + ax1_0 * 32:threadIdx_y % 2 * 64 + ax1_0 * 32 + 32])
-                                                    Ts.writes(Y_reindex_shared_dyn_m16n8k8_matrixB[0:8, ax1_0 * 32:ax1_0 * 32 + 32])
-                                                    Ts.sblock_attr({"permuted_layout": "s2l_B"})
-                                                    T.ptx_legacy.ldmatrix("float16", T.bool(True), 4, ".b16", Y_reindex_shared_dyn_m16n8k8_matrixB.data, ax1_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), Y_reindex_shared_dyn.data, ax2_0_1 * 1024 + threadIdx_y % 2 * 64 + ax1_0 * 32, 1024, 1), threadIdx_x % 8 * 128 + threadIdx_x // 8 * 8)
-
-    @Ts.prim_func
-    def expected(X: T.Buffer((4096, 4096), "float16"), Y: T.Buffer((4096, 4096), "float16")):
-        for blockIdx_x in T.thread_binding(4, thread="blockIdx.x"):
-            for blockIdx_y in T.thread_binding(256, thread="blockIdx.y"):
-                for threadIdx_y in T.thread_binding(4, thread="threadIdx.y"):
-                    for threadIdx_x in T.thread_binding(32, thread="threadIdx.x"):
-                        with Ts.sblock(""):
-                            Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, threadIdx_x % 4 * 8:threadIdx_x % 4 * 8 + 4072], Y[threadIdx_y * 2 + threadIdx_x // 16:threadIdx_y * 2 + threadIdx_x // 16 + 4089, blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8:blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8 + 8])
-                            Ts.writes()
-                            for ax2_0_0 in T.serial(128):
-                                with Ts.sblock(""):
-                                    Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, ax2_0_0 * 32 + threadIdx_x % 4 * 8:ax2_0_0 * 32 + threadIdx_x % 4 * 8 + 8], Y[ax2_0_0 * 32 + threadIdx_y * 2 + threadIdx_x // 16:ax2_0_0 * 32 + threadIdx_y * 2 + threadIdx_x // 16 + 25, blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8:blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8 + 8])
-                                    Ts.writes()
-                                    X_reindex_shared_dyn = Ts.sblock_alloc_buffer((128, 32), "float16", strides=(32, 1), scope="shared.dyn")
-                                    Y_reindex_shared_dyn = Ts.sblock_alloc_buffer((32, 128), "float16", strides=(128, 1), scope="shared.dyn")
-                                    with Ts.sblock("X_reindex_shared.dyn"):
-                                        Ts.reads(X[blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4:blockIdx_y // 8 * 128 + threadIdx_y * 8 + threadIdx_x // 4 + 97, ax2_0_0 * 32 + threadIdx_x % 4 * 8:ax2_0_0 * 32 + threadIdx_x % 4 * 8 + 8])
-                                        Ts.writes(X_reindex_shared_dyn[threadIdx_y * 8 + threadIdx_x // 4:threadIdx_y * 8 + threadIdx_x // 4 + 97, threadIdx_x % 4 * 8:threadIdx_x % 4 * 8 + 8])
-                                        for ax0_ax1_fused_0 in range(4):
-                                            for ax0_ax1_fused_3 in T.vectorized(8):
-                                                X_reindex_shared_dyn[ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, T.bitwise_xor(threadIdx_x % 4, threadIdx_x // 8) * 8 + ax0_ax1_fused_3] = X[blockIdx_y // 8 * 128 + ax0_ax1_fused_0 * 32 + threadIdx_y * 8 + threadIdx_x // 4, ax2_0_0 * 32 + threadIdx_x % 4 * 8 + ax0_ax1_fused_3]
-                                    with Ts.sblock("Y_reindex_shared.dyn"):
-                                        Ts.reads(Y[ax2_0_0 * 32 + threadIdx_y * 2 + threadIdx_x // 16:ax2_0_0 * 32 + threadIdx_y * 2 + threadIdx_x // 16 + 25, blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8:blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8 + 8])
-                                        Ts.writes(Y_reindex_shared_dyn[threadIdx_y * 2 + threadIdx_x // 16:threadIdx_y * 2 + threadIdx_x // 16 + 25, threadIdx_x % 16 * 8:threadIdx_x % 16 * 8 + 8])
-                                        for ax0_ax1_fused_0 in range(4):
-                                            for ax0_ax1_fused_3 in T.vectorized(8):
-                                                Y_reindex_shared_dyn[ax0_ax1_fused_0 * 8 + threadIdx_y * 2 + threadIdx_x // 16, T.bitwise_xor(threadIdx_x % 16, threadIdx_y * 2 + threadIdx_x // 16) * 8 + ax0_ax1_fused_3]   = Y[ax2_0_0 * 32 + ax0_ax1_fused_0 * 8 + threadIdx_y * 2 + threadIdx_x // 16, blockIdx_x * 1024 + blockIdx_y % 8 * 128 + threadIdx_x % 16 * 8 + ax0_ax1_fused_3]
-                                    for ax2_0_1 in T.serial(4):
-                                        with Ts.sblock(""):
-                                            X_reindex_shared_dyn_m16n8k8_matrixA = Ts.sblock_alloc_buffer((64, 8), "float16", scope="m16n8k8.matrixA")
-                                            Y_reindex_shared_dyn_m16n8k8_matrixB = Ts.sblock_alloc_buffer((8, 64), "float16", scope="m16n8k8.matrixB")
-                                            for ax0_0, ax1_0 in T.grid(2, 1):
-                                                with Ts.sblock("X_reindex_shared.dyn_m16n8k8.matrixA_o"):
-                                                    Ts.reads(X_reindex_shared_dyn[threadIdx_y // 2 * 64 + ax0_0 * 32:threadIdx_y // 2 * 64 + ax0_0 * 32 + 32, ax2_0_1 * 8:ax2_0_1 * 8 + 8])
-                                                    Ts.writes(X_reindex_shared_dyn_m16n8k8_matrixA[ax0_0 * 32:ax0_0 * 32 + 32, 0:8])
-                                                    T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", X_reindex_shared_dyn_m16n8k8_matrixA.data, ax0_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), X_reindex_shared_dyn.data, threadIdx_y // 2 * 2048 + ax0_0 * 1024 + threadIdx_x * 32 + T.bitwise_xor(ax2_0_1, threadIdx_x % 8 // 2) * 8, 1024, 1), 0)
-                                            for ax0_0, ax1_0 in T.grid(1, 2):
-                                                with Ts.sblock("Y_reindex_shared.dyn_m16n8k8.matrixB_o"):
-                                                    Ts.reads(Y_reindex_shared_dyn[ax2_0_1 * 8:ax2_0_1 * 8 + 8, threadIdx_y % 2 * 64 + ax1_0 * 32:threadIdx_y % 2 * 64 + ax1_0 * 32 + 32])
-                                                    Ts.writes(Y_reindex_shared_dyn_m16n8k8_matrixB[0:8, ax1_0 * 32:ax1_0 * 32 + 32])
-                                                    T.ptx_legacy.ldmatrix("float16", T.bool(True), 4, ".b16", Y_reindex_shared_dyn_m16n8k8_matrixB.data, ax1_0 * 8, T.tvm_access_ptr(T.type_annotation("float16"), Y_reindex_shared_dyn.data, ax2_0_1 * 1024 + threadIdx_x % 8 * 128 + T.bitwise_xor(threadIdx_y % 2 * 8 + ax1_0 * 4 + threadIdx_x // 8, threadIdx_x % 8) * 8, 1024, 1), 0)
-    # fmt: on
-    _check_primfunc_transform(before, expected)
-
-
-def test_buffer_a():
-    # fmt: off
-    @Ts.prim_func
-    def before(A: T.Buffer((T.int64(128), T.int64(32)), 'float16')):
-
-        A_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(32)), "float16", scope="shared.dyn")
-        A_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(1), T.int64(32), T.int64(8)), "float16", scope="warp")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0 in range(T.int64(4)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("A_reindex_shared.dyn"):
-                                Ts.sblock_attr({"permuted_layout": 1})
-                                A_shared_dyn[
-                                    v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4),
-                                    threadIdx_x % T.int64(4) * T.int64(8) + v1
-                                ] = A[
-                                    (v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4)) % T.int64(32),
-                                    threadIdx_x % T.int64(4) * T.int64(8) + v1
-                                ]
-                    for v0, v1 in T.grid(T.int64(2), T.int64(4)):
-                        with Ts.sblock("A_reindex_shared.dyn_warp_o"):
-                            Ts.sblock_attr({"permuted_layout": 1})
-                            with Ts.sblock("A_reindex_shared.dyn_warp_o"):
-                                Ts.reads(A_shared_dyn[threadIdx_z * T.int64(64) + v1 * T.int64(16):threadIdx_z * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                                Ts.writes(A_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                                T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16",
-                                    A_warp.data,
-                                    v1 * T.int64(256) + threadIdx_x * T.int64(8),
-                                    T.tvm_access_ptr(T.type_annotation("float16"),
-                                        A_shared_dyn.data,
-                                        threadIdx_z * T.int64(2048) + v1 * T.int64(512) + v0 * T.int64(16), T.int64(512),
-                                        1
-                                    ),
-                                    threadIdx_x % T.int64(16) * T.int64(32) + threadIdx_x // T.int64(16) * T.int64(8)
-                                )
-
-    @Ts.prim_func
-    def expected(A: T.Buffer((T.int64(128), T.int64(32)), "float16")):
-        A_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(32)), "float16", scope="shared.dyn")
-        A_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(1), T.int64(32), T.int64(8)), "float16", scope="warp")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0 in range(T.int64(4)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("A_reindex_shared.dyn"):
-                                Ts.reads(A[(v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4)) % T.int64(32), threadIdx_x % T.int64(4) * T.int64(8) + v1])
-                                Ts.writes(A_shared_dyn[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1])
-                                A_shared_dyn[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), T.bitwise_xor(threadIdx_x % T.int64(4), threadIdx_x // T.int64(8)) * T.int64(8) + v1] = A[(v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4)) % T.int64(32), threadIdx_x % T.int64(4) * T.int64(8) + v1]
-                    for v0, v1 in T.grid(T.int64(2), T.int64(4)):
-                        with Ts.sblock("A_reindex_shared.dyn_warp_o"):
-                            Ts.reads(A_shared_dyn[threadIdx_z * T.int64(64) + v1 * T.int64(16):threadIdx_z * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                            Ts.writes(A_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                            with Ts.sblock("A_reindex_shared.dyn_warp_o"):
-                                Ts.reads(A_shared_dyn[threadIdx_z * T.int64(64) + v1 * T.int64(16):threadIdx_z * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                                Ts.writes(A_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                                T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", A_warp.data, v1 * T.int64(256) + threadIdx_x * T.int64(8), T.tvm_access_ptr(T.type_annotation("float16"), A_shared_dyn.data, threadIdx_z * T.int64(2048) + v1 * T.int64(512) + threadIdx_x % T.int64(16) * T.int64(32) + T.bitwise_xor(v0 * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(8) // T.int64(2)) * T.int64(8), T.int64(512), 1), T.int64(0))
-
-    # fmt: on
-    _check_primfunc_transform(before, expected)
-
-
-def test_buffer_b():
-    # fmt: off
-    @Ts.prim_func
-    def before(B: T.Buffer((T.int64(128), T.int64(32)), "float16")):
-        B_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(32)), "float16", scope="shared.dyn")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0 in range(T.int64(4)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("B_reindex_shared.dyn"):
-                                Ts.sblock_attr({"permuted_layout": 1})
-                                B_shared_dyn[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1] = B[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1]
-                    for v0 in range(T.int64(2)):
-                        with Ts.sblock(""):
-                            B_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(1), T.int64(32), T.int64(8)), "float16", scope="warp")
-                            for v1 in range(T.int64(4)):
-                                with Ts.sblock("B_reindex_shared.dyn_warp_o"):
-                                    Ts.sblock_attr({"permuted_layout": 1})
-                                    with Ts.sblock("B_reindex_shared.dyn_warp_o"):
-                                        Ts.reads(B_shared_dyn[threadIdx_y * T.int64(64) + v1 * T.int64(16):threadIdx_y * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                                        Ts.writes(B_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                                        T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", B_warp.data, v1 * T.int64(256) + threadIdx_x * T.int64(8), T.tvm_access_ptr(T.type_annotation("float16"), B_shared_dyn.data, threadIdx_y * T.int64(2048) + v1 * T.int64(512) + v0 * T.int64(16), T.int64(512), 1), threadIdx_x // T.int64(16) * T.int64(256) + threadIdx_x % T.int64(8) * T.int64(32) + threadIdx_x % T.int64(16) // T.int64(8) * T.int64(8))
-
-    @Ts.prim_func
-    def expected(B: T.Buffer((T.int64(128), T.int64(32)), "float16")):
-        B_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(32)), "float16", scope="shared.dyn")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0 in range(T.int64(4)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("B_reindex_shared.dyn"):
-                                Ts.reads(B[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1])
-                                Ts.writes(B_shared_dyn[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1])
-                                B_shared_dyn[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), T.bitwise_xor(threadIdx_x % T.int64(4), threadIdx_x // T.int64(8)) * T.int64(8) + v1] = B[v0 * T.int64(32) + threadIdx_z * T.int64(16) + threadIdx_y * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_x % T.int64(4) * T.int64(8) + v1]
-                    for v0 in range(T.int64(2)):
-                        with Ts.sblock(""):
-                            B_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(1), T.int64(32), T.int64(8)), "float16", scope="warp")
-                            for v1 in range(T.int64(4)):
-                                with Ts.sblock("B_reindex_shared.dyn_warp_o"):
-                                    Ts.reads(B_shared_dyn[threadIdx_y * T.int64(64) + v1 * T.int64(16):threadIdx_y * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                                    Ts.writes(B_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                                    with Ts.sblock("B_reindex_shared.dyn_warp_o"):
-                                        Ts.reads(B_shared_dyn[threadIdx_y * T.int64(64) + v1 * T.int64(16):threadIdx_y * T.int64(64) + v1 * T.int64(16) + T.int64(16), v0 * T.int64(16):v0 * T.int64(16) + T.int64(16)])
-                                        Ts.writes(B_warp[v1, T.int64(0), T.int64(0):T.int64(32), T.int64(0):T.int64(8)])
-                                        T.ptx_legacy.ldmatrix("float16", T.bool(False), 4, ".b16", B_warp.data, v1 * T.int64(256) + threadIdx_x * T.int64(8), T.tvm_access_ptr(T.type_annotation("float16"), B_shared_dyn.data, threadIdx_y * T.int64(2048) + v1 * T.int64(512) + threadIdx_x // T.int64(16) * T.int64(256) + threadIdx_x % T.int64(8) * T.int64(32) + T.bitwise_xor(v0 * T.int64(2) + threadIdx_x % T.int64(16) // T.int64(8), threadIdx_x % T.int64(8) // T.int64(2)) * T.int64(8), T.int64(512), 1), T.int64(0))
-
-    # fmt: on
-    _check_primfunc_transform(before, expected)
-
-
-def test_buffer_c_fp32():
-    # fmt: off
-    @Ts.prim_func
-    def before(O: T.Buffer((T.int64(128), T.int64(128)), 'float16')):
-
-        O_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(128)), scope="shared.dyn")
-        O_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(4), T.int64(32), T.int64(8)), scope="warp")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0, v1 in T.grid(T.int64(4), T.int64(4)):
-                        with Ts.sblock("O.dyn_warp_o"):
-                            Ts.sblock_attr({"permuted_layout": 1})
-                            with Ts.sblock("O.dyn_warp_o"):
-                                for local_id in range(T.int64(8)):
-                                    O_shared_dyn[threadIdx_z * T.int64(64) + v0 * T.int64(16) + local_id % T.int64(4) // T.int64(2) * T.int64(8) + threadIdx_x // T.int64(4), threadIdx_y * T.int64(64) + v1 * T.int64(16) + local_id // T.int64(4) * T.int64(8) + threadIdx_x % T.int64(4) * T.int64(2) + local_id % T.int64(2)] = O_warp[v0, v1, threadIdx_x, local_id]
-                    for v0 in range(T.int64(16)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("O.dyn"):
-                                Ts.sblock_attr({"permuted_layout": 1})
-                                O[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(16) * T.int64(8) + v1] = T.Cast("float16", O_shared_dyn[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(16) * T.int64(8) + v1])
-
-    @Ts.prim_func
-    def expected(O: T.Buffer((T.int64(128), T.int64(128)), "float16")):
-        # with Ts.sblock("root"):
-        O_shared_dyn = Ts.sblock_alloc_buffer((T.int64(128), T.int64(128)), scope="shared.dyn")
-        O_warp = Ts.sblock_alloc_buffer((T.int64(4), T.int64(4), T.int64(32), T.int64(8)), scope="warp")
-        for threadIdx_z in T.thread_binding(T.int64(2), thread="threadIdx.z"):
-            for threadIdx_y in T.thread_binding(T.int64(2), thread="threadIdx.y"):
-                for threadIdx_x in T.thread_binding(T.int64(32), thread="threadIdx.x"):
-                    for v0, v1 in T.grid(T.int64(4), T.int64(4)):
-                        with Ts.sblock("O.dyn_warp_o"):
-                            Ts.reads(O_warp[v0, v1, threadIdx_x, T.int64(0):T.int64(8)])
-                            Ts.writes(O_shared_dyn[threadIdx_z * T.int64(64) + v0 * T.int64(16) + threadIdx_x // T.int64(4):threadIdx_z * T.int64(64) + v0 * T.int64(16) + threadIdx_x // T.int64(4) + T.int64(9), threadIdx_y * T.int64(64) + v1 * T.int64(16) + threadIdx_x % T.int64(4) * T.int64(2):threadIdx_y * T.int64(64) + v1 * T.int64(16) + threadIdx_x % T.int64(4) * T.int64(2) + T.int64(10)])
-                            with Ts.sblock("O.dyn_warp_o"):
-                                Ts.reads(O_warp[v0, v1, threadIdx_x, T.int64(0):T.int64(8)])
-                                Ts.writes(O_shared_dyn[threadIdx_z * T.int64(64) + v0 * T.int64(16) + threadIdx_x // T.int64(4):threadIdx_z * T.int64(64) + v0 * T.int64(16) + threadIdx_x // T.int64(4) + T.int64(9), threadIdx_y * T.int64(64) + v1 * T.int64(16) + threadIdx_x % T.int64(4) * T.int64(2):threadIdx_y * T.int64(64) + v1 * T.int64(16) + threadIdx_x % T.int64(4) * T.int64(2) + T.int64(10)])
-                                for local_id in range(T.int64(8)):
-                                    O_shared_dyn[threadIdx_z * T.int64(64) + v0 * T.int64(16) + local_id % T.int64(4) // T.int64(2) * T.int64(8) + threadIdx_x // T.int64(4), T.bitwise_xor(threadIdx_y * T.int64(8) + v1 * T.int64(2) + local_id // T.int64(4), threadIdx_x // T.int64(4)) * T.int64(8) + threadIdx_x % T.int64(4) * T.int64(2) + local_id % T.int64(2)] = O_warp[v0, v1, threadIdx_x, local_id]
-                    for v0 in range(T.int64(16)):
-                        for v1 in T.vectorized(T.int64(8)):
-                            with Ts.sblock("O.dyn"):
-                                Ts.reads(O_shared_dyn[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(16) * T.int64(8) + v1])
-                                Ts.writes(O[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(16) * T.int64(8) + v1])
-                                O[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), threadIdx_x % T.int64(16) * T.int64(8) + v1] = T.Cast("float16", O_shared_dyn[v0 * T.int64(8) + threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16), T.bitwise_xor(threadIdx_x % T.int64(16), threadIdx_z * T.int64(4) + threadIdx_y * T.int64(2) + threadIdx_x // T.int64(16)) * T.int64(8) + v1])
-
-    # fmt: on
-    _check_primfunc_transform(before, expected)
+    result = tvm.s_tir.transform.InjectPermutedLayout()(tvm_tirx.IRModule.from_expr(before))[
+        "before"
+    ]
+    tvm_tirx.ir.assert_structural_equal(
+        result.without_attr("global_symbol"), expected.without_attr("global_symbol")
+    )
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

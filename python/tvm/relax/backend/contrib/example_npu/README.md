@@ -43,14 +43,7 @@ This is an educational template that demonstrates real NPU concepts without requ
 Add the following flags when configuring TVM with CMake:
 
 ```bash
-cmake -DUSE_EXAMPLE_NPU_CODEGEN=ON -DUSE_EXAMPLE_NPU_RUNTIME=ON ..
-```
-
-Or set them in your `config.cmake`:
-
-```cmake
-set(USE_EXAMPLE_NPU_CODEGEN ON)
-set(USE_EXAMPLE_NPU_RUNTIME ON)
+cmake -DTVM_USE_EXAMPLE_NPU_CODEGEN=ON -DTVM_USE_EXAMPLE_NPU_RUNTIME=ON ..
 ```
 
 ## Quick Start
@@ -180,8 +173,9 @@ in the TVM build:
 
 ```python
 import tvm
-has_codegen = tvm.get_global_func("relax.ext.example_npu", True)
-has_runtime = tvm.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
+import tvm_ffi
+has_codegen = tvm_ffi.get_global_func("relax.ext.example_npu", True)
+has_runtime = tvm_ffi.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
 has_example_npu = has_codegen and has_runtime
 ```
 

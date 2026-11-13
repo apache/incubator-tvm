@@ -25,10 +25,10 @@ from typing import TYPE_CHECKING, Any, Literal, NamedTuple, Optional
 
 import numpy as np  # type: ignore
 
-from tvm.ir.utils import derived_object
-from tvm.support.tar import tar, untar
+from tvm.s_tir.utils import derived_object
+from tvm_tirx.runtime import Tensor
+from tvm_tirx.support.tar import tar, untar
 
-from ....runtime import Tensor
 from ..cost_model import PyCostModel
 from ..feature_extractor import FeatureExtractor
 from ..logging import get_logger

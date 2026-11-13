@@ -19,12 +19,13 @@ from collections.abc import Callable
 
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax import VDevice
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
@@ -64,7 +65,7 @@ def test_op_correctness():
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 binary_arith_ops = [
@@ -130,7 +131,7 @@ def test_infer_ty_binary_arith_prim_value_with_tensor(binary_arith_op: Callable)
     bb = relax.BlockBuilder()
 
     x = relax.Var("x", R.Tensor((2, 3), "float32"))
-    y = relax.Var("y", tvm.ir.PrimType("float32"))
+    y = relax.Var("y", tvm_tirx.ir.PrimType("float32"))
 
     _check_inference(bb, binary_arith_op(x, y), relax.TensorType((2, 3), "float32"))
 
@@ -139,10 +140,10 @@ def test_infer_ty_binary_arith_prim_value_with_tensor(binary_arith_op: Callable)
 def test_infer_ty_binary_arith_prim_value_with_prim_value(binary_arith_op: Callable):
     bb = relax.BlockBuilder()
 
-    x = relax.Var("x", tvm.ir.PrimType("float32"))
-    y = relax.Var("y", tvm.ir.PrimType("float32"))
+    x = relax.Var("x", tvm_tirx.ir.PrimType("float32"))
+    y = relax.Var("y", tvm_tirx.ir.PrimType("float32"))
 
-    _check_inference(bb, binary_arith_op(x, y), tvm.ir.PrimType("float32"))
+    _check_inference(bb, binary_arith_op(x, y), tvm_tirx.ir.PrimType("float32"))
 
 
 binary_cmp_ops = [
@@ -176,7 +177,7 @@ def test_binary_cmp_infer_ty(binary_cmp_op: Callable):
 def test_infer_ty_binary_cmp_prim_value_to_tensor(binary_cmp_op: Callable):
     bb = relax.BlockBuilder()
     x = relax.Var("x", R.Tensor((2, 3), "float32"))
-    y = relax.Var("y", tvm.ir.PrimType("float32"))
+    y = relax.Var("y", tvm_tirx.ir.PrimType("float32"))
     _check_inference(bb, binary_cmp_op(x, y), relax.TensorType((2, 3), "bool"))
     _check_inference(bb, binary_cmp_op(y, x), relax.TensorType((2, 3), "bool"))
 
@@ -184,10 +185,10 @@ def test_infer_ty_binary_cmp_prim_value_to_tensor(binary_cmp_op: Callable):
 @pytest.mark.parametrize("binary_cmp_op", [row[0] for row in binary_cmp_ops])
 def test_infer_ty_binary_cmp_prim_value_to_prim_value(binary_cmp_op: Callable):
     bb = relax.BlockBuilder()
-    x = relax.Var("x", tvm.ir.PrimType("float32"))
-    y = relax.Var("y", tvm.ir.PrimType("float32"))
-    _check_inference(bb, binary_cmp_op(x, y), tvm.ir.PrimType("bool"))
-    _check_inference(bb, binary_cmp_op(y, x), tvm.ir.PrimType("bool"))
+    x = relax.Var("x", tvm_tirx.ir.PrimType("float32"))
+    y = relax.Var("y", tvm_tirx.ir.PrimType("float32"))
+    _check_inference(bb, binary_cmp_op(x, y), tvm_tirx.ir.PrimType("bool"))
+    _check_inference(bb, binary_cmp_op(y, x), tvm_tirx.ir.PrimType("bool"))
 
 
 @pytest.mark.parametrize("binary_arith_op", [row[0] for row in binary_arith_ops])
@@ -309,4 +310,4 @@ def test_binary_infer_ty_wrong_input_type(binary_arith_op: Callable):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

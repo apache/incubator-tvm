@@ -23,11 +23,12 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/relax/attrs/op.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/relax/expr_functor.h>
+#include <tvm/relax/op/op.h>
 #include <tvm/relax/transform.h>
 #include <tvm/relax/type.h>
-#include <tvm/tirx/op.h>
+#include <tvm/tirx/op/memory.h>
 
 #include <algorithm>
 
@@ -51,7 +52,7 @@ class CallTIRMutator : public ExprMutator {
 
   IRModule Run() {
     for (const auto& [gv, func] : mod_->functions) {
-      if (func->IsInstance<FunctionNode>()) {
+      if (func->IsInstance<FunctionObj>()) {
         auto updated_func = this->VisitExpr(func).as_or_throw<Function>();
         builder_->UpdateFunction(gv, updated_func);
       }
@@ -61,10 +62,10 @@ class CallTIRMutator : public ExprMutator {
 
  private:
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const CallNode* call) override {
+  Expr VisitExpr_(const CallObj* call) override {
     // post-order mutation
     Expr expr = VisitExprPostOrder_(call);
-    call = expr.as<CallNode>();
+    call = expr.as<CallObj>();
 
     static const Op call_tir_op = Op::Get("relax.call_tir");
     static const Op call_tir_inplace_op = Op::Get("relax.call_tir_inplace");
@@ -95,7 +96,7 @@ class CallTIRMutator : public ExprMutator {
         tuple_output_type = output_ty;
         bool has_nested_tuple =
             std::any_of(output_ty->fields.begin(), output_ty->fields.end(),
-                        [](const Type& field) { return field->IsInstance<TupleTypeNode>(); });
+                        [](const Type& field) { return field->IsInstance<TupleTypeObj>(); });
 
         if (has_nested_tuple) {
           TVM_FFI_ICHECK(!is_inplace)
@@ -105,7 +106,7 @@ class CallTIRMutator : public ExprMutator {
           for (size_t i = 0; i < output_ty->fields.size(); ++i) {
             const auto& field = output_ty->fields[i];
 
-            TVM_FFI_ICHECK(field->IsInstance<TensorTypeNode>())
+            TVM_FFI_ICHECK(field->IsInstance<TensorTypeObj>())
                 << "call_tir expects Tuple of TensorType, but got " << field
                 << " as an element of TupleType";
             const auto& field_tensor = field.as_or_throw<TensorType>();
@@ -125,7 +126,7 @@ class CallTIRMutator : public ExprMutator {
       }
 
       ffi::Array<Expr> args;
-      if (call->args[1].as<TupleNode>()) {
+      if (call->args[1].as<TupleObj>()) {
         args = call->args[1].as_or_throw<Tuple>()->fields;
         // for call_tir_inplace, don't reinsert in-place args, only the newly allocated ones
         if (!is_inplace) {
@@ -137,7 +138,11 @@ class CallTIRMutator : public ExprMutator {
             }
           }
         }
-        builder_->Emit(Call::Unchecked(Type::Missing(), call->args[0], args), "_");
+        Expr invocation = call->op.same_as(call_dps_packed_op)
+                              ? Expr(Call(Type::Missing(), call->args[0], args))
+                              : Expr(Call(Type::Missing(), Op::Get("relax.call_tir_packed"),
+                                          {call->args[0], Tuple(args)}));
+        builder_->Emit(invocation, "_");
       } else {
         if (!is_inplace) {
           args = outs;
@@ -145,7 +150,11 @@ class CallTIRMutator : public ExprMutator {
         } else {
           args.push_back(call->args[1]);
         }
-        builder_->Emit(Call::Unchecked(Type::Missing(), call->args[0], args), "_");
+        Expr invocation = call->op.same_as(call_dps_packed_op)
+                              ? Expr(Call(Type::Missing(), call->args[0], args))
+                              : Expr(Call(Type::Missing(), Op::Get("relax.call_tir_packed"),
+                                          {call->args[0], Tuple(args)}));
+        builder_->Emit(invocation, "_");
       }
 
       if (tuple_output_type.has_value()) {
@@ -166,7 +175,7 @@ class CallTIRMutator : public ExprMutator {
         << "call_tir expects all TensorType has shape, but got " << tensor_ty;
 
     int dev_index = 0;
-    ffi::String scope = "global";
+    runtime::MemoryScope scope;
     if (tensor_ty->vdevice.has_value()) {
       dev_index = GetDeviceIndex(mod_, tensor_ty->vdevice.value());
       scope = tensor_ty->vdevice.value()->memory_scope;
@@ -174,21 +183,21 @@ class CallTIRMutator : public ExprMutator {
       dev_index = GetDeviceIndexByScope(mod_, scope);
     }
 
-    return builder_->Emit(Call::Unchecked(Type::Missing(), alloc_tensor_op,
-                                          {tensor_ty->shape.value().as_or_throw<ShapeExpr>(),
-                                           DataTypeImm(tensor_ty->dtype.value()->dtype),
-                                           IntImm::Int64(dev_index), StringImm(scope)},
-                                          Attrs(), {tensor_ty}),
+    return builder_->Emit(Call(Type::Missing(), alloc_tensor_op,
+                               {tensor_ty->shape.value().as_or_throw<ShapeExpr>(),
+                                DataTypeImm(tensor_ty->dtype.value()->dtype),
+                                IntImm::Int64(dev_index), StringImm(scope.name())},
+                               std::nullopt, {tensor_ty}),
                           "alloc");
   }
 
   void FlattenAndAllocateOutputs(const Type& type, const Op& alloc_tensor_op,
                                  ffi::Array<Expr>* outs) {
-    if (const auto* tensor_ty = type.as<TensorTypeNode>()) {
+    if (const auto* tensor_ty = type.as<TensorTypeObj>()) {
       outs->push_back(AllocateOutputTensor(ffi::GetRef<TensorType>(tensor_ty), alloc_tensor_op));
       return;
     }
-    if (const auto* tuple_ty = type.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = type.as<TupleTypeObj>()) {
       for (const Type& field : tuple_ty->fields) {
         FlattenAndAllocateOutputs(field, alloc_tensor_op, outs);
       }
@@ -200,11 +209,11 @@ class CallTIRMutator : public ExprMutator {
   }
 
   Expr RebuildOutputTuple(const Type& type, const ffi::Array<Expr>& outs, size_t* index) {
-    if (type->IsInstance<TensorTypeNode>()) {
+    if (type->IsInstance<TensorTypeObj>()) {
       TVM_FFI_ICHECK_LT(*index, outs.size());
       return outs[(*index)++];
     }
-    if (const auto* tuple_ty = type.as<TupleTypeNode>()) {
+    if (const auto* tuple_ty = type.as<TupleTypeObj>()) {
       ffi::Array<Expr> fields;
       fields.reserve(tuple_ty->fields.size());
       for (const Type& field : tuple_ty->fields) {
@@ -227,8 +236,7 @@ Pass CallTIRRewrite() {
   auto pass_func = [=](IRModule mod, PassContext pc) { return CallTIRMutator(mod).Run(); };
   return CreateModulePass(/*pass_function=*/pass_func,
                           /*opt_level=*/0,
-                          /*pass_name=*/"CallTIRRewrite",
-                          /*required=*/{});
+                          /*pass_name=*/"CallTIRRewrite");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

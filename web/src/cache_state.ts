@@ -124,8 +124,8 @@ export class LRUCache<K, V> {
  *     the JS→WASM FFI boundary each time. During LLM decode, the same shapes
  *     repeat every token (e.g. [1,32,128]), so caching avoids thousands of
  *     redundant FFI round-trips.
- *   - Invalidation: Never. Shape tuples are immutable value objects that
- *     remain valid for the lifetime of the TVM instance.
+ *   - Invalidation: Cache entries may be evicted, but returned shape tuples
+ *     hold independent references and remain valid for their caller's scope.
  *
  * Future additions (follow-up PR):
  * - **uniformCache**: Caches GPU uniform buffers keyed by content hash.
@@ -142,7 +142,8 @@ export class CacheState {
    * Key: comma-separated dimension string, e.g. "1,32,128"
    * Value: TVM ShapeTuple object (Disposable)
    *
-   * Invalidation rule: None required — shape tuples are immutable.
+   * Eviction releases only the cache's reference. Shape tuples returned to
+   * callers have independent references and normal scope-managed lifetimes.
    */
   readonly shapeCache: LRUCache<string, Disposable>;
 

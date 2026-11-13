@@ -21,7 +21,7 @@ import logging
 import multiprocessing
 import time
 
-import tvm
+import tvm_tirx
 from tvm import rpc
 
 
@@ -44,7 +44,7 @@ def rpc_proxy_check():
         prox = proxy.Proxy("127.0.0.1", web_port=web_port)
 
         def check():
-            if not tvm.runtime.enabled("rpc"):
+            if not tvm_tirx.runtime.enabled("rpc"):
                 return
 
             server = multiprocessing.Process(

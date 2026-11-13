@@ -18,16 +18,26 @@
 # pylint: disable=invalid-name
 """S-TIR namespace for scheduable TensorIR"""
 
-import tvm.script
+import tvm_tirx.script
+import tvm
 
-tvm.script.register_dialect("s_tir", "tvm.s_tir.script", builder_path="tvm.s_tir.script.ir_builder")
+tvm_tirx.script.register_dialect(
+    "s_tir", "tvm.s_tir.script", builder_path="tvm.s_tir.script.ir_builder"
+)
 
+from .iter_var import IterVar
 from ._tensor_intrin import TensorIntrin
-from .stmt import MatchBufferRegion, SBlock, SBlockRealize
+from .stmt import (
+    MatchTensorRegion,
+    SBlock,
+    SBlockRealize,
+    ShapeStridePattern,
+    match_shape_stride_pattern,
+)
 
 # dlight depends on compiler-only C++ functions (e.g. s_tir.schedule.GetSBlockRealize),
 # so skip it in runtime-only builds.
-from tvm.base import _RUNTIME_ONLY
+from tvm_tirx.base import _RUNTIME_ONLY
 
 from . import _ffi_api
 from . import backend
@@ -44,42 +54,12 @@ if not _RUNTIME_ONLY:
     from . import dlight
 
 
-def renew_defs(func):
-    """Re-generate the definition nodes for a TIR, including VarDef, BufferDef.
-    This pass works as a simple DeepCopy to duplicate a function with different Vars and
-    Buffers but the same behavior
-
-    Parameters
-    ----------
-    func: PrimFunc
-        The input function
-
-    Returns
-    -------
-    result : PrimFunc
-        The new generated func.
-    """
-    return _ffi_api.RenewDefs(func)
-
-
 def _initialize_script_namespace():
     from . import script
 
     script._initialize()
 
 
-from tvm.script.parser import register_namespace_initializer as _register_namespace_initializer
+from tvm_tirx.script.parser import register_namespace_initializer as _register_namespace_initializer
 
 _register_namespace_initializer(_initialize_script_namespace, aliases=("s_tir",))
-
-
-def _check_script_module(module):
-    from tvm.tirx import PrimFunc
-
-    if any(isinstance(fn, PrimFunc) and not fn.is_tirx for fn in module.functions.values()):
-        from tvm.s_tir.script.ir_builder import _check_module_well_formed
-
-        _check_module_well_formed(module)
-
-
-tvm.script.register_module_validator(_check_script_module)

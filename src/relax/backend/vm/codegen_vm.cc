@@ -23,9 +23,11 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
 #include <tvm/relax/exec_builder.h>
+#include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/runtime/vm/bytecode.h>
 #include <tvm/target/target.h>
 #include <tvm/tirx/function.h>
@@ -34,8 +36,7 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../../runtime/const_loader_module.h"
-#include "../../../target/source/codegen_source_base.h"
+#include "../../../runtime/vm/const_loader_module.h"
 #include "../../transform/utils.h"
 
 namespace tvm {
@@ -61,7 +62,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     CodeGenVM codegen(builder, mod);
     // Remove relax function and turn into TIR func.
     for (const auto& [gvar, f] : mod->functions) {
-      if (auto* func = f.as<FunctionNode>()) {
+      if (auto* func = f.as<FunctionObj>()) {
         codegen.Codegen(ffi::GetRef<Function>(func));
         res_mod->Remove(gvar);
       }
@@ -84,7 +85,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
   }
 
   void Codegen(const Function& func) {
-    ffi::Optional<ffi::String> gsymbol = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol);
+    ffi::Optional<ffi::String> gsymbol = func->GetAttr(tvm::attr::kGlobalSymbol);
     TVM_FFI_ICHECK(gsymbol.has_value())
         << "there should be no local functions in Relax VM codegen phase. "
            "Did you forget to apply LambdaLift or AttachGlobalSymbol Pass?";
@@ -109,13 +110,13 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     var_arg_map_.clear();
   }
 
-  Instruction::Arg VisitExpr_(const SeqExprNode* op) final {
+  Instruction::Arg VisitExpr_(const SeqExprObj* op) final {
     for (auto block : op->blocks) {
       for (Binding binding : block->bindings) {
         Expr expr = GetBoundValue(binding);
 
         Instruction::Arg value = VisitExpr(expr);
-        if (expr.as<VarNode>()) {
+        if (expr.as<VarObj>()) {
           // For a normalized relax module, there should be one
           // register for each relax::Binding.  This makes the Relax
           // semantics of R.vm.kill_* operate the same as the Python
@@ -134,8 +135,18 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return ret_reg;
   }
 
-  Instruction::Arg VisitExpr_(const CallNode* call_node) final {
+  Instruction::Arg VisitExpr_(const CallObj* call_node) final {
     Call call = ffi::GetRef<Call>(call_node);
+
+    // ComputePrimValue may introduce pure native calls after purity removal.
+    // Their runtime behavior is the explicit bridge underneath the wrapper.
+    if (call_node->op.same_as(Op::Get("relax.call_pure_packed")) &&
+        call_node->args[0].same_as(Op::Get("relax.call_tir_packed"))) {
+      Call inner = Call(call_node->ty, call_node->args[0],
+                        ffi::Array<Expr>(call_node->args.begin() + 1, call_node->args.end()),
+                        call_node->attrs, call_node->ty_args, call_node->loc);
+      return VisitExpr(inner);
+    }
 
     if (call_node->op.same_as(null_value_op_)) {
       return Instruction::Arg::Register(Instruction::kVoidRegister);
@@ -143,7 +154,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
 
     // allocate dst register.
     RegName dst_reg = HasVoidType(call) ? Instruction::kVoidRegister : NewRegister();
-    if (call->op.as<OpNode>()) {
+    if (call->op.as<OpObj>()) {
       if (call_node->op.same_as(call_builtin_with_ctx_op_)) {
         // TODO(relax-team) migrate most handling of op to
         // directly map to call_builtin_with_ctx before codegen and simplify vm codegen.
@@ -152,6 +163,9 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
         EmitAllocStorage(call, dst_reg);
       } else if (call_node->op.same_as(alloc_tensor_op_)) {
         EmitAllocTensor(call, dst_reg);
+      } else if (call_node->op.same_as(Op::Get("relax.call_tir_packed"))) {
+        auto arguments = call_node->args[1].as_or_throw<Tuple>();
+        builder_->EmitCall(VisitExpr(call_node->args[0]), VisitArray(arguments->fields), dst_reg);
       } else if (call_node->op.same_as(kill_object_op_)) {
         dst_reg = EmitKillObject(call);
       } else {
@@ -169,8 +183,8 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return Instruction::Arg::Register(dst_reg);
   }
 
-  Instruction::Arg VisitExpr_(const IfNode* op) final {
-    const If& ife = ffi::GetRef<If>(op);
+  Instruction::Arg VisitExpr_(const IfExprObj* op) final {
+    const IfExpr& ife = ffi::GetRef<IfExpr>(op);
     Instruction::Arg cond_value = this->VisitExpr(ife->cond);
 
     // Reserve a register for cond
@@ -213,21 +227,21 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return Instruction::Arg::Register(merge_register);
   }
 
-  Instruction::Arg VisitExpr_(const VarNode* op) final {
+  Instruction::Arg VisitExpr_(const VarObj* op) final {
     Var var = ffi::GetRef<Var>(op);
     auto it = this->var_arg_map_.find(var);
     TVM_FFI_ICHECK(it != this->var_arg_map_.end()) << "Var " << var << " is not defined";
     return it->second;
   }
 
-  Instruction::Arg VisitExpr_(const DataflowVarNode* op) final {
-    return VisitExpr_(static_cast<const VarNode*>(op));
+  Instruction::Arg VisitExpr_(const DataflowVarObj* op) final {
+    return VisitExpr_(static_cast<const VarObj*>(op));
   }
 
-  Instruction::Arg VisitExpr_(const GenericConstNode* op) final {
+  Instruction::Arg VisitExpr_(const GenericConstObj* op) final {
     auto arg = builder_->ConvertConstant(op->value);
 
-    if (auto tensor_ty = op->ty.as<TensorTypeNode>()) {
+    if (auto tensor_ty = op->ty.as<TensorTypeObj>()) {
       if (tensor_ty->vdevice.has_value()) {
         VDevice vdev = tensor_ty->vdevice.value();
         builder_->SaveMemoryScope(arg, vdev->memory_scope);
@@ -236,10 +250,10 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return arg;
   }
 
-  Instruction::Arg VisitExpr_(const ShapeExprNode* op) final {
+  Instruction::Arg VisitExpr_(const ShapeExprObj* op) final {
     std::vector<int64_t> shape;
     for (PrimExpr e : op->values) {
-      if (auto* int_value = e.as<IntImmNode>()) {
+      if (auto* int_value = e.as<IntImmObj>()) {
         shape.push_back(static_cast<int64_t>(int_value->value));
       } else {
         TVM_FFI_THROW(InternalError)
@@ -249,22 +263,22 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return builder_->ConvertConstant(ffi::Shape(shape));
   }
 
-  Instruction::Arg VisitExpr_(const IntImmNode* op) final {
+  Instruction::Arg VisitExpr_(const IntImmObj* op) final {
     return builder_->ConvertConstant(op->value);
   }
 
-  Instruction::Arg VisitExpr_(const FloatImmNode* op) final {
+  Instruction::Arg VisitExpr_(const FloatImmObj* op) final {
     return builder_->ConvertConstant(op->value);
   }
 
-  Instruction::Arg VisitExpr_(const StringImmNode* op) final {
+  Instruction::Arg VisitExpr_(const StringImmObj* op) final {
     return builder_->ConvertConstant(op->value);
   }
-  Instruction::Arg VisitExpr_(const DataTypeImmNode* op) final {
+  Instruction::Arg VisitExpr_(const DataTypeImmObj* op) final {
     return builder_->ConvertConstant(op->value);
   }
 
-  Instruction::Arg VisitExpr_(const TupleNode* op) final {
+  Instruction::Arg VisitExpr_(const TupleObj* op) final {
     Tuple tuple = ffi::GetRef<Tuple>(op);
     std::vector<Instruction::Arg> args;
     for (Expr arg : tuple->fields) {
@@ -276,7 +290,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return Instruction::Arg::Register(dst_register);
   }
 
-  Instruction::Arg VisitExpr_(const TupleGetItemNode* op) final {
+  Instruction::Arg VisitExpr_(const TupleGetItemObj* op) final {
     TupleGetItem expr = ffi::GetRef<TupleGetItem>(op);
     std::vector<Instruction::Arg> args = {this->VisitExpr(expr->tuple)};
 
@@ -288,7 +302,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return Instruction::Arg::Register(dst_register);
   }
 
-  Instruction::Arg VisitExpr_(const GlobalVarNode* op) final {
+  Instruction::Arg VisitExpr_(const GlobalVarObj* op) final {
     GlobalVar gvar = ffi::GetRef<GlobalVar>(op);
     ffi::Optional<ffi::String> symbol;
     VMFuncInfo::FuncKind kind = VMFuncInfo::FuncKind::kPackedFunc;
@@ -297,15 +311,15 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     auto it = ctx_mod_->functions.find(gvar);
     if (it != ctx_mod_->functions.end()) {
       BaseFunc func = (*it).second;
-      if (auto* efunc = func.as<ExternFuncNode>()) {
+      if (auto* efunc = func.as<ExternFuncObj>()) {
         symbol = efunc->global_symbol;
         kind = VMFuncInfo::FuncKind::kPackedFunc;
-      } else if (func.as<FunctionNode>()) {
+      } else if (func.as<FunctionObj>()) {
         symbol = gvar->name_hint;
         kind = VMFuncInfo::FuncKind::kVMFunc;
       }
     }
-    // GlobalVar can be reference to a Relax function or a TIR primfunc
+    // GlobalVar can be reference to a Relax function or a TIR function
     // At this point: all global var must corresponds to the right symbol.
     // TODO(relax-team): switch everything to extern before splitting TIR/relax
     // so we do not have idle global var here.
@@ -319,16 +333,17 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
     return builder_->GetFunction(symbol.value());
   }
 
-  Instruction::Arg VisitExpr_(const ExternFuncNode* op) final {
-    static const constexpr char* kCSource = "c_source";
-    static const constexpr char* kCSourceFmt = "c_source_fmt";
-    if (ffi::Optional<ffi::String> opt_code = op->attrs.GetAttr<ffi::String>(kCSource)) {
+  Instruction::Arg VisitExpr_(const ExternFuncObj* op) final {
+    if (ffi::Optional<ffi::String> opt_code = op->attrs.GetAttr(tvm::relax::attr::kCSource)) {
       ffi::String sym = op->global_symbol;
-      ffi::String fmt = op->attrs.GetAttr<ffi::String>(kCSourceFmt).value_or("c");
+      ffi::String fmt = op->attrs.GetAttr(tvm::relax::attr::kCSourceFmt).value_or("c");
       ffi::String code = opt_code.value();
+      // Grep hint: grep -rn 'runtime.CSourceModuleCreate' src/
+      static const auto create_source =
+          ffi::Function::GetGlobalRequired("runtime.CSourceModuleCreate");
       ffi::Module c_source_module =
-          codegen::CSourceModuleCreate(/*code=*/code, /*fmt=*/fmt, /*func_names=*/{sym},
-                                       /*const_vars=*/{});
+          create_source(code, fmt, ffi::Array<ffi::String>{sym}, ffi::Array<ffi::String>{})
+              .cast<ffi::Module>();
       builder_->exec()->ImportModule(c_source_module);
     }
     builder_->DeclareFunction(op->global_symbol, VMFuncInfo::FuncKind::kPackedFunc);
@@ -350,17 +365,18 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
   void EmitAllocTensor(const Call& call_node, RegName dst_reg) {
     TVM_FFI_ICHECK_EQ(call_node->args.size(), 5);
     std::vector<Instruction::Arg> args;
+    args.push_back(Instruction::Arg::Register(Instruction::kVMRegister));
     for (int i = 0; i < 4; ++i) {
       args.push_back(this->VisitExpr(call_node->args[i]));
     }
     int64_t vdevice_index = -1;
-    if (const auto* int_imm = call_node->args[4].as<IntImmNode>()) {
+    if (const auto* int_imm = call_node->args[4].as<IntImmObj>()) {
       vdevice_index = int_imm->value.as<int>().value();
     }
     auto vdevice = GetGlobalVDevice(ctx_mod_, vdevice_index);
 
     if (vdevice.has_value()) {
-      args.push_back(this->VisitExpr(StringImm(vdevice.value()->memory_scope)));
+      args.push_back(this->VisitExpr(StringImm(vdevice.value()->memory_scope.name())));
     }
     builder_->EmitCall("vm.builtin.alloc_tensor", args, dst_reg);
   }
@@ -406,7 +422,7 @@ class CodeGenVM : public ExprFunctor<Instruction::Arg(const Expr&)> {
   }
 
   // Emits call to packed function `name` with arguments copied over from `call_node` args
-  void EmitPackedFuncCall(const Call& call_node, const FCallPacked& name, RegName dst_reg) {
+  void EmitPackedFuncCall(const Call& call_node, const ffi::String& name, RegName dst_reg) {
     std::vector<Instruction::Arg> args = VisitArray(call_node->args);
     builder_->EmitCall(name, args, dst_reg);
   }
@@ -464,7 +480,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
  * \return The created module.
  */
 void LinkModules(ffi::ObjectPtr<VMExecutable> exec,
-                 const ffi::Map<ffi::String, runtime::Tensor>& params, const tvm::ffi::Module& lib,
+                 const ffi::Map<ffi::String, ffi::Tensor>& params, const tvm::ffi::Module& lib,
                  const ffi::Array<ffi::Module>& ext_libs) {
   // query if we need const loader for ext_modules
   // Wrap all submodules in the initialization wrapper.
@@ -499,12 +515,16 @@ void LinkModules(ffi::ObjectPtr<VMExecutable> exec,
 /*!
  * \brief Link the libraries together.
  */
-ffi::Module VMLink(ExecBuilder builder, Target target, ffi::Optional<ffi::Module> lib,
-                   ffi::Array<ffi::Module> ext_libs,
-                   ffi::Map<ffi::String, runtime::Tensor> params) {
+ffi::Module VMLink(ExecBuilder builder, ffi::Optional<Target> target,
+                   ffi::Optional<ffi::Module> lib, ffi::Array<ffi::Module> ext_libs,
+                   ffi::Map<ffi::String, ffi::Tensor> params) {
   ffi::ObjectPtr<VMExecutable> executable = builder->Get();
   if (!lib.has_value()) {
-    lib = codegen::CSourceModuleCreate(";", "c", ffi::Array<ffi::String>{});
+    // Grep hint: grep -rn 'runtime.CSourceModuleCreate' src/
+    static const auto create_source =
+        ffi::Function::GetGlobalRequired("runtime.CSourceModuleCreate");
+    lib = create_source(";", "c", ffi::Array<ffi::String>{}, ffi::Array<ffi::String>{})
+              .cast<ffi::Module>();
   }
   LinkModules(executable, params, lib.value(), ext_libs);
   return ffi::Module(executable);

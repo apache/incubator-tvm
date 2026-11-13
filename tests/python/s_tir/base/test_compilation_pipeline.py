@@ -20,44 +20,46 @@
 import numpy as np
 import pytest
 
-import tvm
-import tvm.testing
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 
-@pytest.mark.skipif(not tvm.runtime.enabled("llvm"), reason="LLVM is not enabled")
+@pytest.mark.skipif(not tvm_tirx.runtime.enabled("llvm"), reason="LLVM is not enabled")
 @pytest.mark.parametrize("mixed", [False, True])
 def test_default_pipeline_selects_dialect(mixed):
-    @Ts.prim_func
-    def scheduled(A: Ts.Buffer((16,), "float32"), B: Ts.Buffer((16,), "float32")):
+    @Ts.function
+    def scheduled(A: Ts.Tensor((16,), "float32"), B: Ts.Tensor((16,), "float32")):
         for i in range(16):
             with Ts.sblock("copy"):
                 vi = Ts.axis.spatial(16, i)
                 B[vi] = A[vi] + Ts.float32(1)
 
-    @T.prim_func
-    def native(A: T.Buffer((16,), "float32"), B: T.Buffer((16,), "float32")):
+    @T.function
+    def native(A: T.Tensor((16,), "float32"), B: T.Tensor((16,), "float32")):
         for i in range(16):
             B[i] = A[i] + T.float32(2)
 
+    assert "s_tir" not in scheduled.attrs
+    assert scheduled.attrs["script.namespace"] == "s_tir"
     functions = {"scheduled": scheduled}
     if mixed:
         functions["native"] = native
     finalized_modules = []
 
-    @tvm.instrument.pass_instrument
+    @tvm_tirx.ir.transform.pass_instrument
     class RecordFinalization:
         def run_before_pass(self, mod, info):
             if info.name == "tirx.MakePackedAPI":
                 finalized_modules.append({gv.name_hint for gv in mod.functions})
 
-    with tvm.transform.PassContext(instruments=[RecordFinalization()]):
-        module = tvm.tirx.build(tvm.IRModule(functions), target="llvm")
+    with tvm_tirx.ir.transform.PassContext(instruments=[RecordFinalization()]):
+        module = tvm_tirx.tirx.compile(tvm_tirx.IRModule(functions), target="llvm").mod
     assert finalized_modules == [set(functions)]
     source = np.arange(16, dtype="float32")
-    a = tvm.runtime.tensor(source)
-    b = tvm.runtime.tensor(np.zeros(16, dtype="float32"))
+    a = tvm_tirx.runtime.tensor(source)
+    b = tvm_tirx.runtime.tensor(np.zeros(16, dtype="float32"))
     module["scheduled"](a, b)
     np.testing.assert_equal(b.numpy(), source + 1)
     if mixed:
@@ -66,4 +68,4 @@ def test_default_pipeline_selects_dialect(mixed):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -89,39 +89,59 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def_method("vm.builtin.attention_kv_cache_debug_get_kv_mla",
                   &AttentionKVCacheObj::DebugGetKVMLA)
       .def("vm.builtin.attention_kv_cache_attention_with_fused_qkv",
-           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, Tensor qkv_data,
-              Tensor o_data) {
+           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, ffi::Tensor qkv_data,
+              ffi::Tensor o_data) {
+             TVM_FFI_ICHECK(qkv_data.defined());
+             TVM_FFI_ICHECK(o_data.defined());
              kv_cache->AttentionWithFusedQKV(layer_id, std::move(qkv_data), std::nullopt,
                                              std::move(o_data), sm_scale);
            })
       .def("vm.builtin.attention_kv_cache_self_attention",
-           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, Tensor q_data,
-              Tensor k_data, Tensor v_data, Tensor o_data, Tensor lse_data) {
+           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, ffi::Tensor q_data,
+              ffi::Tensor k_data, ffi::Tensor v_data, ffi::Tensor o_data, ffi::Tensor lse_data) {
+             TVM_FFI_ICHECK(q_data.defined());
+             TVM_FFI_ICHECK(k_data.defined());
+             TVM_FFI_ICHECK(v_data.defined());
+             TVM_FFI_ICHECK(o_data.defined());
+             TVM_FFI_ICHECK(lse_data.defined());
              kv_cache->SelfAttention(layer_id, std::move(q_data), std::move(k_data),
                                      std::move(v_data), std::move(o_data), std::move(lse_data),
                                      sm_scale);
            })
       .def("vm.builtin.attention_kv_cache_cross_attention",
-           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, Tensor q_data,
-              Tensor o_data, Tensor lse_data) {
+           [](AttentionKVCache kv_cache, int64_t layer_id, double sm_scale, ffi::Tensor q_data,
+              ffi::Tensor o_data, ffi::Tensor lse_data) {
+             TVM_FFI_ICHECK(q_data.defined());
+             TVM_FFI_ICHECK(o_data.defined());
+             TVM_FFI_ICHECK(lse_data.defined());
              kv_cache->CrossAttention(layer_id, std::move(q_data), std::move(o_data),
                                       std::move(lse_data), sm_scale);
            })
       .def("vm.builtin.attention_kv_cache_attention_with_shared_kv",
-           [](AttentionKVCache kv_cache, int64_t source_layer_id, double sm_scale, Tensor q_data,
-              Tensor current_k_data, Tensor current_v_data, Tensor o_data) {
+           [](AttentionKVCache kv_cache, int64_t source_layer_id, double sm_scale,
+              ffi::Tensor q_data, ffi::Tensor current_k_data, ffi::Tensor current_v_data,
+              ffi::Tensor o_data) {
+             TVM_FFI_ICHECK(q_data.defined());
+             TVM_FFI_ICHECK(current_k_data.defined());
+             TVM_FFI_ICHECK(current_v_data.defined());
+             TVM_FFI_ICHECK(o_data.defined());
              kv_cache->AttentionWithSharedKV(source_layer_id, std::move(q_data),
                                              std::move(current_k_data), std::move(current_v_data),
                                              std::move(o_data), sm_scale);
            })
       .def("vm.builtin.attention_kv_cache_append_mla_kv",
-           [](AttentionKVCache kv_cache, int64_t layer_id, Tensor kv_data) {
+           [](AttentionKVCache kv_cache, int64_t layer_id, ffi::Tensor kv_data) {
+             TVM_FFI_ICHECK(kv_data.defined());
              kv_cache->AppendMLAKV(layer_id, std::move(kv_data));
              return kv_cache;
            })
       .def("vm.builtin.attention_kv_cache_merge_attn_output_inplace",
-           [](AttentionKVCache kv_cache, Tensor o_self_attn, Tensor lse_self_attn,
-              Tensor o_cross_attn, Tensor lse_cross_attn) {
+           [](AttentionKVCache kv_cache, ffi::Tensor o_self_attn, ffi::Tensor lse_self_attn,
+              ffi::Tensor o_cross_attn, ffi::Tensor lse_cross_attn) {
+             TVM_FFI_ICHECK(o_self_attn.defined());
+             TVM_FFI_ICHECK(lse_self_attn.defined());
+             TVM_FFI_ICHECK(o_cross_attn.defined());
+             TVM_FFI_ICHECK(lse_cross_attn.defined());
              return kv_cache->MergeAttnOutputInplace(
                  std::move(o_self_attn), std::move(lse_self_attn), std::move(o_cross_attn),
                  std::move(lse_cross_attn));
@@ -134,7 +154,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef()
       .def_method("vm.builtin.rnn_state_get", &RNNStateObj::Get)
       .def("vm.builtin.rnn_state_set",
-           [](RNNState state, int64_t layer_id, int64_t state_id, Tensor data) {
+           [](RNNState state, int64_t layer_id, int64_t state_id, ffi::Tensor data) {
+             TVM_FFI_ICHECK(data.defined());
              state->Set(layer_id, state_id, data);
              return state;
            })

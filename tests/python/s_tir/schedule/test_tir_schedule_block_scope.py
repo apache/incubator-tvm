@@ -22,18 +22,20 @@ import pytest
 from tvm_ffi import structural_walk
 
 import tvm
-import tvm.testing
-from tvm import s_tir, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import s_tir
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule import DepKind
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable
 
 
-@Ts.prim_func
-def elementwise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), "float32")
+@Ts.function
+def elementwise(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -44,8 +46,12 @@ def elementwise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "flo
             C[vi, vj] = B[vi, vj] + 1.0
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
+) -> None:
     for i, j in T.grid(128, 128):
         with Ts.sblock("init"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -56,9 +62,11 @@ def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 1
                 C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vj, vk]
 
 
-@Ts.prim_func
+@Ts.function
 def war_dependency(
-    A: T.Buffer((128, 128)), B: T.Buffer((128, 128)), C: T.Buffer((128, 128))
+    A: T.Tensor((128, 128), "float32"),
+    B: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
 ) -> None:
     for i, j in T.grid(128, 128):
         with Ts.sblock("C"):
@@ -148,4 +156,4 @@ def test_war_dependency():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -18,7 +18,7 @@
 """Default legalization function for binary operators."""
 
 from tvm import topi
-from tvm.ir import Call
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
@@ -35,11 +35,11 @@ def _binary(te_func: TEFunc) -> LegalizeFunc:
     """A common wrapper util for the legalization of binary operators.
 
     It detects if one of the binary op arguments is a constant scalar. It so,
-    it extracts the scalar value to simplify the generated PrimFunc.
+    it extracts the scalar value to simplify the generated Function.
     """
 
     def binary_call_te(bb: BlockBuilder, call: Call) -> Expr:
-        # To simplify the created PrimFunc, we first check if arg1 is a constant scalar.
+        # To simplify the created Function, we first check if arg1 is a constant scalar.
         # If it is not, we then check if arg0 is a constant scalar.
         arg0 = call.args[0]
         arg1 = _try_convert_to_scalar_const(call.args[1])

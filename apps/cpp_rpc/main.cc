@@ -35,7 +35,6 @@
 #include <vector>
 
 #include "../../src/support/socket.h"
-#include "../../src/support/utils.h"
 #include "rpc_server.h"
 
 #if defined(_WIN32)
@@ -45,6 +44,12 @@
 using namespace std;
 using namespace tvm::runtime;
 using namespace tvm::support;
+
+namespace {
+bool IsNumber(const std::string& str) {
+  return !str.empty() && str.find_first_not_of("0123456789") == std::string::npos;
+}
+}  // namespace
 
 static const string kUsage =
     "Command line usage\n"
@@ -157,7 +162,12 @@ string GetCmdOption(int argc, char* argv[], string option, bool key = false) {
  * \return result of operation.
  */
 bool ValidateTracker(string& tracker) {
-  vector<string> list = Split(tracker, ':');
+  vector<string> list;
+  istringstream tracker_stream(tracker);
+  string field;
+  while (getline(tracker_stream, field, ':')) {
+    list.push_back(field);
+  }
   if ((list.size() != 2) || (!ValidateIP(list[0])) || (!IsNumber(list[1]))) {
     return false;
   }

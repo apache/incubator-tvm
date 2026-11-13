@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_TRAINING_UTILS_H_
 #define TVM_RELAX_TRAINING_UTILS_H_
 
+#include <tvm/base.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/transform.h>
 

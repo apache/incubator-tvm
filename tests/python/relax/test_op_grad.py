@@ -16,11 +16,11 @@
 # under the License.
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir import Op
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
@@ -54,7 +54,7 @@ def test_op_correctness():
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_start_checkpoint_input_not_var():
@@ -138,4 +138,4 @@ def test_take_backward_infer_ty():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

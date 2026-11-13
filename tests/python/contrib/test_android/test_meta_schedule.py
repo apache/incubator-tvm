@@ -25,18 +25,23 @@ import pytest
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
-import tvm.testing
+import tvm
 import tvm.topi.testing
+import tvm_tirx.testing
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.builder import LocalBuilder
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 from .infrastructure import get_android_gpu_target, get_rpc_runner
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
+) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("update"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -73,4 +78,4 @@ def test_tune_tir_on_android():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

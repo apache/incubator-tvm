@@ -42,8 +42,8 @@ In this guide, we will study an example compilation flow in the compiler. The fi
   equivalent(e.g. in the case of quantization) IRModule. Many of the transformations are target (backend) independent.
   We also allow target to affect the configuration of the transformation pipeline.
 - **Target Translation**: The compiler translates(codegen) the IRModule to an executable format specified by the target.
-  The target translation result is encapsulated as a `runtime.Module` that can be exported, loaded, and executed on the target runtime environment.
-- **Runtime Execution**: the user loads back a `runtime.Module` and runs the compiled functions in the supported runtime environment.
+  The target translation result is encapsulated as a `tvm_ffi.Module` that can be exported, loaded, and executed on the target runtime environment.
+- **Runtime Execution**: the user loads back a `tvm_ffi.Module` and runs the compiled functions in the supported runtime environment.
 
 
 .. figure:: https://raw.githubusercontent.com/tlc-pack/web-data/main/images/design/tvm_overall_flow.svg
@@ -64,10 +64,10 @@ contains a collection of functions. Currently, we support two primary variants o
 - **relax::Function** is a high-level functional program representation. A relax.Function represents high-level graph structure,
   usually corresponds to an end-to-end model or a sub-graph of the overall model. You can view a relax.Function as a computational
   graph with additional support for control-flow, and complex data structures.
-- **tirx::PrimFunc** is a low-level program representation that contains elements including loop-nest choices, multi-dimensional load/store,
+- **tirx::Function** is a low-level program representation that contains elements including loop-nest choices, multi-dimensional load/store,
   threading, and vector/tensor instructions. It is usually used to represent an operator program that executes a (possibly-fused) layer in a model.
 
-During the compilation and transformation, all relax operators are lowered to ``tirx::PrimFunc`` or ``TVM PackedFunc``, which can be executed directly
+During the compilation and transformation, all relax operators are lowered to ``tirx::Function`` or ``TVM PackedFunc``, which can be executed directly
 on the target device, while the calls to relax operators are lowered to calls to low-level functions (e.g. ``R.call_tir`` or ``R.call_dps_packed``).
 
 Transformations
@@ -87,10 +87,10 @@ TensorIR transformations
 ^^^^^^^^^^^^^^^^^^^^^^^^
 
 - **TensorIR schedule**: TensorIR schedules are designed to optimize the TensorIR functions for a specific target, with user-guided instructions and control how the target code is generated.
-  For CPU targets, a TensorIR PrimFunc can generate valid code and execute on the target device without schedule but with very-low performance. However, for GPU targets, the schedule is essential
+  For CPU targets, a TensorIR Function can generate valid code and execute on the target device without schedule but with very-low performance. However, for GPU targets, the schedule is essential
   for generating valid code with thread bindings. For more details, please refer to the :ref:`TensorIR Transformation <tirx-transform>` section. Additionally, we provides ``MetaSchedule`` to
   automate the search of TensorIR schedule.
-- **Lowering Passes**: These passes usually perform after the schedule is applied, transforming a TensorIR PrimFunc into another functionally equivalent PrimFunc, but closer to the
+- **Lowering Passes**: These passes usually perform after the schedule is applied, transforming a TensorIR Function into another functionally equivalent Function, but closer to the
   target-specific representation. For example, there are passes to flatten multi-dimensional access to one-dimensional pointer access, to expand the intrinsics into target-specific ones,
   and to decorate the function entry to meet the runtime calling convention.
 
@@ -104,8 +104,8 @@ cross-level transformations
 Apache TVM enables cross-level optimization of end-to-end models. As the IRModule includes both Relax and TensorIR functions, the cross-level transformations are designed to mutate
 the IRModule by applying different transformations to these two types of functions.
 
-For example, ``relax.LegalizeOps`` pass mutates the IRModule by lowering relax operators, adding corresponding TensorIR PrimFunc into the IRModule, and replacing the relax operators
-with calls to the lowered TensorIR PrimFunc. Another example is the operator fusion pipeline
+For example, ``relax.LegalizeOps`` pass mutates the IRModule by lowering relax operators, adding corresponding TensorIR Function into the IRModule, and replacing the relax operators
+with calls to the lowered TensorIR Function. Another example is the operator fusion pipeline
 (``relax.FuseOps`` + ``relax.FuseTIR``), which fuses multiple consecutive tensor operations into a
 single kernel. See :ref:`fusion-arch` for a detailed explanation of the fusion algorithm, operator
 pattern classification, and pattern-based fusion for external backends.
@@ -148,44 +148,46 @@ The main goal of TVM's runtime is to provide a minimal API for loading and execu
 .. code-block:: python
 
     import tvm
+    import tvm_ffi
     # Example runtime execution program in python, with type annotated
-    mod: tvm.runtime.Module = tvm.runtime.load_module("compiled_artifact.so")
+    mod: tvm_ffi.Module = tvm.runtime.load_module("compiled_artifact.so")
     arr: tvm.runtime.Tensor = tvm.runtime.tensor([1, 2, 3], device=tvm.cuda(0))
     fun: tvm_ffi.Function = mod["addone"]
     fun(arr)
     print(arr.numpy())
 
 
-:py:class:`tvm.runtime.Module` encapsulates the result of compilation. A runtime.Module contains a GetFunction method to obtain :py:class:`tvm_ffi.Function` instances by name.
+:py:class:`tvm_ffi.Module` encapsulates the result of compilation. A tvm_ffi.Module contains a GetFunction method to obtain :py:class:`tvm_ffi.Function` instances by name.
 
 :py:class:`tvm_ffi.Function` is a type-erased function interface for both the generated functions. A tvm_ffi.Function can take arguments and return values with the
-following types: POD types(int, float), string, tvm_ffi.Function, runtime.Module, runtime.Tensor, and other sub-classes of runtime.Object.
+following types: POD types(int, float), string, tvm_ffi.Function, tvm_ffi.Module, runtime.Tensor, and other sub-classes of tvm_ffi.Object.
 
-:py:class:`tvm.runtime.Module` and :py:class:`tvm_ffi.Function` are powerful mechanisms to modularize the runtime. For example, to get the above `addone` function on CUDA, we can use LLVM to generate the host-side code to compute the launching parameters(e.g. size of the thread groups) and then call into another tvm_ffi.Function from a CUDAModule that is backed by the CUDA driver API. The same mechanism can be used for OpenCL kernels.
+:py:class:`tvm_ffi.Module` and :py:class:`tvm_ffi.Function` are powerful mechanisms to modularize the runtime. For example, to get the above `addone` function on CUDA, we can use LLVM to generate the host-side code to compute the launching parameters(e.g. size of the thread groups) and then call into another tvm_ffi.Function from a CUDAModule that is backed by the CUDA driver API. The same mechanism can be used for OpenCL kernels.
 
-The above example only deals with a simple `addone` function. The code snippet below gives an example of an end-to-end model execution using the Relax Virtual Machine, which is built on the same runtime.Module and tvm_ffi.Function interface:
+The above example only deals with a simple `addone` function. The code snippet below gives an example of an end-to-end model execution using the Relax Virtual Machine, which is built on the same tvm_ffi.Module and tvm_ffi.Function interface:
 
 .. code-block:: python
 
    import tvm
+   import tvm_ffi
    from tvm import relax
    # Load the compiled artifact
-   mod: tvm.runtime.Module = tvm.runtime.load_module("resnet18.so")
+   mod: tvm_ffi.Module = tvm.runtime.load_module("resnet18.so")
    # Create a VM instance on cuda(0)
    vm = relax.VirtualMachine(mod, tvm.cuda(0))
    data: tvm.runtime.Tensor = get_input_data()
    # Run the model — vm["main"] returns a PackedFunc
    result = vm["main"](data).numpy()
 
-The main take away is that runtime.Module and runtime.PackedFunc are sufficient to encapsulate both operator level programs (such as addone), as well as the end-to-end models.
+The main take away is that tvm_ffi.Module and runtime.PackedFunc are sufficient to encapsulate both operator level programs (such as addone), as well as the end-to-end models.
 
 Summary and Discussions
 ~~~~~~~~~~~~~~~~~~~~~~~
 
 In summary, the key data structures in the compilation flows are:
 
-- IRModule: contains relax.Function and tirx.PrimFunc
-- runtime.Module: contains runtime.PackedFunc
+- IRModule: contains relax.Function and tirx.Function
+- tvm_ffi.Module: contains runtime.PackedFunc
 
 Most parts of the compilation are transformations among the key data structures.
 
@@ -308,7 +310,7 @@ The components in `tvm/ir` are shared by `tvm/relax` and `tvm/tirx`, notable one
 - PassContext and Pass
 - Op
 
-Different variants of functions(e.g. relax.Function and tirx.PrimFunc) can co-exist in an IRModule.
+Different variants of functions(e.g. relax.Function and tirx.Function) can co-exist in an IRModule.
 While these variants may not have the same content representation, they use the same data structure to represent types.
 As a consequence, we use the same data structure to represent function (type) signatures of these variants.
 The unified type system allows one function variant to call another function
@@ -320,7 +322,7 @@ The following code snippet gives an example of PassContext configuration.
 .. code-block:: python
 
     # configure the behavior of the tirx.UnrollLoop pass
-    with tvm.transform.PassContext(config={"tirx.UnrollLoop": { "auto_max_step": 10 }}):
+    with tvm.ir.transform.PassContext(config={"tirx.UnrollLoop": { "auto_max_step": 10 }}):
         # code affected by the pass context
 
 
@@ -336,10 +338,10 @@ tvm/script (TVMScript)
 ----------------------
 
 TVMScript is a Python-based DSL for writing TVM IR. It allows users to define ``IRModule``\ s
-— containing both Relax functions and TIR ``PrimFunc``\ s — using familiar Python syntax with
+— containing both Relax functions and TIR ``Function``\ s — using familiar Python syntax with
 three import aliases: ``I`` (module-level), ``T`` (TIR), and ``R`` (Relax). Although TVMScript
 uses Python syntax, it is not executed by the Python interpreter — decorators like
-``@I.ir_module``, ``@T.prim_func``, and ``@R.function`` extract the Python AST and transform
+``@I.ir_module``, ``@T.function``, and ``@R.function`` extract the Python AST and transform
 it into TVM IR through a parser and IR builder pipeline.
 
 TVMScript also supports **roundtrip**: any ``IRModule`` can be printed back to TVMScript via
@@ -355,7 +357,7 @@ mechanism, IR builder frame stack, printer pipeline, and syntax reference.
 
 tvm/target
 ----------
-The target module contains all the code generators that translate an IRModule to a target runtime.Module.
+The target module contains all the code generators that translate an IRModule to a target tvm_ffi.Module.
 It also provides a common `Target` class that describes the target.
 
 Targets can be constructed from a registered tag, a configuration dictionary, or a tag with attribute overrides:
@@ -395,12 +397,12 @@ tvm/tirx
 --------
 
 ``tirx`` contains the core IR definitions and lowering infrastructure
-for TensorIR (split from the former ``tir`` module). ``tirx::PrimFunc``
+for TensorIR (split from the former ``tir`` module). ``tirx::Function``
 represents low-level tensor functions that can be transformed by tirx passes.
 
 The tirx module includes:
 
-- IR data structures (PrimFunc, Buffer, SBlock, expressions, statements).
+- IR data structures (Function, Buffer, SBlock, expressions, statements).
 - Analysis passes in ``tirx/analysis``.
 - Transformation and lowering passes in ``tirx/transform``.
 
@@ -408,7 +410,7 @@ tvm/s_tir
 ---------
 
 ``s_tir`` (Schedulable TIR, split from the former ``tir`` module) contains
-schedule primitives and auto-tuning tools that operate on ``tirx::PrimFunc``:
+schedule primitives and auto-tuning tools that operate on ``tirx::Function``:
 
 - Schedule primitives to control code generation (tiling, vectorization, thread
   binding) in ``s_tir/schedule``.
@@ -429,7 +431,7 @@ tvm/te and tvm/topi
 -------------------
 
 TE stands for Tensor Expression. TE is a domain-specific language (DSL) for describing tensor computations. Importantly, a tensor expression
-itself is not a self-contained function that can be stored into IRModule. We can use ``te.create_prim_func`` to convert a tensor expression to a ``tirx::PrimFunc``
+itself is not a self-contained function that can be stored into IRModule. We can use ``te.create_function`` to convert a tensor expression to a ``tirx::Function``
 and then integrate it into the IRModule.
 
 While possible to construct operators directly via TensorIR or tensor expressions (TE) for each use case, it is tedious to do so.

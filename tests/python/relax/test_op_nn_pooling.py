@@ -17,12 +17,13 @@
 # ruff: noqa: E741, F841
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax import VDevice
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
@@ -35,14 +36,18 @@ def test_op_correctness():
     assert relax.op.nn.avg_pool1d(x).op == Op.get("relax.nn.avg_pool1d")
     assert relax.op.nn.avg_pool2d(x).op == Op.get("relax.nn.avg_pool2d")
     assert relax.op.nn.avg_pool3d(x).op == Op.get("relax.nn.avg_pool3d")
-    assert relax.op.nn.adaptive_avg_pool1d(x).op == Op.get("relax.nn.adaptive_avg_pool1d")
+    assert relax.op.nn.adaptive_avg_pool1d(x, ty=tvm_tirx.ir.Type.missing()).op == Op.get(
+        "relax.nn.adaptive_avg_pool1d"
+    )
     assert relax.op.nn.adaptive_avg_pool2d(x).op == Op.get("relax.nn.adaptive_avg_pool2d")
-    assert relax.op.nn.adaptive_avg_pool3d(x).op == Op.get("relax.nn.adaptive_avg_pool3d")
+    assert relax.op.nn.adaptive_avg_pool3d(x, ty=tvm_tirx.ir.Type.missing()).op == Op.get(
+        "relax.nn.adaptive_avg_pool3d"
+    )
 
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_max_pool1d_infer_ty():
@@ -97,7 +102,7 @@ def test_max_pool1d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(w - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(w - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -158,7 +163,7 @@ def test_max_pool1d_infer_ty_ceil_mode_symbolic():
     _check_inference(
         bb,
         relax.op.nn.max_pool1d(x, pool_size=3, strides=2, padding=1, dilation=2, ceil_mode=True),
-        relax.TensorType((n, c, tvm.tirx.floordiv(w, 2)), "float32"),
+        relax.TensorType((n, c, tvm_tirx.tirx.floordiv(w, 2)), "float32"),
     )
 
 
@@ -185,13 +190,13 @@ def test_max_pool1d_stride_padding_dilation_int64():
 
 def test_max_pool1d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool1d(x, pool_size=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool1d(x, strides=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool1d(x, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool1d(x, dilation=(1, 2))
 
 
@@ -312,8 +317,8 @@ def test_max_pool2d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(ih - 1, 3) + 1,
-                tvm.tirx.floordiv(iw - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(ih - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(iw - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -376,7 +381,9 @@ def test_max_pool2d_infer_ty_ceil_mode_symbolic():
         relax.op.nn.max_pool2d(
             x, pool_size=(3, 3), strides=(2, 2), padding=(1, 1), dilation=(2, 2), ceil_mode=True
         ),
-        relax.TensorType((n, c, tvm.tirx.floordiv(ih, 2), tvm.tirx.floordiv(iw, 2)), "float32"),
+        relax.TensorType(
+            (n, c, tvm_tirx.tirx.floordiv(ih, 2), tvm_tirx.tirx.floordiv(iw, 2)), "float32"
+        ),
     )
 
 
@@ -406,13 +413,13 @@ def test_max_pool2d_stride_padding_dilation_int64():
 
 def test_max_pool2d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool2d(x, pool_size=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool2d(x, strides=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool2d(x, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool2d(x, dilation=(1, 2, 3))
 
 
@@ -535,9 +542,9 @@ def test_max_pool3d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(id - 1, 3) + 1,
-                tvm.tirx.floordiv(ih - 1, 3) + 1,
-                tvm.tirx.floordiv(iw - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(id - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(ih - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(iw - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -608,7 +615,13 @@ def test_max_pool3d_infer_ty_ceil_mode_symbolic():
             ceil_mode=True,
         ),
         relax.TensorType(
-            (n, c, tvm.tirx.floordiv(id_, 2), tvm.tirx.floordiv(ih, 2), tvm.tirx.floordiv(iw, 2)),
+            (
+                n,
+                c,
+                tvm_tirx.tirx.floordiv(id_, 2),
+                tvm_tirx.tirx.floordiv(ih, 2),
+                tvm_tirx.tirx.floordiv(iw, 2),
+            ),
             "float32",
         ),
     )
@@ -647,13 +660,13 @@ def test_max_pool3d_stride_padding_dilation_int64():
 
 def test_max_pool3d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool3d(x, pool_size=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool3d(x, strides=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool3d(x, padding=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.max_pool3d(x, dilation=(1, 2, 3, 4))
 
 
@@ -758,7 +771,7 @@ def test_avg_pool1d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(iw - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(iw - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -819,7 +832,7 @@ def test_avg_pool1d_infer_ty_ceil_mode_symbolic():
         bb,
         relax.op.nn.avg_pool1d(x, pool_size=3, strides=2, padding=1, dilation=2, ceil_mode=True),
         relax.TensorType(
-            (n, c, tvm.tirx.floordiv(iw, 2)),
+            (n, c, tvm_tirx.tirx.floordiv(iw, 2)),
             "float32",
         ),
     )
@@ -847,13 +860,13 @@ def test_avg_pool1d_stride_padding_dilation_int64():
 
 def test_avg_pool1d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool1d(x, pool_size=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool1d(x, strides=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool1d(x, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool1d(x, dilation=(1, 2))
 
 
@@ -971,8 +984,8 @@ def test_avg_pool2d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(ih - 1, 3) + 1,
-                tvm.tirx.floordiv(iw - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(ih - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(iw - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -1035,7 +1048,9 @@ def test_avg_pool2d_infer_ty_ceil_mode_symbolic():
         relax.op.nn.avg_pool2d(
             x, pool_size=(3, 3), strides=(2, 2), padding=(1, 1), dilation=(2, 2), ceil_mode=True
         ),
-        relax.TensorType((n, c, tvm.tirx.floordiv(ih, 2), tvm.tirx.floordiv(iw, 2)), "float32"),
+        relax.TensorType(
+            (n, c, tvm_tirx.tirx.floordiv(ih, 2), tvm_tirx.tirx.floordiv(iw, 2)), "float32"
+        ),
     )
 
 
@@ -1065,13 +1080,13 @@ def test_avg_pool2d_stride_padding_dilation_int64():
 
 def test_avg_pool2d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool2d(x, pool_size=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool2d(x, strides=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool2d(x, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool2d(x, dilation=(1, 2, 3))
 
 
@@ -1195,9 +1210,9 @@ def test_avg_pool3d_infer_ty_shape_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(id_ - 1, 3) + 1,
-                tvm.tirx.floordiv(ih - 1, 3) + 1,
-                tvm.tirx.floordiv(iw - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(id_ - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(ih - 1, 3) + 1,
+                tvm_tirx.tirx.floordiv(iw - 1, 3) + 1,
             ),
             "float32",
         ),
@@ -1270,9 +1285,9 @@ def test_avg_pool3d_infer_ty_ceil_mode_symbolic():
             (
                 n,
                 c,
-                tvm.tirx.floordiv(id_, 2),
-                tvm.tirx.floordiv(ih, 2),
-                tvm.tirx.floordiv(iw, 2),
+                tvm_tirx.tirx.floordiv(id_, 2),
+                tvm_tirx.tirx.floordiv(ih, 2),
+                tvm_tirx.tirx.floordiv(iw, 2),
             ),
             "float32",
         ),
@@ -1311,13 +1326,13 @@ def test_avg_pool3d_stride_padding_dilation_int64():
 
 def test_avg_pool3d_wrong_pool_size_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28, 28), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool3d(x, pool_size=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool3d(x, strides=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool3d(x, padding=(1, 2, 3, 4))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.avg_pool3d(x, dilation=(1, 2, 3, 4))
 
 
@@ -1460,7 +1475,7 @@ def test_adaptive_avg_pool1d_infer_ty_more_input_dtype():
 
 def test_adaptive_avg_pool1d_wrong_output_size_ndim():
     x = relax.Var("x", R.Tensor((2, 3, 64), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.adaptive_avg_pool1d(x, output_size=(32, 32))
 
 
@@ -1630,7 +1645,7 @@ def test_adaptive_avg_pool2d_infer_ty_more_input_dtype():
 
 def test_adaptive_avg_pool2d_wrong_output_size_ndim():
     x = relax.Var("x", R.Tensor((2, 3, 32, 32), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.adaptive_avg_pool2d(x, (32, 32, 32))
 
 
@@ -1815,7 +1830,7 @@ def test_adaptive_avg_pool3d_infer_ty_more_input_dtype():
 def test_adaptive_avg_pool3d_wrong_output_size_ndim():
     x = relax.Var("x", R.Tensor((2, 3, 32, 32, 32), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.adaptive_avg_pool3d(x, (32, 32, 32, 32))
 
 
@@ -1853,4 +1868,4 @@ def test_adaptive_avg_pool3d_infer_ty_wrong_input_type():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

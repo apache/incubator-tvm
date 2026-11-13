@@ -17,79 +17,47 @@
 # pylint: disable=redefined-builtin, wrong-import-order, no-member, invalid-name
 """Distributed Relax expression operators."""
 
-from tvm.ir import Call
-from tvm.relax.distributed import DeviceMesh, DTensorType, Placement
-from tvm.relax.expr import Expr, ExternFunc
-from tvm.relax.expr import Tuple as RxTuple
+from tvm.relax.distributed import DeviceMesh, Placement
+from tvm.relax.expr import Expr
+from tvm.relax.op import call_tir as call_tir
 from tvm.relax.op.distributed import annotate_sharding as _annotate_sharding
 from tvm.relax.op.distributed import call_tir_local_view, redistribute_replica_to_shard
 from tvm.relax.op.distributed import redistribute as _redistribute
-from tvm.relax.utils import convert_to_expr
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
-from . import _ffi_api
 from .ir import _lookup_device_mesh
 
 py_str = str
 
 
-def call_tir(
-    func: str | Expr,
-    args: Expr,
-    out_ty: DTensorType | list[DTensorType],
-) -> Call:
-    """Distributed version of call_tir
-
-    Parameters
-    ----------
-    func : Union[str, Expr]
-        The destination-passing-style function, can be ExternFunc or PrimFunc.
-
-    args : Expr
-        The ordered distributed-tensor and primitive input arguments.  These
-        correspond positionally to the leading parameters of the PrimFunc.
-
-    out_ty : Union[DTensorType, List[DTensorType]]
-        The type information of the call_tir output.
-        It should be a single or a list of DTensorType. Each one denotes the
-        type information of a returned distributed tensor.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_tir operator.
-    """
-    if isinstance(func, str):
-        func = ExternFunc(func)
-
-    if isinstance(args, tuple | list):
-        args = RxTuple([convert_to_expr(a) for a in args])
-    elif isinstance(args, Expr) and not isinstance(args, RxTuple):  # type: ignore
-        args = RxTuple((args,))
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    return _ffi_api.call_tir_dist(func, args, out_ty)  # type: ignore
-
-
 def annotate_sharding(
-    value: Expr, device_mesh: py_str | DeviceMesh, placement: py_str | Placement
+    value: Expr,
+    device_mesh: py_str | DeviceMesh,
+    placement: py_str | Placement,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     if isinstance(device_mesh, py_str):
         device_mesh = _lookup_device_mesh(device_mesh)
     if isinstance(placement, py_str):
         placement = Placement.from_text(placement)
-    return _annotate_sharding(value, device_mesh, placement)
+    return _annotate_sharding(value, device_mesh, placement, ty=ty, loc=loc)
 
 
 def redistribute(
-    value: Expr, device_mesh: py_str | DeviceMesh, placement: py_str | Placement
+    value: Expr,
+    device_mesh: py_str | DeviceMesh,
+    placement: py_str | Placement,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     if isinstance(device_mesh, py_str):
         device_mesh = _lookup_device_mesh(device_mesh)
     if isinstance(placement, py_str):
         placement = Placement.from_text(placement)
-    return _redistribute(value, device_mesh, placement)
+    return _redistribute(value, device_mesh, placement, ty=ty, loc=loc)
 
 
 __all__ = [

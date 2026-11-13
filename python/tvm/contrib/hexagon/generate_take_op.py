@@ -17,7 +17,8 @@
 # pylint: disable=missing-docstring, invalid-name, unnecessary-comprehension, unused-argument
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 from tvm.contrib.hexagon import hexagon_unary_ops
 
@@ -25,7 +26,7 @@ from tvm.contrib.hexagon import hexagon_unary_ops
 def op_replace(call_node, func) -> bool:
     if not isinstance(call_node, relax.Call):
         return False
-    call_tir_op = tvm.ir.Op.get("relax.call_tir")
+    call_tir_op = tvm_tirx.ir.Op.get("relax.call_tir")
     if call_node.op != call_tir_op:
         return False
     ops = [
@@ -46,11 +47,11 @@ def op_replace(call_node, func) -> bool:
 
 @relax.expr_functor.mutator
 class Tanh2TakeReplace(tvm.relax.PyExprMutator):
-    def __init__(self, mod: tvm.IRModule) -> None:
+    def __init__(self, mod: tvm_tirx.IRModule) -> None:
         super().__init__(mod)
         self.mod_ = mod
 
-    def transform(self) -> tvm.IRModule:
+    def transform(self) -> tvm_tirx.IRModule:
         # Iterate over all the nodes to check for the node replaceable
         for global_var, func in self.mod_.functions.items():
             # Skip non-relax functions
@@ -63,7 +64,7 @@ class Tanh2TakeReplace(tvm.relax.PyExprMutator):
         return self.builder_.get()
 
     def visit_call_(self, call_node: relax.Call) -> relax.Call:
-        call_tir_op = tvm.ir.Op.get("relax.call_tir")
+        call_tir_op = tvm_tirx.ir.Op.get("relax.call_tir")
         if call_node.op != call_tir_op:
             return call_node
 
@@ -78,19 +79,21 @@ class Tanh2TakeReplace(tvm.relax.PyExprMutator):
                     inp_scale, inp_zp, out_scale, out_zp, call_node.args[0].name_hint
                 )
                 # Take operation node creation
-                take_func = hexagon_unary_ops.generate_take_primfunc(inp, call_node.ty)
+                take_func = hexagon_unary_ops.generate_take_function(inp, call_node.ty)
                 take_func = take_func.without_attr("global_symbol")
                 take_func_gv = self.builder_.add_func(take_func, "take")
                 take_node = relax.call_tir(
                     take_func_gv,
-                    relax.expr.Tuple([call_node.args[1][0], relax.const(tvm.runtime.tensor(LUT))]),
-                    call_node.ty,
+                    relax.expr.Tuple(
+                        [call_node.args[1][0], relax.const(tvm_tirx.runtime.tensor(LUT))]
+                    ),
+                    ty_args=[call_node.ty],
                 )
                 return take_node
         return call_node
 
 
-@tvm.ir.transform.module_pass(opt_level=2, name="replace_tanh_take")
-class PassReplaceWithTakeOpPrimFuncs:
+@tvm_tirx.ir.transform.module_pass(opt_level=2, name="replace_tanh_take")
+class PassReplaceWithTakeOpFunctions:
     def transform_module(self, mod, ctx):
         return Tanh2TakeReplace(mod).transform()

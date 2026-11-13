@@ -18,9 +18,6 @@
 
 set -euxo pipefail
 
-export PYTHONPATH=python
-export LD_LIBRARY_PATH="lib:${LD_LIBRARY_PATH:-}"
-
 # to avoid CI CPU thread throttling.
 export TVM_BIND_THREADS=0
 export OMP_NUM_THREADS=1

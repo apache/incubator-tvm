@@ -33,10 +33,10 @@
 namespace tvm {
 namespace contrib {
 
-void CuDNNSDPARunnerNode::Init(int64_t batch, int64_t seq_len, int64_t num_heads,
-                               int64_t num_kv_heads, int64_t head_size, int64_t head_size_v,
-                               double scale, const DLDataType& data_type,
-                               const std::string& layout) {
+void CuDNNSDPARunnerObj::Init(int64_t batch, int64_t seq_len, int64_t num_heads,
+                              int64_t num_kv_heads, int64_t head_size, int64_t head_size_v,
+                              double scale, const DLDataType& data_type,
+                              const std::string& layout) {
   graph_ = std::make_unique<cudnn_frontend::graph::Graph>();
 
   TVM_FFI_ICHECK(data_type.code == DLDataTypeCode::kDLFloat && data_type.bits == 16)
@@ -104,7 +104,7 @@ void CuDNNSDPARunnerNode::Init(int64_t batch, int64_t seq_len, int64_t num_heads
   CUDNN_FRONTEND_CALL(graph_->build(entry_ptr->handle, {cudnn_frontend::HeurMode_t::A}));
 }
 
-void CuDNNSDPARunnerNode::Run(const DLTensor* qkv, DLTensor* workspace, DLTensor* out) {
+void CuDNNSDPARunnerObj::Run(const DLTensor* qkv, DLTensor* workspace, DLTensor* out) {
   auto* qkv_base = reinterpret_cast<uint8_t*>(qkv->data) + qkv->byte_offset;
   auto* q_ptr = reinterpret_cast<uint16_t*>(qkv_base) + offset_q_;
   auto* k_ptr = reinterpret_cast<uint16_t*>(qkv_base) + offset_k_;

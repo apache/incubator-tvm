@@ -24,12 +24,6 @@ tvm.s_tir.tensor_intrin
    :members:
    :imported-members:
 
-tvm.s_tir.tensor_intrin.cuda
-****************************
-.. automodule:: tvm.s_tir.tensor_intrin.cuda
-   :members:
-   :noindex:
-
 tvm.s_tir.tensor_intrin.arm_cpu
 *******************************
 .. automodule:: tvm.s_tir.tensor_intrin.arm_cpu

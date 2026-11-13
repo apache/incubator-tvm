@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_TRANSFORM_H_
 #define TVM_RELAX_TRANSFORM_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/transform.h>
 #include <tvm/relax/dataflow_pattern.h>
@@ -49,14 +50,11 @@ using LayoutCb = ffi::TypedFunction<ffi::Map<ffi::String, ffi::Array<ffi::String
  * \param pass_func The packed function that contains the optimization.
  * \param opt_level The optimization level of the function pass.
  * \param name The name of the function pass.
- * \param required The list of the passes that the function pass is dependent on.
- * \param traceable Boolean variable whether the dataflowblock pass is traceable.
  *
  * \return The created function pass.
  */
 TVM_DLL Pass CreateFunctionPass(std::function<Function(Function, IRModule, PassContext)> pass_func,
-                                int opt_level, ffi::String name,
-                                tvm::ffi::Array<ffi::String> required, bool traceable = false);
+                                int opt_level, ffi::String name);
 
 /*!
  * \brief Create a dataflowblock pass.
@@ -64,14 +62,12 @@ TVM_DLL Pass CreateFunctionPass(std::function<Function(Function, IRModule, PassC
  * \param pass_func The packed function that contains the optimization.
  * \param opt_level The optimization level of the dataflowblock pass.
  * \param name The name of the dataflowblock pass.
- * \param required The list of the passes that the dataflowblock pass is dependent on.
- * \param traceable Boolean variable whether the dataflowblock pass is traceable.
  *
  * \return The created dataflowblock pass.
  */
 TVM_DLL Pass CreateDataflowBlockPass(
     std::function<DataflowBlock(DataflowBlock, IRModule, PassContext)> pass_func, int opt_level,
-    ffi::String name, tvm::ffi::Array<ffi::String> required, bool traceable = false);
+    ffi::String name);
 
 /*!
  * \brief Perform lambda lifting to lift functions from nested into global.
@@ -145,7 +141,7 @@ TVM_DLL Pass RewriteDataflowReshape();
 TVM_DLL Pass StaticPlanBlockMemory();
 
 /*!
- * \brief Attach global_symbol to Relax functions and TIR Primfuncs for codegen.
+ * \brief Attach global_symbol to Relax functions and TIR Functions for codegen.
  *
  * \return The Pass.
  */
@@ -229,12 +225,12 @@ TVM_DLL Pass FoldConstant();
 
 /*!
  * \brief Legalize high-level operator calls in Relax functions to call_tir
- * with corresponding low-level TIR PrimFuncs.
+ * with corresponding low-level TIR Functions.
  *
  * For each high-level operator, we register the way of legalizing it as a
  * function, which takes a context BlockBuilder and the Call being legalized
  * as input, and returns the legalized call. Here the input BlockBuilder is
- * mainly used for adding the PrimFunc created by call_te into the context
+ * mainly used for adding the tirx::Function created by call_te into the context
  * IRModule.
  *
  * The legalization function for each operator is registered as an attribute (with
@@ -249,11 +245,12 @@ TVM_DLL Pass FoldConstant();
  * \param skip_ops The list operator names which need to be skipped from legalization
  * \param enable_warning A boolean value indicating if to print warnings for TIR functions not
  * showing up in the database.
+ * \param target Default compilation target; virtual-device annotations take precedence.
  * \return The Pass.
  */
 TVM_DLL Pass LegalizeOps(ffi::Optional<ffi::Map<ffi::String, ffi::Function>> cmap,
                          ffi::Optional<ffi::Array<ffi::String>> skip_ops,
-                         bool enable_warning = false);
+                         bool enable_warning = false, ffi::Optional<Target> target = std::nullopt);
 
 /*!
  * \brief Propagate virtual device information.
@@ -262,19 +259,19 @@ TVM_DLL Pass LegalizeOps(ffi::Optional<ffi::Map<ffi::String, ffi::Function>> cma
 TVM_DLL Pass RealizeVDevice();
 
 /*!
- * \brief Attach layout free buffers to the tirx::PrimFunc.
+ * \brief Attach layout free tensors to the tirx::Function.
  *
- * This pass is used to attach layout free buffers to the tirx::PrimFunc according to
- * the function usage in the relax function. Currently, the layout free buffers are the model
+ * This pass is used to attach layout free tensors to the tirx::Function according to
+ * the function usage in the relax function. Currently, the layout free tensors are the model
  * weights and relax constants.
  *
  * \note We recommend applying CanonicalizeBindings before this pass.
  * \return The Pass.
  */
-TVM_DLL Pass AttachAttrLayoutFreeBuffers();
+TVM_DLL Pass AttachAttrLayoutFreeTensors();
 
 /*!
- * \brief Split the layout rewrite preproc block to a separate tirx::PrimFunc.
+ * \brief Split the layout rewrite preproc block to a separate tirx::Function.
  *
  * This pass is used in the prepack weight after meta_schedule tuning.
  *
@@ -339,9 +336,9 @@ TVM_DLL Pass RemoveUnusedOutputs();
 
 /*!
  * \brief Annotate Op Pattern Kind for TIR functions, which is used in FuseOps.
- * \note It is an auto-detect pass for "unscheduled prim_funcs", the op_pattern will be
+ * \note It is an auto-detect pass for "unscheduled functions", the op_pattern will be
  *       "opaque" of we can't detect it. Users can manually annotate the attr `op_pattern`
- *       to prim_func.
+ *       to function.
  * \return The Pass.
  */
 TVM_DLL Pass AnnotateTIROpPattern();
@@ -352,7 +349,7 @@ TVM_DLL Pass AnnotateTIROpPattern();
  * implementation. By grouping bindings into new Relax functions, we substitute the bindings in the
  * function being manipulated into function calls to the new grouped function.
  *
- * A follow-up pass named "FuseTIR" will generate a TIR PrimFunc for each grouped function.
+ * A follow-up pass named "FuseTIR" will generate a TIR tirx::Function for each grouped function.
  * \param fuse_opt_level The level of fuse optimization.
  *        -1 indicates that the level will be inferred from pass context.
  * \return The Pass.
@@ -364,8 +361,11 @@ TVM_DLL Pass FuseOps(int fuse_opt_level = -1);
  * fused, it needs to be matched with `pattern` and the `check` function needs to return
  * true.
  */
-class FusionPatternNode : public ffi::Object {
+class FusionPatternObj : public ffi::Object {
  public:
+  explicit FusionPatternObj(DFPattern value) : pattern(std::move(value)) {}
+  explicit FusionPatternObj(ffi::UnsafeInit) : pattern(ffi::UnsafeInit{}) {}
+
   /*!
    * \brief The name of pattern. It becomes the value of the kComposite attribute
    * of a fused function after successful matching
@@ -403,15 +403,14 @@ class FusionPatternNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FusionPatternNode>()
-        .def_ro("name", &FusionPatternNode::name)
-        .def_ro("pattern", &FusionPatternNode::pattern)
-        .def_ro("annotation_patterns", &FusionPatternNode::annotation_patterns)
-        .def_ro("check", &FusionPatternNode::check)
-        .def_ro("attrs_getter", &FusionPatternNode::attrs_getter);
+    refl::ObjectDef<FusionPatternObj>()
+        .def_ro("name", &FusionPatternObj::name)
+        .def_ro("pattern", &FusionPatternObj::pattern)
+        .def_ro("annotation_patterns", &FusionPatternObj::annotation_patterns)
+        .def_ro("check", &FusionPatternObj::check)
+        .def_ro("attrs_getter", &FusionPatternObj::attrs_getter);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.transform.FusionPattern", FusionPatternNode,
-                                    ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.transform.FusionPattern", FusionPatternObj, ffi::Object);
 };
 
 class FusionPattern : public ffi::ObjectRef {
@@ -423,14 +422,17 @@ class FusionPattern : public ffi::ObjectRef {
   FusionPattern(ffi::String name, DFPattern pattern)
       : FusionPattern(name, pattern, {}, std::nullopt, std::nullopt) {}
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FusionPattern, ffi::ObjectRef, FusionPatternNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FusionPattern, ffi::ObjectRef, FusionPatternObj);
 };
 
 /*!
  * \brief The input of FusionPattern::check.
  */
-class PatternCheckContextNode : public ffi::Object {
+class PatternCheckContextObj : public ffi::Object {
  public:
+  explicit PatternCheckContextObj(Expr matched_expr) : matched_expr(std::move(matched_expr)) {}
+  explicit PatternCheckContextObj(ffi::UnsafeInit) : matched_expr(ffi::UnsafeInit{}) {}
+
   /*!
    * \brief The expression that's matched with the FusionPattern::pattern.
    */
@@ -462,14 +464,14 @@ class PatternCheckContextNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PatternCheckContextNode>()
-        .def_ro("matched_expr", &PatternCheckContextNode::matched_expr)
-        .def_ro("annotated_expr", &PatternCheckContextNode::annotated_expr)
-        .def_ro("matched_bindings", &PatternCheckContextNode::matched_bindings)
-        .def_ro("var_usages", &PatternCheckContextNode::var_usages)
-        .def_ro("value_to_bound_var", &PatternCheckContextNode::value_to_bound_var);
+    refl::ObjectDef<PatternCheckContextObj>()
+        .def_ro("matched_expr", &PatternCheckContextObj::matched_expr)
+        .def_ro("annotated_expr", &PatternCheckContextObj::annotated_expr)
+        .def_ro("matched_bindings", &PatternCheckContextObj::matched_bindings)
+        .def_ro("var_usages", &PatternCheckContextObj::var_usages)
+        .def_ro("value_to_bound_var", &PatternCheckContextObj::value_to_bound_var);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.transform.PatternCheckContext", PatternCheckContextNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.transform.PatternCheckContext", PatternCheckContextObj,
                                     ffi::Object);
 };
 
@@ -481,7 +483,7 @@ class PatternCheckContext : public ffi::ObjectRef {
                       ffi::Map<Expr, Var> value_to_bound_var);
 
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PatternCheckContext, ffi::ObjectRef,
-                                                PatternCheckContextNode);
+                                                PatternCheckContextObj);
 };
 
 /*!
@@ -585,20 +587,20 @@ TVM_DLL Pass DecomposeOpsForInference(ffi::Optional<ffi::String> func_name);
 TVM_DLL Pass DecomposeOpsForTraining(ffi::Optional<ffi::String> func_name);
 
 /*!
- * \brief Returns a pass which replaces PrimFuncs which have matching kOperatorName attribute in \p
- * op_impl_map, with replacement PrimFunc that could possibly have different layouts on i/o
- * buffers. The layout transformations on i/o buffers is present in the \p op_buffer_transforms. The
- * pass inserts the layout transformations in the call sites of PrimFuncs being replaced to
- * transform i/o buffers into expected layout.
+ * \brief Returns a pass which replaces Functions which have matching kOperatorName attribute in \p
+ * op_impl_map, with replacement tirx::Function that could possibly have different layouts on i/o
+ * tensors. The layout transformations on i/o tensors is present in the \p op_tensor_transforms. The
+ * pass inserts the layout transformations in the call sites of Functions being replaced to
+ * transform i/o tensors into expected layout.
  *
- * \param op_impl_map Map from kOperatorName attr (e.g., relax.conv2d) to replacement PrimFunc
- * \param op_buffer_transforms Map from kOperatorName attr to layout transformations on each of the
- * PrimFunc i/o buffers.
+ * \param op_impl_map Map from kOperatorName attr (e.g., relax.conv2d) to replacement tirx::Function
+ * \param op_tensor_transforms Map from kOperatorName attr to layout transformations on each of the
+ * tirx::Function i/o tensors.
  * \return The Pass.
  */
-TVM_DLL Pass
-AlterOpImpl(const ffi::Map<ffi::String, tirx::PrimFunc>& op_impl_map,
-            const ffi::Map<ffi::String, ffi::Array<tirx::IndexMap>>& op_buffer_transforms);
+TVM_DLL Pass AlterOpImpl(
+    const ffi::Map<ffi::String, tirx::Function>& op_impl_map,
+    const ffi::Map<ffi::String, ffi::Array<ffi::Optional<tirx::IndexMap>>>& op_tensor_transforms);
 
 /*!
  * \brief Layout conversion pass.
@@ -641,7 +643,7 @@ TVM_DLL Pass DeadCodeElimination(ffi::Array<ffi::String> entry_functions = {});
  * \brief Pass that changes calls to operators that can be done in-place
  * (generally, these are elementwise operations) in dataflow blocks into in-place implementations.
  * Supported operators will be replaced by calls to `call_tir_inplace` that invoke in-place
- * PrimFunc implementations of those operators (which are based on the legalizations of those
+ * tirx::Function implementations of those operators (which are based on the legalizations of those
  * operators).
  * \note ConvertToDataflow may need to be called first to provide dataflow blocks.
  * \return The pass.
@@ -669,11 +671,11 @@ TVM_DLL Pass ToMixedPrecision(
 TVM_DLL Pass RewriteCUDAGraph();
 
 /*!
- * \brief This pass updates the var_buffer mapping of PrimFunctions from the call_tir info.
+ * \brief This pass updates the var_tensor mapping of Functiontions from the call_tir info.
  * Primarily used to update the VDevice information if any changes occurred from the caller.
- * This pass recreates the buffers and updates the map.
+ * This pass recreates the tensors and updates the map.
  */
-TVM_DLL Pass SpecializePrimFuncBasedOnCallSite();
+TVM_DLL Pass SpecializeFunctionBasedOnCallSite();
 
 }  // namespace transform
 }  // namespace relax

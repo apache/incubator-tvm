@@ -37,7 +37,7 @@
 #include <memory>
 #include <utility>
 
-#include "../../support/arena.h"
+#include "../../../support/arena.h"
 #include "rpc_reference.h"
 
 namespace tvm {

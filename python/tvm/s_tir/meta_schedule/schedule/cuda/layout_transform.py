@@ -20,7 +20,9 @@
 import math
 from collections import deque
 
-import tvm
+import tvm_ffi
+
+import tvm_tirx
 from tvm.s_tir import meta_schedule
 from tvm.s_tir.schedule import ExprRV, LoopRV, SBlockRV, Schedule
 
@@ -28,11 +30,11 @@ from tvm.s_tir.schedule import ExprRV, LoopRV, SBlockRV, Schedule
 # Assume we have an input shape of [A, B, C, D] and want to layout transform
 # ABCD --> DBAC so the output shape would be [D, B, A, C].
 #
-# Consider reading from the input buffer in a cache-friendly fashion on CPU. We would
+# Consider reading from the input tensor in a cache-friendly fashion on CPU. We would
 # expect a loop structure like:
 # lAr, lBr, lCr, lDr = T.grid(A, B, C, D)
 #
-# Meanwhile consider writing to the output buffer in a cache-friendly fashion on CPU:
+# Meanwhile consider writing to the output tensor in a cache-friendly fashion on CPU:
 # lDw, lBw, lAw, lCw = T.grid(D, B, A, C)
 #
 # Clearly in many scenarios it is impossible to guarantee contiguous writes and reads
@@ -103,10 +105,10 @@ def tile_layout_transform(
         block_read's initial loops to follow
 
     block_read:
-        The block which reads from global memory and writes to shared memory buffer.
+        The block which reads from global memory and writes to shared memory tensor.
 
     block_write:
-        The block which writes to global memory and reads from shared memory buffer.
+        The block which writes to global memory and reads from shared memory tensor.
 
     src_layout :
         The src_layout, each character should appear once and also appear in dst_layout.
@@ -359,10 +361,10 @@ def create_cached_read(
         block_read's initial loops to follow the original input shape.
 
     block_read:
-        The block which reads from global memory and writes to shared memory buffer.
+        The block which reads from global memory and writes to shared memory tensor.
 
     orig_input_shape:
-        The input shape of the input buffer to the primfunc.
+        The input shape of the input tensor to the function.
 
     orig_src_layout:
         The original src_layout string.
@@ -373,7 +375,7 @@ def create_cached_read(
     Returns
     -------
     ret:
-        A tuple of the cached read block, new input shape of shared memory buffer,
+        A tuple of the cached read block, new input shape of shared memory tensor,
         the new src_layout, and new dst_layout string.
     """
     # Figure out split dimensions, entries are (loop index in src_layout, split amount)
@@ -429,8 +431,8 @@ def create_cached_read(
     dst_to_src_map = [new_dst_layout_str.index(dim) for dim in new_src_layout_str]
     block_read = sch.reindex_cache_read(
         block_write,
-        read_buffer_index=0,
-        index_map=tvm.tirx.IndexMap.from_func(
+        read_tensor_index=0,
+        index_map=tvm_tirx.tirx.IndexMap.from_func(
             lambda *loops: [loops[dst_to_src_map[i]] for i, _ in enumerate(loops)],
             ndim=len(new_src_layout_str),
         ),
@@ -486,20 +488,20 @@ def auto_inline_into(sch: Schedule, start_block: SBlockRV) -> SBlockRV:
         sch = autoinline_rule.apply(sch, cur_block)[0]
 
 
-def get_max_tile_size() -> int:
+def get_max_tile_size(target=None) -> int:
     """Returns the max tile size.
 
     This is assuming only threads in a warp can have coalesced accesses. 32 is the default if
     no target information can be gotten.
     """
     max_tile_size = 32
-    cur_target = tvm.target.Target.current()
+    cur_target = target
     if cur_target is not None and "thread_warp_size" in cur_target.attrs:
         max_tile_size = int(cur_target.attrs["thread_warp_size"])
     return max_tile_size
 
 
-@tvm.register_global_func("s_tir.meta_schedule.cuda.layout_transform")
+@tvm_ffi.register_global_func("s_tir.meta_schedule.cuda.layout_transform")
 def cuda_layout_transform_schedule_rule(
     sch: Schedule, block: SBlockRV, testing_tile_sizes: list[int] | None = None
 ) -> list[Schedule]:
@@ -567,7 +569,9 @@ def cuda_layout_transform_schedule_rule(
 
     # Try tile size 2,3...threads_per_warp as tile size of 1 has no coaslescing.
     if testing_tile_sizes is None:
-        tile_sizes = list(range(2, get_max_tile_size() + 1))
+        tile_sizes = list(
+            range(2, get_max_tile_size(sch.mod[sch.func_working_on].attrs.get("target")) + 1)
+        )
     else:
         tile_sizes = testing_tile_sizes
 

@@ -19,10 +19,10 @@
 
 import numpy as np  # type: ignore
 
-import tvm
+import tvm_tirx
 from tvm import relax
-from tvm.ir.module import IRModule
-from tvm.runtime._tensor import Tensor
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.runtime._tensor import Tensor
 
 
 class Trainer:
@@ -32,7 +32,7 @@ class Trainer:
 
     Parameters
     ----------
-    train_mod : tvm.IRModule
+    train_mod : tvm_tirx.IRModule
         The IRModule that will be run. Should be the result of a backbone module being transformed
         by the SetupTrainer pass.
 
@@ -41,7 +41,7 @@ class Trainer:
         complexity and flexibility of building, we require user build the train_mod outside of
         trainer and pass the result vm.
 
-    device : tvm.runtime.Device
+    device : tvm_tirx.runtime.Device
         The device to place the parameters and states in.
 
     zero_init_param_state : bool
@@ -77,7 +77,7 @@ class Trainer:
         self,
         train_mod: IRModule,
         vm: relax.VirtualMachine,
-        device: tvm.runtime.Device,
+        device: tvm_tirx.runtime.Device,
         zero_init_param_state: bool = True,
     ) -> None:
         self.mod = train_mod.without_attr("optim_state")
@@ -129,7 +129,7 @@ class Trainer:
         for p in self._param_vars:
             shape, dtype = self._get_shape_list(p), p.ty.dtype
             self._params.append(
-                tvm.runtime.tensor(
+                tvm_tirx.runtime.tensor(
                     (np.sqrt(6.0 / np.sum(shape)) * np.random.uniform(-1.0, 1.0, shape)).astype(
                         dtype
                     ),
@@ -140,14 +140,18 @@ class Trainer:
     def zero_init_params(self):
         """Zero initialize all parameters. Requires all parameters have static shapes."""
         self._params = [
-            tvm.runtime.tensor(np.zeros(self._get_shape_list(p), p.ty.dtype.dtype), self.device)
+            tvm_tirx.runtime.tensor(
+                np.zeros(self._get_shape_list(p), p.ty.dtype.dtype), self.device
+            )
             for p in self._param_vars
         ]
 
     def zero_init_states(self):
         """Zero initialize all states. Requires all states have static shapes."""
         self._states = [
-            tvm.runtime.tensor(np.zeros(self._get_shape_list(s), s.ty.dtype.dtype), self.device)
+            tvm_tirx.runtime.tensor(
+                np.zeros(self._get_shape_list(s), s.ty.dtype.dtype), self.device
+            )
             for s in self._state_vars
         ]
 
@@ -155,8 +159,9 @@ class Trainer:
         self,
         params: list[np.ndarray | Tensor] | dict[str, np.ndarray | Tensor],
     ):
-        """Load parameters from a dict or a list. Will convert parameters into tvm.runtime.Tensor
-        in self.device.
+        """Load parameters from a dict or a list.
+
+        Will convert parameters into tvm_tirx.runtime.Tensor in self.device.
 
         Parameters
         ----------
@@ -176,12 +181,14 @@ class Trainer:
                     f"The length of extern parameters is {len(params)}, which does not "
                     f"match the number of parameters {self._param_num}"
                 )
-            self._params = [tvm.runtime.tensor(v, self.device) for v in params]
+            self._params = [tvm_tirx.runtime.tensor(v, self.device) for v in params]
         elif isinstance(params, dict):
             for key, val in params.items():
                 if key not in self._param_name_to_pos:
                     raise ValueError(f"Parameter {key} is not found in the model")
-                self._params[self._param_name_to_pos[key]] = tvm.runtime.tensor(val, self.device)
+                self._params[self._param_name_to_pos[key]] = tvm_tirx.runtime.tensor(
+                    val, self.device
+                )
         else:
             raise ValueError("The type of extern_params should be either list or dict")
 
@@ -189,7 +196,7 @@ class Trainer:
         self,
         states: list[np.ndarray | Tensor] | dict[str, np.ndarray | Tensor],
     ):
-        """Load model states from a dict or a list. Will convert states into tvm.runtime.Tensor
+        """Load model states from a dict or a list. Will convert states into tvm_tirx.runtime.Tensor
         in self.device.
 
         Parameters
@@ -210,12 +217,14 @@ class Trainer:
                     f"The length of extern states is {len(states)}, which does not match "
                     f"the number of model states {self._state_num}"
                 )
-            self._states = [tvm.runtime.tensor(v, self.device) for v in states]
+            self._states = [tvm_tirx.runtime.tensor(v, self.device) for v in states]
         elif isinstance(states, dict):
             for key, val in states.items():
                 if key not in self._param_name_to_pos:
                     raise ValueError(f"Parameter {key} is not found in the model")
-                self._states[self._param_name_to_pos[key]] = tvm.runtime.tensor(val, self.device)
+                self._states[self._param_name_to_pos[key]] = tvm_tirx.runtime.tensor(
+                    val, self.device
+                )
         else:
             raise ValueError("The type of extern_states should be either list or dict")
 
@@ -274,7 +283,7 @@ class Trainer:
         if len(input_instances) != self._input_num:
             raise ValueError("The length of the input does not match the backbone")
         all_inputs: list[Tensor] = (
-            [tvm.runtime.tensor(i, self.device) for i in input_instances]
+            [tvm_tirx.runtime.tensor(i, self.device) for i in input_instances]
             + self._params
             + self._states
         )
@@ -314,7 +323,7 @@ class Trainer:
         Returns
         -------
         loss : Tensor
-            The loss stored in tvm.runtime.Tensor.
+            The loss stored in tvm_tirx.runtime.Tensor.
         """
         self._check_inited()
 
@@ -328,10 +337,10 @@ class Trainer:
             raise ValueError("The length of the input does not match the backbone")
 
         all_inputs: list[Tensor] = (
-            [tvm.runtime.tensor(i, self.device) for i in input_instances]
+            [tvm_tirx.runtime.tensor(i, self.device) for i in input_instances]
             + self._params
             + self._states
-            + [tvm.runtime.tensor(i, self.device) for i in targets]
+            + [tvm_tirx.runtime.tensor(i, self.device) for i in targets]
         )
         ret, grads = self.vm[self.ADJOINT_FUNC](*all_inputs)
 

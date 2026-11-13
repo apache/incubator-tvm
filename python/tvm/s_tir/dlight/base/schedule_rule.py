@@ -14,20 +14,21 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""A lightweight wrapper on an arbitrary function that can be used to schedule a TIR PrimFunc."""
+"""A lightweight wrapper on an arbitrary function that can be used to schedule a TIR Function."""
 
 from collections.abc import Callable
 
-from tvm import s_tir, tirx
-from tvm.target import Target
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.target import Target
 
 
 class ScheduleRule:  # pylint: disable=too-few-public-methods
-    """A thin wrapper on an arbitrary function that can be used to schedule a TIR PrimFunc.
+    """A thin wrapper on an arbitrary function that can be used to schedule a TIR Function.
 
-    Given a PrimFunc, a target, and a tunable flag, the apply method of a ScheduleRule
+    Given a Function, a target, and a tunable flag, the apply method of a ScheduleRule
     returns either a Schedule, a list of Schedules, or None, where None means that the rule
-    is not applicable to the given PrimFunc. If the tunable flag is True, the ScheduleRule is
+    is not applicable to the given Function. If the tunable flag is True, the ScheduleRule is
     allowed to return either a Schedule or a list of Schedules, and the Schedules are allowed to
     contain tunable instructions. If the tunable flag is False, the ScheduleRule is only allowed to
     return a Schedule, and the Schedule is not allowed to contain tunable instructions.
@@ -35,16 +36,16 @@ class ScheduleRule:  # pylint: disable=too-few-public-methods
 
     def apply(
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         tunable: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
-        """Apply the ScheduleRule to the given PrimFunc.
+        """Apply the ScheduleRule to the given Function.
 
         Parameters
         ----------
-        func : tirx.PrimFunc
-            The PrimFunc to apply the ScheduleRule to.
+        func : tirx.Function
+            The Function to apply the ScheduleRule to.
         target : Target
             The compilation target the schedule is supposed to be built for.
         tunable : bool
@@ -54,7 +55,7 @@ class ScheduleRule:  # pylint: disable=too-few-public-methods
         -------
         results : Union[None, s_tir.Schedule, List[s_tir.Schedule]]
             Either a Schedule, a list of Schedules, or None, where None means that the rule
-            is not applicable to the given PrimFunc.
+            is not applicable to the given Function.
         """
         raise NotImplementedError
 
@@ -64,7 +65,7 @@ class ScheduleRule:  # pylint: disable=too-few-public-methods
     ) -> Callable[
         [
             Callable[
-                [tirx.PrimFunc, Target, bool],
+                [tirx.Function, Target, bool],
                 None | s_tir.Schedule | list[s_tir.Schedule],
             ],
         ],
@@ -86,7 +87,7 @@ class ScheduleRule:  # pylint: disable=too-few-public-methods
         .. code-block:: python
 
             @ScheduleRule.from_callable("MyRule")
-            def my_rule(func: tirx.PrimFunc, target: Target, tunable: bool) -> Union[None, Schedule]
+            def my_rule(func: tirx.Function, target: Target, tunable: bool) -> Union[None, Schedule]
                 # Do something with func and target
         """
 
@@ -94,7 +95,7 @@ class ScheduleRule:  # pylint: disable=too-few-public-methods
             class _Rule(ScheduleRule):
                 def apply(
                     self,
-                    func: tirx.PrimFunc,
+                    func: tirx.Function,
                     target: Target,
                     tunable: bool,
                 ) -> None | s_tir.Schedule | list[s_tir.Schedule]:

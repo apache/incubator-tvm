@@ -16,17 +16,17 @@
 # under the License.
 """Extracted tasks from high-level IR."""
 
+import tvm_ffi
 from tvm_ffi import register_object
 
-from tvm.ir import IRModule
-from tvm.runtime import Object
-from tvm.target import Target
+from tvm_tirx.ir import IRModule
+from tvm_tirx.target import Target
 
 from . import _ffi_api
 
 
 @register_object("s_tir.meta_schedule.ExtractedTask")
-class ExtractedTask(Object):
+class ExtractedTask(tvm_ffi.Object):
     """A tuning task extracted from the high-level IR
 
     Parameters

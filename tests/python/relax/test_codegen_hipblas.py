@@ -18,16 +18,17 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.testing import env
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.testing import env as tvm_env
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
 import tvm.topi.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.backend.rocm.hipblas import partition_for_hipblas
 from tvm.relax.testing import get_relax_matmul_module
-from tvm.script import relax as R
 
 try:
     import ml_dtypes
@@ -42,22 +43,22 @@ def reset_seed():
 
 pytestmark = [
     pytest.mark.gpu,
-    pytest.mark.skipif(not env.has_hipblas(), reason="need hipblas"),
+    pytest.mark.skipif(not tvm_env.has_hipblas(), reason="need hipblas"),
 ]
 
 
 def build_and_run(mod, inputs_np, target, legalize=False):
-    with tvm.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
+    with tvm_tirx.ir.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
         ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target, 0)
+        dev = tvm_tirx.device_from_target(target, 0)
         vm = relax.VirtualMachine(ex, dev)
         f = vm["main"]
-        inputs = [tvm.runtime.tensor(inp, dev) for inp in inputs_np]
+        inputs = [tvm_tirx.runtime.tensor(inp, dev) for inp in inputs_np]
         return f(*inputs).numpy()
 
-    return tvm.testing.run_with_gpu_lock(run_and_check)
+    return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 def get_result_with_relax_cublas_offload(mod, np_inputs):
@@ -70,7 +71,7 @@ def get_result_with_relax_cublas_offload(mod, np_inputs):
 def _to_concrete_shape(symbolic_shape, var_table):
     result = []
     for dim in symbolic_shape:
-        if not isinstance(dim, tvm.tirx.expr.Var):
+        if not isinstance(dim, tvm_tirx.tirx.expr.Var):
             result.append(dim)
             continue
 
@@ -82,8 +83,8 @@ def _to_concrete_shape(symbolic_shape, var_table):
 
 
 _vars = {
-    "a": tvm.tirx.expr.Var("a", "int64"),
-    "b": tvm.tirx.expr.Var("b", "int64"),
+    "a": tvm_tirx.tirx.expr.Var("a", "int64"),
+    "b": tvm_tirx.tirx.expr.Var("b", "int64"),
 }
 
 
@@ -160,7 +161,7 @@ def test_matmul_offload(
     out = get_result_with_relax_cublas_offload(mod, args)
     ref = build_and_run(mod, args, "llvm", legalize=True)
 
-    tvm.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 
 
 def test_hipblas_partition_matmul_without_bias():
@@ -173,4 +174,4 @@ def test_hipblas_partition_matmul_without_bias():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -18,6 +18,7 @@
  */
 
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
@@ -42,7 +43,7 @@ class FunctionInliner : public ExprMutator {
 
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto node = ExprMutator::VisitExpr_(op);
     if (node.get() != op) {
       node = CanonicalizeBindings(node);
@@ -51,7 +52,7 @@ class FunctionInliner : public ExprMutator {
     return node;
   }
 
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     auto node = ExprMutator::VisitExpr_(op).as_or_throw<Call>();
 
     if (auto opt = node->op.as<GlobalVar>()) {
@@ -129,13 +130,13 @@ class FunctionInliner : public ExprMutator {
       //
       // This implementation uses Option 4.
 
-      Var param_var(func->params[i]->name, args[i]->ty.as<Type>());
+      Var param_var(func->params[i]->name, args[i]->ty);
       param_bindings.push_back(VarBinding(param_var, args[i]));
       param_map.Set(func->params[i], param_var);
     }
 
     DataflowBlock binding_block(param_bindings);
-    Expr body = Bind(func, param_map).as<FunctionNode>()->body;
+    Expr body = Bind(func, param_map).as<FunctionObj>()->body;
 
     return SeqExpr({binding_block}, body);
   }
@@ -154,7 +155,7 @@ class FunctionInliner : public ExprMutator {
 Function FunctionInlineFunctions(
     Function func, const ffi::Map<ffi::Variant<ffi::String, GlobalVar>, Function>& replacements) {
   for (const auto& [key, func] : replacements) {
-    if (auto ptr = key.as<GlobalVarNode>()) {
+    if (auto ptr = key.as<GlobalVarObj>()) {
       TVM_FFI_CHECK(!replacements.count(ptr->name_hint), ValueError)
           << "Map of functions to inline must be unambiguous.  "
           << "However, the map provided contains both the GlobalVar " << key << " and the string \'"
@@ -179,7 +180,7 @@ Pass InlinePrivateFunctions() {
     for (const auto& [gvar, base_func] : mod->functions) {
       if (auto opt = base_func.as<relax::Function>()) {
         auto func = opt.value();
-        bool is_private = !func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol).has_value();
+        bool is_private = !func->GetAttr(tvm::attr::kGlobalSymbol).has_value();
         if (is_private) {
           replacements.Set(gvar, func);
         }
@@ -228,7 +229,7 @@ Pass InlinePrivateFunctions() {
     write_ptr->Update(updates);
     return mod;
   };
-  return tvm::transform::CreateModulePass(pass_func, 0, "InlinePrivateFunctions", {});
+  return tvm::transform::CreateModulePass(pass_func, 0, "InlinePrivateFunctions");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

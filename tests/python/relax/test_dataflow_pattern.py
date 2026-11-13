@@ -24,20 +24,27 @@ import math
 import pytest
 import tvm_ffi
 
-import tvm.testing
+import tvm
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm import tirx
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
 from tvm.relax.analysis import get_var2val
 from tvm.relax.dpl import *
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.script import tirx as T
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Module:
-    @Ts.prim_func
-    def tir_matmul(A: T.Buffer((32, 32)), B: T.Buffer((32, 32)), C: T.Buffer((32, 32))) -> None:
+    @Ts.function
+    def tir_matmul(
+        A: T.Tensor((32, 32), "float32"),
+        B: T.Tensor((32, 32), "float32"),
+        C: T.Tensor((32, 32), "float32"),
+    ) -> None:
         T.func_attr({"global_symbol": "tir_matmul"})
 
         for i0, j0, k0 in T.grid(32, 32, 32):
@@ -47,8 +54,8 @@ class Module:
                     C[i, j] = 0.0
                 C[i, j] += A[i, k] * B[j, k]
 
-    @Ts.prim_func
-    def tir_relu(A: T.Buffer((32, 32)), B: T.Buffer((32, 32))):
+    @Ts.function
+    def tir_relu(A: T.Tensor((32, 32), "float32"), B: T.Tensor((32, 32), "float32")):
         T.func_attr({"global_symbol": "tir_relu"})
 
         for i, j in T.grid(32, 32):
@@ -56,8 +63,8 @@ class Module:
                 vi, vj = Ts.axis.remap("SS", [i, j])
                 B[vi, vj] = T.max(A[vi, vj], 0.0)
 
-    @Ts.prim_func
-    def tir_zeros(n: T.int64, A: T.Buffer([n])):
+    @Ts.function
+    def tir_zeros(n: T.int64, A: T.Tensor([n], "float32")):
         T.func_attr({"global_symbol": "tir_zeros"})
 
         for i in range(n):
@@ -69,9 +76,9 @@ class Module:
     def main(x: R.Tensor((32, 32), "float32"), w: R.Tensor((32, 32), "float32")) -> R.Tuple:
         cls = Module
         with R.dataflow():
-            lv0 = R.call_tir(cls.tir_matmul, (x, w), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_tir(cls.tir_relu, (lv0), R.Tensor((32, 32), dtype="float32"))
-            lv2 = R.call_tir(cls.tir_zeros, [32], R.Tensor((32,), dtype="float32"))
+            lv0 = R.call_tir(cls.tir_matmul, (x, w), ty_args=[R.Tensor((32, 32), dtype="float32")])
+            lv1 = R.call_tir(cls.tir_relu, (lv0), ty_args=[R.Tensor((32, 32), dtype="float32")])
+            lv2 = R.call_tir(cls.tir_zeros, [32], ty_args=[R.Tensor((32,), dtype="float32")])
             gv = (lv1, lv2)
             R.output(gv)
         return gv
@@ -382,7 +389,7 @@ def test_counter_syntax_match():
         assert not ctx.match_dfb(dfb)
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Diamond:
     @R.function
     def main(x: R.Tensor((32, 32), "float32"), w: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -392,10 +399,18 @@ class Diamond:
             # relu  sigmoid
             #  \      /
             #    add
-            lv0 = R.call_dps_packed("extern_matmul", (x, w), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("extern_relu", (lv0,), R.Tensor((32, 32), dtype="float32"))
-            lv2 = R.call_dps_packed("extern_sigmoid", (lv0), R.Tensor((32, 32), dtype="float32"))
-            lv3 = R.call_dps_packed("extern_add", (lv1, lv2), R.Tensor((32, 32), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("extern_matmul"), (x, w), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("extern_relu"), (lv0,), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv2 = R.call_dps_packed(
+                _ExternFunc("extern_sigmoid"), (lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv3 = R.call_dps_packed(
+                _ExternFunc("extern_add"), (lv1, lv2), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
             R.output(lv3)
         return lv3
 
@@ -445,7 +460,7 @@ def test_diamond_counter_oub():
         assert not ctx.match_dfb(dfb)
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class SmallDiamond:
     @R.function
     def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -454,13 +469,17 @@ class SmallDiamond:
             #  /      \
             #  \      /
             #    add
-            lv0 = R.call_dps_packed("my_relu", (x,), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("my_add", (lv0, lv0), R.Tensor((32, 32), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("my_relu"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("my_add"), (lv0, lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
             R.output(lv1)
         return lv1
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class SmallParallel:
     @R.function
     def main(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -468,9 +487,15 @@ class SmallParallel:
             # relu   relu
             #   \    /
             #    add
-            lv0 = R.call_dps_packed("my_relu", (x,), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("my_relu", (x,), R.Tensor((32, 32), dtype="float32"))
-            lv2 = R.call_dps_packed("my_add", (lv0, lv1), R.Tensor((32, 32), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("my_relu"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("my_relu"), (x,), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv2 = R.call_dps_packed(
+                _ExternFunc("my_add"), (lv0, lv1), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
             R.output(lv2)
         return lv2
 
@@ -504,7 +529,7 @@ def test_distinguish_diamond_and_parallel():
         assert not ctx.match_dfb(diamond)
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class CBRx2:
     @R.function
     def main(
@@ -521,13 +546,27 @@ class CBRx2:
         #     \   /
         #     concat
         with R.dataflow():
-            lv0 = R.call_dps_packed("conv1x1", (x, w0), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("bias_add", (lv0, bias0), R.Tensor((32, 32), dtype="float32"))
-            lv2 = R.call_dps_packed("my_relu", (lv1), R.Tensor((32, 32), dtype="float32"))
-            lv3 = R.call_dps_packed("conv1x1", (x, w1), R.Tensor((32, 32), dtype="float32"))
-            lv4 = R.call_dps_packed("bias_add", (lv3, bias1), R.Tensor((32, 32), dtype="float32"))
-            lv5 = R.call_dps_packed("my_relu", (lv4), R.Tensor((32, 32), dtype="float32"))
-            lv6 = R.call_dps_packed("concat", (lv2, lv5), R.Tensor((32, 64), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("conv1x1"), (x, w0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("bias_add"), (lv0, bias0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv2 = R.call_dps_packed(
+                _ExternFunc("my_relu"), (lv1), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv3 = R.call_dps_packed(
+                _ExternFunc("conv1x1"), (x, w1), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv4 = R.call_dps_packed(
+                _ExternFunc("bias_add"), (lv3, bias1), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv5 = R.call_dps_packed(
+                _ExternFunc("my_relu"), (lv4), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv6 = R.call_dps_packed(
+                _ExternFunc("concat"), (lv2, lv5), ty_args=[R.Tensor((32, 64), dtype="float32")]
+            )
             R.output(lv6)
         return lv6
 
@@ -586,7 +625,7 @@ def test_two_cbr():
 
 def test_two_matmul():
     # Same as Figure 2(a) in TASO paper.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class MatMul2:
         @R.function
         def main(
@@ -595,8 +634,12 @@ def test_two_matmul():
             c: R.Tensor((48, 32), "float32"),
         ) -> R.Tensor:
             with R.dataflow():
-                lv0 = R.call_dps_packed("matmul", (a, b), R.Tensor((32, 48), dtype="float32"))
-                lv1 = R.call_dps_packed("matmul", (lv0, c), R.Tensor((32, 32), dtype="float32"))
+                lv0 = R.call_dps_packed(
+                    _ExternFunc("matmul"), (a, b), ty_args=[R.Tensor((32, 48), dtype="float32")]
+                )
+                lv1 = R.call_dps_packed(
+                    _ExternFunc("matmul"), (lv0, c), ty_args=[R.Tensor((32, 32), dtype="float32")]
+                )
                 R.output(lv1)
             return lv1
 
@@ -621,7 +664,7 @@ def test_two_matmul():
 
 def test_concat_mm_split():
     # Same as Figure 2(b) in TASO paper.
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class CMS:
         @R.function
         def main(
@@ -630,12 +673,25 @@ def test_concat_mm_split():
             c: R.Tensor((16, 32), "float32"),
         ) -> R.Tensor:
             with R.dataflow():
-                lv0 = R.call_dps_packed("my_concat", (b, c), R.Tensor((32, 32), dtype="float32"))
-                lv1 = R.call_dps_packed("my_matmul", (a, lv0), R.Tensor((32, 32), dtype="float32"))
+                lv0 = R.call_dps_packed(
+                    _ExternFunc("my_concat"), (b, c), ty_args=[R.Tensor((32, 32), dtype="float32")]
+                )
+                lv1 = R.call_dps_packed(
+                    _ExternFunc("my_matmul"),
+                    (a, lv0),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
+                )
                 lv2 = R.call_dps_packed(
-                    "my_split",
+                    _ExternFunc("my_split"),
                     (lv1,),
-                    [R.Tensor((16, 32), dtype="float32"), R.Tensor((16, 32), dtype="float32")],
+                    ty_args=[
+                        _TupleType(
+                            [
+                                R.Tensor((16, 32), dtype="float32"),
+                                R.Tensor((16, 32), dtype="float32"),
+                            ]
+                        )
+                    ],
                 )
                 lv3 = R.TupleGetItem(lv2, 0)
                 lv4 = R.TupleGetItem(lv2, 1)
@@ -669,12 +725,12 @@ def test_concat_mm_split():
 def test_self_attention():
     # The example comes from.
     # https://developer.nvidia.com/blog/nlu-with-tensorrt-bert/
-    b = T.dynamic("b")
-    s = T.dynamic("s")
-    n = T.dynamic("n")
-    h = T.dynamic("h")
+    b = T.dynamic("b", "int64")
+    s = T.dynamic("s", "int64")
+    n = T.dynamic("n", "int64")
+    h = T.dynamic("h", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class SelfAttention:
         @R.function
         def main(
@@ -684,25 +740,39 @@ def test_self_attention():
             wv: R.Tensor((h, h), "float32"),
         ) -> R.Tensor:
             with R.dataflow():
-                fcq = R.call_dps_packed("my_fc", (x, wq), R.Tensor((b, s, n, h), dtype="float32"))
+                fcq = R.call_dps_packed(
+                    _ExternFunc("my_fc"), (x, wq), ty_args=[R.Tensor((b, s, n, h), dtype="float32")]
+                )
                 tpq = R.call_dps_packed(
-                    "my_transpose", (fcq,), R.Tensor((b, s, h, n), dtype="float32")
+                    _ExternFunc("my_transpose"),
+                    (fcq,),
+                    ty_args=[R.Tensor((b, s, h, n), dtype="float32")],
                 )
 
-                fck = R.call_dps_packed("my_fc", (x, wk), R.Tensor((b, s, n, h), dtype="float32"))
+                fck = R.call_dps_packed(
+                    _ExternFunc("my_fc"), (x, wk), ty_args=[R.Tensor((b, s, n, h), dtype="float32")]
+                )
                 tpk = R.call_dps_packed(
-                    "my_transpose", (fck,), R.Tensor((b, s, h, n), dtype="float32")
+                    _ExternFunc("my_transpose"),
+                    (fck,),
+                    ty_args=[R.Tensor((b, s, h, n), dtype="float32")],
                 )
 
                 mul = R.multiply(tpq, tpk)
                 scale = R.multiply(mul, R.const(1.1, "float32"))
                 softmax = R.call_dps_packed(
-                    "softmax", (scale,), R.Tensor((b, s, n, h), dtype="float32")
+                    _ExternFunc("softmax"),
+                    (scale,),
+                    ty_args=[R.Tensor((b, s, n, h), dtype="float32")],
                 )
 
-                fcv = R.call_dps_packed("my_fc", (x, wv), R.Tensor((b, s, n, h), dtype="float32"))
+                fcv = R.call_dps_packed(
+                    _ExternFunc("my_fc"), (x, wv), ty_args=[R.Tensor((b, s, n, h), dtype="float32")]
+                )
                 tpv = R.call_dps_packed(
-                    "my_transpose", (fcv,), R.Tensor((b, s, h, n), dtype="float32")
+                    _ExternFunc("my_transpose"),
+                    (fcv,),
+                    ty_args=[R.Tensor((b, s, h, n), dtype="float32")],
                 )
 
                 out = R.multiply(softmax, tpv)
@@ -721,7 +791,7 @@ def test_self_attention():
 
 
 def test_nested_diamond():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class DiamondInDiamond:
         @R.function
         def main(x: R.Tensor((32, 32), "float32"), w: R.Tensor((32, 32), "float32")) -> R.Tensor:
@@ -734,28 +804,44 @@ def test_nested_diamond():
                 #          \    /
                 #           add7
                 lv0 = R.call_dps_packed(
-                    "extern_matmul", (x, w), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_matmul"),
+                    (x, w),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv1 = R.call_dps_packed(
-                    "extern_matmul", (x, w), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_matmul"),
+                    (x, w),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv2 = R.call_dps_packed(
-                    "extern_sigmoid", (lv0), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_sigmoid"),
+                    (lv0),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv3 = R.call_dps_packed(
-                    "extern_sigmoid", (lv1), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_sigmoid"),
+                    (lv1),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv4 = R.call_dps_packed(
-                    "extern_add", (lv0, lv1), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_add"),
+                    (lv0, lv1),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv5 = R.call_dps_packed(
-                    "extern_add", (lv2, lv4), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_add"),
+                    (lv2, lv4),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv6 = R.call_dps_packed(
-                    "extern_add", (lv3, lv4), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_add"),
+                    (lv3, lv4),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 lv7 = R.call_dps_packed(
-                    "extern_add", (lv5, lv6), R.Tensor((32, 32), dtype="float32")
+                    _ExternFunc("extern_add"),
+                    (lv5, lv6),
+                    ty_args=[R.Tensor((32, 32), dtype="float32")],
                 )
                 R.output(lv7)
             return lv7
@@ -808,9 +894,15 @@ def test_incremental_solving():
     def simple_chain(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
         with R.dataflow():
             # relu -> sigmoid -> neg
-            lv0 = R.call_dps_packed("extern_relu", (x), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("extern_sigmoid", (lv0), R.Tensor((32, 32), dtype="float32"))
-            lv2 = R.call_dps_packed("extern_neg", (lv1), R.Tensor((32, 32), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("extern_relu"), (x), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("extern_sigmoid"), (lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv2 = R.call_dps_packed(
+                _ExternFunc("extern_neg"), (lv1), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
             R.output(lv2)
         return lv2
 
@@ -837,8 +929,12 @@ def test_incremental_solving_counter():
     def simple_chain(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
         with R.dataflow():
             # sigmoid -> neg
-            lv0 = R.call_dps_packed("extern_sigmoid", (x), R.Tensor((32, 32), dtype="float32"))
-            lv1 = R.call_dps_packed("extern_neg", (lv0), R.Tensor((32, 32), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("extern_sigmoid"), (x), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("extern_neg"), (lv0), ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
             R.output(lv1)
         return lv1
 
@@ -891,7 +987,7 @@ def test_rewrite_simple():
         return R.multiply(matchings[x], R.const(2, "float32"))
 
     rewritten = rewrite_call(pattern, rewriter, main)
-    tvm.ir.assert_structural_equal(rewritten, expected1.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected1.with_attr("global_symbol", "main"))
 
     add1 = is_op("relax.add")(x, x)
     pattern = is_op("relax.add")(add1, add1)
@@ -900,14 +996,14 @@ def test_rewrite_simple():
         return R.multiply(matchings[x], R.const(4, "float32"))
 
     rewritten = rewrite_call(pattern, rewriter, main)
-    tvm.ir.assert_structural_equal(rewritten, expected2.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected2.with_attr("global_symbol", "main"))
 
     # No rewriting, return the original call node as is
     def rewriter(orig, _):
         return orig
 
     rewritten = rewrite_call(pattern, rewriter, main)
-    tvm.ir.assert_structural_equal(rewritten, main)
+    tvm_tirx.ir.assert_structural_equal(rewritten, main)
 
 
 def test_rewrite_attention():
@@ -975,11 +1071,11 @@ def test_rewrite_attention():
         return R.nn.attention(matchings[Q], matchings[K], matchings[V])
 
     rewritten = rewrite_call(pattern, rewriter, main)
-    tvm.ir.assert_structural_equal(rewritten, expected.with_attr("global_symbol", "main"))
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected.with_attr("global_symbol", "main"))
 
 
 def test_attention_qkv():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class QKV_proj:
         @R.function
         def main(
@@ -1015,7 +1111,7 @@ def test_attention_qkv():
 
 
 def test_attention_fake_qkv():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class QKV_proj:
         @R.function
         def main(
@@ -1127,7 +1223,7 @@ def test_combine_matmul_twice():
 
     ctx, rewriter = get_qkv_proj_rewriter()
     rewritten = rewrite_bindings(ctx, rewriter, qkv_x2)
-    tvm.ir.assert_structural_equal(rewritten, expected)
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected)
 
 
 def test_dataflow_may_start_with_match_cast():
@@ -1181,7 +1277,7 @@ def test_dataflow_may_start_with_match_cast():
 
     ctx, rewriter = get_qkv_proj_rewriter()
     rewritten = rewrite_bindings(ctx, rewriter, before)
-    tvm.ir.assert_structural_equal(rewritten, expected)
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected)
 
 
 def test_combine_matmul_emit_order():
@@ -1228,10 +1324,10 @@ def test_combine_matmul_emit_order():
     ctx, rewriter = get_qkv_proj_rewriter()
 
     rewritten = rewrite_bindings(ctx, rewriter, main)
-    tvm.ir.assert_structural_equal(rewritten, expected)
+    tvm_tirx.ir.assert_structural_equal(rewritten, expected)
 
     # make sure it builds
-    mod = tvm.IRModule()
+    mod = tvm_tirx.IRModule()
     mod["main"] = rewritten
 
     tvm.compile(mod, target="llvm")
@@ -1321,10 +1417,10 @@ def test_combine_transposed_matmul_twice():
             }
 
         rewritten = rewrite_bindings(ctx, rewriter, main)
-        tvm.ir.assert_structural_equal(rewritten, expected)
+        tvm_tirx.ir.assert_structural_equal(rewritten, expected)
 
         # make sure it builds
-        mod = tvm.IRModule()
+        mod = tvm_tirx.IRModule()
         mod["main"] = rewritten
         print(mod)
 
@@ -1371,7 +1467,7 @@ def test_commutative_pattern_match():
             return expr
 
     after = rewrite_call(pattern, rewriter, before)
-    tvm.ir.assert_structural_equal(after, expected)
+    tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
 def test_repeated_pattern_match():
@@ -1419,12 +1515,15 @@ def test_repeated_pattern_match():
         return (matches[pattern_add_lhs] * const) + (matches[pattern_add_rhs] * const)
 
     after = rewrite_call(pattern, rewriter, before)
-    tvm.ir.assert_structural_equal(after, expected)
+    tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
-bind_to_dataflow_var = tvm.testing.parameter(
-    by_dict={"var-to-var": False, "var-to-dataflow-var": True}
+@pytest.fixture(
+    params=[pytest.param(False, id="var-to-var"), pytest.param(True, id="var-to-dataflow-var")],
+    scope="session",
 )
+def bind_to_dataflow_var(request):
+    return request.param
 
 
 def test_rewrite_without_trivial_binding(bind_to_dataflow_var):
@@ -1481,15 +1580,20 @@ def test_rewrite_without_trivial_binding(bind_to_dataflow_var):
             return expr
 
     after = rewrite_call(pattern, rewriter, before)
-    tvm.ir.assert_structural_equal(after, expected)
+    tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
-same_shape_func_type = tvm.testing.parameter(
-    "same_static_shape",
-    "same_dynamic_shape",
-    "different_static_shape",
-    "different_dynamic_shape",
+@pytest.fixture(
+    params=[
+        "same_static_shape",
+        "same_dynamic_shape",
+        "different_static_shape",
+        "different_dynamic_shape",
+    ],
+    scope="session",
 )
+def same_shape_func_type(request):
+    return request.param
 
 
 def test_same_shape_pattern(same_shape_func_type):
@@ -1508,7 +1612,7 @@ def test_same_shape_pattern(same_shape_func_type):
             return out
 
     elif same_shape_func_type == "same_dynamic_shape":
-        n = T.dynamic("n")
+        n = T.dynamic("n", "int64")
 
         @R.function(private=True)
         def func(
@@ -1537,8 +1641,8 @@ def test_same_shape_pattern(same_shape_func_type):
             return out
 
     elif same_shape_func_type == "different_dynamic_shape":
-        n = T.dynamic("n")
-        m = T.dynamic("m")
+        n = T.dynamic("n", "int64")
+        m = T.dynamic("m", "int64")
 
         @R.function(private=True)
         def func(
@@ -1624,17 +1728,17 @@ def test_iterative_rewrite_without_trivial_binding():
         end = end[0]
         stride = strides[0]
 
-        if not isinstance(axis, tirx.IntImm) or axis.value != 0:
+        if not isinstance(axis, tvm_tirx.ir.IntImm) or axis.value != 0:
             return expr
 
-        if not isinstance(stride, tirx.IntImm) or stride.value != 1:
+        if not isinstance(stride, tvm_tirx.ir.IntImm) or stride.value != 1:
             return expr
 
         size = arg.ty.shape[0]
         if (
-            isinstance(size, tirx.IntImm)
-            and isinstance(begin, tirx.IntImm)
-            and isinstance(end, tirx.IntImm)
+            isinstance(size, tvm_tirx.ir.IntImm)
+            and isinstance(begin, tvm_tirx.ir.IntImm)
+            and isinstance(end, tvm_tirx.ir.IntImm)
         ):
             size = size.value
             begin = begin.value
@@ -1649,7 +1753,7 @@ def test_iterative_rewrite_without_trivial_binding():
         return expr
 
     after = rewrite_call(pattern, rewriter, before)
-    tvm.ir.assert_structural_equal(after, expected)
+    tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
 def test_iterative_rewrite_with_removed_intermediates():
@@ -1768,7 +1872,7 @@ def test_iterative_rewrite_with_removed_intermediates():
         return expr
 
     after = rewrite_call(pattern, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_wildcard_with_ty_updates_when_matching():
@@ -1804,7 +1908,7 @@ def test_wildcard_with_ty_updates_when_matching():
         return C
 
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_wildcard_with_ty_is_no_op_when_not_matching():
@@ -1838,7 +1942,7 @@ def test_wildcard_with_ty_is_no_op_when_not_matching():
     expected = before
 
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_wildcard_ty_for_unknown_dtype():
@@ -1884,7 +1988,7 @@ def test_wildcard_ty_for_unknown_dtype():
         return output
 
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_wildcard_ty_with_symbolic_vars():
@@ -1937,7 +2041,7 @@ def test_wildcard_ty_with_symbolic_vars():
         return output
 
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_backtrack_if_rewriter_returns_no_op():
@@ -2000,7 +2104,7 @@ def test_backtrack_if_rewriter_returns_no_op():
         return C
 
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 def test_backtrack_for_no_op_rewriter_does_not_match_on_var():
@@ -2033,8 +2137,8 @@ def test_backtrack_for_no_op_rewriter_does_not_match_on_var():
 
     expected = before
     after = rewrite_call(pat, rewriter, before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

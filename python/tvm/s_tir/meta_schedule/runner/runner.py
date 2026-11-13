@@ -20,6 +20,8 @@
 from collections.abc import Callable
 from typing import Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
@@ -27,14 +29,12 @@ from typing import Literal
 
 from tvm_ffi import register_object
 
-from tvm.runtime import Object
-
 from .. import _ffi_api
 from ..arg_info import ArgInfo
 
 
 @register_object("s_tir.meta_schedule.RunnerInput")
-class RunnerInput(Object):
+class RunnerInput(tvm_ffi.Object):
     """The runner's input
 
     Parameters
@@ -77,7 +77,7 @@ class RunnerInput(Object):
 
 
 @register_object("s_tir.meta_schedule.RunnerResult")
-class RunnerResult(Object):
+class RunnerResult(tvm_ffi.Object):
     """The runner's result
 
     Parameters
@@ -113,7 +113,7 @@ class RunnerResult(Object):
 
 
 @register_object("s_tir.meta_schedule.RunnerFuture")
-class RunnerFuture(Object):
+class RunnerFuture(tvm_ffi.Object):
     """
     A class to fetch asynchronous runner's output.
     This is NOT the user facing class for function overloading inheritance.
@@ -169,7 +169,7 @@ class PyRunnerFuture:
 
 
 @register_object("s_tir.meta_schedule.Runner")
-class Runner(Object):
+class Runner(tvm_ffi.Object):
     """The abstract runner interface"""
 
     RunnerType = Union["Runner", Literal["local", "rpc"]]

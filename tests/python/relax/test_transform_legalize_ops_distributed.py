@@ -17,30 +17,31 @@
 # ruff: noqa: E501, F401, F841
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.transform import LegalizeOps
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_redistribute_replica_to_shard():
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(x: R.Tensor((10, 10), "float32"))  -> R.Tensor((10, 5), "float32"):
             gv0 = R.dist.redistribute_replica_to_shard(x, num_workers=2, axis=1)
             return gv0
 
-    worker_id = T.dynamic("worker_id")
+    worker_id = T.dynamic("worker_id", "int64")
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
-        def strided_slice(A: T.Buffer((T.int64(10), T.int64(10)), "float32"), worker_id: T.int64, redistribute_replica_to_shard: T.Buffer((T.int64(10), T.int64(5)), "float32")):
+        @Ts.function(private=True)
+        def strided_slice(A: T.Tensor((T.int64(10), T.int64(10)), "float32"), worker_id: T.int64, redistribute_replica_to_shard: T.Tensor((T.int64(10), T.int64(5)), "float32")):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
             for i0, i1 in T.grid(T.int64(10), T.int64(5)):
@@ -55,13 +56,13 @@ def test_redistribute_replica_to_shard():
             cls = Expected
             gv: R.Shape(ndim=-1) = R.call_pure_packed("runtime.disco.worker_id", ty_args=(R.Shape(ndim=-1),))
             gv1: R.Shape([worker_id]) = R.match_cast(gv, R.Shape([worker_id]))
-            gv0 = R.call_tir(cls.strided_slice, (x, worker_id), out_ty=R.Tensor((10, 5), dtype="float32"))
+            gv0 = R.call_tir(cls.strided_slice, (x, worker_id), ty_args=[R.Tensor((10, 5), dtype="float32")])
             return gv0
     # fmt: on
 
     mod = LegalizeOps()(Before)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

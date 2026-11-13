@@ -53,8 +53,8 @@ and the Firefly-RK3399 for an OpenCL example.
 #   git clone --recursive https://github.com/apache/tvm tvm
 #   cd tvm
 #   mkdir build && cd build
-#   cp ../cmake/config.cmake .
-#   cmake .. && cmake --build . --parallel $(nproc)
+#   cmake .. -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF
+#   cmake --build . --parallel $(nproc)
 #
 # After building the runtime successfully, we need to set environment variables
 # in :code:`~/.bashrc` file. We can edit :code:`~/.bashrc`
@@ -98,13 +98,14 @@ import numpy as np
 import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm import rpc, te
-from tvm.support import utils
+from tvm_tirx.support import utils
 
-n = tvm.runtime.convert(1024)
+n = tvm_ffi.convert(1024)
 A = te.placeholder((n,), name="A")
 B = te.compute((n,), lambda i: A[i] + 1.0, name="B")
-mod = tvm.IRModule.from_expr(te.create_prim_func([A, B]).with_attr("global_symbol", "add_one"))
+mod = tvm_tirx.IRModule.from_expr(te.create_function([A, B]).with_attr("global_symbol", "add_one"))
 
 ######################################################################
 # Then we cross compile the kernel.
@@ -182,8 +183,8 @@ func = remote.load_module("lib.tar")
 
 # create arrays on the remote device
 dev = remote.cpu()
-a = tvm.runtime.tensor(np.random.uniform(size=1024).astype(A.dtype), dev)
-b = tvm.runtime.tensor(np.zeros(1024, dtype=A.dtype), dev)
+a = dev.tensor(np.random.uniform(size=1024).astype(A.dtype))
+b = dev.tensor(np.zeros(1024, dtype=A.dtype))
 # the function will run on the remote device
 func(a, b)
 np.testing.assert_equal(b.numpy(), a.numpy() + 1)
@@ -195,7 +196,7 @@ np.testing.assert_equal(b.numpy(), a.numpy() + 1)
 # function over number times, measures the cost per run on the remote
 # device and returns the measured cost. Network overhead is excluded.
 
-time_f = func.time_evaluator("add_one", dev, number=10)
+time_f = tvm.runtime.time_evaluator(func, "add_one", dev, number=10)
 cost = time_f(a, b).mean
 print(f"{cost:g} secs/op")
 
@@ -277,7 +278,7 @@ print(f"{cost:g} secs/op")
 #   set(CMAKE_FIND_ROOT_PATH_MODE_PACKAGE ONLY)
 #
 # Build the runtime from the TVM repository root.  Enable target-specific
-# options such as ``USE_OPENCL`` or vendor runtime support in ``config.cmake``.
+# CMake options such as ``-DTVM_TIRX_USE_OPENCL=ON`` or vendor runtime support.
 # Build any target-specific runtime libraries that your deployment needs, such
 # as ``tvm_runtime_opencl`` for OpenCL.
 #
@@ -285,14 +286,11 @@ print(f"{cost:g} secs/op")
 #
 #   mkdir cross_build
 #   cd cross_build
-#   cp ../cmake/config.cmake ./
-#
-#   # Enable other options as needed, e.g. USE_OPENCL or vendor runtimes.
-#   sed -i "s|USE_LLVM.*)|USE_LLVM OFF)|" config.cmake
-#
-#   cmake -DCMAKE_TOOLCHAIN_FILE=/YYY/aarch64-linux-gnu.cmake -DCMAKE_BUILD_TYPE=Release ..
+#   # Enable other options as needed, e.g. TVM_TIRX_USE_OPENCL or vendor runtimes.
+#   cmake .. -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF \
+#     -DCMAKE_TOOLCHAIN_FILE=/YYY/aarch64-linux-gnu.cmake -DCMAKE_BUILD_TYPE=Release
 #   cmake --build . --target runtime -j
-#   # Optional example when USE_OPENCL is enabled:
+#   # Optional example when TVM_TIRX_USE_OPENCL is enabled:
 #   # cmake --build . --target tvm_runtime_opencl -j
 #   cd ..
 #
@@ -404,9 +402,8 @@ print(f"{cost:g} secs/op")
 # .. code-block:: bash
 #
 #    mkdir -p build && cd build
-#    cp ../cmake/config.cmake .
-#    sed -i "s/USE_OPENCL OFF/USE_OPENCL ON/" config.cmake
-#    cmake .. && cmake --build . --parallel $(nproc)
+#    cmake .. -DTVM_TIRX_USE_OPENCL=ON -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF
+#    cmake --build . --parallel $(nproc)
 #
 # The following function shows how we run an OpenCL kernel remotely
 
@@ -416,10 +413,10 @@ def run_opencl():
     # them according to your environment.
     opencl_device_host = "10.77.1.145"
     opencl_device_port = 9090
-    target = tvm.target.Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
+    target = tvm_tirx.target.Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
 
     # create schedule for the above "add one" compute declaration
-    mod = tvm.IRModule.from_expr(te.create_prim_func([A, B]))
+    mod = tvm_tirx.IRModule.from_expr(te.create_function([A, B]))
     sch = tvm.s_tir.Schedule(mod)
     (x,) = sch.get_loops(block=sch.get_sblock("B"))
     xo, xi = sch.split(x, [None, 32])
@@ -437,8 +434,8 @@ def run_opencl():
 
     # run
     dev = remote.cl()
-    a = tvm.runtime.tensor(np.random.uniform(size=1024).astype(A.dtype), dev)
-    b = tvm.runtime.tensor(np.zeros(1024, dtype=A.dtype), dev)
+    a = dev.tensor(np.random.uniform(size=1024).astype(A.dtype))
+    b = dev.tensor(np.zeros(1024, dtype=A.dtype))
     func(a, b)
     np.testing.assert_equal(b.numpy(), a.numpy() + 1)
     print("OpenCL test passed!")
@@ -538,7 +535,7 @@ def run_pytorch_model_via_rpc():
 
     if local_demo:
         # For demonstration on local machine, use local target
-        target = tvm.target.Target("llvm")
+        target = tvm_tirx.target.Target("llvm")
         print("Using local target for demonstration")
     else:
         # Choose the appropriate target for your device:
@@ -560,13 +557,12 @@ def run_pytorch_model_via_rpc():
         #   - OpenCL: tvm.target.Target("opencl", host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
         #
         # For this example, we use ARM 64-bit
-        target = tvm.target.Target({"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
+        target = tvm_tirx.target.Target({"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
         print(f"Cross-compiling for target: {target}")
 
     # Apply optimization pipeline
     pipeline = relax.get_pipeline()
-    with target:
-        built_mod = pipeline(mod)
+    built_mod = pipeline(mod)
 
     # Compile to executable
     executable = tvm.compile(built_mod, target=target)
@@ -606,7 +602,7 @@ def run_pytorch_model_via_rpc():
         print("   remote.upload('model_params.npz')")
         print("\n4. Load and run remotely:")
         print("   lib = remote.load_module('model_deployed.so')")
-        print("   vm = relax.VirtualMachine(lib, remote.cpu())")
+        print("   vm = rpc.virtual_machine(lib, remote.cpu())")
         print("   result = vm['main'](input, *params)")
         print("\nDevice examples:")
         print("  - Raspberry Pi: 192.168.1.100")
@@ -640,12 +636,12 @@ def run_pytorch_model_via_rpc():
     dev = remote.cpu()
 
     # Create VM and load parameters
-    vm = relax.VirtualMachine(lib, dev)
+    vm = rpc.virtual_machine(lib, dev)
 
     # Load parameters from the uploaded file
     # Note: In practice, you might load this from the remote filesystem
     params_npz = np.load(params_path)
-    remote_params = [tvm.runtime.tensor(params_npz[f"p_{i}"], dev) for i in range(len(params_npz))]
+    remote_params = [dev.tensor(params_npz[f"p_{i}"]) for i in range(len(params_npz))]
 
     ######################################################################
     # Step 5: Run Inference on Remote Device
@@ -659,7 +655,7 @@ def run_pytorch_model_via_rpc():
 
     # Prepare input data
     input_data = np.random.randn(1, 1, 28, 28).astype("float32")
-    remote_input = tvm.runtime.tensor(input_data, dev)
+    remote_input = dev.tensor(input_data)
 
     # Run inference using set_input + invoke_stateful for RPC compatibility
     vm.set_input("main", remote_input, *remote_params)
@@ -718,8 +714,7 @@ def run_pytorch_model_via_rpc():
     #    .. code-block:: python
     #
     #       from tvm.s_tir import dlight as dl
-    #       with target:
-    #           mod = dl.ApplyDefaultSchedule()(mod)
+    #       mod = dl.ApplyDefaultSchedule(target=target)(mod)
     #
     # 3. **Architecture-specific optimizations**:
     #

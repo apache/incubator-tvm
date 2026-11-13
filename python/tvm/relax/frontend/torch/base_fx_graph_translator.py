@@ -28,10 +28,11 @@ from functools import reduce
 
 import tvm_ffi
 
-import tvm
-from tvm import relax, tirx
-from tvm.ir import PrimType
-from tvm.runtime import DataTypeCode
+import tvm_tirx
+from tvm import relax
+from tvm_tirx import tirx
+from tvm_tirx.ir import PrimType
+from tvm_tirx.runtime import DataTypeCode
 
 
 def _diagonal_einsum_subscripts(ndim: int, dim1: int, dim2: int) -> str:
@@ -602,7 +603,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         scale_exp = abs(decimals)
         # Largest exponent for which 10**n is still finite in `dtype`.
         # (float16/bfloat16 are upcast to float32 above, so dtype is float32 or
-        # float64 here.) Note that `dtype` may be a tvm.DataType-like object whose
+        # float64 here.) Note that `dtype` may be a tvm_ffi.dtype-like object whose
         # repr is "T.float32" instead of a plain str, so select via == rather than
         # indexing a str-keyed dict.
         max_scale_exp = 308 if dtype == "float64" else 38
@@ -720,13 +721,17 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
 
             lhs, rhs = self.retrieve_args(node)
 
-            if (isinstance(lhs, tvm.ir.Var) and isinstance(lhs.ty, relax.TensorType)) or (
-                isinstance(rhs, tvm.ir.Var) and isinstance(rhs.ty, relax.TensorType)
+            if (isinstance(lhs, tvm_tirx.ir.Var) and isinstance(lhs.ty, relax.TensorType)) or (
+                isinstance(rhs, tvm_tirx.ir.Var) and isinstance(rhs.ty, relax.TensorType)
             ):
                 return call_binary_op(relax_op, lhs, rhs)
-            elif isinstance(lhs, tvm.ir.GenericConst) and not isinstance(rhs, tvm.ir.GenericConst):
+            elif isinstance(lhs, tvm_tirx.ir.GenericConst) and not isinstance(
+                rhs, tvm_tirx.ir.GenericConst
+            ):
                 return call_binary_op(relax_op, lhs, relax.const(rhs, dtype=lhs.ty.dtype))
-            elif isinstance(rhs, tvm.ir.GenericConst) and not isinstance(lhs, tvm.ir.GenericConst):
+            elif isinstance(rhs, tvm_tirx.ir.GenericConst) and not isinstance(
+                lhs, tvm_tirx.ir.GenericConst
+            ):
                 return call_binary_op(relax_op, relax.const(lhs, dtype=rhs.ty.dtype), rhs)
             return intrinsic_op(lhs, rhs)
 
@@ -2039,7 +2044,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         for ax in axes:
             ax = ax + rank if ax < 0 else ax
             s = shape[ax]
-            if not isinstance(s, tirx.IntImm):
+            if not isinstance(s, tvm_tirx.ir.IntImm):
                 return None
             n *= int(s.value)
         return n
@@ -2345,7 +2350,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
                 for d in shape:
                     if isinstance(d, int) and d == 1:
                         return True
-                    # Check for tirx.IntImm
+                    # Check for ir.IntImm
                     if hasattr(d, "value") and d.value == 1:
                         return True
             return False
@@ -2422,30 +2427,30 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             max_index_val = 9223372036854775807
 
             def _adjust(val):
-                if isinstance(val, int | tirx.IntImm):
+                if isinstance(val, int | tvm_tirx.ir.IntImm):
                     int_val = int(val)
                     if int_val >= max_index_val:
                         return input_shape[axis]
                     if int_val < 0:
                         return input_shape[axis] + int_val
-                    if isinstance(input_shape[axis], int | tirx.IntImm) and int_val > int(
+                    if isinstance(input_shape[axis], int | tvm_tirx.ir.IntImm) and int_val > int(
                         input_shape[axis]
                     ):
                         return input_shape[axis]
                 return val
 
-            if tvm.ir.is_prim_expr(bound):
+            if tvm_tirx.ir.is_prim_expr(bound):
                 value = _adjust(bound)
                 return relax.prim_value(value)
 
             bound = _adjust(bound)
-            if not tvm.ir.is_prim_expr(bound):
+            if not tvm_tirx.ir.is_prim_expr(bound):
                 bound = relax.prim_value(bound)
             return bound
 
         start = _normalize_bound(start)
         end = _normalize_bound(end)
-        if not tvm.ir.is_prim_expr(step):
+        if not tvm_tirx.ir.is_prim_expr(step):
             step = relax.prim_value(step)
 
         return self.block_builder.emit(
@@ -2478,7 +2483,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         original_shape = self.shape_of(input_tensor)
 
         def to_int(val):
-            if isinstance(val, tirx.IntImm):
+            if isinstance(val, tvm_tirx.ir.IntImm):
                 return int(val.value)
             elif isinstance(val, int):
                 return val
@@ -2621,18 +2626,16 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         if dim is None:
             dim = node.kwargs.get("dims", None)
 
-        # If dims is a list, filter out axes where dimension is not 1
-        # This is needed because PyTorch decomposition may pass all axes
-        if isinstance(dim, list | tuple) and len(dim) > 0:
-            shape = self.shape_of(x)
-            # Filter to only include axes where the dimension is 1
-            valid_dims = []
-            for d in dim:
-                axis = d if d >= 0 else len(shape) + d
-                if axis < len(shape):
-                    valid_dims.append(d)
-            # If no valid dims, use None to squeeze all size-1 dimensions
-            dim = valid_dims if valid_dims else None
+        # fx.symbolic_trace never executes the model, so torch's IndexError for an
+        # out-of-range dim does not fire; reject the axis here instead of dropping it.
+        if dim is not None:
+            rank = len(self.shape_of(x))
+            for d in dim if isinstance(dim, list | tuple) else [dim]:
+                if isinstance(d, int) and not -rank <= d < rank:
+                    raise ValueError(
+                        f"squeeze dim {d} is out of range "
+                        f"[-{rank}, {rank - 1}] for an input of rank {rank}"
+                    )
 
         return self.block_builder.emit(relax.op.squeeze(x, dim))
 
@@ -2671,6 +2674,16 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         return self.block_builder.emit(
             relax.op.topk(x, k=k, axis=dim, largest=largest, ret_type="both", dtype="int64")
         )
+
+    def _t(self, node: fx.Node) -> relax.Var:
+        args = self.retrieve_args(node)
+        x = args[0]
+        rank = len(self.shape_of(x))
+        if rank > 2:
+            raise ValueError(f"t() expects a tensor with <= 2 dimensions, but got {rank}D")
+        if rank < 2:
+            return x
+        return self.block_builder.emit(relax.op.permute_dims(x, [1, 0]))
 
     def _transpose(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
@@ -2956,9 +2969,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         if tensor_meta is not None and len(tensor_meta.shape) == 1:
             num_selected = tensor_meta.shape[0]
             if not isinstance(num_selected, int):
-                num_selected = tvm.ir.Var(str(num_selected), "int64")
+                num_selected = tvm_tirx.ir.Var(str(num_selected), "int64")
         else:
-            num_selected = tvm.ir.Var(f"{node.name}_num_selected", "int64")
+            num_selected = tvm_tirx.ir.Var(f"{node.name}_num_selected", "int64")
         indices = self.block_builder.match_cast(
             indices, relax.TensorType([1, num_selected], "int64")
         )
@@ -3047,7 +3060,9 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         x = self.env[node.args[0]]
         if isinstance(x, list | tuple | relax.ShapeExpr | relax.Tuple):
             return x[node.args[1]]
-        elif isinstance(x, tvm.ir.Var) and isinstance(x.ty, relax.TupleType | relax.TensorType):
+        elif isinstance(x, tvm_tirx.ir.Var) and isinstance(
+            x.ty, relax.TupleType | relax.TensorType
+        ):
             if isinstance(x.ty, relax.TupleType):
                 return self.block_builder.emit(relax.TupleGetItem(x, node.args[1]))
 
@@ -3122,7 +3137,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             for i in expand_dim:
                 sliced_shape.insert(i, 1)
             return self.block_builder.emit(relax.op.reshape(sliced, sliced_shape))
-        elif isinstance(x, tvm.ir.GenericConst):
+        elif isinstance(x, tvm_tirx.ir.GenericConst):
             dtype = x.ty.dtype
             return relax.const(x.value.numpy()[node.args[1]], dtype)
         else:
@@ -3132,7 +3147,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
         x = self.env[node.args[0]]
         shape = self.shape_of(x)
         dtype = x.ty.dtype
-        analyzer = tvm.sym.Analyzer()
+        analyzer = tvm_tirx.sym.Analyzer()
         has_single_element = shape is not None and all(
             analyzer.can_prove_equal(dim, 1) for dim in shape
         )

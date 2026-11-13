@@ -19,18 +19,20 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.testing import env
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.testing import env as tvm_env
+from tvm_tirx.testing import env
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
 import tvm.topi.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.backend.cuda.cublas import partition_for_cublas
 from tvm.relax.script import ir_builder as relax_builder
 from tvm.relax.testing import get_relax_matmul_module
-from tvm.script import relax as R
-from tvm.script.ir_builder import IRBuilder
+from tvm_tirx.script.ir_builder import IRBuilder
 
 try:
     import ml_dtypes
@@ -45,12 +47,12 @@ def reset_seed():
 
 pytestmark = [
     pytest.mark.gpu,
-    pytest.mark.skipif(not env.has_cublas(), reason="need cublas"),
+    pytest.mark.skipif(not tvm_env.has_cublas(), reason="need cublas"),
 ]
 
 
 def build_and_run(mod, inputs_np, target, legalize=False, cuda_graph=False):
-    with tvm.transform.PassContext(
+    with tvm_tirx.ir.transform.PassContext(
         config={
             "relax.backend.use_cuda_graph": cuda_graph,
             "relax.transform.apply_legalize_ops": legalize,
@@ -59,10 +61,10 @@ def build_and_run(mod, inputs_np, target, legalize=False, cuda_graph=False):
         ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target, 0)
+        dev = tvm_tirx.device_from_target(target, 0)
         vm = relax.VirtualMachine(ex, dev)
         f = vm["main"]
-        inputs = [tvm.runtime.tensor(inp, dev) for inp in inputs_np]
+        inputs = [tvm_tirx.runtime.tensor(inp, dev) for inp in inputs_np]
 
         # For cuda graph, run the compiled function twice to make sure that we can launch the
         # cached graph on the second run.
@@ -71,8 +73,8 @@ def build_and_run(mod, inputs_np, target, legalize=False, cuda_graph=False):
 
         return f(*inputs).numpy()
 
-    if tvm.target.Target(target).kind.name == "cuda":
-        return tvm.testing.run_with_gpu_lock(run_and_check)
+    if tvm_tirx.target.Target(target).kind.name == "cuda":
+        return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
     return run_and_check()
 
 
@@ -86,7 +88,7 @@ def get_result_with_relax_cublas_offload(mod, np_inputs, cuda_graph=False, bind_
 def _to_concrete_shape(symbolic_shape, var_table):
     result = []
     for dim in symbolic_shape:
-        if not isinstance(dim, tvm.tirx.expr.Var):
+        if not isinstance(dim, tvm_tirx.tirx.expr.Var):
             result.append(dim)
             continue
 
@@ -98,8 +100,8 @@ def _to_concrete_shape(symbolic_shape, var_table):
 
 
 _vars = {
-    "a": tvm.tirx.expr.Var("a", "int64"),
-    "b": tvm.tirx.expr.Var("b", "int64"),
+    "a": tvm_tirx.tirx.expr.Var("a", "int64"),
+    "b": tvm_tirx.tirx.expr.Var("b", "int64"),
 }
 
 
@@ -145,7 +147,7 @@ def get_relax_matmul_dequantize_module(
             R.func_ret_value(frame.output_vars[0])
 
     func = builder.get()
-    return tvm.IRModule({"main": func})
+    return tvm_tirx.IRModule({"main": func})
 
 
 def get_relax_matmul_multiply_module(
@@ -179,7 +181,7 @@ def get_relax_matmul_multiply_module(
             R.func_ret_value(frame.output_vars[0])
 
     func = builder.get()
-    return tvm.IRModule({"main": func})
+    return tvm_tirx.IRModule({"main": func})
 
 
 @pytest.mark.parametrize(
@@ -249,7 +251,7 @@ def test_matmul_offload(
     out = get_result_with_relax_cublas_offload(mod, args)
     ref = build_and_run(mod, args, "llvm", legalize=True)
 
-    tvm.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 
 
 @pytest.mark.parametrize(
@@ -310,7 +312,7 @@ def test_matmul_igemm_offload(
     out = get_result_with_relax_cublas_offload(mod, args)
     ref = build_and_run(mod, args, "llvm", legalize=True)
 
-    tvm.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 
 
 @pytest.mark.gpu
@@ -349,7 +351,7 @@ def test_matmul_fp8_offload(
     out = get_result_with_relax_cublas_offload(mod, args)
     ref_out = np.matmul(x, z).astype(out_dtype)
 
-    tvm.testing.assert_allclose(out, ref_out, rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out, ref_out, rtol=1e-3, atol=1e-3)
 
 
 @pytest.mark.gpu
@@ -376,7 +378,7 @@ def test_matmul_fp8_dequantize_offload():
 
     out = get_result_with_relax_cublas_offload(mod, args, bind_constants=True)
     ref = build_and_run(mod, args, "llvm", legalize=True)
-    tvm.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
 
 
 @pytest.mark.gpu
@@ -407,7 +409,7 @@ def test_matmul_fp8_multiply_offload():
 
     out = get_result_with_relax_cublas_offload(mod, args)
     ref = build_and_run(mod, args, "llvm", legalize=True)
-    tvm.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
 
 
 @pytest.mark.skipif(ml_dtypes is None, reason="requires ml_dtypes to be installed")
@@ -448,7 +450,7 @@ def test_matmul_bfloat16_offload(
     out = get_result_with_relax_cublas_offload(mod, args)
     ref_out = np.matmul(x_float32, z).astype(out_dtype)
 
-    tvm.testing.assert_allclose(out, ref_out, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref_out, rtol=1e-2, atol=1e-2)
 
 
 @pytest.mark.parametrize(
@@ -537,7 +539,7 @@ def test_cublas_partition_igemm_with_bias():
 
 
 def test_cublas_matmul_cuda_graph():
-    @tvm.script.ir.ir_module
+    @tvm_tirx.script.ir.ir_module
     class Mod:
         @R.function
         def main(
@@ -564,11 +566,10 @@ def test_cublas_matmul_cuda_graph():
 
     out = get_result_with_relax_cublas_offload(Mod, inputs, cuda_graph=True)
 
-    with tvm.target.Target("cuda"):
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
     ref = build_and_run(mod, inputs, "llvm", legalize=True)
-    tvm.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -31,7 +31,7 @@
 #include <algorithm>
 #include <vector>
 
-#include "../../../../../3rdparty/compiler-rt/builtin_fp16.h"
+#include "builtin_fp16.h"
 
 namespace tvm {
 namespace contrib {

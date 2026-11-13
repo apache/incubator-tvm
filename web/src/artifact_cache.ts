@@ -138,7 +138,7 @@ interface CrossOriginStorageHandle {
   createWritable(): Promise<CrossOriginStorageWritable>;
 }
 
-interface CrossOriginStorageRequestFileHandleOptions {
+interface CrossOriginStorageGetFileHandleOptions {
   create?: boolean;
   origins?: string[] | string | undefined;
 }
@@ -149,9 +149,9 @@ interface CrossOriginStorageWritable {
 }
 
 interface CrossOriginStorageAPI {
-  requestFileHandle(
+  getFileHandle(
     descriptor: CrossOriginHashDescriptor,
-    options?: CrossOriginStorageRequestFileHandleOptions,
+    options?: CrossOriginStorageGetFileHandleOptions,
   ): Promise<CrossOriginStorageHandle>;
 }
 
@@ -185,7 +185,10 @@ class CrossOriginStorage {
     if (typeof navigator === "undefined") {
       return false;
     }
-    return navigator.crossOriginStorage !== undefined;
+    // Check for `getFileHandle()` itself, so that an implementation exposing
+    // `navigator.crossOriginStorage` without the method falls back to the
+    // default cache.
+    return typeof navigator.crossOriginStorage?.getFileHandle === "function";
   }
 
   async match(request: RequestLike): Promise<Response | undefined> {
@@ -199,7 +202,7 @@ class CrossOriginStorage {
       if (!api) {
         return undefined;
       }
-      const handle = await api.requestFileHandle(hash);
+      const handle = await api.getFileHandle(hash);
       if (!handle) {
         return undefined;
       }
@@ -218,7 +221,7 @@ class CrossOriginStorage {
     if (!api) {
       throw new Error("Cross-origin storage API unavailable.");
     }
-    const handle = await api.requestFileHandle(hash, { create: true, origins: "*" /* All origins */ });
+    const handle = await api.getFileHandle(hash, { create: true, origins: "*" /* All origins */ });
     if (!handle) {
       throw new Error("Cross-origin storage API returned no handle.");
     }

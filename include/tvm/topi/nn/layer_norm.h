@@ -49,13 +49,13 @@ using namespace tvm::te;
  * \param tag The tag to mark the operation.
  * \return The normalized tensor, with the same shape as data.
  */
-inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const Tensor& beta,
+inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const ffi::Optional<Tensor>& beta,
                          const ffi::Array<int64_t>& axis, double epsilon,
                          std::string name = "T_layer_norm", std::string tag = kInjective) {
   using namespace tvm::prim;
   const auto& data_type = data->dtype;
-  const auto& gamma_type = gamma.defined() ? gamma->dtype : data_type;
-  const auto& beta_type = beta.defined() ? beta->dtype : data_type;
+  const auto& gamma_type = gamma->dtype;
+  const auto& beta_type = beta.has_value() ? beta.value()->dtype : data_type;
   TVM_FFI_ICHECK(data_type == gamma_type && data_type == beta_type)
       << "layer_norm: data, gamma and beta must have the same type";
   TVM_FFI_ICHECK(data_type == PrimType::Float(32) || data_type == PrimType::Float(16))
@@ -102,7 +102,7 @@ inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
         }
         return prim::sum(x, reduce_axes);
       },
-      data->op->name + "_sum", kCommReduce);
+      data->op.value()->name + "_sum", kCommReduce);
 
   PrimType reduce_dtype = is_float16 ? PrimType::Float(32) : PrimType(data->dtype);
   PrimExpr reduce_extent = MakeConst(reduce_dtype, 1);
@@ -114,7 +114,7 @@ inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
       [&temp_sum, &reduce_extent](const ffi::Array<PrimVar>& indices) {
         return temp_sum(indices) / reduce_extent;
       },
-      data->op->name + "_mean", kInjective);
+      data->op.value()->name + "_mean", kInjective);
 
   Tensor temp_var_sum = te::compute(
       target_shape,
@@ -128,7 +128,7 @@ inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
         PrimExpr diff = x - temp_mean(indices);
         return prim::sum(diff * diff, reduce_axes);
       },
-      data->op->name + "_var_sum", kCommReduce);
+      data->op.value()->name + "_var_sum", kCommReduce);
 
   auto layer_norm_func = [&](const ffi::Array<PrimVar>& indices) {
     ffi::Array<PrimVar> reduce_indices, non_reduce_indices;
@@ -146,8 +146,8 @@ inline Tensor layer_norm(const Tensor& data, const Tensor& gamma, const Tensor& 
       layer_norm = prim::Cast(PrimType::Float(16), layer_norm);
     }
     layer_norm = topi::multiply(layer_norm, gamma(reduce_indices));
-    if (beta.defined()) {
-      layer_norm = topi::add(layer_norm, beta(reduce_indices));
+    if (beta.has_value()) {
+      layer_norm = topi::add(layer_norm, beta.value()(reduce_indices));
     }
     return layer_norm;
   };

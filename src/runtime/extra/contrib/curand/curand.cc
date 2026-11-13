@@ -21,6 +21,8 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/base.h>
+#include <tvm/runtime/c_backend_api.h>
+#include <tvm/runtime/device_api.h>
 
 #include "./helper_cuda_kernels.h"
 
@@ -53,7 +55,7 @@ class CURandGenerator {
 
 DeviceAPI* GetCUDADeviceAPI() {
   const auto get_cuda_api = tvm::ffi::Function::GetGlobalRequired("device_api.cuda");
-  void* ret = get_cuda_api();
+  void* ret = get_cuda_api().cast<void*>();
   runtime::DeviceAPI* cuda_api = static_cast<runtime::DeviceAPI*>(ret);
   return cuda_api;
 }
@@ -83,16 +85,22 @@ void RandomFill(DLTensor* tensor) {
   int64_t actual_size = tensor_size % 2 == 0 ? tensor_size : tensor_size + 1;
   if (tensor->dtype.code == DLDataTypeCode::kDLFloat && tensor->dtype.bits == 16) {
     // curand only works for size % 2 = 0
-    void* data = cuda_api->AllocWorkspace(tensor->device, actual_size * sizeof(float));
+    void* data = TVMBackendAllocWorkspace(tensor->device.device_type, tensor->device.device_id,
+                                          actual_size * sizeof(float), kDLFloat, 32);
     {
-      DeferredFunc defer([data, tensor]() { cuda_api->FreeWorkspace(tensor->device, data); });
+      DeferredFunc defer([data, tensor]() {
+        TVMBackendFreeWorkspace(tensor->device.device_type, tensor->device.device_id, data);
+      });
       CURandGenerator().Generate32bit(data, actual_size);
       ConvertFp32toFp16(/*src=*/data, /*dst=*/tensor->data, /*num=*/tensor_size);
     }
   } else if (tensor->dtype.code == DLDataTypeCode::kDLFloat && tensor->dtype.bits == 32) {
     if (tensor_size % 2 == 1) {
-      void* data = cuda_api->AllocWorkspace(tensor->device, actual_size * sizeof(float));
-      DeferredFunc defer([data, tensor]() { cuda_api->FreeWorkspace(tensor->device, data); });
+      void* data = TVMBackendAllocWorkspace(tensor->device.device_type, tensor->device.device_id,
+                                            actual_size * sizeof(float), kDLFloat, 32);
+      DeferredFunc defer([data, tensor]() {
+        TVMBackendFreeWorkspace(tensor->device.device_type, tensor->device.device_id, data);
+      });
       CURandGenerator().Generate32bit(data, actual_size);
       cudaMemcpy(tensor->data, data, tensor_size * sizeof(float), cudaMemcpyDeviceToDevice);
     } else {
@@ -100,8 +108,11 @@ void RandomFill(DLTensor* tensor) {
     }
   } else if (tensor->dtype.code == DLDataTypeCode::kDLFloat && tensor->dtype.bits == 64) {
     if (tensor_size % 2 == 1) {
-      void* data = cuda_api->AllocWorkspace(tensor->device, actual_size * sizeof(double));
-      DeferredFunc defer([data, tensor]() { cuda_api->FreeWorkspace(tensor->device, data); });
+      void* data = TVMBackendAllocWorkspace(tensor->device.device_type, tensor->device.device_id,
+                                            actual_size * sizeof(double), kDLFloat, 64);
+      DeferredFunc defer([data, tensor]() {
+        TVMBackendFreeWorkspace(tensor->device.device_type, tensor->device.device_id, data);
+      });
       CURandGenerator().Generate64bit(data, actual_size);
       cudaMemcpy(tensor->data, data, tensor_size * sizeof(double), cudaMemcpyDeviceToDevice);
     } else {

@@ -23,13 +23,14 @@ candidates for measurement.
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional, Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
 # isort: on
 from tvm_ffi import register_object
 
-from tvm.runtime import Object
 from tvm.s_tir.schedule import Schedule
 
 from .. import _ffi_api
@@ -43,7 +44,7 @@ if TYPE_CHECKING:
 
 
 @register_object("s_tir.meta_schedule.MeasureCandidate")
-class MeasureCandidate(Object):
+class MeasureCandidate(tvm_ffi.Object):
     """Measure candidate class.
 
     Parameters
@@ -79,7 +80,7 @@ class MeasureCandidate(Object):
 
 
 @register_object("s_tir.meta_schedule.SearchStrategy")
-class SearchStrategy(Object):
+class SearchStrategy(tvm_ffi.Object):
     """Search strategy is the class that generates the measure candidates."""
 
     SearchStrategyType = Union[

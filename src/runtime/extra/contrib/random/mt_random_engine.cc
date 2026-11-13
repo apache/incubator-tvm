@@ -120,12 +120,12 @@ class RandomEngine {
     if (data->device.device_type == kDLCPU) {
       FillData(data);
     } else {
-      runtime::Tensor local = runtime::Tensor::Empty(
+      ffi::Tensor local = runtime::Empty(
           std::vector<int64_t>{data->shape, data->shape + data->ndim}, data->dtype, {kDLCPU, 0});
 
       const DLTensor* tensor = local.GetDLTensorPtr();
       FillData(const_cast<DLTensor*>(tensor));
-      runtime::Tensor::CopyFromTo(tensor, data);
+      runtime::CopyFromTo(tensor, data);
     }
   }
 
@@ -133,11 +133,11 @@ class RandomEngine {
     if (data->device.device_type == kDLCPU) {
       FillDataForMeasure(data);
     } else {
-      runtime::Tensor local = runtime::Tensor::Empty(
+      ffi::Tensor local = runtime::Empty(
           std::vector<int64_t>{data->shape, data->shape + data->ndim}, data->dtype, {kDLCPU, 0});
       const DLTensor* tensor = local.GetDLTensorPtr();
       FillDataForMeasure(const_cast<DLTensor*>(tensor));
-      runtime::Tensor::CopyFromTo(tensor, data);
+      runtime::CopyFromTo(tensor, data);
     }
   }
 

@@ -29,25 +29,18 @@ import tvm_ffi
 from tvm_ffi import Array, Map
 
 import tvm
-from tvm.ir import StringImm
+import tvm_tirx
 from tvm.relax.global_info import VDevice
+from tvm_tirx import tirx
+from tvm_tirx.ir import Attrs, StringImm, Type
+from tvm_tirx.target import Target
 
-from .. import tirx
-from ..ir import Attrs, Type
 from ..te import Tensor as te_Tensor
-from ..te import create_prim_func
+from ..te import create_function
 from . import _ffi_api
 from .expr import Expr, Function, ShapeExpr, te_tensor
 from .expr import Tuple as rx_Tuple
 from .type import ShapeType, TensorType
-
-
-def _substitute_tir_vars(value, var_map):
-    return tvm_ffi.structural_map(
-        value,
-        (tvm.ir.Var, lambda var: var_map.get(var, var)),
-        order="post",
-    )
 
 
 def metadata_partitioner(rx_txt: str) -> list[str]:
@@ -96,18 +89,18 @@ def convert_to_expr(value: Any) -> Expr:
     """Helper function to convert the input to Expr, which follows the rules:
     1. Return the input itself if it's already a `relax.Expr`;
     2. Return `Expr` if the input is a primitive scalar;
-    3. Return `tvm.ir.StringImm` if the input is `tvm.String` or `str`;
+    3. Return `tvm_tirx.ir.StringImm` if the input is `tvm.String` or `str`;
     4. Return `relax.Tuple` if the input is a tuple/list of `Expr`.
     """
     if isinstance(value, int):
-        return tirx.IntImm("int64", value)
+        return tvm_tirx.ir.IntImm("int64", value)
 
     if isinstance(value, float):
-        return tirx.FloatImm("float64", value)
+        return tvm_tirx.ir.FloatImm("float64", value)
 
     tvm_value = tvm_ffi.convert(value)
     # Case 1
-    if tvm.ir.is_prim_expr(tvm_value):
+    if tvm_tirx.ir.is_prim_expr(tvm_value):
         return tvm_value
     # Case 2
     if isinstance(tvm_value, Expr):
@@ -144,7 +137,7 @@ def copy_with_new_vars(func: Function) -> Function:
 
 def gen_call_tir_inputs(
     func: Callable, *args: Any, **kwargs: Any
-) -> tuple[tirx.PrimFunc, Expr, list[TensorType]]:
+) -> tuple[tirx.Function, Expr, tvm_tirx.ir.Type]:
     """Generate the inputs for call_tir according to the te function.
     This function converts arguments from relax expression to te tensor,
     The callback func should return a te tensor or a list of te tensors.
@@ -159,30 +152,30 @@ def gen_call_tir_inputs(
 
     kwargs : Any, optional
         The keyword arguments passed to the function.
-        Note that the keyword args 'primfunc_attrs' is reserved for passing func
-        attributes to be added to the PrimFunc that gets created.
+        Note that the keyword args 'function_attrs' is reserved for passing func
+        attributes to be added to the Function that gets created.
 
     Returns
     -------
-    ret : Tuple[tirx.PrimFunc, Expr, List[TensorType]]
-        ret contains the inputs for call_tir, including a tirx prim_func, args,
-        and out_ty.
+    ret : Tuple[tirx.Function, Expr, Type]
+        ret contains the inputs for call_tir, including a tirx function, args,
+        and the single result type argument.
     """
 
-    tir_var_map: dict[tvm.ir.Var, tirx.Var] = {}
+    tir_var_map: dict[tvm_tirx.ir.Var, tirx.Var] = {}
 
     call_tir_args = []
-    create_primfunc_args = []
+    create_function_args = []
     # extra list of tirx expression arguments
     # that are not covered by Tensor
     extra_tir_args_list = []
 
     def _copy_undefined_var(expr: tirx.Expr):
-        def _visit_expr(e: tvm.ir.Var):
+        def _visit_expr(e: tvm_tirx.ir.Var):
             if e not in tir_var_map:
-                tir_var_map[e] = tvm.ir.Var(e.name, e.ty)
+                tir_var_map[e] = tvm_tirx.ir.Var(e.name, e.ty)
 
-        tvm_ffi.structural_walk(expr, (tvm.ir.Var, _visit_expr), order="post")
+        tvm_ffi.structural_walk(expr, (tvm_tirx.ir.Var, _visit_expr), order="post")
 
     def _convert_te_arg(te_args: Any) -> Any:
         """Helper function used to convert Relax expressions to TE tensor.
@@ -196,7 +189,7 @@ def gen_call_tir_inputs(
         In dynamic shape cases, the passed in arguments may contain TIR variable.
         For example, the argument can be a Relax Var with TensorType, which
         has symbolic shape, or the argument can be a ShapeExpr with symbolic variables.
-        To make the PrimFunc generated has independent variables with
+        To make the Function generated has independent variables with
         the caller Relax function, we will substitute the TIR variables in the input
         arguments with fresh ones, which is done by maintaining a TIR variable mapping.
 
@@ -205,9 +198,9 @@ def gen_call_tir_inputs(
         te_args : Any
             Argument to convert to TE
 
-        tir_var_map : Dict[tvm.ir.Var, tirx.Var]
+        tir_var_map : Dict[tvm_tirx.ir.Var, tirx.Var]
             The variable mapping from caller-side canonical Vars to exact ordinary
-            Vars used on the PrimFunc side.
+            Vars used on the Function side.
 
         Returns
         -------
@@ -218,19 +211,21 @@ def gen_call_tir_inputs(
 
         def _convert_te_arg_helper(arg):
             if (
-                isinstance(arg, tvm.ir.Var)
-                and tvm.ir.is_prim_expr(arg)
-                and not (tvm.ir.is_prim_var(arg) and arg.ty.dtype == "int64")
+                isinstance(arg, tvm_tirx.ir.Var)
+                and tvm_tirx.ir.is_prim_expr(arg)
+                and not (tvm_tirx.ir.is_prim_var(arg) and arg.ty.dtype == "int64")
             ):
-                name = arg.name or f"scalar_input_{len(create_primfunc_args)}"
+                name = arg.name or f"scalar_input_{len(create_function_args)}"
                 tir_param = tirx.Var(name, arg.ty.dtype)
                 call_tir_args.append(arg)
-                create_primfunc_args.append(tir_param)
+                create_function_args.append(tir_param)
                 return tir_param
 
-            if tvm.ir.is_prim_expr(arg):
+            if tvm_tirx.ir.is_prim_expr(arg):
                 _copy_undefined_var(arg)
-                new_arg = _substitute_tir_vars(arg, tir_var_map)
+                new_arg = tvm_ffi.structural_map(
+                    arg, (tvm_tirx.ir.Var, lambda var: tir_var_map.get(var, var)), order="post"
+                )
                 extra_tir_args_list.append(new_arg)
                 return new_arg
 
@@ -242,7 +237,7 @@ def gen_call_tir_inputs(
                     for shape_value in arg.ty.shape.values:
                         _copy_undefined_var(shape_value)
 
-                    n_args = len(create_primfunc_args)
+                    n_args = len(create_function_args)
                     if isinstance(arg, tvm.relax.Var):
                         name = arg.name
                     elif n_args < len(string.ascii_uppercase):
@@ -253,7 +248,7 @@ def gen_call_tir_inputs(
                     te_arg = te_tensor(arg, tir_var_map, name)
 
                     call_tir_args.append(arg)
-                    create_primfunc_args.append(te_arg)
+                    create_function_args.append(te_arg)
 
                     return te_arg
 
@@ -273,7 +268,7 @@ def gen_call_tir_inputs(
                         "emit_te only supports dict with string as the key currently"
                     )
                 return {k: _convert_te_arg_helper(arg[k]) for k in arg}
-            elif isinstance(arg, int | float | str | Type | Attrs) or arg is None:
+            elif isinstance(arg, int | float | str | Type | Attrs | Target) or arg is None:
                 return arg
             raise TypeError(f"not supported type in emit_te: {type(arg)}")
 
@@ -291,14 +286,14 @@ def gen_call_tir_inputs(
             if isinstance(expr, te_Tensor):
                 for dim in expr.shape:
                     _populate_bound_vars(dim)
-            elif isinstance(expr, tvm.ir.Var):
+            elif isinstance(expr, tvm_tirx.ir.Var):
                 bound_vars.add(expr)
 
         def _populate_used_vars(expr):
             if isinstance(expr, te_Tensor):
                 for dim in expr.shape:
                     _populate_used_vars(dim)
-            elif tvm.ir.is_prim_expr(expr):
+            elif tvm_tirx.ir.is_prim_expr(expr):
                 used_vars.update(tirx.analysis.undefined_vars(expr))
 
         for arg in itertools.chain(args, extra_tir_args):
@@ -332,10 +327,17 @@ def gen_call_tir_inputs(
         shape_values: list[tirx.Expr], tir_var_inverse_map: dict[tirx.Var, tirx.Expr]
     ):
         return ShapeExpr(
-            [_substitute_tir_vars(value, tir_var_inverse_map) for value in shape_values]
+            [
+                tvm_ffi.structural_map(
+                    value,
+                    (tvm_tirx.ir.Var, lambda var: tir_var_inverse_map.get(var, var)),
+                    order="post",
+                )
+                for value in shape_values
+            ]
         )
 
-    primfunc_attrs = kwargs.pop("primfunc_attrs", None)
+    function_attrs = kwargs.pop("function_attrs", None)
     custom_out_ty = kwargs.pop("ty_args", [])
 
     te_args = _convert_te_arg(args)
@@ -347,13 +349,13 @@ def gen_call_tir_inputs(
     ), "only support te.tensor or tuple/list/Array of te.tensor as function output"
 
     outs = [te_out] if isinstance(te_out, te_Tensor) else list(te_out)
-    unbound_tir_vars = _get_unbound_tir_vars([*create_primfunc_args, *outs], extra_tir_args_list)
+    unbound_tir_vars = _get_unbound_tir_vars([*create_function_args, *outs], extra_tir_args_list)
 
-    inputs = [*create_primfunc_args, *unbound_tir_vars, *outs]
-    tir_func = create_prim_func(inputs, "int64")
+    inputs = [*create_function_args, *unbound_tir_vars, *outs]
+    tir_func = create_function(inputs, "int64")
 
-    if primfunc_attrs:
-        tir_func = tir_func.with_attrs(primfunc_attrs)
+    if function_attrs:
+        tir_func = tir_func.with_attrs(function_attrs)
 
     tir_func = tir_func.without_attr("global_symbol")
 
@@ -373,8 +375,14 @@ def gen_call_tir_inputs(
             for out in outs
         ]
 
+    if isinstance(output_ty, list):
+        output_ty = output_ty[0] if len(output_ty) == 1 else tvm_tirx.ir.TupleType(output_ty)
+
     call_tir_args.extend(
-        _substitute_tir_vars(value, tir_var_inverse_map) for value in unbound_tir_vars
+        tvm_ffi.structural_map(
+            value, (tvm_tirx.ir.Var, lambda var: tir_var_inverse_map.get(var, var)), order="post"
+        )
+        for value in unbound_tir_vars
     )
 
     return (tir_func, call_tir_args, output_ty)

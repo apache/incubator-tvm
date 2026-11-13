@@ -18,11 +18,13 @@
 import ml_dtypes
 import numpy as np
 import pytest
+import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.contrib.pickle_memoize import memoize
-from tvm.testing import env
+from tvm.testing import env as tvm_env
+from tvm_tirx.testing import env
 
 
 def get_random_tensor(shape, dtype):
@@ -36,7 +38,7 @@ def get_random_tensor(shape, dtype):
 def verify_group_gemm(
     func_name, M, N, K, num_groups, x_dtype, weight_dtype, out_dtype, use_scale, rtol, atol
 ):
-    group_gemm_func = tvm.get_global_func(func_name, allow_missing=True)
+    group_gemm_func = tvm_ffi.get_global_func(func_name, allow_missing=True)
     if group_gemm_func is None:
         print(f"Skipped as {func_name} is not available")
         return
@@ -61,23 +63,23 @@ def verify_group_gemm(
     a_np, b_np, indptr_np, c_np = get_ref_data()
 
     def run_and_check():
-        dev = tvm.cuda(0)
-        a_nd = tvm.runtime.tensor(a_np.astype(to_numpy_dtype(x_dtype)), device=dev)
-        b_nd = tvm.runtime.tensor(b_np.astype(to_numpy_dtype(weight_dtype)), device=dev)
-        c_nd = tvm.runtime.empty(c_np.shape, dtype=out_dtype, device=dev)
-        indptr_nd = tvm.runtime.tensor(indptr_np, device=dev)
-        workspace = tvm.runtime.empty((4096 * 1024,), dtype="uint8", device=dev)
+        dev = tvm_tirx.cuda(0)
+        a_nd = tvm_tirx.runtime.tensor(a_np.astype(to_numpy_dtype(x_dtype)), device=dev)
+        b_nd = tvm_tirx.runtime.tensor(b_np.astype(to_numpy_dtype(weight_dtype)), device=dev)
+        c_nd = tvm_tirx.runtime.empty(c_np.shape, dtype=out_dtype, device=dev)
+        indptr_nd = tvm_tirx.runtime.tensor(indptr_np, device=dev)
+        workspace = tvm_tirx.runtime.empty((4096 * 1024,), dtype="uint8", device=dev)
         if use_scale:
-            scale = tvm.runtime.tensor(np.array([1.0], dtype="float32"), device=dev)
+            scale = tvm_tirx.runtime.tensor(np.array([1.0], dtype="float32"), device=dev)
             group_gemm_func(a_nd, b_nd, indptr_nd, workspace, scale, c_nd)
         else:
             group_gemm_func(a_nd, b_nd, indptr_nd, workspace, c_nd)
-        tvm.testing.assert_allclose(c_nd.numpy(), c_np, rtol=rtol, atol=atol)
+        tvm_tirx.testing.assert_allclose(c_nd.numpy(), c_np, rtol=rtol, atol=atol)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
-@pytest.mark.skipif(not env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
+@pytest.mark.skipif(not tvm_env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
 @pytest.mark.gpu
 @pytest.mark.skipif(not env.has_cuda_compute(9), reason="need cuda compute >= 9.0")
 def test_group_gemm_sm90():
@@ -122,7 +124,7 @@ def test_group_gemm_sm90():
     )
 
 
-@pytest.mark.skipif(not env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
+@pytest.mark.skipif(not tvm_env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
 @pytest.mark.gpu
 @pytest.mark.skipif(not env.has_cuda_compute(10), reason="need cuda compute >= 10.0")
 def test_group_gemm_sm100():
@@ -306,7 +308,7 @@ def blockwise_bmm(
     return o_np
 
 
-@pytest.mark.skipif(not env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
+@pytest.mark.skipif(not tvm_env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
 @pytest.mark.gpu
 @pytest.mark.skipif(not env.has_cuda_compute(9), reason="need cuda compute >= 9.0")
 def test_fp8_e4m3_groupwise_scaled_gemm():
@@ -317,7 +319,7 @@ def test_fp8_e4m3_groupwise_scaled_gemm():
     assert N % 128 == 0 and K % 128 == 0  # Only support N/K are multiple of 128
 
     func_name = "cutlass.groupwise_scaled_gemm_e4m3fn_e4m3fn"
-    gemm_func = tvm.get_global_func(func_name, allow_missing=True)
+    gemm_func = tvm_ffi.get_global_func(func_name, allow_missing=True)
     if gemm_func is None:
         print(f"Skipped as {func_name} is not available")
         return
@@ -328,13 +330,13 @@ def test_fp8_e4m3_groupwise_scaled_gemm():
     o_np = blockwise_matmul(x_np, x_scale_np, w_np, w_scale_np, block_size, dtype)
 
     def run_and_check():
-        device = tvm.cuda(0)
-        x_tvm = tvm.runtime.tensor(x_np, device=device)
-        x_scale_tvm = tvm.runtime.tensor(x_scale_np.T, device=device)
-        w_tvm = tvm.runtime.tensor(w_np, device=device)
-        w_scale_tvm = tvm.runtime.tensor(w_scale_np, device=device)
-        workspace = tvm.runtime.empty((4096 * 1024,), dtype="uint8", device=device)
-        o_tvm = tvm.runtime.empty((M, N), dtype=dtype, device=device)
+        device = tvm_tirx.cuda(0)
+        x_tvm = tvm_tirx.runtime.tensor(x_np, device=device)
+        x_scale_tvm = tvm_tirx.runtime.tensor(x_scale_np.T, device=device)
+        w_tvm = tvm_tirx.runtime.tensor(w_np, device=device)
+        w_scale_tvm = tvm_tirx.runtime.tensor(w_scale_np, device=device)
+        workspace = tvm_tirx.runtime.empty((4096 * 1024,), dtype="uint8", device=device)
+        o_tvm = tvm_tirx.runtime.empty((M, N), dtype=dtype, device=device)
         gemm_func(
             x_tvm,
             w_tvm,
@@ -345,12 +347,12 @@ def test_fp8_e4m3_groupwise_scaled_gemm():
             block_size[1],
             o_tvm,
         )
-        tvm.testing.assert_allclose(o_tvm.numpy(), o_np, rtol=1e-4, atol=0.5)
+        tvm_tirx.testing.assert_allclose(o_tvm.numpy(), o_np, rtol=1e-4, atol=0.5)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
-@pytest.mark.skipif(not env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
+@pytest.mark.skipif(not tvm_env.build_flag_enabled("USE_CUTLASS"), reason="need cutlass")
 @pytest.mark.gpu
 @pytest.mark.skipif(not env.has_cuda_compute(9), reason="need cuda compute >= 9.0")
 def test_fp8_e4m3_groupwise_scaled_bmm():
@@ -362,7 +364,7 @@ def test_fp8_e4m3_groupwise_scaled_bmm():
     assert N % 128 == 0 and K % 128 == 0  # Only support N/K are multiple of 128
 
     func_name = "cutlass.groupwise_scaled_bmm_e4m3fn_e4m3fn"
-    gemm_func = tvm.get_global_func(func_name, allow_missing=True)
+    gemm_func = tvm_ffi.get_global_func(func_name, allow_missing=True)
     if gemm_func is None:
         print(f"Skipped as {func_name} is not available")
         return
@@ -373,13 +375,13 @@ def test_fp8_e4m3_groupwise_scaled_bmm():
     o_np = blockwise_bmm(x_np, x_scale_np, w_np, w_scale_np, block_size, dtype)
 
     def run_and_check():
-        device = tvm.cuda(0)
-        x_tvm = tvm.runtime.tensor(x_np, device=device)
-        x_scale_tvm = tvm.runtime.tensor(x_scale_np.transpose(0, 2, 1), device=device)
-        w_tvm = tvm.runtime.tensor(w_np, device=device)
-        w_scale_tvm = tvm.runtime.tensor(w_scale_np, device=device)
-        workspace = tvm.runtime.empty((4096 * 1024,), dtype="uint8", device=device)
-        o_tvm = tvm.runtime.empty((B, M, N), dtype=dtype, device=device)
+        device = tvm_tirx.cuda(0)
+        x_tvm = tvm_tirx.runtime.tensor(x_np, device=device)
+        x_scale_tvm = tvm_tirx.runtime.tensor(x_scale_np.transpose(0, 2, 1), device=device)
+        w_tvm = tvm_tirx.runtime.tensor(w_np, device=device)
+        w_scale_tvm = tvm_tirx.runtime.tensor(w_scale_np, device=device)
+        workspace = tvm_tirx.runtime.empty((4096 * 1024,), dtype="uint8", device=device)
+        o_tvm = tvm_tirx.runtime.empty((B, M, N), dtype=dtype, device=device)
         gemm_func(
             x_tvm,
             w_tvm,
@@ -390,10 +392,10 @@ def test_fp8_e4m3_groupwise_scaled_bmm():
             block_size[1],
             o_tvm,
         )
-        tvm.testing.assert_allclose(o_tvm.numpy(), o_np, rtol=1e-4, atol=0.5)
+        tvm_tirx.testing.assert_allclose(o_tvm.numpy(), o_np, rtol=1e-4, atol=0.5)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

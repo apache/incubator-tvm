@@ -18,11 +18,11 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import relax, te, tirx
-from tvm.ir import Call, GenericConst, Op, StringImm
-from tvm.ir.base import assert_structural_equal
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax, te
 from tvm.relax import PyExprMutator, PyExprVisitor
+from tvm.relax import script as R
 from tvm.relax.expr import (
     BindingBlock,
     DataflowBlock,
@@ -31,7 +31,7 @@ from tvm.relax.expr import (
     ExternFunc,
     Function,
     GlobalVar,
-    If,
+    IfExpr,
     MatchCast,
     SeqExpr,
     ShapeExpr,
@@ -40,7 +40,9 @@ from tvm.relax.expr import (
     Var,
     VarBinding,
 )
-from tvm.script import relax as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call, GenericConst, Op, StringImm
+from tvm_tirx.ir.base import assert_structural_equal
 
 m, n = tirx.Var("m", "int64"), tirx.Var("n", "int64")
 x = relax.Var("x", R.Tensor([n], "float32"))
@@ -119,8 +121,8 @@ class ASTPrinter(PyExprVisitor):
             self.visit_expr(arg)
         self.log.pop_scope()
 
-    def visit_if_(self, op: If) -> None:
-        self.log.add("If")
+    def visit_if_expr_(self, op: IfExpr) -> None:
+        self.log.add("IfExpr")
         self.log.push_scope()
         self.visit_expr(op.cond)
         self.visit_expr(op.true_branch)
@@ -239,9 +241,9 @@ class ASTPostPrinterMutator(PyExprMutator):
         self.log.add("Call")
         return op
 
-    def visit_if_(self, op: If) -> Expr:
+    def visit_if_expr_(self, op: IfExpr) -> Expr:
         op = self.visit_expr_post_order(op)
-        self.log.add("If")
+        self.log.add("IfExpr")
         return op
 
     def visit_op_(self, op: Op) -> Expr:
@@ -280,7 +282,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         return op
 
     def visit_var_binding_(self, binding: VarBinding) -> None:
-        """Identical with ExprMutator::VisitBinding_(const VarBindingNode* binding) on the C++ side."""
+        """Identical with ExprMutator::VisitBinding_(const VarBindingObj* binding) on the C++ side."""
         new_value = self.visit_expr(binding.value)
         new_var = self.visit_var_def(binding.var)
 
@@ -297,7 +299,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         self.builder_.emit_normalized(VarBinding(new_var, new_value))
 
     def visit_match_cast_(self, binding: MatchCast) -> None:
-        """Identical with ExprMutator::VisitBinding_(const MatchCastNode* binding) on the C++ side."""
+        """Identical with ExprMutator::VisitBinding_(const MatchCastObj* binding) on the C++ side."""
         new_var = self.visit_var_def(binding.var)
         new_value = self.visit_expr(binding.value)
 
@@ -310,7 +312,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         self.builder_.emit_normalized(MatchCast(new_var, new_value, binding.ty))
 
     def visit_binding_block_(self, block: BindingBlock) -> BindingBlock:
-        """Identical with ExprMutator::VisitBindingBlock_(const BindingBlockNode* block) on the C++ side."""
+        """Identical with ExprMutator::VisitBindingBlock_(const BindingBlockObj* block) on the C++ side."""
         self.builder_._begin_binding_block()
         for binding in block.bindings:
             self.visit_binding(binding)
@@ -318,7 +320,7 @@ class ASTPostPrinterMutator(PyExprMutator):
         return self.builder_._end_block()
 
     def visit_dataflow_block_(self, block: DataflowBlock) -> None:
-        """Identical with ExprMutator::VisitBindingBlock_(const DataflowBlockNode* block) on the C++ side."""
+        """Identical with ExprMutator::VisitBindingBlock_(const DataflowBlockObj* block) on the C++ side."""
         self.builder_._begin_dataflow_block()
         for binding in block.bindings:
             self.visit_binding(binding)
@@ -326,12 +328,12 @@ class ASTPostPrinterMutator(PyExprMutator):
         return self.builder_._end_block()
 
     def visit_var_def_(self, var: Var) -> None:
-        """Identical with ExprMutator::VisitVarDef_(const VarNode* var) on the C++ side."""
+        """Identical with ExprMutator::VisitVarDef_(const VarObj* var) on the C++ side."""
         self.log.add("VarDef")
         return var
 
     def visit_dataflow_var_def_(self, var: DataflowVar) -> None:
-        """Identical with ExprMutator::VisitVarDef_(const DataflowVarNode* var) on the C++ side."""
+        """Identical with ExprMutator::VisitVarDef_(const DataflowVarObj* var) on the C++ side."""
         self.log.add("DataflowVarDef")
         return var
 
@@ -416,11 +418,11 @@ def test_shape_expr():
 
 
 def test_prim_expr():
-    basic_check(tvm.tirx.IntImm("int64", 1), "", "")
-    basic_check(tvm.tirx.FloatImm("float32", 1.0), "", "")
+    basic_check(tvm_tirx.ir.IntImm("int64", 1), "", "")
+    basic_check(tvm_tirx.ir.FloatImm("float32", 1.0), "", "")
     basic_check(m + n, "\n".join(["Var", "Var"]), "\n".join(["Var", "Var"]))
     basic_check(
-        tvm.tirx.call_extern("int32", "test"),
+        tvm_tirx.tirx.call_extern("test", ty="int32"),
         "\n".join(["Call", "\tOp", "\tStringImm"]),
         "\n".join(["Op", "StringImm", "Call"]),
     )
@@ -448,11 +450,11 @@ def test_call():
 
 
 def test_if():
-    if_node = relax.If(x, x, x)
+    if_node = relax.IfExpr(x, x, x)
     basic_check(
         if_node,
-        "\n".join(["If", "\tVar", "\tSeqExpr", "\t\tVar", "\tSeqExpr", "\t\tVar"]),
-        "\n".join(["Var", "Var", "SeqExpr", "Var", "SeqExpr", "If"]),
+        "\n".join(["IfExpr", "\tVar", "\tSeqExpr", "\t\tVar", "\tSeqExpr", "\t\tVar"]),
+        "\n".join(["Var", "Var", "SeqExpr", "Var", "SeqExpr", "IfExpr"]),
     )
 
 
@@ -872,8 +874,21 @@ def test_function_parameter_mutation():
         return R.matmul(A, B)
 
     after = ParamMutator({"A": (1, 32)}).visit_expr(before)
-    tvm.ir.assert_structural_equal(expected, after)
+    tvm_tirx.ir.assert_structural_equal(expected, after)
+
+
+def test_unmapped_python_mutator_var_is_absent():
+    @tvm.relax.expr_functor.mutator
+    class Mutator(tvm.relax.PyExprMutator):
+        pass
+
+    mutator = Mutator()
+    old = tvm.relax.Var("old", tvm_tirx.ir.PrimType("int32"))
+    new = tvm.relax.Var("new", tvm_tirx.ir.PrimType("int32"))
+    assert mutator.get_var_remap(old) is None
+    mutator.set_var_remap(old, new)
+    assert mutator.get_var_remap(old).same_as(new)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

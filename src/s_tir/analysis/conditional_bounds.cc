@@ -25,18 +25,15 @@
 
 #include <tvm/ffi/extra/structural_mutate.h>
 #include <tvm/ir/expr_functor.h>
-#include <tvm/ir/prim/builtin.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/analysis.h>
 #include <tvm/sym/analyzer.h>
-#include <tvm/sym/pattern.h>
 #include <tvm/tirx/analysis.h>
-#include <tvm/tirx/op.h>
 
 #include <algorithm>
 #include <functional>
+#include <numeric>
 #include <utility>
-
-#include "../../sym/int_operator.h"
 
 namespace tvm {
 namespace s_tir {
@@ -49,9 +46,6 @@ using sym::EvalSet;
 using sym::IntSet;
 
 namespace {
-using sym::ExtendedEuclidean;
-using sym::LeastCommonMultiple;
-
 // The solver's intermediate representations remain local to this analysis.
 struct IntGroupBounds {
   PrimExpr coef;
@@ -69,7 +63,7 @@ struct IntGroupBounds {
         << "Coefficient in IntGroupBounds must be integers";
   }
 
-  Range FindBestRange(const ffi::Map<Var, Range>& vranges_addl) const;
+  ffi::Optional<Range> FindBestRange(const ffi::Map<Var, Range>& vranges_addl) const;
   IntGroupBounds operator+(const Range& range);
 };
 
@@ -139,11 +133,11 @@ IntGroupBounds IntGroupBounds::operator+(const Range& r) {
   ffi::Array<PrimExpr> lower;
   ffi::Array<PrimExpr> upper;
   const PrimExpr& coef = this->coef;
-  if (tvm::prim::is_one(r->extent)) {
-    equal.push_back(analyzer->Simplify(r->min * coef));
+  if (tvm::prim::IsOne(r->extent)) {
+    equal.push_back(analyzer->Simplify(r->begin * coef));
   } else {
-    lower.push_back(analyzer->Simplify(r->min * coef));
-    upper.push_back(analyzer->Simplify((r->min + r->extent - 1) * coef));
+    lower.push_back(analyzer->Simplify(r->begin * coef));
+    upper.push_back(analyzer->Simplify((r->begin + r->extent - 1) * coef));
   }
   for (const auto& eq : this->equal) equal.push_back(eq);
   for (const auto& lb : this->lower) lower.push_back(lb);
@@ -151,13 +145,19 @@ IntGroupBounds IntGroupBounds::operator+(const Range& r) {
   return IntGroupBounds(coef, lower, equal, upper);
 }
 
-Range IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) const {
+ffi::Optional<Range> IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) const {
   Analyzer analyzer;
-  analyzer->Bind(vranges_addl);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : vranges_addl) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
 
-  std::unordered_map<const VarNode*, IntSet> var_intsets;
+  ffi::Map<Var, IntSet> var_intsets;
   for (auto kv : vranges_addl) {
-    var_intsets[kv.first.get()] = IntSet::FromRange(kv.second);
+    var_intsets.Set(kv.first, IntSet::FromRange(kv.second));
   }
 
   const ffi::Array<PrimExpr>& equal = this->equal;
@@ -172,7 +172,7 @@ Range IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) co
     uppers.push_back(expr);
   }
 
-  if (lowers.size() == 1 && uppers.size() == 1 && tvm::prim::is_one(coef)) {
+  if (lowers.size() == 1 && uppers.size() == 1 && tvm::prim::IsOne(coef)) {
     return Range(analyzer->Simplify(lowers[0]), analyzer->Simplify(uppers[0] + 1));
   }
 
@@ -181,9 +181,9 @@ Range IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) co
   // Note that the bounds are for v, not for v*coef
 
   // The lower bound of the best pair so far
-  PrimExpr best_lower;
+  ffi::Optional<PrimExpr> best_lower;
   // The difference between the upper and the lower of the best pair, maybe overapproximation
-  PrimExpr best_diff_over;
+  ffi::Optional<PrimExpr> best_diff_over;
 
   for (const PrimExpr& low : lowers) {
     for (const PrimExpr& upp : uppers) {
@@ -212,19 +212,20 @@ Range IntGroupBounds::FindBestRange(const ffi::Map<Var, Range>& vranges_addl) co
 
       // If it is provable that the new one is strictly better than the current best one,
       // then replace it. Note that we are biased towards earlier pairs which should be simpler.
-      if (diff_over.has_value() && (!best_diff_over.defined() ||
-                                    analyzer->CanProve(diff_over.value() - best_diff_over < 0))) {
+      if (diff_over.has_value() &&
+          (!best_diff_over.has_value() ||
+           analyzer->CanProve(diff_over.value() - best_diff_over.value() < 0))) {
         best_lower = low_divided;
         best_diff_over = diff_over.value();
       }
     }
   }
 
-  if (!best_lower.defined()) {
-    TVM_FFI_ICHECK(!best_diff_over.defined());
-    return Range();
+  if (!best_lower.has_value()) {
+    TVM_FFI_ICHECK(!best_diff_over.has_value());
+    return std::nullopt;
   }
-  return Range::FromMinExtent(best_lower, analyzer->Simplify(best_diff_over + 1));
+  return Range::FromMinExtent(best_lower.value(), analyzer->Simplify(best_diff_over.value() + 1));
 }
 
 struct ExprLess {
@@ -238,22 +239,22 @@ struct ExprLess {
  */
 class NormalizeComparisons : public tvm::ExprMutator {
  public:
-  UnchangedOr<PrimExpr> Mutate_(const prim::EQNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::EQObj* op, InplaceMode inplace_mode) override {
     return Make<prim::EQ>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::NENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::NEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::NE>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::LTNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::LTObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LT>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::LENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::LEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LE>(op->a, op->b);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::GTNode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::GTObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LT>(op->b, op->a);
   }
-  UnchangedOr<PrimExpr> Mutate_(const prim::GENode* op, InplaceMode inplace_mode) override {
+  UnchangedOr<PrimExpr> Mutate_(const prim::GEObj* op, InplaceMode inplace_mode) override {
     return Make<prim::LE>(op->b, op->a);
   }
 
@@ -281,9 +282,9 @@ void AddInequality(std::vector<PrimExpr>* inequality_set, const PrimExpr& new_in
     // or has already been added
     return;
   }
-  if (const prim::LENode* new_le = new_ineq.as<prim::LENode>()) {
+  if (const prim::LEObj* new_le = new_ineq.as<prim::LEObj>()) {
     for (auto iter = inequality_set->begin(); iter != inequality_set->end();) {
-      const prim::LENode* le = iter->as<prim::LENode>();
+      const prim::LEObj* le = iter->as<prim::LEObj>();
       if (le && analyzer->CanProve(new_le->a - le->a <= 0)) {
         return;
       } else if (le && analyzer->CanProve(le->a - new_le->a <= 0)) {
@@ -305,9 +306,9 @@ void ClassifyByPolarity(const PrimVar& var, const std::vector<PrimExpr>& current
   // Take formulas from current_ineq_set and classify them according to polarity wrt var
   // and store to coef_pos and coef_neg respectively.
   for (const PrimExpr& ineq : current_ineq_set) {
-    if (const prim::LENode* le = ineq.as<prim::LENode>()) {
-      ffi::Array<PrimExpr> coef = sym::DetectLinearEquation(le->a, {var});
-      const auto* imm = !coef.empty() ? coef[0].as<IntImmNode>() : nullptr;
+    if (const prim::LEObj* le = ineq.as<prim::LEObj>()) {
+      ffi::Array<PrimExpr> coef = tirx::DetectLinearEquation(le->a, {var});
+      const auto* imm = !coef.empty() ? coef[0].as<IntImmObj>() : nullptr;
       if (auto value = imm ? imm->value.as<int64_t>() : std::nullopt; value.has_value()) {
         int64_t coef0 = *value;
         if (coef0 == 0) {
@@ -320,9 +321,9 @@ void ClassifyByPolarity(const PrimVar& var, const std::vector<PrimExpr>& current
         }
         continue;
       }
-    } else if (const prim::EQNode* eq = ineq.as<prim::EQNode>()) {
-      ffi::Array<PrimExpr> coef = sym::DetectLinearEquation(eq->a, {var});
-      const auto* imm = !coef.empty() ? coef[0].as<IntImmNode>() : nullptr;
+    } else if (const prim::EQObj* eq = ineq.as<prim::EQObj>()) {
+      ffi::Array<PrimExpr> coef = tirx::DetectLinearEquation(eq->a, {var});
+      const auto* imm = !coef.empty() ? coef[0].as<IntImmObj>() : nullptr;
       if (auto value = imm ? imm->value.as<int64_t>() : std::nullopt; value.has_value()) {
         int64_t coef0 = *value;
         if (coef0 == 0) {
@@ -363,7 +364,13 @@ void MoveEquality(std::vector<PrimExpr>* upper_bounds, std::vector<PrimExpr>* lo
 
 PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_to_solve) {
   sym::Analyzer analyzer;
-  analyzer->Bind(system_to_solve.ranges);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : system_to_solve.ranges) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
 
   // The algorithm consists in doing the following things for each variable v
   // - Take formulas from `current_ineq_set_to_solve` and
@@ -407,9 +414,9 @@ PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_t
     // Add bounds from vranges
     if (system_to_solve.ranges.count(v)) {
       const Range& range = system_to_solve.ranges[v];
-      PrimExpr range_lbound = analyzer->Simplify(range->min, kSimplifyRewriteCanonicalRewrite);
+      PrimExpr range_lbound = analyzer->Simplify(range->begin, kSimplifyRewriteCanonicalRewrite);
       PrimExpr range_ubound =
-          analyzer->Simplify(range->min + range->extent - 1, kSimplifyRewriteCanonicalRewrite);
+          analyzer->Simplify(range->begin + range->extent - 1, kSimplifyRewriteCanonicalRewrite);
       coef_neg.push_back({-1, range_lbound});
       coef_pos.push_back({1, -range_ubound});
     }
@@ -418,10 +425,9 @@ PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_t
                        &coef_neg, analyzer.get());
 
     // Combine each positive inequality with each negative one (by adding them together)
-    int64_t gcd_x, gcd_y;
     for (const auto& pos : coef_pos) {
       for (const auto& neg : coef_neg) {
-        auto first_gcd = ExtendedEuclidean(pos.first, -neg.first, &gcd_x, &gcd_y);
+        auto first_gcd = std::gcd(pos.first, -neg.first);
         PrimType v_ty = v.ty();
         PrimExpr c_pos = prim::MakeConst(v_ty, neg.first / first_gcd);
         PrimExpr c_neg = IntImm(v_ty, pos.first / first_gcd);
@@ -443,10 +449,10 @@ PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_t
     // We will generate formulas of the form coef_lcm*v <= bound
     int64_t coef_lcm = 1;
     for (const auto& pos : coef_pos) {
-      coef_lcm = LeastCommonMultiple(coef_lcm, pos.first);
+      coef_lcm = std::lcm(coef_lcm, pos.first);
     }
     for (const auto& neg : coef_neg) {
-      coef_lcm = LeastCommonMultiple(coef_lcm, -neg.first);
+      coef_lcm = std::lcm(coef_lcm, -neg.first);
     }
 
     // The resulting lower and upper bounds
@@ -518,11 +524,11 @@ PartialSolvedInequalities SolveLinearInequalities(const IntConstraints& system_t
   ffi::Array<PrimExpr> other_conditions;
   for (const PrimExpr& e : current_ineq_set_to_solve) {
     PrimExpr e_simp = analyzer->Simplify(e, kSimplifyRewriteCanonicalRewrite);
-    if (is_const_int(e_simp, 0)) {
+    if (IsConstInt(e_simp, 0)) {
       // contradiction detected
       other_conditions = {IntImm::Bool(false)};
       break;
-    } else if (is_const_int(e_simp, 1)) {
+    } else if (IsConstInt(e_simp, 1)) {
       continue;
     } else {
       other_conditions.push_back(e_simp);
@@ -561,12 +567,18 @@ IntConstraints SolveInequalitiesToRange(const IntConstraints& inequalities) {
   // This order is needed to compute new ranges.
   for (auto it = inequalities.variables.rbegin(); it != inequalities.variables.rend(); ++it) {
     sym::Analyzer analyzer;
-    analyzer->Bind(vranges);
+    {
+      sym::ConstraintContext context;
+      for (const auto& [var, range] : vranges) {
+        context->Append(sym::RangeConstraint(var, range));
+      }
+      analyzer->SyncConstraintContext(context);
+    }
 
     const PrimVar& var = *it;
     TVM_FFI_ICHECK(solved_bounds.count(var));
     auto bnd = solved_bounds.at(var);
-    if (is_one(bnd.coef) && !bnd.equal.empty()) {
+    if (IsOne(bnd.coef) && !bnd.equal.empty()) {
       // There is an equation of the form `v == expr`, so this variable can be completely removed.
       // Note that we use the 0-th expression because they are ordered by complexity,
       // so it must be the simplest one.
@@ -583,21 +595,27 @@ IntConstraints SolveInequalitiesToRange(const IntConstraints& inequalities) {
 
       auto best_range = bnd.FindBestRange(vranges);
 
-      if (best_range.defined()) {
-        if (analyzer->CanProveGreaterEqual(-best_range->extent, 0)) {
+      if (best_range.has_value()) {
+        if (analyzer->CanProveGreaterEqual(-best_range.value()->extent, 0)) {
           // range.extent <= 0 implies the input inequality system is unsolvable
           return IntConstraints(/*variables=*/{}, /*ranges=*/{},
                                 /*relations=*/{IntImm::Bool(false)});
         }
-        res_ranges.Set(var, best_range);
-        vranges.Set(var, best_range);
+        res_ranges.Set(var, best_range.value());
+        vranges.Set(var, best_range.value());
       }
     }
   }
 
   // Add the original conditions to the resulting conditions
   sym::Analyzer analyzer;
-  analyzer->Bind(vranges);
+  {
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : vranges) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+  }
   for (const PrimExpr& old_cond :
        AsConditions(inequalities.variables, solved_bounds, solved_other_relations)) {
     if (!analyzer->CanProve(old_cond)) {
@@ -621,30 +639,30 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
   // currently only extract simple integral equations which could be solvable.
   sym::Analyzer analyzer;
   PrimExpr condition = analyzer->Simplify(condition_);
-  if (is_const_int(condition)) {
+  if (IsConstInt(condition)) {
     return std::nullopt;
   }
   ffi::Array<PrimExpr> equations;
   ffi::Array<PrimVar> vars;
   std::function<void(const PrimExpr&)> fvisit = [&equations, &vars, &fvisit](const PrimExpr& e) {
-    if (e->IsInstance<prim::GENode>() || e->IsInstance<prim::GTNode>() ||
-        e->IsInstance<prim::LENode>() || e->IsInstance<prim::LTNode>() ||
-        e->IsInstance<prim::EQNode>() || e->IsInstance<prim::NENode>()) {
+    if (e->IsInstance<prim::GEObj>() || e->IsInstance<prim::GTObj>() ||
+        e->IsInstance<prim::LEObj>() || e->IsInstance<prim::LTObj>() ||
+        e->IsInstance<prim::EQObj>() || e->IsInstance<prim::NEObj>()) {
       bool is_simple = true;
       std::vector<PrimVar> cand_vars;
       auto walk_fn = [&cand_vars, &is_simple,
                       &e](const PrimExpr& obj) -> ffi::Expected<ffi::WalkResult> {
         if (obj.same_as(e)) {
           return ffi::WalkResult::Advance();
-        } else if (const VarNode* var = obj.as<VarNode>()) {
+        } else if (const VarObj* var = obj.as<VarObj>()) {
           PrimType var_ty = var->ty.as_or_throw<PrimType>();
           if (var_ty.MatchesCode(DLDataTypeCode::kDLInt, DLDataTypeCode::kDLUInt)) {
             cand_vars.push_back(ffi::GetRef<Var>(var).as_or_throw<PrimVar>());
           }
         } else {
-          is_simple &= obj->IsInstance<prim::AddNode>() || obj->IsInstance<prim::SubNode>() ||
-                       obj->IsInstance<prim::MulNode>() || obj->IsInstance<prim::FloorDivNode>() ||
-                       obj->IsInstance<prim::FloorModNode>() || obj->IsInstance<IntImmNode>();
+          is_simple &= obj->IsInstance<prim::AddObj>() || obj->IsInstance<prim::SubObj>() ||
+                       obj->IsInstance<prim::MulObj>() || obj->IsInstance<prim::FloorDivObj>() ||
+                       obj->IsInstance<prim::FloorModObj>() || obj->IsInstance<IntImmObj>();
         }
         return ffi::WalkResult::Advance();
       };
@@ -658,13 +676,13 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
         }
         equations.push_back(e.as_or_throw<PrimExpr>());
       }
-    } else if (e->IsInstance<prim::AndNode>()) {
+    } else if (e->IsInstance<prim::AndObj>()) {
       prim::And op = e.as_or_throw<prim::And>();
       fvisit(op->a);
       fvisit(op->b);
-    } else if (e->IsInstance<CallNode>()) {
+    } else if (e->IsInstance<CallObj>()) {
       Call op = e.as_or_throw<Call>();
-      if (op->op.same_as(prim::builtin::likely())) {
+      if (op->op.same_as(prim::likely_op())) {
         fvisit(op->args[0].as_or_throw<PrimExpr>());
       }
     }
@@ -676,14 +694,14 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
   // build dom ranges for related vars
   ffi::Map<Var, Range> ranges;
   for (const Var& v : vars) {
-    sym::IntSet dom;
-    auto relax_it = relax_map_->find(v.get());
+    sym::IntSet dom{ffi::UnsafeInit{}};
+    auto relax_it = relax_map_->find(v);
     if (relax_it != relax_map_->end()) {
-      dom = relax_it->second;
+      dom = (*relax_it).second;
     } else {
-      auto hint_it = hint_map_->find(v.get());
+      auto hint_it = hint_map_->find(v);
       if (hint_it != hint_map_->end()) {
-        dom = hint_it->second;
+        dom = (*hint_it).second;
       }
     }
     if (dom.defined()) {
@@ -699,10 +717,10 @@ ffi::Optional<ffi::Map<Var, Range>> ConditionalBoundsContext::TrySolveCondition(
   return result.ranges;
 }
 
-ConditionalBoundsContext::ConditionalBoundsContext(
-    const PrimExpr& condition, std::unordered_map<const VarNode*, sym::IntSet>* relax_map,
-    std::unordered_map<const VarNode*, sym::IntSet>* hint_map,
-    std::vector<PrimExpr>* pending_conditions)
+ConditionalBoundsContext::ConditionalBoundsContext(const PrimExpr& condition,
+                                                   ffi::Map<Var, sym::IntSet>* relax_map,
+                                                   ffi::Map<Var, sym::IntSet>* hint_map,
+                                                   std::vector<PrimExpr>* pending_conditions)
     : condition_(condition),
       relax_map_(relax_map),
       hint_map_(hint_map),
@@ -718,43 +736,44 @@ void ConditionalBoundsContext::EnterWithScope() {
   }
   // update solved var ranges
   for (const auto& kv : constraints.value()) {
-    const VarNode* var = kv.first.get();
+    const Var& var = kv.first;
     sym::IntSet new_dom = sym::IntSet::FromRange(kv.second);
     auto relax_it = relax_map_->find(var);
     if (relax_it != relax_map_->end()) {
       // this is a bound for relaxed var
-      origin_map_.emplace(var, relax_it->second);
-      relax_it->second = sym::Intersect({relax_it->second, new_dom});
+      origin_map_.Set(var, (*relax_it).second);
+      relax_map_->Set(var, sym::Intersect({(*relax_it).second, new_dom}));
     } else {
       // this is a bound for free var
       auto hint_it = hint_map_->find(var);
       if (hint_it != hint_map_->end()) {
-        origin_map_.emplace(var, hint_it->second);
-        hint_it->second = sym::Intersect({hint_it->second, new_dom});
+        origin_map_.Set(var, (*hint_it).second);
+        hint_map_->Set(var, sym::Intersect({(*hint_it).second, new_dom}));
       } else {
-        origin_map_.emplace(var, sym::IntSet::Nothing());
-        hint_map_->insert(hint_it, {var, new_dom});
+        origin_map_.Set(var, sym::IntSet::Nothing());
+        hint_map_->Set(var, new_dom);
       }
     }
   }
 }
 
 void ConditionalBoundsContext::ExitWithScope() {
-  pending_conditions_->resize(origin_pending_conditions_num_);
+  pending_conditions_->erase(pending_conditions_->begin() + origin_pending_conditions_num_,
+                             pending_conditions_->end());
   for (const auto& p : origin_map_) {
-    const auto* var = p.first;
+    const Var& var = p.first;
     auto relax_it = relax_map_->find(var);
     if (relax_it != relax_map_->end()) {
       // recover bound for relaxed var
-      relax_it->second = p.second;
+      relax_map_->Set(var, p.second);
     } else {
       // recover bound for free var
       auto hint_it = hint_map_->find(var);
       TVM_FFI_ICHECK(hint_it != hint_map_->end());
       if (p.second.IsNothing()) {
-        hint_map_->erase(hint_it);
+        hint_map_->erase(var);
       } else {
-        hint_it->second = p.second;
+        hint_map_->Set(var, p.second);
       }
     }
   }

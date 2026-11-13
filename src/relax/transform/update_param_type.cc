@@ -46,13 +46,13 @@ class ParamTypeMutator : public ExprMutator {
   using ExprMutator::VisitExpr_;
   using ExprMutator::VisitVarDef_;
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     auto func = ffi::GetRef<Function>(op);
 
     auto params = op->params.Map([this](Var param) {
       if (auto new_ty = ty_func_(param)) {
         auto new_param = WithType(param, new_ty.value());
-        var_remap_[param] = new_param;
+        var_remap_.insert_or_assign(param, new_param);
         return new_param;
       } else {
         return param;
@@ -102,7 +102,7 @@ Pass UpdateParamType(ffi::TypedFunction<ffi::Optional<Type>(Var)> ty_func) {
 
     return mod;
   };
-  return tvm::transform::CreateModulePass(pass_func, 1, "UpdateParamType", {});
+  return tvm::transform::CreateModulePass(pass_func, 1, "UpdateParamType");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

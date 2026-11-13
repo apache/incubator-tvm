@@ -24,25 +24,19 @@
 #define TVM_RUNTIME_VM_VM_H_
 
 #include <tvm/ffi/extra/module.h>
+#include <tvm/runtime/device_api.h>
+#include <tvm/runtime/tensor.h>
 
 #include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
 
-#include "../memory/memory_manager.h"
 #include "./bytecode.h"
 #include "./executable.h"
 
 namespace tvm {
 namespace runtime {
-
-using memory::Allocator;
-using memory::AllocatorType;
-using memory::MemoryManager;
-using memory::Storage;
-using memory::StorageObj;
-
 namespace vm {
 
 /*!
@@ -80,7 +74,7 @@ class VMClosureObj : public ffi::Object {
 class VMClosure : public ffi::ObjectRef {
  public:
   VMClosure(ffi::String func_name, ffi::Function impl);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(VMClosure, ffi::ObjectRef, VMClosureObj);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VMClosure, ffi::ObjectRef, VMClosureObj);
 
   /*!
    * \brief Create another ffi::Function with last arguments already bound to last_args.
@@ -101,15 +95,15 @@ class VMClosure : public ffi::ObjectRef {
  *
  * This is the base class for all VM extensions and should not be used directly.
  */
-class VMExtensionNode : public ffi::Object {
+class VMExtensionObj : public ffi::Object {
  protected:
-  TVM_FFI_DECLARE_OBJECT_INFO("runtime.VMExtension", VMExtensionNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("runtime.VMExtension", VMExtensionObj, ffi::Object);
 };
 
 /*! \brief Managed reference to VM extension. */
 class VMExtension : public ffi::ObjectRef {
  public:
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(VMExtension, ffi::ObjectRef, VMExtensionNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(VMExtension, ffi::ObjectRef, VMExtensionObj);
 };
 
 /*!
@@ -128,10 +122,8 @@ class VirtualMachine : public ffi::ModuleObj {
   /*!
    * \brief Initialize the virtual machine for a set of devices.
    * \param devices The set of TVM devices.
-   * \param alloc_types The allocator types for each device.
    */
-  virtual void Init(const std::vector<Device>& devices,
-                    const std::vector<AllocatorType>& alloc_types) = 0;
+  virtual void Init(const std::vector<Device>& devices) = 0;
   /*!
    * \brief Load the executable for the virtual machine.
    * \param exec The executable.
@@ -210,8 +202,8 @@ class VirtualMachine : public ffi::ModuleObj {
   //--------------------------------------------------------------------------
   // The following section contains states that other builtin can depend on
   //--------------------------------------------------------------------------
-  /*! \brief The memory allocators. */
-  std::vector<Allocator*> allocators;
+  /*! \brief Owning memory pools for the physical devices. */
+  std::vector<ffi::ObjectPtr<TensorMemoryPool>> memory_pools;
   /*! \brief Runtime physical device list. */
   std::vector<Device> devices;
   /*! \brief The VM extensions. Mapping from the type index of the extension to the extension

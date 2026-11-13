@@ -19,9 +19,9 @@
 
 import enum
 
-from tvm.ir import Call
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir import Call
+from tvm_tirx.script import tirx as T
 
 from ... import op
 from ...block_builder import BlockBuilder
@@ -30,7 +30,7 @@ from .common import register_legalize
 
 
 class TVMStructFieldKind(enum.IntEnum):
-    """Equivalent to tvm::tirx::builtin::TVMStructFieldKind
+    """Equivalent to tvm::tirx::TVMStructFieldKind
 
     This does not use `enum.auto()` to define the values, because
     `enum.auto()` starts from 1, and this must match the C++
@@ -55,27 +55,27 @@ class TVMStructFieldKind(enum.IntEnum):
 
 @register_legalize("relax.inspect.tensor_stride_i")
 def _tensor_stride_i(bb: BlockBuilder, call: Call) -> Expr:
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def _get_tensor_stride_i(dlpack_handle: T.handle, axis: T.int64) -> T.int64:
         T.func_attr({"tirx.is_host_func": True, "tirx.is_scheduled": True})
         assert T.int64(0) <= axis, "Specified axis may not be negative"
-        ndim: T.let[T.int32] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorNDim), "int32"
+        ndim: T.let[T.int32] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorNDim), ty="int32"
         )
         assert axis < T.Cast("int64", ndim), (
             "Specified axis may not be larger than the tensor's dimensionality"
         )
-        stride_ptr: T.let[T.handle("int64")] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorStrides), T.handle("int64").ty
+        stride_ptr: T.let[T.handle("int64")] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorStrides), ty=T.handle("int64").ty
         )
 
         if T.isnullptr(stride_ptr):
-            shape_ptr: T.let[T.handle("int64")] = T.tvm_struct_get(
-                dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorShape), T.handle("int64").ty
+            shape_ptr: T.let[T.handle("int64")] = T.abi_field_get(
+                dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorShape), ty=T.handle("int64").ty
             )
-            shape = T.decl_buffer(ndim, "int64", data=shape_ptr)
+            shape = T.decl_tensor(shape_ptr, ty_args=[T.Tensor(ndim, "int64", data=shape_ptr)])
 
-            product = T.decl_buffer([], "int64")
+            product = T.alloc_tensor(ty_args=[T.Tensor([], "int64")])
             product[()] = 1
 
             # TODO(Lunderberg): Add a TIR lowering pass to allow
@@ -87,41 +87,41 @@ def _tensor_stride_i(bb: BlockBuilder, call: Call) -> Expr:
 
             return product[()]
         else:
-            strides = T.decl_buffer(ndim, "int64", data=stride_ptr)
+            strides = T.decl_tensor(stride_ptr, ty_args=[T.Tensor(ndim, "int64", data=stride_ptr)])
             stride: T.let[T.int64] = strides[axis]
             return stride
 
     gvar = bb.add_func(_get_tensor_stride_i, "_get_tensor_stride_i")
-    return Call(gvar, call.args)
+    return op.call_tir_packed(gvar, tuple(call.args))
 
 
 @register_legalize("relax.inspect.tensor_byte_offset")
 def _tensor_byte_offset(bb: BlockBuilder, call: Call) -> Expr:
-    @Ts.prim_func(private=True)
-    def _get_tensor_byte_offset(dlpack_handle: T.handle) -> T.int64:
+    @Ts.function(private=True)
+    def _get_tensor_byte_offset(dlpack_handle: T.handle) -> T.uint64:
         T.func_attr({"tirx.is_host_func": True, "tirx.is_scheduled": True})
-        byte_offset: T.let[T.uint64] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorByteOffset), "uint64"
+        byte_offset: T.let[T.uint64] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorByteOffset), ty="uint64"
         )
         return byte_offset
 
     gvar = bb.add_func(_get_tensor_byte_offset, "_get_tensor_byte_offset")
-    return Call(gvar, call.args)
+    return op.call_tir_packed(gvar, tuple(call.args))
 
 
 @register_legalize("relax.inspect.tensor_elem_offset")
 def _tensor_elem_offset(bb: BlockBuilder, call: Call) -> Expr:
-    @Ts.prim_func(private=True)
-    def _get_tensor_elem_offset(dlpack_handle: T.handle) -> T.int64:
+    @Ts.function(private=True)
+    def _get_tensor_elem_offset(dlpack_handle: T.handle) -> T.uint64:
         T.func_attr({"tirx.is_host_func": True, "tirx.is_scheduled": True})
-        byte_offset: T.let[T.uint64] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorByteOffset), "uint64"
+        byte_offset: T.let[T.uint64] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorByteOffset), ty="uint64"
         )
-        scalar_bits: T.let[T.uint8] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorTypeBits), "uint8"
+        scalar_bits: T.let[T.uint8] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorTypeBits), ty="uint8"
         )
-        lanes: T.let[T.uint16] = T.tvm_struct_get(
-            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorTypeLanes), "uint16"
+        lanes: T.let[T.uint16] = T.abi_field_get(
+            dlpack_handle, 0, int(TVMStructFieldKind.kDLTensorTypeLanes), ty="uint16"
         )
         bytes_per_element: T.let[T.uint64] = T.ceildiv(
             scalar_bits.astype("uint64") * lanes.astype("uint64"), 8
@@ -130,7 +130,7 @@ def _tensor_elem_offset(bb: BlockBuilder, call: Call) -> Expr:
         return elem_offset
 
     gvar = bb.add_func(_get_tensor_elem_offset, "_get_tensor_elem_offset")
-    return Call(gvar, call.args)
+    return op.call_tir_packed(gvar, tuple(call.args))
 
 
 @register_legalize("relax.size")

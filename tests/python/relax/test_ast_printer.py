@@ -19,16 +19,17 @@ import re
 from functools import partial
 
 import numpy as np
+import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm import tirx
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
 from tvm.relax.testing import dump_ast
 from tvm.relax.testing.ast_printer import ASTPrinter
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 # Overload dump_ast to test both type and type annotations
 dump_ast = partial(dump_ast, include_ty_annotations=True)
@@ -52,7 +53,7 @@ def normalize(func: rx.Function) -> rx.Function:
     class DefaultMutator(rx.PyExprMutator):
         pass
 
-    mod = tvm.IRModule()
+    mod = tvm_tirx.IRModule()
     mod["main"] = func
     mut = DefaultMutator(mod)
     mod["main"] = mut.visit_expr(func)
@@ -290,14 +291,14 @@ def test_ty():
 
     assert printer.visit_ty_(rx.AnyType()) == "AnyType()"
 
-    assert printer.visit_ty_(tvm.ir.PrimType("int32")) == "PrimType(dtype=int32)"
+    assert printer.visit_ty_(tvm_tirx.ir.PrimType("int32")) == "PrimType(dtype=int32)"
 
     # empty shape
     empty_ssi = rx.ShapeType()
     assert printer.visit_ty_(empty_ssi) == "ShapeType(ndim=-1)"
 
     # include some dimensions
-    shape_info = rx.ShapeType([tirx.IntImm("int64", 1), tirx.IntImm("int64", 2)])
+    shape_info = rx.ShapeType([tvm_tirx.ir.IntImm("int64", 1), tvm_tirx.ir.IntImm("int64", 2)])
     assert strip_whitespace(printer.visit_ty_(shape_info)) == strip_whitespace(
         """
         ShapeType(
@@ -348,9 +349,18 @@ def test_ty():
     )
 
 
+def test_call_packed_dictionary_attrs():
+    call = R.call_packed("test.packed_attrs", label="preserved", axis=2)
+    assert call.attrs["label"] == "preserved"
+    assert call.attrs["axis"] == 2
+    explicit = R.call_packed("test.packed_attrs", attrs_type_key="ir.DictAttrs")
+    assert isinstance(explicit.attrs, tvm_tirx.ir.DictAttrs)
+    assert len(explicit.attrs) == 0
+
+
 def test_call_packed():
     # test case from test_parser
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @R.function(pure=False)
     def f(
@@ -422,8 +432,8 @@ def test_call_packed():
 def test_op_attrs():
     x = rx.Var("x", R.Tensor((10,), "float32"))
     # Manually create a Call with attributes to test printer support for Op attributes
-    op = tvm.ir.Op.get("relax.add")
-    attrs = tvm.ir.make_node("ir.DictAttrs", my_attr="my_value")
+    op = tvm_tirx.ir.Op.get("relax.add")
+    attrs = tvm_tirx.ir.make_node("ir.DictAttrs", my_attr="my_value")
     call_node = rx.Call(op, [x, x], attrs=attrs)
 
     call_str = dump_ast(call_node, include_call_attrs=True)
@@ -439,17 +449,17 @@ def test_op_attrs():
 
 def test_call_tir():
     # also from test_parser
-    m_addone = T.dynamic("m")
-    n_addone = T.dynamic("n")
-    m_foo = T.dynamic("m")
-    n_foo = T.dynamic("n")
+    m_addone = T.dynamic("m", "int64")
+    n_addone = T.dynamic("n", "int64")
+    m_foo = T.dynamic("m", "int64")
+    n_foo = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class TestCallTIR:
-        @Ts.prim_func
+        @Ts.function
         def addone(
-            A: T.Buffer((m_addone, n_addone), "float32"),
-            B: T.Buffer((m_addone, n_addone), "float32"),
+            A: T.Tensor((m_addone, n_addone), "float32"),
+            B: T.Tensor((m_addone, n_addone), "float32"),
         ) -> None:
             T.func_attr({"global_symbol": "addone"})
             for i, j in T.grid(m_addone, n_addone):
@@ -459,7 +469,9 @@ def test_call_tir():
 
         @R.function
         def foo(x: R.Tensor((m_foo, n_foo), "float32")):
-            gv0 = R.call_tir(TestCallTIR.addone, (x,), R.Tensor((m_foo, n_foo), dtype="float32"))
+            gv0 = R.call_tir(
+                TestCallTIR.addone, (x,), ty_args=[R.Tensor((m_foo, n_foo), dtype="float32")]
+            )
             return gv0
 
     mod = TestCallTIR
@@ -508,12 +520,14 @@ def test_call_tir():
 
 
 def test_call_dps_packed():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @R.function
     def foo(x: R.Tensor((m, n), "float32")):
-        gv0 = R.call_dps_packed("test.op.identity", (x,), R.Tensor((m, n), dtype="float32"))
+        gv0 = R.call_dps_packed(
+            _ExternFunc("test.op.identity"), (x,), ty_args=[R.Tensor((m, n), dtype="float32")]
+        )
         return gv0
 
     foo_str = strip_whitespace(
@@ -577,7 +591,7 @@ def test_operators():
 
     @R.function(pure=False)
     def bar(x: R.Tensor):
-        return R.print(x, format="{}")
+        return R.print("{}", x)
 
     bar_str = strip_whitespace(
         dump_ast(
@@ -638,7 +652,7 @@ def test_if():
     assert isinstance(body, rx.SeqExpr)
     body_str = strip_whitespace(dump_ast(body))
     # we expect both branches to be seq exprs
-    assert "If" in body_str
+    assert "IfExpr" in body_str
     assert "true_branch=SeqExpr(" in body_str
     assert "false_branch=SeqExpr(" in body_str
 
@@ -658,7 +672,7 @@ def test_tuple_get_item():
 
 
 def test_prim_value():
-    prim_value = tirx.IntImm("int64", 1)
+    prim_value = tvm_tirx.ir.IntImm("int64", 1)
     prim_str = strip_whitespace(dump_ast(prim_value))
     assert prim_str == strip_whitespace(
         """
@@ -668,7 +682,7 @@ def test_prim_value():
 
 
 def test_string_imm():
-    string_imm = tvm.ir.StringImm("test")
+    string_imm = tvm_tirx.ir.StringImm("test")
     str_str = strip_whitespace(dump_ast(string_imm))
     assert str_str == strip_whitespace(
         """
@@ -681,7 +695,7 @@ def test_string_imm():
 
 
 def test_datatype_imm():
-    data_type_imm = tvm.ir.DataTypeImm(tvm.DataType("int32"))
+    data_type_imm = tvm_tirx.ir.DataTypeImm(tvm_ffi.dtype("int32"))
     data_type_str = strip_whitespace(dump_ast(data_type_imm))
     assert data_type_str == strip_whitespace(
         """
@@ -694,4 +708,4 @@ def test_datatype_imm():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

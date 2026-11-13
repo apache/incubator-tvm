@@ -27,8 +27,8 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 
-#include "../../../../../3rdparty/compiler-rt/builtin_fp16.h"
 #include "../cblas/gemm_common.h"
+#include "builtin_fp16.h"
 #include "cublas_utils.h"
 
 namespace tvm {

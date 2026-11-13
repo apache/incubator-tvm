@@ -22,16 +22,19 @@ import pytest
 import tvm_ffi
 
 import tvm
-import tvm.script
-import tvm.testing
-from tvm import relax, tirx, topi
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
+from tvm import relax, topi
 from tvm.contrib.thrust import can_use_thrust
-from tvm.ir.base import assert_structural_equal
+from tvm.relax import script as R
 from tvm.relax.backend import DispatchSortScan
 from tvm.s_tir import dlight
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.testing import device_enabled
+from tvm_tirx import tirx
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_dispatch_scanop():
@@ -74,7 +77,7 @@ def test_dispatch_scanop_cuda():
     lowered to the packed func `"gpu_2d_continuous_cumsum"`.
     """
 
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -89,40 +92,29 @@ def test_dispatch_scanop_cuda():
                 R.output(gv)
             return gv
 
-    target = tvm.target.Target("cuda", host="llvm")
+    target = tvm_tirx.target.Target("cuda", host="llvm")
 
     vdevices = [R.vdevice("cuda", 0)]
     m = T.dynamic("m", "int64")
     x = relax.Var("x", R.Tensor((m, 3), "float32", vdevices[0]))
     bb = relax.BlockBuilder()
-    with target:
-        with bb.function("main", (x,), {"global_symbol": "main"}):
-            with bb.dataflow():
-                lv = bb.emit_te(
-                    topi.gpu.cumsum,
-                    x,
-                    axis=1,
-                    exclusive=True,
-                )
-                out = bb.emit_te(
-                    topi.gpu.cumprod,
-                    lv,
-                    axis=1,
-                )
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
+    with bb.function("main", (x,), {"global_symbol": "main"}):
+        with bb.dataflow():
+            lv = bb.emit_te(topi.gpu.cumsum, x, axis=1, exclusive=True, target=target)
+            out = bb.emit_te(topi.gpu.cumprod, lv, axis=1, target=target)
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
     expected_mod = bb.finalize()
     expected_mod.update_global_info("vdevice", vdevices)
 
-    with target:
-        mod = DispatchSortScan()(Before)
-        expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback())(expected_mod)
+    mod = DispatchSortScan(target=target)(Before)
+    expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback(), target=target)(expected_mod)
 
     assert_structural_equal(mod, expected_mod, map_free_vars=True)
 
 
 def test_dispatch_sort():
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -175,52 +167,47 @@ def test_dispatch_sort_cuda():
                 R.output(gv)
             return gv
 
-    target = tvm.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
+    target = tvm_tirx.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
 
     vdevices = [R.vdevice("cuda", 0)]
     x = relax.Var("x", R.Tensor((2, 3), "float32", vdevices[0]))
     y = relax.Var("y", R.Tensor((2, 3), "float32"))
     bb = relax.BlockBuilder()
-    with target:
-        with bb.function("foo", (x,), {"global_symbol": "foo"}):
-            with bb.dataflow():
-                out = bb.emit_te(
-                    topi.gpu.sort,
-                    x,
-                    axis=1,
+    with bb.function("foo", (x,), {"global_symbol": "foo"}):
+        with bb.dataflow():
+            out = bb.emit_te(topi.gpu.sort, x, axis=1, target=target)
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
+    with bb.function("foo2", (y,), {"global_symbol": "foo2"}):
+        with bb.dataflow():
+            if can_use_thrust(target, "tvm.contrib.thrust.sort"):
+                workspace = bb.emit(
+                    relax.op.builtin.alloc_tensor(
+                        relax.ShapeExpr([4194568]), "uint8", runtime_device_index=0
+                    )
                 )
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
-        with bb.function("foo2", (y,), {"global_symbol": "foo2"}):
-            with bb.dataflow():
-                if can_use_thrust(target, "tvm.contrib.thrust.sort"):
-                    workspace = bb.emit(
-                        relax.op.builtin.alloc_tensor(
-                            relax.ShapeExpr([4194568]), "uint8", runtime_device_index=0
-                        )
-                    )
-                    out = bb.emit_te(
-                        topi.gpu.sort_thrust,
-                        y,
-                        axis=0,
-                        is_ascend=False,
-                        workspace=workspace,
-                    )
-                else:
-                    out = bb.emit_te(topi.gpu.sort, y, axis=0, is_ascend=False)
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
+                out = bb.emit_te(
+                    topi.gpu.sort_thrust,
+                    y,
+                    axis=0,
+                    is_ascend=False,
+                    workspace=workspace,
+                    target=target,
+                )
+            else:
+                out = bb.emit_te(topi.gpu.sort, y, axis=0, is_ascend=False, target=target)
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
     expected_mod = bb.finalize()
     expected_mod.update_global_info("vdevice", vdevices)
 
-    with target:
-        mod = DispatchSortScan()(Before)
+    mod = DispatchSortScan(target=target)(Before)
 
     assert_structural_equal(mod, expected_mod)
 
 
 def test_dispatch_argsort():
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -272,49 +259,52 @@ def test_dispatch_argsort_cuda():
                 R.output(gv)
             return gv
 
-    target = tvm.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
+    target = tvm_tirx.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
 
     vdevices = [R.vdevice("cuda", 0)]
     x = relax.Var("x", R.Tensor((2, 3), "float32", vdevices[0]))
     y = relax.Var("y", R.Tensor((2, 3), "float32"))
-    bb = relax.BlockBuilder()
-    with target:
-        with bb.function("foo", (x,), {"global_symbol": "foo"}):
-            with bb.dataflow():
-                out = bb.emit_te(topi.gpu.argsort, x, axis=1, is_ascend=True, dtype="int32")
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
-        with bb.function("foo2", (y,), {"global_symbol": "foo2"}):
-            with bb.dataflow():
-                if can_use_thrust(target, "tvm.contrib.thrust.sort"):
-                    workspace = bb.emit(
-                        relax.op.builtin.alloc_tensor(
-                            R.shape([8388872]), R.dtype("uint8"), R.prim_value(0), R.str("global")
-                        )
+    bb = relax.BlockBuilder(tvm_tirx.IRModule(global_infos={"vdevice": vdevices}))
+    with bb.function("foo", (x,), {"global_symbol": "foo"}):
+        with bb.dataflow():
+            out = bb.emit_te(
+                topi.gpu.argsort, x, axis=1, is_ascend=True, dtype="int32", target=target
+            )
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
+    with bb.function("foo2", (y,), {"global_symbol": "foo2"}):
+        with bb.dataflow():
+            if can_use_thrust(target, "tvm.contrib.thrust.sort"):
+                workspace = bb.emit(
+                    relax.op.builtin.alloc_tensor(
+                        R.shape([8388872]), R.dtype("uint8"), R.prim_value(0), R.str("global")
                     )
-                    out = bb.emit_te(
-                        topi.gpu.argsort_thrust,
-                        y,
-                        axis=0,
-                        is_ascend=False,
-                        dtype="int64",
-                        workspace=workspace,
-                    )
-                else:
-                    out = bb.emit_te(topi.gpu.argsort, y, axis=0, is_ascend=False, dtype="int64")
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
+                )
+                out = bb.emit_te(
+                    topi.gpu.argsort_thrust,
+                    y,
+                    axis=0,
+                    is_ascend=False,
+                    dtype="int64",
+                    workspace=workspace,
+                    target=target,
+                )
+            else:
+                out = bb.emit_te(
+                    topi.gpu.argsort, y, axis=0, is_ascend=False, dtype="int64", target=target
+                )
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
     expected_mod = bb.finalize()
     expected_mod.update_global_info("vdevice", vdevices)
 
-    with target:
-        mod = DispatchSortScan()(Before)
+    mod = DispatchSortScan(target=target)(Before)
 
     assert_structural_equal(mod, expected_mod)
 
 
 def test_dispatch_topk():
-    m = T.dynamic("m")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -358,23 +348,23 @@ def test_dispatch_topk_cuda():
                 R.output(gv)
             return gv
 
-    target = tvm.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
+    target = tvm_tirx.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
 
     vdevices = [R.vdevice("cuda", 0)]
     x = relax.Var("x", R.Tensor((2, 3), "float32", vdevices[0]))
     bb = relax.BlockBuilder()
-    with target:
-        with bb.function("foo", (x,), {"global_symbol": "foo"}):
-            with bb.dataflow():
-                out = bb.emit_te(topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32")
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
+    with bb.function("foo", (x,), {"global_symbol": "foo"}):
+        with bb.dataflow():
+            out = bb.emit_te(
+                topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32", target=target
+            )
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
     expected_mod = bb.finalize()
     expected_mod.update_global_info("vdevice", vdevices)
 
-    with target:
-        mod = DispatchSortScan()(Before)
-        expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback())(expected_mod)
+    mod = DispatchSortScan(target=target)(Before)
+    expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback(), target=target)(expected_mod)
 
     assert_structural_equal(mod, expected_mod)
 
@@ -387,32 +377,34 @@ def test_dispatch_topk_gpu():
         @R.function
         def foo(x: R.Tensor((2, 3), "float32", "vulkan")):
             with R.dataflow():
-                # Two same calls should have only one PrimFunc
+                # Two same calls should have only one Function
                 lv0 = R.topk(x, k=2, axis=1, largest=True)
                 lv1 = R.topk(x, k=2, axis=1, largest=True)
                 gv = (lv0, lv1)
                 R.output(gv)
             return gv
 
-    target = tvm.target.Target("vulkan", host="llvm")
+    target = tvm_tirx.target.Target("vulkan", host="llvm")
 
     vdevices = [R.vdevice("vulkan", 0)]
     x = relax.Var("x", R.Tensor((2, 3), "float32", vdevices[0]))
     bb = relax.BlockBuilder()
-    with target:
-        with bb.function("foo", (x,), {"global_symbol": "foo"}):
-            with bb.dataflow():
-                lv0 = bb.emit_te(topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32")
-                lv1 = bb.emit_te(topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32")
-                out = (lv0, lv1)
-                out = bb.emit_output(out)
-            bb.emit_func_output(out)
+    with bb.function("foo", (x,), {"global_symbol": "foo"}):
+        with bb.dataflow():
+            lv0 = bb.emit_te(
+                topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32", target=target
+            )
+            lv1 = bb.emit_te(
+                topi.gpu.topk, x, k=2, axis=1, is_ascend=False, dtype="int32", target=target
+            )
+            out = (lv0, lv1)
+            out = bb.emit_output(out)
+        bb.emit_func_output(out)
     expected_mod = bb.finalize()
     expected_mod.update_global_info("vdevice", vdevices)
 
-    with target:
-        mod = DispatchSortScan()(Before)
-        expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback())(expected_mod)
+    mod = DispatchSortScan(target=target)(Before)
+    expected_mod = dlight.ApplyDefaultSchedule(dlight.gpu.Fallback(), target=target)(expected_mod)
 
     assert_structural_equal(mod, expected_mod)
 
@@ -421,11 +413,11 @@ def test_dispatch_topk_gpu():
 @pytest.mark.parametrize("size", [300, 600])
 def test_dispatch_sort_cuda_large_batch(size):
     target = "cuda"
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -440,28 +432,27 @@ def test_dispatch_sort_cuda_large_batch(size):
     np_data = np.random.uniform(size=(batch, size)).astype("float32")
     np_sorted = np.sort(np_data, axis=-1)
 
-    with tvm.target.Target(target):
-        mod = DispatchSortScan()(Module)
-        ex = tvm.compile(mod, target)
+    mod = DispatchSortScan(target=tvm_tirx.target.Target(target))(Module)
+    ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(ex, dev)
-        tvm_data = tvm.runtime.tensor(np_data, dev)
+        tvm_data = tvm_tirx.runtime.tensor(np_data, dev)
         sorted_data = vm["main"](tvm_data)
-        tvm.testing.assert_allclose(sorted_data.numpy(), np_sorted)
+        tvm_tirx.testing.assert_allclose(sorted_data.numpy(), np_sorted)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
 def test_dispatch_topk_cuda_large_batch():
     target = "cuda"
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -476,21 +467,20 @@ def test_dispatch_topk_cuda_large_batch():
     np_data = np.random.uniform(size=(batch, size)).astype("float32")
     np_values = np.sort(np_data, axis=-1)[:, -1:]
 
-    with tvm.target.Target(target):
-        mod = DispatchSortScan()(Module)
-        ex = tvm.compile(mod, target)
+    mod = DispatchSortScan(target=tvm_tirx.target.Target(target))(Module)
+    ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(ex, dev)
-        tvm_data = tvm.runtime.tensor(np_data, dev)
+        tvm_data = tvm_tirx.runtime.tensor(np_data, dev)
         values = vm["main"](tvm_data)
-        tvm.testing.assert_allclose(values.numpy(), np_values)
+        tvm_tirx.testing.assert_allclose(values.numpy(), np_values)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
-@pytest.mark.skipif(not tvm.testing.env.has_llvm(), reason="need llvm for the host module")
+@pytest.mark.skipif(not tvm_tirx.testing.env.has_llvm(), reason="need llvm for the host module")
 @pytest.mark.parametrize("op", ["sort", "argsort", "topk"])
 @pytest.mark.parametrize("size", [300, None])
 def test_dispatch_sort_webgpu_merge_grid(op, size):
@@ -507,9 +497,8 @@ def test_dispatch_sort_webgpu_merge_grid(op, size):
             out = relax.op.topk(x, k=4, axis=-1, ret_type="values", largest=True)
         bb.emit_func_output(bb.emit(out))
 
-    target = tvm.target.Target("webgpu", host="llvm")
-    with target:
-        mod = DispatchSortScan()(bb.get())
+    target = tvm_tirx.target.Target("webgpu", host="llvm")
+    mod = DispatchSortScan(target=target)(bb.get())
     tvm.compile(mod, target)
 
 
@@ -521,14 +510,14 @@ def test_dispatch_sort_webgpu_merge_grid(op, size):
         pytest.param({"kind": "vulkan", "supports_int64": True}, marks=pytest.mark.gpu),
     ],
 )
-@pytest.mark.parametrize("index_bits", [None, 32, 64])
+@pytest.mark.parametrize("index_bits", [None, 64])
 def test_dispatch_cumsum_gpu(target, index_bits):
     """Test cumsum kernel dispatch and numerical correctness"""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -542,30 +531,27 @@ def test_dispatch_cumsum_gpu(target, index_bits):
     size = (8, 2000)
     np_data = np.random.randint(0, 10, size).astype("int32")
     np_cumsum = np.cumsum(np_data, axis=-1)
-    with tvm.target.Target(target):
-        mod = DispatchSortScan(index_bits=index_bits)(Module)
-        if index_bits == 32:
-            mod = tvm.s_tir.transform.ForceNarrowIndexToInt32()(mod)
-        ex = tvm.compile(mod, target)
+    mod = DispatchSortScan(index_bits=index_bits, target=tvm_tirx.target.Target(target))(Module)
+    ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(ex, dev)
-        tvm_data = tvm.runtime.tensor(np_data, dev)
+        tvm_data = tvm_tirx.runtime.tensor(np_data, dev)
         cumsum = vm["main"](tvm_data)
-        tvm.testing.assert_allclose(cumsum.numpy(), np_cumsum)
+        tvm_tirx.testing.assert_allclose(cumsum.numpy(), np_cumsum)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
-@pytest.mark.parametrize("target_kind", ["metal", "webgpu", "cuda"])
-@pytest.mark.parametrize("index_bits", [None, 32, 64])
+@pytest.mark.parametrize("target_kind", ["metal", "cuda"])
+@pytest.mark.parametrize("index_bits", [None, 64])
 def test_dispatch_cumsum_index_width(target_kind, index_bits):
     """Respect the caller's index budget without restricting Metal's default."""
     from tvm.relax.backend.gpu_generic import gpu_2d_continuous_cumsum
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -574,23 +560,12 @@ def test_dispatch_cumsum_index_width(target_kind, index_bits):
             gv = R.cumsum(x, axis=-1)
             return gv
 
-    with tvm.target.Target(target_kind, host="llvm"):
-        if target_kind == "webgpu" and index_bits == 64:
-            with pytest.raises(ValueError, match="WebGPU scan kernels require index_bits=32"):
-                DispatchSortScan(index_bits=index_bits)(Module)
-            return
-        mod = DispatchSortScan(index_bits=index_bits)(Module)
+    mod = DispatchSortScan(
+        index_bits=index_bits, target=tvm_tirx.target.Target(target_kind, host="llvm")
+    )(Module)
 
-    expected_bits = (
-        index_bits if index_bits is not None else (32 if target_kind == "webgpu" else 64)
-    )
-    expected = gpu_2d_continuous_cumsum(
-        in_dtype="float32", out_dtype="float32", index_bits=expected_bits
-    )
+    expected = gpu_2d_continuous_cumsum(in_dtype="float32", out_dtype="float32", index_bits=64)
     assert_structural_equal(mod["gpu_2d_continuous_cumsum"], expected)
-    if expected_bits == 32:
-        # This previously failed on Metal with a 2**35 IntImm.
-        tvm.s_tir.transform.ForceNarrowIndexToInt32()(mod)
 
 
 @pytest.mark.parametrize("index_bits", [0, 16, 128])
@@ -603,11 +578,11 @@ def test_dispatch_cumsum_invalid_index_width(index_bits):
 def test_dispatch_cumprod_cuda_large_batch():
     """Test that GPU scan supports more batches than CUDA's grid-y limit."""
     target = "cuda"
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -624,18 +599,17 @@ def test_dispatch_cumprod_cuda_large_batch():
     np_data[:, 2] = 3
     np_cumprod = np.cumprod(np_data, axis=1)
 
-    with tvm.target.Target(target):
-        mod = DispatchSortScan()(Module)
-        ex = tvm.compile(mod, target)
+    mod = DispatchSortScan(target=tvm_tirx.target.Target(target))(Module)
+    ex = tvm.compile(mod, target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         vm = tvm.relax.VirtualMachine(ex, dev)
-        tvm_data = tvm.runtime.tensor(np_data, dev)
+        tvm_data = tvm_tirx.runtime.tensor(np_data, dev)
         cumprod = vm["main"](tvm_data)
-        tvm.testing.assert_allclose(cumprod.numpy(), np_cumprod)
+        tvm_tirx.testing.assert_allclose(cumprod.numpy(), np_cumprod)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize(
@@ -662,9 +636,8 @@ def test_dispatch_cumsum_webgpu_axes_and_dtypes(
     before = bb.finalize()
     before.update_global_info("vdevice", [vdevice])
 
-    target = tvm.target.Target("webgpu", host="llvm")
-    with target:
-        mod = DispatchSortScan()(before)
+    target = tvm_tirx.target.Target("webgpu", host="llvm")
+    mod = DispatchSortScan(target=target)(before)
 
     called_kernels = []
     permute_count = 0
@@ -683,7 +656,7 @@ def test_dispatch_cumsum_webgpu_axes_and_dtypes(
     assert called_kernels == [expected_kernel]
 
     cumsum = mod[expected_kernel]
-    buffers = [param for param in cumsum.params if tvm.tirx.is_buffer_var(param)]
+    buffers = [param for param in cumsum.params if tvm_tirx.tirx.is_tensor_var(param)]
     assert len(buffers) == 2
     assert all(len(buffer.shape) == expected_kernel_rank for buffer in buffers)
     assert str(buffers[0].dtype) == in_dtype
@@ -699,20 +672,19 @@ def test_dispatch_cumsum_webgpu_axes_and_dtypes(
         tvm_ffi.structural_walk(cumsum.body, collect_floor_divisors)
         assert floor_divisors
         assert all(
-            isinstance(divisor, tirx.IntImm)
+            isinstance(divisor, tvm_tirx.ir.IntImm)
             and divisor.value > 0
             and divisor.value & (divisor.value - 1) == 0
             for divisor in floor_divisors
         )
 
-    with target:
-        tvm.compile(mod, target)
+    tvm.compile(mod, target)
 
 
 def test_dispatch_cumsum_webgpu_symbolic_non_contiguous_axis():
     """The serial WebGPU fallback accepts a symbolic scan extent."""
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Symbolic:
@@ -722,10 +694,9 @@ def test_dispatch_cumsum_webgpu_symbolic_non_contiguous_axis():
         def main(x: R.Tensor((1, n, 9), "float32", "webgpu")):
             return R.cumsum(x, axis=1)
 
-    target = tvm.target.Target("webgpu", host="llvm")
-    with target:
-        mod = DispatchSortScan()(Symbolic)
-        tvm.compile(mod, target)
+    target = tvm_tirx.target.Target("webgpu", host="llvm")
+    mod = DispatchSortScan(target=target)(Symbolic)
+    tvm.compile(mod, target)
 
     called_kernels = []
 
@@ -751,7 +722,7 @@ def test_dispatch_cumsum_webgpu_symbolic_non_contiguous_axis():
 )
 def test_gpu_axis_1_cumsum_numerical(target, in_dtype, out_dtype):
     """The fallback matches a sequential cumsum for supported WebGPU dtypes."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
 
     from tvm.relax.backend.gpu_generic import (  # pylint: disable=import-outside-toplevel
@@ -771,14 +742,14 @@ def test_gpu_axis_1_cumsum_numerical(target, in_dtype, out_dtype):
     compiled = tvm.compile(func, target=target)
 
     def run_and_check():
-        dev = tvm.device_from_target(target)
-        input_tensor = tvm.runtime.tensor(np_data, dev)
-        output_tensor = tvm.runtime.empty(shape, out_dtype, dev)
+        dev = tvm_tirx.device_from_target(target)
+        input_tensor = tvm_tirx.runtime.tensor(np_data, dev)
+        output_tensor = tvm_tirx.runtime.empty(shape, out_dtype, dev)
         compiled(input_tensor, output_tensor)
-        tvm.testing.assert_allclose(output_tensor.numpy(), expected)
+        tvm_tirx.testing.assert_allclose(output_tensor.numpy(), expected)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

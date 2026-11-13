@@ -33,7 +33,7 @@ namespace tvm {
 namespace s_tir {
 using namespace tvm::tirx;
 
-using ExprComparator = tirx::ExprFunctor<bool(const Expr& n, const PrimExpr& other)>;
+using ExprComparator = tvm::ExprFunctor<bool(const Expr& n, const PrimExpr& other)>;
 using StmtComparator = StmtFunctor<bool(const Stmt& n, const Stmt& other)>;
 
 /*! \brief Deep comparison to check if two IR ASTs are equivalent for tensorization*/
@@ -50,60 +50,60 @@ class TensorizeComparator : public ExprComparator, public StmtComparator {
   bool Dispatch(const Expr& n, const PrimExpr& other) override;
   bool Dispatch(const Stmt& n, const Stmt& other) override;
 
-  bool Dispatch_(const CallNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const ForNode* op, const Stmt& other) override;
-  bool Dispatch_(const SeqStmtNode* op, const Stmt& other) override;
-  bool Dispatch_(const BufferStoreNode* op, const Stmt& other) override;
-  bool Dispatch_(const SBlockRealizeNode* op, const Stmt& other) override;
-  bool Dispatch_(const SBlockNode* op, const Stmt& other) override;
+  bool Dispatch_(const CallObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const ForObj* op, const Stmt& other) override;
+  bool Dispatch_(const SeqStmtObj* op, const Stmt& other) override;
+  bool Dispatch_(const TensorStoreObj* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockRealizeObj* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockObj* op, const Stmt& other) override;
 
-  bool Dispatch_(const prim::LShiftNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::RShiftNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseAndNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseOrNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseXorNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const prim::BitwiseNotNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const AddNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const SubNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MulNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const DivNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const ModNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const EQNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const NENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const LTNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const LENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const GTNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const GENode* op, const PrimExpr& other) override;
-  bool Dispatch_(const AndNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const OrNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MinNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const MaxNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloorDivNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloorModNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const IntImmNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const FloatImmNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const CastNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const VarNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const TensorLoadNode* op, const PrimExpr& other) override;
-  bool Dispatch_(const SelectNode* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::LShiftObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::RShiftObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseAndObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseOrObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseXorObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const prim::BitwiseNotObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const AddObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const SubObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MulObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const DivObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const ModObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const EQObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const NEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const LTObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const LEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const GTObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const GEObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const AndObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const OrObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MinObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const MaxObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloorDivObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloorModObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const IntImmObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const FloatImmObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const CastObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const VarObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const TensorLoadObj* op, const PrimExpr& other) override;
+  bool Dispatch_(const SelectObj* op, const PrimExpr& other) override;
 
-  /*! \brief Map from RHS buffer to LHS buffer */
-  std::unordered_map<BufferVar, BufferVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rhs_buffer_map_;
-  /*! \brief Base indices of the LHS buffer. */
-  std::unordered_map<BufferVar, std::vector<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
-      buffer_indices_;
+  /*! \brief Map from RHS tensor to LHS tensor */
+  std::unordered_map<TensorVar, TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> rhs_tensor_map_;
+  /*! \brief Base indices of the LHS tensor. */
+  std::unordered_map<TensorVar, std::vector<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
+      tensor_indices_;
 
  protected:
   bool DefEqual(const Var& lhs, const Var& rhs);
   bool CompareExpr(const Expr& lhs, const Expr& rhs);
-  virtual bool CompareBuffer(const BufferVar& lhs, const BufferVar& rhs);
-  bool CompareBufferRegion(const TensorRegion& lhs, const TensorRegion& rhs);
+  virtual bool CompareTensor(const TensorVar& lhs, const TensorVar& rhs);
+  bool CompareTensorRegion(const TensorRegion& lhs, const TensorRegion& rhs);
   bool CompareAnnotation(const std::pair<ffi::String, ffi::Any>& lhs,
                          const std::pair<ffi::String, ffi::Any>& rhs);
   bool CompareAnnotationMap(const ffi::Map<ffi::String, ffi::Any>& lhs,
                             const ffi::Map<ffi::String, ffi::Any>& rhs);
   template <typename T>
-  bool CompareBufferAccess(const T* lhs, const T* rhs);
+  bool CompareTensorAccess(const T* lhs, const T* rhs);
   template <typename T, typename Self, typename F>
   bool CompareArray(const ffi::Array<T>& lhs, const ffi::Array<T>& rhs, F Self::* cmp);
   bool CompareRange(const Range& lhs, const Range& rhs);
@@ -134,7 +134,7 @@ class TensorizeComparator : public ExprComparator, public StmtComparator {
  * \brief IR comparator for auto tensorization.
  * This comparator is used to extract correspondence between the IR of the workload (LHS) and the
  * tensor intrin (RHS). Unlike `TensorizeComparator`, this comparator has relaxed requirements
- * during comparison. It ignores the loop structure (number of loops and their extents) and buffer
+ * during comparison. It ignores the loop structure (number of loops and their extents) and tensor
  * indices. It only requires the LHS and the RHS to have the same arithmetic operations and the same
  * dtype. With such relaxed requirements, workloads that can only match the tensor intrin after
  * certain transformations (e.g. im2col for conv2d) are allowed for auto tensorization.
@@ -148,14 +148,14 @@ class AutoTensorizeComparator : public TensorizeComparator {
   bool DispatchDefault_(const ffi::Object* op, const PrimExpr& other) override;
   bool DispatchDefault_(const ffi::Object* op, const Stmt& other) override;
 
-  bool Dispatch_(const SBlockNode* op, const Stmt& other) override;
-  bool Dispatch_(const BufferStoreNode* op, const Stmt& other) override;
+  bool Dispatch_(const SBlockObj* op, const Stmt& other) override;
+  bool Dispatch_(const TensorStoreObj* op, const Stmt& other) override;
 
-  bool Dispatch_(const TensorLoadNode* op, const PrimExpr& other) override;
+  bool Dispatch_(const TensorLoadObj* op, const PrimExpr& other) override;
 
-  bool CompareBuffer(const BufferVar& lhs, const BufferVar& rhs) override;
+  bool CompareTensor(const TensorVar& lhs, const TensorVar& rhs) override;
   template <typename T>
-  bool CompareBufferAccess(const T* lhs, const T* rhs);
+  bool CompareTensorAccess(const T* lhs, const T* rhs);
 
  public:
   // Additional information extracted from LHS (the workload) and RHS (the tensor intrin).
@@ -164,14 +164,14 @@ class AutoTensorizeComparator : public TensorizeComparator {
   std::vector<IterVar> lhs_iters_;
   /*! \brief SBlock iters in the RHS stmt. */
   std::vector<IterVar> rhs_iters_;
-  /*! \brief The buffer and its access indices in the LHS stmt. */
-  std::unordered_map<BufferVar, ffi::Array<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
-      lhs_buffer_indices_map_;
-  /*! \brief The buffer and its access indices in the RHS stmt. */
-  std::unordered_map<BufferVar, ffi::Array<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
-      rhs_buffer_indices_map_;
-  /*! \brief Map from LHS buffer to RHS buffer */
-  std::unordered_map<BufferVar, BufferVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> lhs_buffer_map_;
+  /*! \brief The tensor and its access indices in the LHS stmt. */
+  std::unordered_map<TensorVar, ffi::Array<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
+      lhs_tensor_indices_map_;
+  /*! \brief The tensor and its access indices in the RHS stmt. */
+  std::unordered_map<TensorVar, ffi::Array<PrimExpr>, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
+      rhs_tensor_indices_map_;
+  /*! \brief Map from LHS tensor to RHS tensor */
+  std::unordered_map<TensorVar, TensorVar, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> lhs_tensor_map_;
 
  private:
   /*! \brief The domain of the inner block iters. */

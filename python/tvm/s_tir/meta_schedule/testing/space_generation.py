@@ -23,16 +23,16 @@ from typing import Literal
 
 import tvm_ffi
 
-from tvm.ir import IRModule
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
 from tvm.s_tir.schedule import Trace
 from tvm.s_tir.schedule.testing import verify_trace_roundtrip
-from tvm.target import Target
+from tvm_tirx.ir import IRModule
+from tvm_tirx.target import Target
 
 
 def get_rules(
-    kind: Literal["llvm", "cuda", "cuda-tensorcore", "hexagon"],
+    kind: Literal["llvm", "cuda", "hexagon"],
     types: type | tuple[type, ...],
 ) -> list[ms.ScheduleRule]:
     """Get default schedule rules"""
@@ -57,7 +57,7 @@ def structural_equal_no_gs(mod1: IRModule, mod2: IRModule) -> bool:
 
 
 def generate_design_space(
-    kind: Literal["llvm", "cuda", "cuda-tensorcore", "hexagon"],
+    kind: Literal["llvm", "cuda", "hexagon"],
     mod: IRModule,
     target: Target,
     types: type | tuple[type, ...],
@@ -144,7 +144,7 @@ def check_sketches(
 def print_sketches(sketches: list[Schedule]):
     for i, sch in enumerate(sketches):
         print(f"###### {i}")
-        sch.mod.show(black_format=False)
+        sch.mod.show()
         for inst in sch.trace.insts:
             if inst in sch.trace.decisions:
                 print(f'("{inst.kind.name}", {sch.trace.decisions[inst]}),')

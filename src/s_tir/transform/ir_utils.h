@@ -21,45 +21,84 @@
 #define TVM_S_TIR_TRANSFORM_IR_UTILS_H_
 
 #include <tvm/ffi/container/tuple.h>
+#include <tvm/ir/module.h>
+#include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/stmt.h>
 
+#include <string>
 #include <unordered_map>
-
-#include "../../tirx/transform/ir_utils.h"
 
 namespace tvm {
 namespace s_tir {
 
 /*! \brief Convert a schedulable statement or module to SSA form. */
-tirx::Stmt ConvertSSA(tirx::Stmt stmt);
+Stmt ConvertSSA(Stmt stmt);
 IRModule ConvertSSA(IRModule mod);
 
 /*!
- * \brief Convert match buffer target buffer access indices to original one.
- * \param indices The indices of the target buffer
- * \return The indices of source buffer.
+ * \brief Convert match tensor target tensor access indices to original one.
+ * \param indices The indices of the target tensor
+ * \return The indices of source tensor.
  */
-ffi::Array<PrimExpr> ConvertIndices(const MatchBufferRegion& match_buffer,
+ffi::Array<PrimExpr> ConvertIndices(const MatchTensorRegion& match_tensor,
                                     const ffi::Array<PrimExpr>& indices);
 
 /*!
- * \brief Convert match buffer target buffer region to original one.
- * \param region The sub-region of the target buffer
- * \return The region of source buffer.
+ * \brief Convert match tensor target tensor region to original one.
+ * \param region The sub-region of the target tensor
+ * \return The region of source tensor.
  */
-tirx::Region ConvertRegion(const MatchBufferRegion& match_buffer, const tirx::Region& region);
+ffi::Array<Range> ConvertRegion(const MatchTensorRegion& match_tensor,
+                                const ffi::Array<Range>& region);
 
-/*! \brief The quad used by StorageAlign for (buffer_idx, axis, factor, offset) */
+// Information of tensor core fragment.
+struct FragmentInfo {
+  // fragment shape
+  int m, n, k;
+  // fragment layout (row-major or column-major)
+  std::string layout;
+  // scope of the fragment (wmma.matrix_a, wmma.matrix_b, or wmma.accumulator)
+  runtime::MemoryScope scope;
+  FragmentInfo() = default;
+  FragmentInfo(int _m, int _n, int _k, const std::string& _layout, runtime::MemoryScope _scope)
+      : m(_m), n(_n), k(_k), layout(_layout), scope(_scope) {}
+
+  int GetSize() const {
+    static const auto scope_wmma_matrix_a = runtime::MemoryScope::Get("wmma.matrix_a");
+    static const auto scope_wmma_matrix_b = runtime::MemoryScope::Get("wmma.matrix_b");
+    static const auto scope_wmma_accumulator = runtime::MemoryScope::Get("wmma.accumulator");
+
+    if (scope == scope_wmma_matrix_a) {
+      return m * k;
+    } else if (scope == scope_wmma_matrix_b) {
+      return n * k;
+    } else if (scope == scope_wmma_accumulator) {
+      return m * n;
+    } else {
+      TVM_FFI_ICHECK(0);
+      throw;
+    }
+  }
+};
+
+/*!
+ * \brief Extract information of tensor core fragment from the IR.
+ * \param stmt The stmt to visit.
+ * \return Map from tensor variables to the fragment info.
+ */
+std::unordered_map<const VarObj*, FragmentInfo> GetTensorCoreFragmentInfo(const Stmt& stmt);
+
+/*! \brief The quad used by StorageAlign for (tensor_idx, axis, factor, offset) */
 using StorageAlignTuple = ffi::Tuple<int32_t, int32_t, int32_t, int32_t>;
 /*! \brief A list of StorageAlignTuple, used by StorageAlign */
 using StorageAlignAnnotation = ffi::Array<StorageAlignTuple>;
 /*!
- * \brief Collect storage alignment annotations for all buffer vars within body.
+ * \brief Collect storage alignment annotations for all tensor vars within body.
  * \param body The stmt to collect.
- * \return The result dict from buffer var to storage align annotations.
+ * \return The result dict from tensor var to storage align annotations.
  */
-std::unordered_map<tirx::Var, StorageAlignAnnotation> CollectStorageAlignAnnotation(
-    const tirx::Stmt& body);
+std::unordered_map<tvm::Var, StorageAlignAnnotation> CollectStorageAlignAnnotation(
+    const Stmt& body);
 
 }  // namespace s_tir
 }  // namespace tvm

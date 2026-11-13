@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_SORTING_H_
 #define TVM_RELAX_OP_TENSOR_SORTING_H_
 
-#include <tvm/relax/attrs/sorting.h>
+#include <tvm/relax/op/sorting.h>
 
 #include <algorithm>
 #include <utility>

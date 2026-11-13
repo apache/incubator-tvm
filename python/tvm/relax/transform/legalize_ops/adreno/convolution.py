@@ -32,5 +32,5 @@ def conv2d_NCHWc_OIHWo(bb: relax.BlockBuilder, call: relax.Call) -> relax.Expr:
         out_layout=call.attrs.out_layout,
         # out_dtype=call.attrs.out_dtype,
         ty_args=call.ty_args,
-        primfunc_name_hint="conv2d_NCHWc_OIHWo",
+        function_name_hint="conv2d_NCHWc_OIHWo",
     )

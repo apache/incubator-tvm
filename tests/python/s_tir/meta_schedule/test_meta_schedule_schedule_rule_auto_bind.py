@@ -17,18 +17,18 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 # ruff: noqa: F841
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
-@Ts.prim_func
+@Ts.function
 def element_wise(
-    A: T.Buffer([512, 512], dtype="float32"), B: T.Buffer([512, 512], dtype="float32")
+    A: T.Tensor([512, 512], dtype="float32"), B: T.Tensor([512, 512], dtype="float32")
 ) -> None:
     for i, j in T.grid(512, 512):
         with Ts.sblock("C"):
@@ -36,11 +36,11 @@ def element_wise(
             B[vi, vj] = A[vi, vj] + 1.0
 
 
-@Ts.prim_func
+@Ts.function
 def reduction_loop_only(
-    A: T.Buffer(2, "float32"),
-    B: T.Buffer(2, "float32"),
-    C: T.Buffer((), "float32"),
+    A: T.Tensor(2, "float32"),
+    B: T.Tensor(2, "float32"),
+    C: T.Tensor((), "float32"),
 ) -> None:
     for i0 in T.serial(2):
         with Ts.sblock("C"):
@@ -52,11 +52,11 @@ def reduction_loop_only(
             C[()] = T.min(C[()], A[k0] / B[k0])
 
 
-@Ts.prim_func
+@Ts.function
 def zero_dim_add(
-    A: T.Buffer((), "float32"),
-    B: T.Buffer((), "float32"),
-    C: T.Buffer((), "float32"),
+    A: T.Tensor((), "float32"),
+    B: T.Tensor((), "float32"),
+    C: T.Tensor((), "float32"),
 ) -> None:
     with Ts.sblock("C"):
         vi = Ts.axis.spatial(1, 0)
@@ -64,15 +64,15 @@ def zero_dim_add(
 
 
 def test_cuda_element_wise():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
     ) -> None:
         # body
         # with Ts.sblock("root")
-        for i_j_fused_0 in T.thread_binding(256, thread="blockIdx.x"):
-            for i_j_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+        for i_j_fused_0 in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+            for i_j_fused_1 in T.parallel(1024, annotations={"thread_binding": "threadIdx.x"}):
                 with Ts.sblock("C"):
                     vi = Ts.axis.spatial(512, (i_j_fused_0 * 1024 + i_j_fused_1) // 512)
                     vj = Ts.axis.spatial(512, (i_j_fused_0 * 1024 + i_j_fused_1) % 512)
@@ -99,14 +99,14 @@ def test_cuda_element_wise():
 
 
 def test_cuda_reduction_loop_only():
-    @Ts.prim_func
+    @Ts.function
     def reduction_loop_only_0(
-        A: T.Buffer(2, "float32"),
-        B: T.Buffer(2, "float32"),
-        C: T.Buffer((), "float32"),
+        A: T.Tensor(2, "float32"),
+        B: T.Tensor(2, "float32"),
+        C: T.Tensor((), "float32"),
     ) -> None:
-        for u_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-            for u_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+        for u_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+            for u_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                 for i0 in T.serial(2):
                     with Ts.sblock("C"):
                         k0 = Ts.axis.reduce(2, i0)
@@ -132,14 +132,14 @@ def test_cuda_reduction_loop_only():
 
 
 def test_cuda_zero_dim_add():
-    @Ts.prim_func
+    @Ts.function
     def zero_dim_add_0(
-        A: T.Buffer((), "float32"),
-        B: T.Buffer((), "float32"),
-        C: T.Buffer((), "float32"),
+        A: T.Tensor((), "float32"),
+        B: T.Tensor((), "float32"),
+        C: T.Tensor((), "float32"),
     ) -> None:
-        for u_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-            for u_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+        for u_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+            for u_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                 with Ts.sblock("C"):
                     vi = Ts.axis.spatial(1, 0)
                     Ts.reads(A[()], B[()])

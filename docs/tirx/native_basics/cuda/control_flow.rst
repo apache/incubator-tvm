@@ -79,7 +79,7 @@ while
 -----
 
 A ``while`` loop runs until its condition is false. Use a mutable scalar counter
-(see :doc:`buffers`):
+(see :doc:`tensors`):
 
 .. code-block:: python
 
@@ -89,7 +89,7 @@ A ``while`` loop runs until its condition is false. Use a mutable scalar counter
         i += 1
 
 It lowers to a ``while (1)`` with an early-exit ``break`` (the counter is a
-one-element local buffer that the CUDA toolchain may promote to a register):
+one-element local tensor that the CUDA toolchain may promote to a register):
 
 .. code-block:: c++
 

@@ -19,14 +19,13 @@
 
 import tvm_ffi
 
-import tvm
-from tvm.runtime import Object
+import tvm_tirx
 
 from . import Binding, DataflowBlock, Expr, Function, Var, _ffi_api
 
 
 @tvm_ffi.register_object("relax.DataflowBlockRewrite")
-class DataflowBlockRewrite(Object):
+class DataflowBlockRewrite(tvm_ffi.Object):
     """
     A binding/statement-level dataflow block rewriter.
 
@@ -138,18 +137,18 @@ class DataflowBlockRewrite(Object):
             ret.__name__ = self.func_name
         return ret
 
-    def mutate_irmodule(self, irmodule: tvm.IRModule) -> tvm.IRModule:
+    def mutate_irmodule(self, irmodule: tvm_tirx.IRModule) -> tvm_tirx.IRModule:
         """
         Return an updated IRModule by replacing the old function with the mutated root function.
 
         Parameters
         ----------
-        irmodule : tvm.IRModule
+        irmodule : tvm_tirx.IRModule
             The base IRModule to update.
 
         Returns
         -------
-        tvm.IRModule
+        tvm_tirx.IRModule
             The updated IRModule.
         """
         ret = _ffi_api.dfb_rewrite_mutate_irmodule(self, irmodule)  # type: ignore

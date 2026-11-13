@@ -68,6 +68,7 @@ torch_model = resnet18(weights=ResNet18_Weights.DEFAULT).eval()
 # optimization.
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend.torch import from_exported_program
 
@@ -118,7 +119,7 @@ if not IS_IN_CI:
 
 TOTAL_TRIALS = 512  # Change to 20000 for better performance if needed
 MAX_TRIALS_PER_TASK = 16  # Change to more trials per task for better performance if needed
-target = tvm.target.Target("nvidia/geforce-rtx-3090-ti")  # Change to your target device
+target = tvm_tirx.target.Target("nvidia/geforce-rtx-3090-ti")  # Change to your target device
 work_dir = "tuning_logs"
 
 if not IS_IN_CI:
@@ -140,14 +141,13 @@ if not IS_IN_CI:
 # We skip this step in the CI environment.
 
 if not IS_IN_CI:
-    with target:
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=target)(mod)
     ex = tvm.compile(mod, target=target)
-    dev = tvm.cuda(0)
+    dev = tvm_tirx.cuda(0)
     vm = relax.VirtualMachine(ex, dev)
     # Need to allocate data and params on GPU device
-    gpu_data = tvm.runtime.tensor(np.random.rand(1, 3, 224, 224).astype("float32"), dev)
-    gpu_params = [tvm.runtime.tensor(p, dev) for p in params["main"]]
+    gpu_data = tvm_tirx.runtime.tensor(np.random.rand(1, 3, 224, 224).astype("float32"), dev)
+    gpu_params = [tvm_tirx.runtime.tensor(p, dev) for p in params["main"]]
     gpu_out = vm["main"](gpu_data, *gpu_params)[0].numpy()
 
     print(gpu_out.shape)

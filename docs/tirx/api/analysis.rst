@@ -18,5 +18,5 @@
 Analysis
 ========
 
-.. automodule:: tvm.tirx.analysis.analysis
+.. automodule:: tvm_tirx.tirx.analysis.analysis
    :members:

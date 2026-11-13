@@ -17,7 +17,7 @@
 
 from typing import Any
 
-import tvm
+import tvm_tirx
 from tvm.relax.frontend import nn
 
 
@@ -319,4 +319,4 @@ def test_mutator_recursively():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

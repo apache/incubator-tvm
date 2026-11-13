@@ -28,16 +28,15 @@
 
 #include <tvm/ffi/extra/structural_hash.h>
 #include <tvm/ffi/string.h>
+#include <tvm/ir/expr_functor.h>
 #include <tvm/ir/prim/expr.h>
 #include <tvm/s_tir/stmt_functor.h>  // For the class s_tir::StmtExprVisitor
-#include <tvm/tirx/expr_functor.h>
+#include <tvm/support/ordered_map.h>
 #include <tvm/tirx/stmt.h>
 
 #include <unordered_map>
 #include <utility>  // For pairs datatype
 #include <vector>
-
-#include "../../../support/ordered_map.h"
 
 namespace tvm {
 namespace tirx {
@@ -96,9 +95,9 @@ class ComputationsDoneBy : public s_tir::StmtExprVisitor {
  protected:
   ffi::Optional<VisitInterrupt> Visit(ffi::AnyView expr) override;
 
-  ffi::Optional<VisitInterrupt> Visit_(const IfThenElseNode* op) override;
-  ffi::Optional<VisitInterrupt> Visit_(const ForNode* op) override;
-  ffi::Optional<VisitInterrupt> Visit_(const WhileNode* op) override;
+  ffi::Optional<VisitInterrupt> Visit_(const IfObj* op) override;
+  ffi::Optional<VisitInterrupt> Visit_(const ForObj* op) override;
+  ffi::Optional<VisitInterrupt> Visit_(const WhileObj* op) override;
 
  private:
   static ComputationTable ComputationsDoneByChildrenOf(

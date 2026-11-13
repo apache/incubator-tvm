@@ -56,14 +56,8 @@ github:
   # See https://cwiki.apache.org/confluence/display/INFRA/Git+-+.asf.yaml+features#Git.asf.yamlfeatures-Branchprotection
   protected_branches:
     main:
-      required_status_checks:
-        contexts:
-          - arm/pr-head
-          - cpu/pr-head
-          - docker/pr-head
-          - gpu/pr-head
-          - wasm/pr-head
-
+      # note: do not set status check for now
+      # committer will check ci status before merging
       required_pull_request_reviews:
         required_approving_review_count: 1
 

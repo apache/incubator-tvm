@@ -16,8 +16,19 @@
 # under the License.
 """Sampling operators."""
 
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+
 from ..expr import Expr
-from . import _ffi_api
+
+
+@tvm_ffi.register_object("relax.attrs.MultinomialFromUniformAttrs")
+class MultinomialFromUniformAttrs(Attrs):
+    """Attributes for multinomial_from_uniform operator"""
 
 
 def multinomial_from_uniform(
@@ -25,6 +36,9 @@ def multinomial_from_uniform(
     uniform_sample: Expr,
     sample_indices: Expr,
     dtype: str = "int64",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """Returns a tensor where each row contains the index sampled from the multinomial
     probability distribution located in the corresponding row of tensor prob.
@@ -77,9 +91,10 @@ def multinomial_from_uniform(
 
     """
 
-    return _ffi_api.multinomial_from_uniform(  # type: ignore
-        prob,
-        uniform_sample,
-        sample_indices,
-        dtype,
+    return _Call(
+        "relax.multinomial_from_uniform",
+        [prob, uniform_sample, sample_indices],
+        attrs=_make_attrs("relax.attrs.MultinomialFromUniformAttrs", dtype=dtype),
+        loc=loc,
+        ty=ty,
     )

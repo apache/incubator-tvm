@@ -27,35 +27,35 @@ The Trainium backend installs ``Tx.nki``.  Its current operations are
 ``tensorscalar``, ``tensorscalar_reduce``, ``scalar_tensor_tensor``,
 ``scalar_tensor_scalar``, ``memset``, ``identity``, and ``affine_select``.
 
-.. autoclass:: tvm.backend.trn.script.NKINamespace
+.. autoclass:: tvm_tirx.backend.trn.script.NKINamespace
    :members:
    :no-index:
 
 Layout helpers
 --------------
 
-.. automodule:: tvm.backend.trn.layout
+.. automodule:: tvm_tirx.backend.trn.layout
    :members:
    :no-index:
 
 Compilation pipeline
 --------------------
 
-.. automodule:: tvm.backend.trn.pipeline
+.. automodule:: tvm_tirx.backend.trn.pipeline
    :members:
    :no-index:
 
 Transforms
 ----------
 
-.. automodule:: tvm.backend.trn.transform
+.. automodule:: tvm_tirx.backend.trn.transform
    :members:
    :no-index:
 
-.. autoclass:: tvm.backend.trn.transform.TrnNaiveAllocator
+.. autoclass:: tvm_tirx.backend.trn.transform.TrnNaiveAllocator
    :members:
    :no-index:
 
-.. autoclass:: tvm.backend.trn.transform.TrnPrivateBufferAlloc
+.. autoclass:: tvm_tirx.backend.trn.transform.TrnPrivateTensorAlloc
    :members:
    :no-index:

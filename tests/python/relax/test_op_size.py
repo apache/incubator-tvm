@@ -17,51 +17,51 @@
 
 import numpy as np
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
 
 
 def test_op_size():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
         @R.function
         def main(x: R.Tensor((2, 3), "float32")) -> R.Tensor((), "int64"):
             return R.size(x)
 
     x_np = np.random.rand(2, 3).astype("float32")
-    x = tvm.runtime.tensor(x_np)
+    x = tvm_tirx.runtime.tensor(x_np)
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     ex = relax.build(Module, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
 
     res = vm["main"](x)
     assert res.numpy() == 6
 
 
 def test_op_size_dynamic():
-    m = I.dynamic("m")
-    n = I.dynamic("n")
+    m = I.dynamic("m", "int64")
+    n = I.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
         @R.function
         def main(x: R.Tensor((m, n), "float32")) -> R.Tensor((), "int64"):
             return R.size(x)
 
     x_np = np.random.rand(4, 5).astype("float32")
-    x = tvm.runtime.tensor(x_np)
+    x = tvm_tirx.runtime.tensor(x_np)
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     ex = relax.build(Module, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
 
     res = vm["main"](x)
     assert res.numpy() == 20
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

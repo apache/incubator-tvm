@@ -23,14 +23,15 @@ import shutil
 import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm.contrib import coreml_runtime
-from tvm.ir import Call, GenericConst, PrimType
 from tvm.relax import transform
 from tvm.relax.dpl.pattern import is_op, wildcard
 from tvm.relax.expr import BindingBlock, Function, SeqExpr, Var, VarBinding
 from tvm.relax.transform import PatternCheckContext
 from tvm.relax.type import TensorType
-from tvm.support.xcode import compile_coreml
+from tvm_tirx.ir import Call, GenericConst, PrimType
+from tvm_tirx.support.xcode import compile_coreml
 
 from ...expr_functor import PyExprVisitor, visitor
 from ..pattern_registry import get_patterns_with_prefix, register_patterns
@@ -150,12 +151,12 @@ def partition_for_coreml(mod):
 
     Parameters
     ----------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The IRModule to be partitioned.
 
     Returns
     -------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The resulting IRModule, containing partitioned subgraphs to be
         offloaded to the coreml backend.
     """
@@ -286,7 +287,7 @@ class CallNodeInfoCollector(PyExprVisitor):
     def visit_call_(self, call: Call) -> None:
         self.attrs.append(call.attrs)
         for arg in call.args:
-            if tvm.ir.is_prim_expr(arg):
+            if tvm_tirx.ir.is_prim_expr(arg):
                 self.primvals.append(arg)
             if isinstance(arg, GenericConst):
                 self.consts.append(arg)
@@ -319,7 +320,7 @@ class CodegenCoreML(PyExprVisitor):
         self.model_inputs_ = []
         self.buf_idx_ = 0
 
-        getter = tvm.get_global_func("relax.analysis.get_var2val")
+        getter = tvm_ffi.get_global_func("relax.analysis.get_var2val")
         assert getter, "Cannot find `relax.analysis.get_var2val` function."
 
         self.var2val = getter(function)
@@ -484,6 +485,6 @@ def coreml_compiler(funcs, options, constant_names):
             shutil.rmtree(mlmodelc_path)
 
         builder.compile(model_dir)
-        dev = tvm.cpu(0)
+        dev = tvm_tirx.cpu(0)
         compiled_funcs.append(coreml_runtime.create(name, mlmodelc_path, dev).module)
     return compiled_funcs

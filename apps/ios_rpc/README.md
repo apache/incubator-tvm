@@ -59,8 +59,8 @@ cmake ..
   -DCMAKE_OSX_ARCHITECTURES=arm64
   -DCMAKE_OSX_DEPLOYMENT_TARGET=14.0
   -DCMAKE_BUILD_WITH_INSTALL_NAME_DIR=ON
-  -DUSE_IOS_RPC=ON  # to enable build iOS RPC application from TVM project tree
-  -DUSE_METAL=ON    # to enable Metal runtime
+  -DTVM_USE_IOS_RPC=ON  # to enable build iOS RPC application from TVM project tree
+  -DTVM_TIRX_USE_METAL=ON    # to enable Metal runtime
 
 cmake --build . --target custom_dso_loader tvm_runtime
 ```

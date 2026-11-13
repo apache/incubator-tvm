@@ -26,12 +26,37 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/op.h>
+#include <tvm/relax/op_attr.h>
 
 #include <algorithm>
 #include <utility>
 
 namespace tvm {
 namespace relax {
+
+void ArgmaxArgminAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ArgmaxArgminAttrs>()
+      .def_ro("axis", &ArgmaxArgminAttrs::axis,
+              "The axis along which to perform the argmin/argmax.",
+              refl::DefaultValue(ffi::Optional<int64_t>{}))
+      .def_ro("keepdims", &ArgmaxArgminAttrs::keepdims,
+              "If this is set to `True`, the reduced axis is left in the result as dimension "
+              "with size "
+              "one.",
+              refl::DefaultValue(false));
+}
+
+void BucketizeAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<BucketizeAttrs>()
+      .def_ro("out_int32", &BucketizeAttrs::out_int32,
+              "Indicate the output datatype, int32 if True, int64 otherwise.",
+              refl::DefaultValue(false))
+      .def_ro("right", &BucketizeAttrs::right, "Determines the behavior for values in boundaries",
+              refl::DefaultValue(false));
+}
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   ArgmaxArgminAttrs::RegisterReflection();
@@ -45,8 +70,8 @@ Expr bucketize(Expr input_tensor, Expr boundaries, bool out_int32, bool right) {
   attrs->out_int32 = std::move(out_int32);
   attrs->right = std::move(right);
   static const Op op = Op::Get("relax.bucketize");
-  return Call::Unchecked(Type::Missing(), op, {std::move(input_tensor), std::move(boundaries)},
-                         Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(input_tensor), std::move(boundaries)}, Attrs(attrs),
+              {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -54,7 +79,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.bucketize", bucketize);
 }
 
-Type InferTypeBucketize(const CallNode* call_node) {
+Type InferTypeBucketize(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   ffi::Array<TensorType> input_ty = GetInputTensorType(call);
   TensorType input_tensor_info = input_ty[0];
@@ -71,7 +96,7 @@ Type InferTypeBucketize(const CallNode* call_node) {
     out_dtype = PrimType::Int(32);
   }
 
-  const auto* data_shape = input_tensor_info->shape.as<ShapeExprNode>();
+  const auto* data_shape = input_tensor_info->shape.as<ShapeExprObj>();
   if (data_shape) {
     return TensorType(ShapeExpr(data_shape->values), out_dtype, input_tensor_info->vdevice);
   }
@@ -87,15 +112,15 @@ TVM_FFI_STATIC_INIT_BLOCK() {
               "1-D tensor, must contain a strictly increasing sequence, or the return value is "
               "undefined."),
           sig::call_attrs<BucketizeAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeBucketize>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeBucketize>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.where */
 Expr where(Expr condition, Expr x1, Expr x2) {
   static const Op op = Op::Get("relax.where");
-  return Call::Unchecked(Type::Missing(), op, {std::move(condition), std::move(x1), std::move(x2)},
-                         Attrs(), {});
+  return Call(Type::Missing(), op, {std::move(condition), std::move(x1), std::move(x2)},
+              std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -109,15 +134,15 @@ Type InferTypeWhere(const Call& call, const BlockBuilder& ctx) {
   TensorType x1_ty = input_ty[1];
   TensorType x2_ty = input_ty[2];
 
-  VDevice vdev = VDevice();
+  ffi::Optional<VDevice> vdev;
   for (int i = 0; i < 3; ++i) {
     if (input_ty[i]->vdevice.has_value()) {
-      if (!vdev.defined()) {
+      if (!vdev.has_value()) {
         vdev = input_ty[i]->vdevice.value();
-      } else if (input_ty[i]->vdevice.value()->target.defined()) {
+      } else if (input_ty[i]->vdevice.value()->target.has_value()) {
         // mismatch
-        if (input_ty[i]->vdevice.value() != vdev) {
-          vdev = VDevice();
+        if (input_ty[i]->vdevice.value() != vdev.value()) {
+          vdev = std::nullopt;
           break;
         }
       }
@@ -140,15 +165,15 @@ Type InferTypeWhere(const Call& call, const BlockBuilder& ctx) {
     output_ndim = std::max(cond_ty->ndim, std::max(x1_ty->ndim, x2_ty->ndim));
   }
 
-  const auto* cond_shape = cond_ty->shape.as<ShapeExprNode>();
-  const auto* x1_shape = x1_ty->shape.as<ShapeExprNode>();
-  const auto* x2_shape = x2_ty->shape.as<ShapeExprNode>();
+  const auto* cond_shape = cond_ty->shape.as<ShapeExprObj>();
+  const auto* x1_shape = x1_ty->shape.as<ShapeExprObj>();
+  const auto* x2_shape = x2_ty->shape.as<ShapeExprObj>();
   if (cond_shape && x1_shape && x2_shape) {
     // Step 1. Compute the broadcasted shape of x1's and x2's
     ffi::Optional<ffi::Array<PrimExpr>> broadcasted_shape =
         InferBinaryBroadcastShape(call, ctx, x1_shape->values, x2_shape->values);
     if (!broadcasted_shape.has_value()) {
-      if (vdev.defined()) {
+      if (vdev.has_value()) {
         return TensorType(output_dtype, output_ndim, vdev);
       }
       return TensorType(output_dtype, output_ndim);
@@ -157,13 +182,13 @@ Type InferTypeWhere(const Call& call, const BlockBuilder& ctx) {
     broadcasted_shape =
         InferBinaryBroadcastShape(call, ctx, cond_shape->values, broadcasted_shape.value());
     if (!broadcasted_shape.has_value()) {
-      if (vdev.defined()) {
+      if (vdev.has_value()) {
         return TensorType(output_dtype, output_ndim, vdev);
       }
       return TensorType(output_dtype, output_ndim);
     }
     TVM_FFI_ICHECK_EQ(static_cast<int>(broadcasted_shape.value().size()), output_ndim);
-    if (vdev.defined()) {
+    if (vdev.has_value()) {
       return TensorType(ShapeExpr(broadcasted_shape.value()), output_dtype, vdev);
     }
     return TensorType(ShapeExpr(broadcasted_shape.value()), output_dtype);
@@ -172,12 +197,12 @@ Type InferTypeWhere(const Call& call, const BlockBuilder& ctx) {
              x2_ty->shape.has_value() &&              //
              cond_ty->shape.same_as(x1_ty->shape) &&  //
              cond_ty->shape.same_as(x2_ty->shape)) {
-    if (vdev.defined()) {
+    if (vdev.has_value()) {
       return TensorType(cond_ty->shape.value(), output_dtype, vdev);
     }
     return TensorType(cond_ty->shape.value(), output_dtype);
   } else {
-    if (vdev.defined()) {
+    if (vdev.has_value()) {
       return TensorType(output_dtype, output_ndim, vdev);
     }
     return TensorType(output_dtype, output_ndim);
@@ -189,13 +214,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("condition", "When True, yield `x1`; otherwise, yield `x2`."),
                  sig::arg("x1", "The first input tensor."),
                  sig::arg("x2", "The second input tensor."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeWhere)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeWhere)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.argmax & relax.argmin */
 
-Type InferTypeArgmaxArgmin(const CallNode* call_node) {
+Type InferTypeArgmaxArgmin(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   TensorType data_ty = GetUnaryInputTensorType(call);
   const auto* attrs = call->attrs.as<ArgmaxArgminAttrs>();
@@ -225,7 +250,7 @@ Type InferTypeArgmaxArgmin(const CallNode* call_node) {
   // - axes is not None, keepdims is false -> the returned shape does not contain the input axes.
   // - axes is not None, keepdims is true -> the returned shape has value 1 at the positions of the
   // input axes
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     if (!attrs->axis.has_value() && attrs->keepdims && out_ndim != kUnknownNDim) {
       return TensorType(ShapeExpr(ffi::Array<PrimExpr>(out_ndim, IntImm(out_dtype, /*value=*/1))),
@@ -259,7 +284,7 @@ Expr argmax(Expr x, ffi::Optional<int64_t> axis, bool keepdims) {
   attrs->axis = std::move(axis);
   attrs->keepdims = std::move(keepdims);
   static const Op op = Op::Get("relax.argmax");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs(attrs));
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs(attrs));
 }
 
 Expr argmin(Expr x, ffi::Optional<int64_t> axis, bool keepdims) {
@@ -267,7 +292,7 @@ Expr argmin(Expr x, ffi::Optional<int64_t> axis, bool keepdims) {
   attrs->axis = std::move(axis);
   attrs->keepdims = std::move(keepdims);
   static const Op op = Op::Get("relax.argmin");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x)}, Attrs(attrs));
+  return Call(Type::Missing(), op, {std::move(x)}, Attrs(attrs));
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -275,8 +300,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
   OpDef("relax.argmax")
       .signature(sig::arg("x", "The input data tensor"), sig::call_attrs<ArgmaxArgminAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeArgmaxArgmin>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeArgmaxArgmin>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 };
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -284,8 +309,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
   OpDef("relax.argmin")
       .signature(sig::arg("x", "The input data tensor"), sig::call_attrs<ArgmaxArgminAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeArgmaxArgmin>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeArgmaxArgmin>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 };
 
 }  // namespace relax

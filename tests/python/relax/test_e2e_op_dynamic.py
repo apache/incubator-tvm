@@ -19,18 +19,20 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
 import tvm.topi.testing
-from tvm import relax, tirx
+from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.transform import LegalizeOps
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # TODO(tvm-team): `tirx.transform.DefaultGPUSchedule` does not work.
-target, dev = "llvm", tvm.cpu()
+target, dev = "llvm", tvm_tirx.cpu()
 
 
 def build(mod):
@@ -51,7 +53,7 @@ def build(mod):
 )
 def test_dynamic_strided_slice(begin, end, strides):
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class DynamicStridedSlice:
         @R.function
         def main(x: R.Tensor((8, 9, 10, 10), "float32"), begin: R.Tensor((4,),"int64"), end: R.Tensor((4,),"int64"), strides: R.Tensor((4,),"int64")) -> R.Tensor("float32", ndim=4):
@@ -61,15 +63,15 @@ def test_dynamic_strided_slice(begin, end, strides):
     vm = build(DynamicStridedSlice)
 
     x_np = np.random.rand(8, 9, 10, 10).astype(np.float32)
-    data_nd = tvm.runtime.tensor(x_np, dev)
-    begin_nd = tvm.runtime.tensor(np.array(begin).astype("int64"), dev)
-    end_nd = tvm.runtime.tensor(np.array(end).astype("int64"), dev)
-    strides_nd = tvm.runtime.tensor(np.array(strides).astype("int64"), dev)
+    data_nd = tvm_tirx.runtime.tensor(x_np, dev)
+    begin_nd = tvm_tirx.runtime.tensor(np.array(begin).astype("int64"), dev)
+    end_nd = tvm_tirx.runtime.tensor(np.array(end).astype("int64"), dev)
+    strides_nd = tvm_tirx.runtime.tensor(np.array(strides).astype("int64"), dev)
 
     # Reference implementation
     out_npy = tvm.topi.testing.strided_slice_python(x_np, begin, end, strides)
     out_nd = vm["main"](data_nd, begin_nd, end_nd, strides_nd)
-    tvm.testing.assert_allclose(out_nd.numpy(), out_npy)
+    tvm_tirx.testing.assert_allclose(out_nd.numpy(), out_npy)
 
 
 @pytest.mark.parametrize(
@@ -85,10 +87,10 @@ def test_dynamic_strided_slice(begin, end, strides):
 )
 def test_dynamic_strided_slice_symbolic(begin, end, strides):
     # fmt: off
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class DynamicStridedSlice:
         @R.function
         def main(x: R.Tensor((m, n, 10, 10), "float32"), begin: R.Tensor((4,),"int64"), end: R.Tensor((4,),"int64"), strides: R.Tensor((4,),"int64")) -> R.Tensor("float32", ndim=4):
@@ -98,15 +100,15 @@ def test_dynamic_strided_slice_symbolic(begin, end, strides):
     vm = build(DynamicStridedSlice)
 
     x_np = np.random.rand(8, 9, 10, 10).astype(np.float32)
-    data_nd = tvm.runtime.tensor(x_np, dev)
-    begin_nd = tvm.runtime.tensor(np.array(begin).astype("int64"), dev)
-    end_nd = tvm.runtime.tensor(np.array(end).astype("int64"), dev)
-    strides_nd = tvm.runtime.tensor(np.array(strides).astype("int64"), dev)
+    data_nd = tvm_tirx.runtime.tensor(x_np, dev)
+    begin_nd = tvm_tirx.runtime.tensor(np.array(begin).astype("int64"), dev)
+    end_nd = tvm_tirx.runtime.tensor(np.array(end).astype("int64"), dev)
+    strides_nd = tvm_tirx.runtime.tensor(np.array(strides).astype("int64"), dev)
 
     # Reference implementation
     out_npy = tvm.topi.testing.strided_slice_python(x_np, begin, end, strides)
     out_nd = vm["main"](data_nd, begin_nd, end_nd, strides_nd)
-    tvm.testing.assert_allclose(out_nd.numpy(), out_npy)
+    tvm_tirx.testing.assert_allclose(out_nd.numpy(), out_npy)
 
 
 @pytest.mark.parametrize("begin_offset", [0, 1])
@@ -133,10 +135,10 @@ def test_strided_slice_symbolic_out_of_bounds(begin_offset):
     vm = build(bb.get())
 
     x_np = np.arange(8, dtype=np.float32)
-    out = vm["main"](tvm.runtime.tensor(x_np, dev)).numpy()
+    out = vm["main"](tvm_tirx.runtime.tensor(x_np, dev)).numpy()
 
-    tvm.testing.assert_allclose(out, x_np[::-1])
+    tvm_tirx.testing.assert_allclose(out, x_np[::-1])
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

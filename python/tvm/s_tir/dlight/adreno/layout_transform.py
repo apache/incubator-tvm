@@ -37,8 +37,10 @@
 
 "Schedules for Texture Based Layout Transforms"
 
-from tvm import s_tir, tirx
-from tvm.target import Target
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.ir import Range
+from tvm_tirx.target import Target
 
 from .. import analysis
 from .base import AdrenoScheduleRule
@@ -53,17 +55,17 @@ class LayoutTransform(AdrenoScheduleRule):
     # TODO: Try using Coalesced Writes...
     def apply(  # pylint: disable=too-many-locals
         self,
-        func: tirx.PrimFunc | s_tir.Schedule,
+        func: tirx.Function | s_tir.Schedule,
         target: Target,
         _: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
         # pylint: disable=invalid-name
-        if not (isinstance(func, tirx.PrimFunc | s_tir.Schedule)) or not self.is_target_available(
+        if not (isinstance(func, tirx.Function | s_tir.Schedule)) or not self.is_target_available(
             target
         ):
             return None
 
-        if isinstance(func, tirx.PrimFunc):
+        if isinstance(func, tirx.Function):
             sch = s_tir.Schedule(func)
             sch.work_on("main")
         elif isinstance(func, s_tir.Schedule):
@@ -82,17 +84,20 @@ class LayoutTransform(AdrenoScheduleRule):
         ):
             return None
 
-        read_buf, write_buf = (block_info.read_bufs(sch)[0], block_info.write_bufs(sch)[0])
+        read_tensor, write_tensor = (
+            block_info.read_tensors(sch)[0],
+            block_info.write_tensors(sch)[0],
+        )
         lps = block_info.get_loops()
         lpv_read, lpv_write = (
-            read_buf.assoc_lps[-1],
-            write_buf.assoc_lps[-1],
+            read_tensor.assoc_lps[-1],
+            write_tensor.assoc_lps[-1],
         )
 
         if lpv_read is None or lpv_write is None:
             return None
 
-        vlen_read, vlen_write = read_buf.get_vecsize(), write_buf.get_vecsize()
+        vlen_read, vlen_write = read_tensor.get_vecsize(), write_tensor.get_vecsize()
         local_cache = sch.get(lpv_read) != sch.get(lpv_write) or vlen_read != vlen_write
         block_loops = [
             lp
@@ -138,7 +143,7 @@ class LayoutTransform(AdrenoScheduleRule):
             sch.vectorize(vlp)
 
         b = sch.fuse(*block_loops)
-        tx_extent = min(sch.get(b).extent, 256)
+        tx_extent = min(Range.get_extent_from_begin_end(sch.get(b).begin, sch.get(b).end), 256)
         candidates = [1, 2, 4, 8, 16, 32]
         bx, tx = sch.split(b, [None, 256], preserve_unit_iters=True)
         sch.bind(bx, "blockIdx.x")

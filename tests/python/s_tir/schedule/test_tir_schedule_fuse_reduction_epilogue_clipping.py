@@ -20,28 +20,29 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_clipping_before(
-    A: T.Buffer((16, 16), "float32"),
-    B: T.Buffer((16, 16), "float32"),
-    D: T.Buffer((16, 16), "float32"),
+    A: T.Tensor((16, 16), "float32"),
+    B: T.Tensor((16, 16), "float32"),
+    D: T.Tensor((16, 16), "float32"),
     lower: T.float32,
     upper: T.float32,
 ) -> None:
     """Original function with separate reduction and clipping epilogue blocks."""
-    temp = Ts.sblock_alloc_buffer((16, 16), dtype="float32")
+    temp = Ts.sblock_alloc_tensor((16, 16), dtype="float32")
     for i, j, k in T.grid(16, 16, 16):
         with Ts.sblock("matmul"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -55,16 +56,16 @@ def matmul_clipping_before(
             D[vi, vj] = T.min(T.max(temp[vi, vj], lower), upper)
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_clipping_expected(
-    A: T.Buffer((16, 16), "float32"),
-    B: T.Buffer((16, 16), "float32"),
-    D: T.Buffer((16, 16), "float32"),
+    A: T.Tensor((16, 16), "float32"),
+    B: T.Tensor((16, 16), "float32"),
+    D: T.Tensor((16, 16), "float32"),
     lower: T.float32,
     upper: T.float32,
 ) -> None:
     """Expected function after fusion (Clipping)."""
-    temp = Ts.sblock_alloc_buffer((16, 16), dtype="float32")
+    temp = Ts.sblock_alloc_tensor((16, 16), dtype="float32")
     for i, j, k in T.grid(16, 16, 16):
         with Ts.sblock("matmul"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -83,14 +84,14 @@ def test_matmul_clipping():
     verify_trace_roundtrip(sch=sch, mod=matmul_clipping_before)
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_clipping_before_per_iteration(
-    A: T.Buffer((16, 16), "float32"),
-    B: T.Buffer((16, 16), "float32"),
-    D: T.Buffer((16, 16), "float32"),
+    A: T.Tensor((16, 16), "float32"),
+    B: T.Tensor((16, 16), "float32"),
+    D: T.Tensor((16, 16), "float32"),
 ) -> None:
     """Original function with per-iteration clipping (same semantics as fused)."""
-    temp = Ts.sblock_alloc_buffer((16, 16), dtype="float32")
+    temp = Ts.sblock_alloc_tensor((16, 16), dtype="float32")
     lower = T.float32(-5.0)
     upper = T.float32(5.0)
     for i, j in T.grid(16, 16):
@@ -124,10 +125,10 @@ def test_matmul_clipping_correctness_unified():
 
     # TVM execution (original with per-iteration clipping)
     mod_original = tvm.compile(matmul_clipping_before_per_iteration, target="llvm")
-    D_original_tvm = tvm.runtime.tensor(np.zeros((16, 16), dtype="float32"))
+    D_original_tvm = tvm_tirx.runtime.tensor(np.zeros((16, 16), dtype="float32"))
     mod_original(
-        tvm.runtime.tensor(A_np),
-        tvm.runtime.tensor(B_np),
+        tvm_tirx.runtime.tensor(A_np),
+        tvm_tirx.runtime.tensor(B_np),
         D_original_tvm,
     )
 
@@ -135,11 +136,11 @@ def test_matmul_clipping_correctness_unified():
     sch = tvm.s_tir.Schedule(matmul_clipping_before)
     sch.fuse_reduction_epilogue("matmul", "clipping")
     mod_fused = tvm.compile(sch.mod["main"], target="llvm")
-    D_fused_tvm = tvm.runtime.tensor(np.zeros((16, 16), dtype="float32"))
+    D_fused_tvm = tvm_tirx.runtime.tensor(np.zeros((16, 16), dtype="float32"))
     # Pass scalar values directly as Python floats
     mod_fused(
-        tvm.runtime.tensor(A_np),
-        tvm.runtime.tensor(B_np),
+        tvm_tirx.runtime.tensor(A_np),
+        tvm_tirx.runtime.tensor(B_np),
         D_fused_tvm,
         lower,
         upper,
@@ -154,17 +155,17 @@ def test_matmul_clipping_correctness_unified():
     np.testing.assert_allclose(D_original, D_fused, rtol=1e-5, atol=1e-6)
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_clipping_multiple_epilogue_before(
-    A: T.Buffer((16, 16), "float32"),
-    B: T.Buffer((16, 16), "float32"),
-    D: T.Buffer((16, 16), "float32"),
-    E: T.Buffer((16, 16), "float32"),
+    A: T.Tensor((16, 16), "float32"),
+    B: T.Tensor((16, 16), "float32"),
+    D: T.Tensor((16, 16), "float32"),
+    E: T.Tensor((16, 16), "float32"),
     lower: T.float32,
     upper: T.float32,
 ) -> None:
     """Original function with separate reduction and multiple epilogue blocks (one with clipping, one without)."""
-    temp = Ts.sblock_alloc_buffer((16, 16), dtype="float32")
+    temp = Ts.sblock_alloc_tensor((16, 16), dtype="float32")
     for i, j, k in T.grid(16, 16, 16):
         with Ts.sblock("matmul"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -183,17 +184,17 @@ def matmul_clipping_multiple_epilogue_before(
             E[vi, vj] = temp[vi, vj]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_clipping_multiple_epilogue_expected(
-    A: T.Buffer((16, 16), "float32"),
-    B: T.Buffer((16, 16), "float32"),
-    D: T.Buffer((16, 16), "float32"),
-    E: T.Buffer((16, 16), "float32"),
+    A: T.Tensor((16, 16), "float32"),
+    B: T.Tensor((16, 16), "float32"),
+    D: T.Tensor((16, 16), "float32"),
+    E: T.Tensor((16, 16), "float32"),
     lower: T.float32,
     upper: T.float32,
 ) -> None:
     """Expected function after fusion (Clipping) with multiple epilogue blocks."""
-    temp = Ts.sblock_alloc_buffer((16, 16), dtype="float32")
+    temp = Ts.sblock_alloc_tensor((16, 16), dtype="float32")
     for i, j, k in T.grid(16, 16, 16):
         with Ts.sblock("matmul"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -215,7 +216,7 @@ def test_matmul_clipping_multiple_epilogue():
 
     Following the same pattern as test_fuse_reduction_epilogue_multiple_epilogue,
     this test verifies that fusion works correctly when there are multiple
-    epilogue blocks. The temp buffer is kept because the second epilogue block
+    epilogue blocks. The temp tensor is kept because the second epilogue block
     still needs it.
     """
     sch = tvm.s_tir.Schedule(matmul_clipping_multiple_epilogue_before, debug_mask="all")
@@ -245,13 +246,13 @@ def test_matmul_clipping_commutative_variants(pattern_func):
     lower = -5.0
     upper = 5.0
 
-    @Ts.prim_func
+    @Ts.function
     def test_func(
-        A: T.Buffer((8, 8), "float32"),
-        B: T.Buffer((8, 8), "float32"),
-        D: T.Buffer((8, 8), "float32"),
+        A: T.Tensor((8, 8), "float32"),
+        B: T.Tensor((8, 8), "float32"),
+        D: T.Tensor((8, 8), "float32"),
     ) -> None:
-        temp = Ts.sblock_alloc_buffer((8, 8), dtype="float32")
+        temp = Ts.sblock_alloc_tensor((8, 8), dtype="float32")
         for i, j, k in T.grid(8, 8, 8):
             with Ts.sblock("matmul"):
                 vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -271,4 +272,4 @@ def test_matmul_clipping_commutative_variants(pattern_func):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

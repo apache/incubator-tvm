@@ -47,7 +47,10 @@ ffi::Optional<int64_t> ParseThreadBinding(const Schedule& sch, const Instruction
     return std::nullopt;
   }
   return static_cast<int64_t>(
-      sch->Get(inst->inputs[0].as_or_throw<LoopRV>())->extent.as_or_throw<IntImm>()->value);
+      Range::GetExtentFromBeginEnd(sch->Get(inst->inputs[0].as_or_throw<LoopRV>())->begin,
+                                   sch->Get(inst->inputs[0].as_or_throw<LoopRV>())->end)
+          .as_or_throw<IntImm>()
+          ->value);
 }
 
 /*!
@@ -66,7 +69,7 @@ ffi::Optional<SBlockRV> ParseAnnotate(const Schedule& sch, const Instruction& in
   TVM_FFI_ICHECK_EQ(inst->inputs.size(), 2);
   TVM_FFI_ICHECK_EQ(inst->attrs.size(), 1);
   ffi::String ann_key = inst->attrs[0].as_or_throw<ffi::String>();
-  if (ann_key != s_tir::attr::meta_schedule_cooperative_fetch) {
+  if (ann_key != tvm::s_tir::attr::kMetaScheduleCooperativeFetch.name) {
     return std::nullopt;
   }
   *vector_lane = static_cast<int64_t>(
@@ -88,12 +91,12 @@ bool ParseWarpExecutionAnn(const Schedule& sch, const Instruction& inst) {
   TVM_FFI_ICHECK_EQ(inst->inputs.size(), 2);
   TVM_FFI_ICHECK_EQ(inst->attrs.size(), 1);
   ffi::String ann_key = inst->attrs[0].as_or_throw<ffi::String>();
-  return ann_key == s_tir::attr::warp_execution;
+  return ann_key == tvm::s_tir::attr::kWarpExecution.name;
 }
 
 size_t GetMaxUsedDtypeBytes(SBlock block) {
   size_t max_bytes = 1;
-  auto visit_store = [&](const tirx::BufferStore& store) -> ffi::Expected<ffi::WalkResult> {
+  auto visit_store = [&](const TensorStore& store) -> ffi::Expected<ffi::WalkResult> {
     max_bytes = std::max(max_bytes, store->value.ty().StorageBytes());
     return ffi::WalkResult::Advance();
   };
@@ -101,21 +104,11 @@ size_t GetMaxUsedDtypeBytes(SBlock block) {
     max_bytes = std::max(max_bytes, load->ty.as_or_throw<PrimType>().StorageBytes());
     return ffi::WalkResult::Advance();
   };
-  auto visit_call = [&](const Call& call) -> ffi::Expected<ffi::WalkResult> {
-    static const Op q_multiply_shift_per_axis_op = Op::Get("tirx.q_multiply_shift_per_axis");
-    static const Op q_multiply_shift_op = Op::Get("tirx.q_multiply_shift");
-    if (call->op.same_as(q_multiply_shift_per_axis_op) || call->op.same_as(q_multiply_shift_op)) {
-      // q_multiply_shift uses 64 bit multiply
-      max_bytes = std::max<size_t>(max_bytes, 8);
-    }
-    return ffi::WalkResult::Advance();
-  };
   auto visit_cast = [&](const prim::Cast& cast) -> ffi::Expected<ffi::WalkResult> {
     max_bytes = std::max(max_bytes, cast->ty.as_or_throw<PrimType>().StorageBytes());
     return ffi::WalkResult::Advance();
   };
-  ffi::StructuralWalk<ffi::WalkOrder::kPostOrder>(block->body, visit_store, visit_load, visit_call,
-                                                  visit_cast);
+  ffi::StructuralWalk<ffi::WalkOrder::kPostOrder>(block->body, visit_store, visit_load, visit_cast);
 
   return max_bytes;
 }
@@ -129,14 +122,14 @@ namespace meta_schedule {
  * \brief Rewrite the cooperative fetch annotation to actual vectorized cooperative fetching
  * in loop bindings.
  */
-class RewriteCooperativeFetchNode : public PostprocNode {
+class RewriteCooperativeFetchObj : public PostprocObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<RewriteCooperativeFetchNode>();
+    refl::ObjectDef<RewriteCooperativeFetchObj>();
   }
 
-  // Inherited from PostprocNode
+  // Inherited from PostprocObj
   void InitializeWithTuneContext(const TuneContext& context) final {
     if (ffi::Optional<int64_t> v = context->target.value()->GetAttr<int64_t>("thread_warp_size")) {
       this->thread_warp_size_ = v.value();
@@ -145,23 +138,23 @@ class RewriteCooperativeFetchNode : public PostprocNode {
     }
   }
 
-  // Inherited from PostprocNode
+  // Inherited from PostprocObj
   bool Apply(const s_tir::Schedule& sch) final;
 
   Postproc Clone() const {
-    ffi::ObjectPtr<RewriteCooperativeFetchNode> n =
-        ffi::make_object<RewriteCooperativeFetchNode>(*this);
-    return Postproc(n);
+    ffi::ObjectPtr<RewriteCooperativeFetchObj> n =
+        ffi::make_object<RewriteCooperativeFetchObj>(*this);
+    return Postproc(ffi::UnsafeInit{}, n);
   }
 
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.RewriteCooperativeFetch",
-                                    RewriteCooperativeFetchNode, PostprocNode);
+                                    RewriteCooperativeFetchObj, PostprocObj);
 
  private:
   int thread_warp_size_ = -1;
 };
 
-bool RewriteCooperativeFetchNode::Apply(const s_tir::Schedule& sch) {
+bool RewriteCooperativeFetchObj::Apply(const s_tir::Schedule& sch) {
   s_tir::Trace trace = sch->trace().value();
   int64_t thread_extent_x = -1;
   int64_t thread_extent_y = -1;
@@ -188,10 +181,12 @@ bool RewriteCooperativeFetchNode::Apply(const s_tir::Schedule& sch) {
     }
     auto task = [thread_extent_x, thread_extent_y, vector_lane, sch,
                  block = opt_block_rv.value()]() mutable -> void {
-      sch->Unannotate(block, s_tir::attr::meta_schedule_cooperative_fetch);
+      sch->Unannotate(block, tvm::s_tir::attr::kMetaScheduleCooperativeFetch.name);
       s_tir::LoopRV fused = sch->GetLoops(block).back();
       int64_t fused_extent = -1;
-      const auto* extent_imm = sch->Get(fused)->extent.as<IntImmNode>();
+      PrimExpr extent_imm_expr =
+          Range::GetExtentFromBeginEnd(sch->Get(fused)->begin, sch->Get(fused)->end);
+      const auto* extent_imm = extent_imm_expr.as<IntImmObj>();
       if (auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
           extent.has_value()) {
         fused_extent = *extent;
@@ -247,11 +242,11 @@ bool RewriteCooperativeFetchNode::Apply(const s_tir::Schedule& sch) {
 }
 
 Postproc Postproc::RewriteCooperativeFetch() {
-  ffi::ObjectPtr<RewriteCooperativeFetchNode> n = ffi::make_object<RewriteCooperativeFetchNode>();
-  return Postproc(n);
+  ffi::ObjectPtr<RewriteCooperativeFetchObj> n = ffi::make_object<RewriteCooperativeFetchObj>();
+  return Postproc(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { RewriteCooperativeFetchNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { RewriteCooperativeFetchObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

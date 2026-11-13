@@ -18,16 +18,16 @@
 import pytest
 import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm import tirx
-from tvm.ir import Range
+from tvm_tirx import tirx
+from tvm_tirx.ir import Range
 
 
 def _check_equal(x, y, map_free_vars=False):
-    tvm.ir.assert_structural_equal(x, y, map_free_vars)
-    tvm.ir.assert_structural_equal(y, x, map_free_vars)
+    tvm_tirx.ir.assert_structural_equal(x, y, map_free_vars)
+    tvm_tirx.ir.assert_structural_equal(y, x, map_free_vars)
 
     xhash = tvm_ffi.structural_hash(x, map_free_vars)
     yhash = tvm_ffi.structural_hash(y, map_free_vars)
@@ -36,7 +36,7 @@ def _check_equal(x, y, map_free_vars=False):
 
 
 def _check_json_roundtrip(x):
-    xret = tvm.ir.load_json(tvm.ir.save_json(x))
+    xret = tvm_tirx.ir.load_json(tvm_tirx.ir.save_json(x))
     _check_equal(x, xret, map_free_vars=True)
     return xret
 
@@ -50,14 +50,14 @@ def test_dtensor_type():
 
     device_mesh0 = rx.distributed.DeviceMesh((2, 2), Range(0, 4))
     device_mesh1 = rx.distributed.DeviceMesh((2, 2), Range(0, 4))
-    tvm.ir.assert_structural_equal(device_mesh0, device_mesh1)
+    tvm_tirx.ir.assert_structural_equal(device_mesh0, device_mesh1)
 
     shard0 = rx.distributed.PlacementSpec.sharding(0)
     replica = rx.distributed.PlacementSpec.replica()
 
     placement0 = rx.distributed.Placement([shard0, replica])
     placement1 = rx.distributed.Placement([shard0, replica])
-    tvm.ir.assert_structural_equal(placement0, placement1)
+    tvm_tirx.ir.assert_structural_equal(placement0, placement1)
 
     ty0 = rx.distributed.DTensorType(tensor_ty0, device_mesh0, placement0)
     ty1 = rx.distributed.DTensorType(tensor_ty1, device_mesh1, placement1)
@@ -66,10 +66,10 @@ def test_dtensor_type():
     _check_json_roundtrip(ty1)
 
     assert ty0 == ty1
-    tvm.ir.assert_structural_equal(ty0.device_mesh, device_mesh0)
+    tvm_tirx.ir.assert_structural_equal(ty0.device_mesh, device_mesh0)
     assert ty0.device_mesh.shape == (2, 2)
-    tvm.ir.assert_structural_equal(ty0.device_mesh.device_range, Range(0, 4))
-    tvm.ir.assert_structural_equal(ty0.placement, placement0)
+    tvm_tirx.ir.assert_structural_equal(ty0.device_mesh.device_range, Range(0, 4))
+    tvm_tirx.ir.assert_structural_equal(ty0.placement, placement0)
     assert len(ty0.placement.dim_specs) == 2
     assert ty0.placement.dim_specs[0] == shard0
     assert ty0.placement.dim_specs[1] == replica
@@ -92,4 +92,4 @@ def test_dtensor_type():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

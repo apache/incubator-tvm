@@ -18,10 +18,11 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.script import ir as I
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_remove_store_undef():
@@ -29,18 +30,18 @@ def test_remove_store_undef():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
-            A[0] = T.undef(dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
+            A[0] = T.undef()
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
             T.evaluate(0)
 
     After = tvm.s_tir.transform.RemoveStoreUndef()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_remove_store_undef_expression():
@@ -48,18 +49,18 @@ def test_remove_store_undef_expression():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
-            A[0] = 1 + T.undef(dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
+            A[0] = 1 + T.undef()
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
             T.evaluate(0)
 
     After = tvm.s_tir.transform.RemoveStoreUndef()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_keep_other_call_nodes():
@@ -67,14 +68,14 @@ def test_keep_other_call_nodes():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32"), n: T.int32):
-            A[0] = T.shift_left(n, 1, dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(1, "int32"), n: T.int32):
+            A[0] = T.shift_left(n, 1)
 
     Expected = Before
 
     After = tvm.s_tir.transform.RemoveStoreUndef()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_remove_let_undef():
@@ -82,29 +83,29 @@ def test_remove_let_undef():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
-            val: T.let[T.int32] = T.undef(dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
+            val: T.let[T.int32] = T.undef()
             A[0] = val
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
             T.evaluate(0)
 
     After = tvm.s_tir.transform.RemoveStoreUndef()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_raise_error_for_undef_as_store_indices():
-    """Use of T.undef() as buffer indices is an error"""
+    """Use of T.undef() as tensor indices is an error"""
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32")):
-            val: T.let[T.int32] = T.undef(dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(1, "int32")):
+            val: T.let[T.int32] = T.undef()
             A[val] = 5
 
     with pytest.raises(RuntimeError):
@@ -112,21 +113,21 @@ def test_raise_error_for_undef_as_store_indices():
 
 
 def test_raise_error_for_undef_as_load_indices():
-    """Use of T.undef() as buffer indices is an error
+    """Use of T.undef() as tensor indices is an error
 
-    Even though this occurs as part of the BufferStore's value, the
-    T.undef() may not appear in a buffer's indices.
+    Even though this occurs as part of the TensorStore's value, the
+    T.undef() may not appear in a tensor's indices.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(1, "int32"), B: T.Buffer(1, "int32")):
-            B[0] = A[T.undef(dtype="int32")]
+        @Ts.function
+        def main(A: T.Tensor(1, "int32"), B: T.Tensor(1, "int32")):
+            B[0] = A[T.undef()]
 
     with pytest.raises(RuntimeError):
         tvm.s_tir.transform.RemoveStoreUndef()(Before)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

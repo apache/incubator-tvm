@@ -26,7 +26,12 @@ under the License.
   <includeBaseDirectory>false</includeBaseDirectory>
   <files>
     <file>
-      <source>../../../build/lib/libtvm_runtime.so</source>
+      <source>${tvm.lib.dir}/libtvm_runtime.so</source>
+      <outputDirectory>lib/native</outputDirectory>
+      <fileMode>0644</fileMode>
+    </file>
+    <file>
+      <source>${tvm.ffi.lib.dir}/libtvm_ffi.so</source>
       <outputDirectory>lib/native</outputDirectory>
       <fileMode>0644</fileMode>
     </file>

@@ -118,8 +118,8 @@ under the License.
             <compilerStartOption>-std=c++17</compilerStartOption>
           </compilerStartOptions>
           <compilerEndOptions>
-            <compilerEndOption>-I../../../include</compilerEndOption>
-            <compilerEndOption>-I../../../3rdparty/tvm-ffi/include</compilerEndOption>
+            <compilerEndOption>-I${tvm.include.dir}</compilerEndOption>
+            <compilerEndOption>-I${tvm.ffi.include.dir}</compilerEndOption>
             <compilerEndOption>-I${JAVA_HOME}/include</compilerEndOption>
             <compilerEndOption>-I${JAVA_HOME}/include/darwin</compilerEndOption>
             <compilerEndOption>${cflags}</compilerEndOption>
@@ -134,7 +134,7 @@ under the License.
             <linkerMiddleOption>-Wl,-x</linkerMiddleOption>
           </linkerMiddleOptions>
           <linkerEndOptions>
-            <linkerEndOption>-L${project.parent.basedir}/../../build/lib/</linkerEndOption>
+            <linkerEndOption>-L${tvm.lib.dir}</linkerEndOption>
             <linkerEndOption>-ltvm_runtime</linkerEndOption>
             <linkerEndOption>${ldflags}</linkerEndOption>
           </linkerEndOptions>

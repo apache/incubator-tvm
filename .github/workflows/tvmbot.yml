@@ -28,4 +28,4 @@ jobs:
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -eux
-          python ci/scripts/github/github_tvmbot.py --pr "$PR_NUMBER" --run-url "$RUN_URL" --trigger-comment-json "$ISSUE_COMMENT"
+          python ci/github/github_tvmbot.py --pr "$PR_NUMBER" --run-url "$RUN_URL" --trigger-comment-json "$ISSUE_COMMENT"

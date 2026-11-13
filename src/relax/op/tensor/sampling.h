@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_SAMPLING_H_
 #define TVM_RELAX_OP_TENSOR_SAMPLING_H_
 
-#include <tvm/relax/attrs/sampling.h>
+#include <tvm/relax/op/sampling.h>
 
 #include "../op_common.h"
 

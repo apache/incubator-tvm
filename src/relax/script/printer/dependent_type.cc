@@ -16,148 +16,121 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <tvm/ffi/cast.h>
 
-#include "../../../script/printer/ir/utils.h"
-#include "./utils.h"
+#include <tvm/script/printer/doc_translator.h>
+#include <tvm/script/printer/support.h>
+#include <tvm/tirx/type.h>
+
+#include <optional>
+
+#include "utils.h"
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<AnyType>(  //
-      "", [](AnyType n, AccessPath n_p, IRDocsifier d) -> Doc { return Relax(d, "Any"); });
+namespace {
+
+ffi::Optional<ExprDoc> ShapeTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                             const ffi::Object*) {
+  const auto* ty =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeTypeObj>(input);
+  if (ty->values.has_value()) {
+    ffi::Array<ExprDoc> values;
+    for (const PrimExpr& value : ty->values.value()) values.push_back(RelaxShapeDim(d, value));
+    return NamespaceDoc("relax")->Attr("Shape")->Call({ListDoc(values)});
+  }
+  return NamespaceDoc("relax")->Attr("Shape")->Call({}, {"ndim"},
+                                                    {LiteralDoc::Int(ty->ndim, std::nullopt)});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::ShapeType>(
-      "", [](relax::ShapeType n, AccessPath n_p, IRDocsifier d) -> Doc {
-        if (n->values.has_value()) {
-          ffi::Array<PrimExpr> shape = n->values.value();
-          AccessPath shape_p = n_p->Attr("values");
-          ffi::Array<ExprDoc> shape_docs;
-          for (int i = 0, ndim = shape.size(); i < ndim; ++i) {
-            shape_docs.push_back(d->AsDoc<ExprDoc>(shape[i], shape_p->ArrayItem(i)));
-          }
-          return Relax(d, "Shape")->Call({ListDoc(shape_docs)});
-        }
-        return Relax(d, "Shape")->Call({}, {"ndim"}, {LiteralDoc::Int(n->ndim, n_p->Attr("ndim"))});
-      });
+  ffi::reflection::TypeAttrDef<relax::ShapeTypeObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&ShapeTypeDocTranslate>());
+}
+
+ffi::Optional<ExprDoc> TensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                              const ffi::Object*) {
+  const auto* ty =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::TensorTypeObj>(input);
+  ffi::Array<ExprDoc> args;
+  ffi::Array<ffi::String> keys;
+  ffi::Array<ExprDoc> values;
+  if (ty->shape.has_value()) {
+    if (auto shape = ty->shape.value().as<relax::ShapeExprObj>()) {
+      ffi::Array<ExprDoc> dimensions;
+      for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
+      args.push_back(TupleDoc(dimensions));
+    } else {
+      args.push_back(d->Translate(ty->shape.value()).value());
+    }
+  }
+  if (!ty->IsUnknownDtype()) {
+    keys.push_back("dtype");
+    values.push_back(LiteralDoc::DataType(ty->dtype.value()->dtype, std::nullopt));
+  }
+  if (!ty->shape.has_value() && !ty->IsUnknownNdim()) {
+    keys.push_back("ndim");
+    values.push_back(LiteralDoc::Int(ty->ndim, std::nullopt));
+  }
+  if (ty->vdevice.has_value()) {
+    keys.push_back("vdevice");
+    if (auto selector = GlobalInfoSelector(d, ty->vdevice.value())) {
+      values.push_back(LiteralDoc::Str(selector.value(), std::nullopt));
+    } else {
+      values.push_back(d->Translate(ty->vdevice.value()).value());
+    }
+  }
+  return NamespaceDoc("relax")->Attr("Tensor")->Call(args, keys, values);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::TensorType>(  //
-      "", [](relax::TensorType n, AccessPath n_p, IRDocsifier d) -> Doc {
-        ffi::Array<ExprDoc> args;
-        ffi::Array<ffi::String> kwargs_keys;
-        ffi::Array<ExprDoc> kwargs_values;
-        if (n->shape.has_value()) {
-          // Need to dig into ShapeExpr to preserve the `R.shape` prefix
-          if (const auto* shape = n->shape.value().as<relax::ShapeExprNode>()) {
-            auto shape_expr = ffi::GetRef<relax::ShapeExpr>(shape);
-            AccessPath shape_p = n_p->Attr("shape")->Attr("values");
-            ffi::Array<ExprDoc> shape_docs;
-            for (int i = 0, ndim = shape_expr->values.size(); i < ndim; ++i) {
-              shape_docs.push_back(d->AsDoc<ExprDoc>(shape_expr->values[i], shape_p->ArrayItem(i)));
-            }
-            args.push_back(TupleDoc(shape_docs));
-          } else {
-            args.push_back(d->AsDoc<ExprDoc>(n->shape.value(), n_p->Attr("shape")));
-          }
-        }
-        if (!n->IsUnknownDtype()) {
-          kwargs_keys.push_back("dtype");
-          kwargs_values.push_back(
-              LiteralDoc::DataType(n->dtype.value()->dtype, n_p->Attr("dtype")));
-        }
-        if (!n->shape.has_value() && !n->IsUnknownNdim()) {
-          kwargs_keys.push_back("ndim");
-          kwargs_values.push_back(LiteralDoc::Int(n->ndim, n_p->Attr("ndim")));
-        }
-        if (n->vdevice.has_value() && n->vdevice.value()->target.defined()) {
-          // Function annotations defer module-owned selectors until declaration.
-          bool has_relax_frame = false;
-          bool has_module_frame = false;
-          for (const Frame& frame : d->frames) {
-            if (const auto* relax_frame = frame.as<RelaxFrameNode>()) {
-              has_relax_frame = true;
-              if (relax_frame->func_vars != nullptr) {
-                d->ir_usage.insert("future_annotations");
-              }
-            } else if (const auto* ir_frame = frame.as<IRFrameNode>()) {
-              has_module_frame = ir_frame->global_infos != nullptr;
-            }
-          }
-          kwargs_keys.push_back("vdevice");
-          if (has_relax_frame) {
-            std::string dev_kind = n->vdevice.value()->target->kind->name;
-            int dev_index = FindVDeviceIndexByTargetKind(n->vdevice.value(), d);
-            kwargs_values.push_back(LiteralDoc::Str(
-                dev_kind + ":" + std::to_string(dev_index) + ":" + n->vdevice.value()->memory_scope,
-                n_p->Attr("vdevice")));
-          } else if (has_module_frame) {
-            // Class assignments execute eagerly; retrieve their existing concrete metadata.
-            kwargs_values.push_back(
-                Relax(d, "lookup_vdevice")
-                    ->Call({LiteralDoc::Str(n->vdevice.value()->target->kind->name,
-                                            n_p->Attr("vdevice")),
-                            LiteralDoc::Int(FindVDeviceIndexByTargetKind(n->vdevice.value(), d),
-                                            n_p->Attr("vdevice"))}));
-          } else {
-            kwargs_values.push_back(d->AsDoc<ExprDoc>(n->vdevice.value(), n_p->Attr("vdevice")));
-          }
-        }
-        if (args.empty() && kwargs_keys.empty()) {
-          return Relax(d, "Tensor");
-        }
-        return Relax(d, "Tensor")->Call(args, kwargs_keys, kwargs_values);
-      });
+  ffi::reflection::TypeAttrDef<relax::TensorTypeObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&TensorTypeDocTranslate>());
+}
+
+ffi::Optional<ExprDoc> RelaxFuncTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                                 const ffi::Object*) {
+  const auto* ty =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::FuncTypeObj>(input);
+  if (!ty->params.has_value()) {
+    ffi::Array<ffi::String> keys;
+    ffi::Array<ExprDoc> values;
+    if (!ty->ret.as<AnyTypeObj>()) {
+      keys.push_back("ret");
+      values.push_back(d->Translate(ty->ret).value());
+    }
+    if (ty->purity) {
+      keys.push_back("purity");
+      values.push_back(LiteralDoc::Boolean(true, std::nullopt));
+    }
+    if (ty->derive_func.has_value()) {
+      keys.push_back("derive_func");
+      values.push_back(LiteralDoc::Str(ty->derive_func.value()->name, std::nullopt));
+    }
+    ExprDoc doc = NamespaceDoc("relax")->Attr("Callable");
+    return doc->Call({}, keys, values);
+  }
+  ffi::Array<ExprDoc> params;
+  for (const Type& param : ty->params.value()) params.push_back(d->Translate(param).value());
+  return NamespaceDoc("relax")
+      ->Attr("Callable")
+      ->Call({TupleDoc(params), d->Translate(ty->ret).value(),
+              LiteralDoc::Boolean(ty->purity, std::nullopt)});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::FuncType>(  //
-      "", [](relax::FuncType n, AccessPath n_p, IRDocsifier d) -> Doc {
-        auto ret_doc = d->AsDoc<ExprDoc>(n->ret, n_p->Attr("ret"));
-        auto purity_doc = LiteralDoc::Boolean(n->purity, n_p->Attr("purity"));
-
-        if (n->IsOpaque()) {
-          ffi::Array<ffi::String> keys;
-          ffi::Array<ExprDoc, void> values;
-
-          if (!n->ret->IsInstance<AnyTypeNode>()) {
-            keys.push_back("ret");
-            values.push_back(ret_doc);
-          }
-          if (n->purity) {
-            keys.push_back("purity");
-            values.push_back(purity_doc);
-          }
-
-          if (keys.size()) {
-            return Relax(d, "Callable")->Call({}, keys, values);
-          } else {
-            return Relax(d, "Callable");
-          }
-        }
-        // TODO(@junrushao): track symbolic shape relation
-        ffi::Array<ExprDoc> params_doc;
-        ffi::Array<tvm::Type> params = n->params.value();
-        AccessPath params_p = n_p->Attr("params");
-        for (int i = 0, n_params = params.size(); i < n_params; ++i) {
-          params_doc.push_back(d->AsDoc<ExprDoc>(params[i], params_p->ArrayItem(i)));
-        }
-        return Relax(d, "Callable")->Call({TupleDoc(params_doc), ret_doc, purity_doc});
-      });
+  ffi::reflection::TypeAttrDef<relax::FuncTypeObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&RelaxFuncTypeDocTranslate>());
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() {
-  TVMScriptPrinter::Register<AnyTypeNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::ShapeTypeNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::TensorTypeNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::FuncTypeNode>(ReprPrintRelax);
-}
+}  // namespace
 
+}  // namespace details
 }  // namespace printer
 }  // namespace script
 }  // namespace tvm

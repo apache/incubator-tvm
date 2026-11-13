@@ -31,8 +31,10 @@ for optimizing and integrating with hardware backends.
 # the :ref:`previous section <relax-creation>`.
 
 import tvm
-from tvm import IRModule, relax
+import tvm_tirx
+from tvm import relax
 from tvm.relax.frontend import nn
+from tvm_tirx import IRModule
 
 
 class NNModule(nn.Module):
@@ -73,7 +75,7 @@ mod.show()
 # in ML compilers. Note that in relax, fusion optimizations are done with the collaboration of
 # a set of passes. We can apply them in a sequence.
 
-mod = tvm.ir.transform.Sequential(
+mod = tvm_tirx.ir.transform.Sequential(
     [
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FuseOps(),
@@ -115,9 +117,9 @@ class ReluRewriter(PyExprMutator):
 # Then we can write a pass to apply the mutator to the whole module.
 
 
-@tvm.transform.module_pass(opt_level=0, name="ReluToGelu")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="ReluToGelu")
 class ReluToGelu:  # pylint: disable=too-few-public-methods
-    def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
+    def transform_module(self, mod: IRModule, _ctx: tvm_tirx.ir.transform.PassContext) -> IRModule:
         """IRModule-level transformation"""
         rewriter = ReluRewriter(mod)
         for g_var, func in mod.functions_items():

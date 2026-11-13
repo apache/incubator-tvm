@@ -19,10 +19,10 @@ import inspect
 
 import pytest
 
-import tvm.testing
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
 
 
 class Base:
@@ -34,7 +34,7 @@ class Base:
                 transform(self.Before)
         else:
             after = transform(self.Before)
-            tvm.ir.assert_structural_equal(self.Expected, after)
+            tvm_tirx.ir.assert_structural_equal(self.Expected, after)
 
 
 class TestSimple(Base):
@@ -311,4 +311,4 @@ class TestNegativeConcatAxis(Base):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

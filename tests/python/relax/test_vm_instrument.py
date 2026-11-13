@@ -18,7 +18,8 @@
 import numpy as np
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 from tvm.relax.testing import nn
 from tvm.relax.testing.lib_comparator import LibCompareVMInstrument
@@ -68,7 +69,7 @@ def get_exec_int32(data_shape):
 def test_conv2d_cpu():
     data_np = np.random.randn(1, 64).astype("float32")
     ex = get_exec(data_np.shape)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     hit_count = {}
 
     def instrument(func, name, before_run, ret_val, *args):
@@ -82,7 +83,7 @@ def test_conv2d_cpu():
             return relax.VMInstrumentReturnKind.SKIP_RUN
 
     vm.set_instrument(instrument)
-    vm["main"](tvm.runtime.tensor(data_np))
+    vm["main"](tvm_tirx.runtime.tensor(data_np))
     assert hit_count[("matmul", True)] == 2
     assert ("matmul", False) not in hit_count
     assert hit_count[("relu", True)] == 2
@@ -92,12 +93,12 @@ def test_conv2d_cpu():
 def test_lib_comparator():
     data_np = np.random.randn(1, 64).astype("int32")
     ex = get_exec_int32(data_np.shape)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     # compare against library module
-    cmp = LibCompareVMInstrument(vm.module.imports[0], tvm.cpu(), verbose=False)
+    cmp = LibCompareVMInstrument(vm.module.imports[0], tvm_tirx.cpu(), verbose=False)
     vm.set_instrument(cmp)
-    vm["main"](tvm.runtime.tensor(data_np))
+    vm["main"](tvm_tirx.runtime.tensor(data_np))
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

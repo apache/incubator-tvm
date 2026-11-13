@@ -20,8 +20,9 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.script
-import tvm.script.relax as R
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.script.relax as R
 from test_nnapi.conftest import remote
 from test_nnapi.infrastructure import build_and_run
 
@@ -30,9 +31,9 @@ def _build_and_run_network(remote_obj, tracker, mod, input_data):
     """Helper function to build and run a network."""
 
     def execute_on_host(mod, inputs):
-        with tvm.transform.PassContext(opt_level=3):
+        with tvm_tirx.ir.transform.PassContext(opt_level=3):
             ex = tvm.compile(mod, target="llvm")
-        dev = tvm.cpu(0)
+        dev = tvm_tirx.cpu(0)
         vm = tvm.relax.VirtualMachine(ex, device=dev)
         output = vm["main"](*inputs)
         return output.numpy()
@@ -73,8 +74,8 @@ def _build_and_run_network(remote_obj, tracker, mod, input_data):
 def test_unary(op, input_shape=(1, 2, 8, 5)):
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(i0: R.Tensor((1, 2, 8, 5), "float32")) -> R.Tensor((1, 2, 8, 5), "float32"):
@@ -114,8 +115,8 @@ def test_unary(op, input_shape=(1, 2, 8, 5)):
 def test_elementwise_binary(op, input_shape=(1, 2, 8, 5)):
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -144,8 +145,8 @@ def test_elementwise_binary(op, input_shape=(1, 2, 8, 5)):
 def test_divide(input_shape=(1, 2, 8, 5)):
     remote_obj, tracker = remote()
 
-    def create_model(input_shape) -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model(input_shape) -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -174,8 +175,8 @@ def test_divide(input_shape=(1, 2, 8, 5)):
 def test_matmul():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -204,8 +205,8 @@ def test_matmul():
 def test_permute_dims():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -232,8 +233,8 @@ def test_permute_dims():
 def test_astype():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -252,7 +253,7 @@ def test_astype():
         tracker,
         mod,
         inputs=[
-            tvm.runtime.tensor(np.random.uniform(size=(8, 10, 15)).astype("float32")),
+            tvm_tirx.runtime.tensor(np.random.uniform(size=(8, 10, 15)).astype("float32")),
         ],
     )
 
@@ -260,8 +261,8 @@ def test_astype():
 def test_mean():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -280,7 +281,7 @@ def test_mean():
         tracker,
         mod,
         inputs=[
-            tvm.runtime.tensor(np.random.uniform(size=(1, 10, 15)).astype("float32")),
+            tvm_tirx.runtime.tensor(np.random.uniform(size=(1, 10, 15)).astype("float32")),
         ],
     )
 
@@ -288,8 +289,8 @@ def test_mean():
 def test_conv2d():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -321,8 +322,8 @@ def test_conv2d():
 def test_max_pool2d():
     remote_obj, tracker = remote()
 
-    def create_model() -> tvm.IRModule:
-        @tvm.script.ir_module
+    def create_model() -> tvm_tirx.IRModule:
+        @tvm_tirx.script.ir_module
         class Module:
             @R.function
             def main(
@@ -347,12 +348,12 @@ def test_max_pool2d():
 
 
 def verify(remote_obj, tracker, mod, inputs):
-    inputs_tvm: list[tvm.runtime.Tensor] = [tvm.runtime.tensor(v) for v in inputs]
+    inputs_tvm: list[tvm_tirx.runtime.Tensor] = [tvm_tirx.runtime.tensor(v) for v in inputs]
     outputs = _build_and_run_network(remote_obj, tracker, mod, inputs_tvm)
     nnapi_out = outputs[0]
     expected_out = outputs[1]
-    tvm.testing.assert_allclose(nnapi_out, expected_out, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(nnapi_out, expected_out, rtol=1e-4, atol=1e-5)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

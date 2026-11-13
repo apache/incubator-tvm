@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_DISTRIBUTED_TRANSFORM_H_
 #define TVM_RELAX_DISTRIBUTED_TRANSFORM_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/transform.h>
 #include <tvm/relax/dataflow_pattern.h>
 #include <tvm/relax/expr.h>

@@ -52,13 +52,15 @@ DRef BcastSessionObj::GetGlobalFunc(const std::string& name) {
   return BcastSessionObj::Internal::MakeDRef(reg_id, ffi::GetRef<Session>(this));
 }
 
-void BcastSessionObj::CopyFromWorker0(const Tensor& host_array, const DRef& remote_array) {
+void BcastSessionObj::CopyFromWorker0(const ffi::Tensor& host_array, const DRef& remote_array) {
+  TVM_FFI_ICHECK(host_array.defined());
   this->AppendHostTensor(host_array);
   BcastSessionObj::Internal::BroadcastUnpacked(this, DiscoAction::kCopyFromWorker0,
                                                remote_array->reg_id);
 }
 
-void BcastSessionObj::CopyToWorker0(const Tensor& host_array, const DRef& remote_array) {
+void BcastSessionObj::CopyToWorker0(const ffi::Tensor& host_array, const DRef& remote_array) {
+  TVM_FFI_ICHECK(host_array.defined());
   this->AppendHostTensor(host_array);
   BcastSessionObj::Internal::BroadcastUnpacked(this, DiscoAction::kCopyToWorker0,
                                                remote_array->reg_id);
@@ -116,7 +118,8 @@ int BcastSessionObj::AllocateReg() {
   return reg_id;
 }
 
-void BcastSessionObj::AppendHostTensor(const Tensor& host_array) {
+void BcastSessionObj::AppendHostTensor(const ffi::Tensor& host_array) {
+  TVM_FFI_ICHECK(host_array.defined());
   std::lock_guard<std::mutex> lock(worker_zero_data_.queue_mutex_);
   worker_zero_data_.host_arrays.push(host_array);
 }

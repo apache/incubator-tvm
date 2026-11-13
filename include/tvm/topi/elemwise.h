@@ -24,10 +24,10 @@
 #ifndef TVM_TOPI_ELEMWISE_H_
 #define TVM_TOPI_ELEMWISE_H_
 
-#include <tvm/ir/prim/builtin.h>
 #include <tvm/ir/prim/expr.h>
-#include <tvm/tirx/builtin.h>
-#include <tvm/tirx/op.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/tirx/op/math.h>
+#include <tvm/tirx/op/memory.h>
 #include <tvm/topi/tags.h>
 
 #include <algorithm>
@@ -52,10 +52,10 @@ TOPI_DECLARE_UNARY_OP(erf, ::tvm::prim::erf);
 TOPI_DECLARE_UNARY_OP(sigmoid, ::tvm::prim::sigmoid);
 TOPI_DECLARE_UNARY_OP(sqrt, ::tvm::prim::sqrt);
 TOPI_DECLARE_UNARY_OP(log, ::tvm::prim::log);
-TOPI_DECLARE_UNARY_OP(log2, ::tvm::log2);
+TOPI_DECLARE_UNARY_OP(log2, ::tvm::prim::log2);
 TOPI_DECLARE_UNARY_OP(log10, ::tvm::prim::log10);
 TOPI_DECLARE_UNARY_OP(floor, ::tvm::prim::floor);
-TOPI_DECLARE_UNARY_OP(ceil, ::tvm::ceil);
+TOPI_DECLARE_UNARY_OP(ceil, ::tvm::prim::ceil);
 TOPI_DECLARE_UNARY_OP(round, ::tvm::prim::round);
 TOPI_DECLARE_UNARY_OP(trunc, ::tvm::prim::trunc);
 TOPI_DECLARE_UNARY_OP(abs, ::tvm::prim::abs);
@@ -261,8 +261,8 @@ inline Tensor clip(const Tensor& x, const PrimExpr& a_min, const PrimExpr& a_max
       x->shape,
       [&](const ffi::Array<PrimVar>& i) {
         PrimType x_type(x->GetDataType());
-        auto min_val = tvm::prim::cast(x_type, a_min);
-        auto max_val = tvm::prim::cast(x_type, a_max);
+        auto min_val = tvm::prim::cast(a_min, x_type);
+        auto max_val = tvm::prim::cast(a_max, x_type);
         return tvm::max(tvm::min(x(i), max_val), min_val);  // NOLINT(*)
       },
       name, tag);
@@ -303,7 +303,7 @@ inline Tensor cast(const Tensor& x, PrimType type, std::string name = "T_cast",
           }
         }
 
-        return tvm::prim::cast(type, x(i));
+        return tvm::prim::cast(x(i), type);
       },
       name, tag);
 }
@@ -329,7 +329,7 @@ inline Tensor reinterpret(const Tensor& x, DLDataType type, std::string name = "
 inline Tensor reinterpret(const Tensor& x, PrimType type, std::string name = "tensor",
                           std::string tag = kElementWise) {
   return compute(
-      x->shape, [&](const ffi::Array<PrimVar>& i) { return prim::reinterpret(type, x(i)); }, name,
+      x->shape, [&](const ffi::Array<PrimVar>& i) { return tirx::reinterpret(type, x(i)); }, name,
       tag);
 }
 
@@ -378,7 +378,7 @@ inline Tensor full(const ffi::Array<PrimExpr>& shape, DLDataType dtype, const Pr
 
 inline Tensor full(const ffi::Array<PrimExpr>& shape, PrimType dtype, const PrimExpr fill_value,
                    std::string name = "T_full", std::string tag = kElementWise) {
-  PrimExpr ev = prim::cast(dtype, fill_value);
+  PrimExpr ev = prim::cast(fill_value, dtype);
   if (!ev.defined()) {
     LOG(ERROR) << "Can't cast fill_value to " << dtype;
   }
@@ -398,7 +398,7 @@ inline Tensor full(const ffi::Array<PrimExpr>& shape, PrimType dtype, const Prim
  */
 inline Tensor full_like(const Tensor& x, const PrimExpr fill_value,
                         std::string name = "T_full_like", std::string tag = kElementWise) {
-  PrimExpr ev = prim::cast(x->GetDataType(), fill_value);
+  PrimExpr ev = prim::cast(fill_value, x->GetDataType());
   return compute(x->shape, [&](const ffi::Array<PrimVar>& i) { return ev; }, name, tag);
 }
 
@@ -448,8 +448,8 @@ inline Tensor fast_exp_float32(const Tensor& _x, std::string name, std::string t
         auto y =
             (((((p[0] * f + p[1]) * f + p[2]) * f + p[3]) * f + p[4]) * f + p[5]) * f * f + f + one;
         // Return 2^m * exp(r).
-        auto ef = tvm::prim::reinterpret(PrimType::Float(32),
-                                         ::tvm::prim::cast(PrimType::Int(32), n + b) << 23);
+        auto ef = tvm::tirx::reinterpret(PrimType::Float(32),
+                                         ::tvm::prim::cast(n + b, PrimType::Int(32)) << 23);
         return ::tvm::max(ef * y, _x(i));  // NOLINT(*)
       },
       name, tag);
@@ -482,8 +482,9 @@ inline Tensor fast_exp(const Tensor& x, std::string name = "T_fast_exp",
 inline Tensor fast_erf_float32(const Tensor& data, std::string name, std::string tag) {
   using namespace tvm::prim;
   return compute(
-      data->shape, [&](const ffi::Array<PrimVar>& i) { return fast_erf_float_expr(data(i), 32); },
-      name, tag);
+      data->shape,
+      [&](const ffi::Array<PrimVar>& i) { return tirx::fast_erf_float_expr(data(i), 32); }, name,
+      tag);
 }
 
 /*!
@@ -492,8 +493,9 @@ inline Tensor fast_erf_float32(const Tensor& data, std::string name, std::string
 inline Tensor fast_erf_float16(const Tensor& data, std::string name, std::string tag) {
   using namespace tvm::prim;
   return compute(
-      data->shape, [&](const ffi::Array<PrimVar>& i) { return fast_erf_float_expr(data(i), 16); },
-      name, tag);
+      data->shape,
+      [&](const ffi::Array<PrimVar>& i) { return tirx::fast_erf_float_expr(data(i), 16); }, name,
+      tag);
 }
 
 /*!

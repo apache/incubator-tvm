@@ -18,21 +18,21 @@
 
 import tvm_ffi
 
-import tvm
-import tvm.script
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
+from tvm.relax import script as R
 from tvm.relax import transform
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def _check_equal(x, y):
-    tvm.ir.assert_structural_equal(x, y)
-    tvm.ir.assert_structural_equal(y, x)
+    tvm_tirx.ir.assert_structural_equal(x, y)
+    tvm_tirx.ir.assert_structural_equal(y, x)
 
     xhash = tvm_ffi.structural_hash(x, map_free_vars=True)
     yhash = tvm_ffi.structural_hash(y, map_free_vars=True)
@@ -40,7 +40,7 @@ def _check_equal(x, y):
 
 
 def _check_save_roundtrip(x):
-    y = tvm.ir.load_json(tvm.ir.save_json(x))
+    y = tvm_tirx.ir.load_json(tvm_tirx.ir.save_json(x))
     _check_equal(x, y)
 
 
@@ -119,11 +119,11 @@ def test_input_module_is_unmodified():
             return res
 
     before = Before
-    copy_of_before = tvm.ir.load_json(tvm.ir.save_json(before))
+    copy_of_before = tvm_tirx.ir.load_json(tvm_tirx.ir.save_json(before))
 
     transform.LambdaLift()(before)
 
-    tvm.ir.assert_structural_equal(before, copy_of_before)
+    tvm_tirx.ir.assert_structural_equal(before, copy_of_before)
 
 
 def test_closure():
@@ -239,7 +239,7 @@ def test_recursive():
     before = Before
     expected = Expected
     # check well-formness of recursive call
-    relax.analysis.well_formed(before)
+    relax.analysis.check_well_formed(before)
 
     # Perform Lambda Lifting
     after = transform.LambdaLift()(before)
@@ -330,11 +330,11 @@ def test_multi_func():
 def test_no_local_func():
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def sub(
-            A: T.Buffer((16, 16), "float32"),
-            B: T.Buffer((16, 16), "float32"),
-            C: T.Buffer((16, 16), "float32"),
+            A: T.Tensor((16, 16), "float32"),
+            B: T.Tensor((16, 16), "float32"),
+            C: T.Tensor((16, 16), "float32"),
         ) -> None:
             for i, j in T.grid(16, 16):
                 with Ts.sblock("sub"):
@@ -343,7 +343,7 @@ def test_no_local_func():
 
         @R.function
         def before(c0: R.Tensor((16, 16), "float32"), x: R.Tensor(dtype="float32", ndim=2)):
-            s = R.call_tir(Before.sub, (c0, x), R.Tensor((16, 16), dtype="float32"))
+            s = R.call_tir(Before.sub, (c0, x), ty_args=[R.Tensor((16, 16), dtype="float32")])
             return s
 
     before = Before
@@ -359,7 +359,7 @@ def test_impure_function():
     class Expected:
         @R.function(pure=False, private=True)
         def main_inner() -> R.Tuple:
-            y = R.print(format="Wow!")
+            y = R.print("Wow!")
             return y
 
         @R.function(pure=False)
@@ -373,7 +373,7 @@ def test_impure_function():
         def main(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
             @R.function(pure=False)
             def inner() -> R.Tuple:
-                y = R.print(format="Wow!")
+                y = R.print("Wow!")
                 return y
 
             gv1 = inner()
@@ -413,7 +413,7 @@ def test_lambda_function_with_same_name_as_global():
 
         @R.function
         def main_inner():
-            return R.tuple()
+            return ()
 
     @I.ir_module
     class Expected:
@@ -433,15 +433,15 @@ def test_lambda_function_with_same_name_as_global():
 
         @R.function
         def main_inner():
-            return R.tuple()
+            return ()
 
     after = transform.LambdaLift()(Before)
     assert_structural_equal(Expected, after)
 
 
 def test_symbolic_variable_defined_by_inner_func():
-    n = T.dynamic("n")
-    m = T.dynamic("m")
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -457,8 +457,8 @@ def test_symbolic_variable_defined_by_inner_func():
             sum_main = inner(x1, y1)
             return sum_main
 
-    n = T.dynamic("n")
-    m = T.dynamic("m")
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Expected:
@@ -481,8 +481,8 @@ def test_symbolic_variable_defined_by_inner_func():
 
 
 def test_runtime_symbolic_variable_defined_by_inner_func():
-    n_from_param = T.dynamic("n")
-    n_from_match_cast = T.dynamic("n")
+    n_from_param = T.dynamic("n", "int64")
+    n_from_match_cast = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -505,13 +505,13 @@ def test_runtime_symbolic_variable_defined_by_inner_func():
 
     After = transform.LambdaLift()(Before)
 
-    assert relax.analysis.check_well_formed(After)
+    relax.analysis.check_well_formed(After)
     assert "R.make_closure" not in After.script()
 
 
 def test_symbolic_variable_defined_by_outer_func():
-    n = T.dynamic("n")
-    m = T.dynamic("m")
+    n = T.dynamic("n", "int64")
+    m = T.dynamic("m", "int64")
 
     @I.ir_module
     class Before:
@@ -527,10 +527,10 @@ def test_symbolic_variable_defined_by_outer_func():
             sum_main = inner(x1, y1)
             return sum_main
 
-    n_main = T.dynamic("n")
-    m_main = T.dynamic("m")
-    n_main_inner = T.dynamic("n")
-    m_main_inner = T.dynamic("m")
+    n_main = T.dynamic("n", "int64")
+    m_main = T.dynamic("m", "int64")
+    n_main_inner = T.dynamic("n", "int64")
+    m_main_inner = T.dynamic("m", "int64")
 
     @I.ir_module
     class Expected:
@@ -554,4 +554,4 @@ def test_symbolic_variable_defined_by_outer_func():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

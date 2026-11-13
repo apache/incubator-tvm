@@ -55,6 +55,7 @@ from torch import nn
 from torch.export import export
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend.torch import from_exported_program
 
@@ -191,13 +192,13 @@ def convert_sigmoid(node: torch.fx.Node, importer: ExportedProgramImporter) -> r
 
 mod_compiled = relax.get_pipeline("zero")(mod)
 exec_module = tvm.compile(mod_compiled, target="llvm")
-dev = tvm.cpu()
+dev = tvm_tirx.cpu()
 vm = relax.VirtualMachine(exec_module, dev)
 
 # Run inference
 input_data = np.random.rand(1, 3, 32, 32).astype("float32")
-tvm_input = tvm.runtime.tensor(input_data, dev)
-tvm_params = [tvm.runtime.tensor(p, dev) for p in params["main"]]
+tvm_input = tvm_tirx.runtime.tensor(input_data, dev)
+tvm_params = [tvm_tirx.runtime.tensor(p, dev) for p in params["main"]]
 tvm_out = vm["main"](tvm_input, *tvm_params).numpy()
 
 # Compare with PyTorch

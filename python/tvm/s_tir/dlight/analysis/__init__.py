@@ -24,7 +24,7 @@ from .common_analysis import (
     collect_vars_used_in_prim_expr,
     detect_dominant_read,
     is_broadcast_epilogue,
-    normalize_prim_func,
+    normalize_function,
     get_root_block,
     get_sblock_info,
     get_max_shared_memory_per_block,

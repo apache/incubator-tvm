@@ -74,7 +74,8 @@ $ANDROID_HOME/platform-tools/adb uninstall org.apache.tvm.tvmrpc
 
 ### Build with OpenCL
 
-Application is building with OpenCL support by default.
+Application is building with OpenCL support by default. Set `OPENCL_SDK` to an
+OpenCL SDK containing `include/CL/cl.h` before invoking the Android build.
 [OpenCL-wrapper](../../src/runtime/opencl/opencl_wrapper) is used and will dynamically load OpenCL library on the device.
 If the device doesn't have OpenCL library on it, then you'll see in the runtime that OpenCL library cannot be opened.
 If you want to build this application without OpenCL then set `USE_OPENCL = 0`
@@ -131,7 +132,7 @@ Then checkout [android\_rpc/tests/android\_rpc\_test.py](https://github.com/apac
 export TVM_TRACKER_HOST=0.0.0.0
 export TVM_TRACKER_PORT=[PORT]
 # Specify the standalone Android C++ compiler
-export TVM_NDK_CC=/opt/android-toolchain-arm64/bin/aarch64-linux-android-g++
+export TVM_TIRX_NDK_CC=/opt/android-toolchain-arm64/bin/aarch64-linux-android-g++
 python android_rpc_test.py
 ```
 

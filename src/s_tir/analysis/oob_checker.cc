@@ -22,9 +22,9 @@
  */
 
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/s_tir/stmt_functor_with_constraint_context.h>
 #include <tvm/tirx/transform.h>
 
-#include "../../s_tir/ir/ir_visitor_with_analyzer.h"
 #include "../schedule/error.h"
 
 namespace tvm {
@@ -32,7 +32,7 @@ namespace s_tir {
 using namespace tvm::tirx;
 namespace transform {
 struct OOBLocation {
-  BufferVar buf;
+  TensorVar tensor;
   size_t dimension;
   ffi::ObjectRef index;
   sym::IntSet index_bounds;
@@ -47,7 +47,7 @@ class OOBError : public s_tir::ScheduleErrorContextObj {
   ffi::String DetailRenderTemplate() const final {
     std::stringstream s;
     for (const auto& oob : locations_) {
-      s << "Out of bounds memory access on buffer " << oob.buf.name() << " dimension "
+      s << "Out of bounds memory access on tensor " << oob.tensor->name << " dimension "
         << oob.dimension << ".";
       s << " index " << oob.index << " with bounds [" << oob.index_bounds.min() << ", "
         << oob.index_bounds.max() << "] is outside the range [0, " << oob.shape_bounds.min()
@@ -69,30 +69,30 @@ class OOBError : public s_tir::ScheduleErrorContextObj {
   IRModule mod_;
   std::vector<OOBLocation> locations_;
 };
-class OOBCheckerVisitor final : public s_tir::IRVisitorWithAnalyzer {
+class OOBCheckerVisitor final : public s_tir::StmtExprVisitorWithConstraintContext {
  public:
-  using s_tir::IRVisitorWithAnalyzer::Visit_;
+  using s_tir::StmtExprVisitorWithConstraintContext::Visit_;
 
-  ffi::Optional<VisitInterrupt> Visit_(const BufferStoreNode* node) final {
-    for (size_t i = 0; i < node->buffer->shape.size(); i++) {
-      CheckBounds(node, node->buffer, i);
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* node) final {
+    for (size_t i = 0; i < node->dest.as_or_throw<TensorVar>().shape().size(); i++) {
+      CheckBounds(node, node->dest.as_or_throw<TensorVar>(), i);
     }
-    return IRVisitorWithAnalyzer::Visit_(node);
+    return StmtExprVisitorWithConstraintContext::Visit_(node);
   }
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* node) final {
-    BufferVar buffer = node->source.as_or_throw<tvm::tirx::BufferVar>();
-    for (size_t i = 0; i < buffer->shape.size(); i++) {
-      CheckBounds(node, buffer, i);
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* node) final {
+    TensorVar tensor = node->source.as_or_throw<tvm::tirx::TensorVar>();
+    for (size_t i = 0; i < tensor.shape().size(); i++) {
+      CheckBounds(node, tensor, i);
     }
-    return IRVisitorWithAnalyzer::Visit_(node);
+    return StmtExprVisitorWithConstraintContext::Visit_(node);
   }
 
   template <class T>
-  void CheckBounds(const T* node, const BufferVar& buffer, size_t i) {
-    auto ind_bounds = analyzer_->int_set(node->indices[i]);
-    auto shape_bounds = analyzer_->int_set(buffer->shape[i]);
+  void CheckBounds(const T* node, const TensorVar& tensor, size_t i) {
+    auto ind_bounds = GetSyncedAnalyzer()->int_set(node->indices[i]);
+    auto shape_bounds = GetSyncedAnalyzer()->int_set(tensor.shape()[i]);
     // We would expect that
-    // `analyzer_.CanProve(node->indices[i] < 0 || node->indices[i] >= node->buffer->shape[i])`
+    // `analyzer_.CanProve(node->indices[i] < 0 || node->indices[i] >= tensor->shape[i])`
     // would be the way to check if any out of bounds access occurs here, but `CanProve` checks if
     // the statement is true for all possible values (universal quantification). For a mix of in
     // bounds and out of bounds access, no out of bounds access would be reported. We instead want
@@ -102,9 +102,9 @@ class OOBCheckerVisitor final : public s_tir::IRVisitorWithAnalyzer {
     // has the problem that some valid access patterns maybe be valid but not provably valid. We
     // prefer that this analysis is conservative and only shows errors that are provable. This leads
     // us to the following check: are the bounds of the index outside the bounds of the shape.
-    if (analyzer_->CanProve(ind_bounds.max() >= shape_bounds.min()) ||
-        analyzer_->CanProve(ind_bounds.min() < 0)) {
-      errors.push_back({buffer, i, node->indices[i], ind_bounds, shape_bounds});
+    if (GetSyncedAnalyzer()->CanProve(ind_bounds.max() >= shape_bounds.min()) ||
+        GetSyncedAnalyzer()->CanProve(ind_bounds.min() < 0)) {
+      errors.push_back({tensor, i, node->indices[i], ind_bounds, shape_bounds});
     }
   }
 
@@ -112,7 +112,7 @@ class OOBCheckerVisitor final : public s_tir::IRVisitorWithAnalyzer {
 };
 
 tvm::transform::Pass OOBChecker() {
-  auto pass_func = [=](tirx::PrimFunc func, IRModule mod, tvm::transform::PassContext ctx) {
+  auto pass_func = [=](tirx::Function func, IRModule mod, tvm::transform::PassContext ctx) {
     auto checker = ffi::make_object<OOBCheckerVisitor>();
     checker->Visit(func->body);
     if (checker->errors.size() > 0) {
@@ -123,7 +123,7 @@ tvm::transform::Pass OOBChecker() {
     }
     return func;
   };
-  return tirx::transform::CreatePrimFuncPass(pass_func, 0, "s_tir.analysis.OOBChecker", {});
+  return tirx::transform::CreateFunctionPass(pass_func, 0, "s_tir.analysis.OOBChecker");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

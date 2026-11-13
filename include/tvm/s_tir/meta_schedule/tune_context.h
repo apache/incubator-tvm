@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_TUNE_CONTEXT_H_
 #define TVM_S_TIR_META_SCHEDULE_TUNE_CONTEXT_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/container/map.h>
 #include <tvm/ffi/function.h>
@@ -39,12 +40,12 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class TaskSchedulerNode;
+class TaskSchedulerObj;
 class MeasureCallback;
 class TuneContext;
 
 /*! \brief The auto tuning context. */
-class TuneContextNode : public ffi::Object {
+class TuneContextObj : public ffi::Object {
  public:
   using TRandState = LinearCongruentialEngine::TRandState;
 
@@ -67,14 +68,14 @@ class TuneContextNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TuneContextNode>()
-        .def_ro("mod", &TuneContextNode::mod)
-        .def_ro("target", &TuneContextNode::target)
-        .def_ro("space_generator", &TuneContextNode::space_generator)
-        .def_ro("search_strategy", &TuneContextNode::search_strategy)
-        .def_ro("task_name", &TuneContextNode::task_name)
-        .def_ro("num_threads", &TuneContextNode::num_threads)
-        .def_ro("rand_state", &TuneContextNode::rand_state);
+    refl::ObjectDef<TuneContextObj>()
+        .def_ro("mod", &TuneContextObj::mod)
+        .def_ro("target", &TuneContextObj::target)
+        .def_ro("space_generator", &TuneContextObj::space_generator)
+        .def_ro("search_strategy", &TuneContextObj::search_strategy)
+        .def_ro("task_name", &TuneContextObj::task_name)
+        .def_ro("num_threads", &TuneContextObj::num_threads)
+        .def_ro("rand_state", &TuneContextObj::rand_state);
     // `logger` is not registered
   }
 
@@ -89,22 +90,21 @@ class TuneContextNode : public ffi::Object {
   TuneContext Clone() const;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TuneContext", TuneContextNode,
-                                    ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TuneContext", TuneContextObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to TuneContextNode.
- * \sa TuneContextNode
+ * \brief Managed reference to TuneContextObj.
+ * \sa TuneContextObj
  */
 class TuneContext : public ffi::ObjectRef {
  public:
   using TRandState = LinearCongruentialEngine::TRandState;
   /*!
-   * \brief Constructor from ffi::ObjectPtr<TuneContextNode>.
+   * \brief Constructor from ffi::ObjectPtr<TuneContextObj>.
    * \param data The object pointer.
    */
-  explicit TuneContext(ffi::ObjectPtr<TuneContextNode> data) : ffi::ObjectRef(data) {
+  explicit TuneContext(ffi::ObjectPtr<TuneContextObj> data) : ffi::ObjectRef(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   /*!
@@ -123,7 +123,7 @@ class TuneContext : public ffi::ObjectRef {
                                ffi::Optional<SearchStrategy> search_strategy,
                                ffi::Optional<ffi::String> task_name, int num_threads,
                                TRandState rand_state, ffi::Function logger);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuneContext, ffi::ObjectRef, TuneContextNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TuneContext, ffi::ObjectRef, TuneContextObj);
 };
 
 }  // namespace meta_schedule

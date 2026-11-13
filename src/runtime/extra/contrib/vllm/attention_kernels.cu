@@ -757,13 +757,44 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef().def(
       "tvm.contrib.vllm.single_query_cached_kv_attention",
-      [](Tensor query, Tensor key_cache, Tensor value_cache, Tensor block_tables,
-         Tensor context_lens, int block_size,
-         Tensor max_context_len_tensor,  // TODO(masahi): pass integer
-         Tensor exp_sums, Tensor max_logits, Tensor tmp_out, Tensor out) {
-        int num_seqs = query->shape[0];
-        int num_heads = query->shape[1];
-        int max_context_len = static_cast<int*>(max_context_len_tensor->data)[0];
+      [](ffi::Tensor query, ffi::Tensor key_cache, ffi::Tensor value_cache,
+         ffi::Tensor block_tables, ffi::Tensor context_lens, int block_size,
+         ffi::Tensor max_context_len_tensor,  // TODO(masahi): pass integer
+         ffi::Tensor exp_sums, ffi::Tensor max_logits, ffi::Tensor tmp_out, ffi::Tensor out) {
+        TVM_FFI_ICHECK(query.defined());
+        TVM_FFI_ICHECK(query.IsContiguous());
+        TVM_FFI_ICHECK(query.numel() == 0 || query.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(key_cache.defined());
+        TVM_FFI_ICHECK(key_cache.IsContiguous());
+        TVM_FFI_ICHECK(key_cache.numel() == 0 || key_cache.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(value_cache.defined());
+        TVM_FFI_ICHECK(value_cache.IsContiguous());
+        TVM_FFI_ICHECK(value_cache.numel() == 0 || value_cache.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(block_tables.defined());
+        TVM_FFI_ICHECK(block_tables.IsContiguous());
+        TVM_FFI_ICHECK(block_tables.numel() == 0 || block_tables.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(context_lens.defined());
+        TVM_FFI_ICHECK(context_lens.IsContiguous());
+        TVM_FFI_ICHECK(context_lens.numel() == 0 || context_lens.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(max_context_len_tensor.defined());
+        TVM_FFI_ICHECK(max_context_len_tensor.IsContiguous());
+        TVM_FFI_ICHECK(max_context_len_tensor.numel() == 0 ||
+                       max_context_len_tensor.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(exp_sums.defined());
+        TVM_FFI_ICHECK(exp_sums.IsContiguous());
+        TVM_FFI_ICHECK(exp_sums.numel() == 0 || exp_sums.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(max_logits.defined());
+        TVM_FFI_ICHECK(max_logits.IsContiguous());
+        TVM_FFI_ICHECK(max_logits.numel() == 0 || max_logits.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(tmp_out.defined());
+        TVM_FFI_ICHECK(tmp_out.IsContiguous());
+        TVM_FFI_ICHECK(tmp_out.numel() == 0 || tmp_out.IsAligned(kAllocAlignment));
+        TVM_FFI_ICHECK(out.defined());
+        TVM_FFI_ICHECK(out.IsContiguous());
+        TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
+        int num_seqs = query.shape()[0];
+        int num_heads = query.shape()[1];
+        int max_context_len = static_cast<int*>(max_context_len_tensor.data_ptr())[0];
         const int PARTITION_SIZE = 512;
         int max_num_partitions = DIVIDE_ROUND_UP(max_context_len, PARTITION_SIZE);
         bool use_v1 =
@@ -791,8 +822,31 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def("tvm.contrib.vllm.single_query_cached_kv_attention_v1",
-           [](Tensor query, Tensor key_cache, Tensor value_cache, Tensor block_tables,
-              Tensor context_lens, int block_size, Tensor max_context_len_tensor, Tensor out) {
+           [](ffi::Tensor query, ffi::Tensor key_cache, ffi::Tensor value_cache,
+              ffi::Tensor block_tables, ffi::Tensor context_lens, int block_size,
+              ffi::Tensor max_context_len_tensor, ffi::Tensor out) {
+             TVM_FFI_ICHECK(query.defined());
+             TVM_FFI_ICHECK(query.IsContiguous());
+             TVM_FFI_ICHECK(query.numel() == 0 || query.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(key_cache.defined());
+             TVM_FFI_ICHECK(key_cache.IsContiguous());
+             TVM_FFI_ICHECK(key_cache.numel() == 0 || key_cache.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(value_cache.defined());
+             TVM_FFI_ICHECK(value_cache.IsContiguous());
+             TVM_FFI_ICHECK(value_cache.numel() == 0 || value_cache.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(block_tables.defined());
+             TVM_FFI_ICHECK(block_tables.IsContiguous());
+             TVM_FFI_ICHECK(block_tables.numel() == 0 || block_tables.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(context_lens.defined());
+             TVM_FFI_ICHECK(context_lens.IsContiguous());
+             TVM_FFI_ICHECK(context_lens.numel() == 0 || context_lens.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(max_context_len_tensor.defined());
+             TVM_FFI_ICHECK(max_context_len_tensor.IsContiguous());
+             TVM_FFI_ICHECK(max_context_len_tensor.numel() == 0 ||
+                            max_context_len_tensor.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(out.defined());
+             TVM_FFI_ICHECK(out.IsContiguous());
+             TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
              single_query_cached_kv_attention_v1(
                  query.GetDLTensorPtr(), key_cache.GetDLTensorPtr(), value_cache.GetDLTensorPtr(),
                  block_tables.GetDLTensorPtr(), context_lens.GetDLTensorPtr(), block_size,
@@ -800,9 +854,41 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  const_cast<DLTensor*>(out.GetDLTensorPtr()));
            })
       .def("tvm.contrib.vllm.single_query_cached_kv_attention_v2",
-           [](Tensor query, Tensor key_cache, Tensor value_cache, Tensor block_tables,
-              Tensor context_lens, int block_size, Tensor max_context_len_tensor, Tensor exp_sums,
-              Tensor max_logits, Tensor tmp_out, Tensor out) {
+           [](ffi::Tensor query, ffi::Tensor key_cache, ffi::Tensor value_cache,
+              ffi::Tensor block_tables, ffi::Tensor context_lens, int block_size,
+              ffi::Tensor max_context_len_tensor, ffi::Tensor exp_sums, ffi::Tensor max_logits,
+              ffi::Tensor tmp_out, ffi::Tensor out) {
+             TVM_FFI_ICHECK(query.defined());
+             TVM_FFI_ICHECK(query.IsContiguous());
+             TVM_FFI_ICHECK(query.numel() == 0 || query.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(key_cache.defined());
+             TVM_FFI_ICHECK(key_cache.IsContiguous());
+             TVM_FFI_ICHECK(key_cache.numel() == 0 || key_cache.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(value_cache.defined());
+             TVM_FFI_ICHECK(value_cache.IsContiguous());
+             TVM_FFI_ICHECK(value_cache.numel() == 0 || value_cache.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(block_tables.defined());
+             TVM_FFI_ICHECK(block_tables.IsContiguous());
+             TVM_FFI_ICHECK(block_tables.numel() == 0 || block_tables.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(context_lens.defined());
+             TVM_FFI_ICHECK(context_lens.IsContiguous());
+             TVM_FFI_ICHECK(context_lens.numel() == 0 || context_lens.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(max_context_len_tensor.defined());
+             TVM_FFI_ICHECK(max_context_len_tensor.IsContiguous());
+             TVM_FFI_ICHECK(max_context_len_tensor.numel() == 0 ||
+                            max_context_len_tensor.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(exp_sums.defined());
+             TVM_FFI_ICHECK(exp_sums.IsContiguous());
+             TVM_FFI_ICHECK(exp_sums.numel() == 0 || exp_sums.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(max_logits.defined());
+             TVM_FFI_ICHECK(max_logits.IsContiguous());
+             TVM_FFI_ICHECK(max_logits.numel() == 0 || max_logits.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(tmp_out.defined());
+             TVM_FFI_ICHECK(tmp_out.IsContiguous());
+             TVM_FFI_ICHECK(tmp_out.numel() == 0 || tmp_out.IsAligned(kAllocAlignment));
+             TVM_FFI_ICHECK(out.defined());
+             TVM_FFI_ICHECK(out.IsContiguous());
+             TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
              single_query_cached_kv_attention_v2(
                  query.GetDLTensorPtr(), key_cache.GetDLTensorPtr(), value_cache.GetDLTensorPtr(),
                  block_tables.GetDLTensorPtr(), context_lens.GetDLTensorPtr(), block_size,

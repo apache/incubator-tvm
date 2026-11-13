@@ -17,6 +17,7 @@
 """TVM operator flatten compute."""
 
 import tvm
+import tvm_tirx
 from tvm import te
 
 from .. import tag
@@ -41,8 +42,8 @@ def flatten(data):
     for i in range(1, len(ishape)):
         dim = dim * ishape[i]
     oshape = [ishape[0], dim]
-    idxdiv = tvm.tirx.indexdiv
-    idxmod = tvm.tirx.indexmod
+    idxdiv = tvm_tirx.tirx.indexdiv
+    idxmod = tvm_tirx.tirx.indexmod
 
     def unwrap(idx, shape):
         index = []

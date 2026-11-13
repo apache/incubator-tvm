@@ -20,6 +20,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_FEATURE_EXTRACTOR_H_
 #define TVM_S_TIR_META_SCHEDULE_FEATURE_EXTRACTOR_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
@@ -35,14 +36,14 @@ namespace meta_schedule {
 class TuneContext;
 
 /*! \brief Extractor for features from measure candidates for use in cost model. */
-class FeatureExtractorNode : public ffi::Object {
+class FeatureExtractorObj : public ffi::Object {
  public:
   /*! \brief Virtual destructor. */
-  virtual ~FeatureExtractorNode() = default;
+  virtual ~FeatureExtractorObj() = default;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FeatureExtractorNode>();
+    refl::ObjectDef<FeatureExtractorObj>();
   }
 
   /*!
@@ -51,14 +52,14 @@ class FeatureExtractorNode : public ffi::Object {
    * \param candidates The measure candidates to extract features from.
    * \return The feature tensor extracted.
    */
-  virtual ffi::Array<tvm::runtime::Tensor> ExtractFrom(
+  virtual ffi::Array<tvm::ffi::Tensor> ExtractFrom(
       const TuneContext& context, const ffi::Array<MeasureCandidate>& candidates) = 0;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.FeatureExtractor", FeatureExtractorNode,
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.FeatureExtractor", FeatureExtractorObj,
                               ffi::Object);
 };
 
 /*! \brief The feature extractor with customized methods on the python-side. */
-class PyFeatureExtractorNode : public FeatureExtractorNode {
+class PyFeatureExtractorObj : public FeatureExtractorObj {
  public:
   /*!
    * \brief Extract features from the given measure candidate.
@@ -66,7 +67,7 @@ class PyFeatureExtractorNode : public FeatureExtractorNode {
    * \param candidates The measure candidates to extract features from.
    * \return The feature tensor extracted.
    */
-  using FExtractFrom = ffi::TypedFunction<ffi::Array<tvm::runtime::Tensor>(
+  using FExtractFrom = ffi::TypedFunction<ffi::Array<tvm::ffi::Tensor>(
       const TuneContext& context, const ffi::Array<MeasureCandidate>& candidates)>;
   /*! \brief The packed function to the `ExtractFrom` function. */
   FExtractFrom f_extract_from;
@@ -74,24 +75,29 @@ class PyFeatureExtractorNode : public FeatureExtractorNode {
   static void RegisterReflection() {
     // `f_extract_from` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyFeatureExtractorNode>();
+    refl::ObjectDef<PyFeatureExtractorObj>();
   }
 
-  ffi::Array<tvm::runtime::Tensor> ExtractFrom(
-      const TuneContext& context, const ffi::Array<MeasureCandidate>& candidates) final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyFeatureExtractor",
-                                    PyFeatureExtractorNode, FeatureExtractorNode);
+  ffi::Array<tvm::ffi::Tensor> ExtractFrom(const TuneContext& context,
+                                           const ffi::Array<MeasureCandidate>& candidates) final;
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyFeatureExtractor", PyFeatureExtractorObj,
+                                    FeatureExtractorObj);
 };
 
 /*!
- * \brief Managed reference to FeatureExtractorNode
- * \sa FeatureExtractorNode
+ * \brief Managed reference to FeatureExtractorObj
+ * \sa FeatureExtractorObj
  */
 class FeatureExtractor : public ffi::ObjectRef {
  public:
+  explicit FeatureExtractor(ffi::UnsafeInit tag, ffi::ObjectPtr<FeatureExtractorObj> data)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
-   * \brief Create a feature extractor that extracts features from each BufferStore
-   * \param buffers_per_store The number of buffers in each BufferStore; Pad or truncate if
+   * \brief Create a feature extractor that extracts features from each TensorStore
+   * \param tensors_per_store The number of tensors in each TensorStore; Pad or truncate if
    * necessary.
    * \param arith_intensity_curve_num_samples The number of samples used in the arithmetic intensity
    * curve.
@@ -99,7 +105,7 @@ class FeatureExtractor : public ffi::ObjectRef {
    * \param extract_workload Whether to extract features in the workload in tuning context or not.
    * \return The feature extractor created.
    */
-  TVM_DLL static FeatureExtractor PerStoreFeature(int buffers_per_store = 5,
+  TVM_DLL static FeatureExtractor PerStoreFeature(int tensors_per_store = 5,
                                                   int arith_intensity_curve_num_samples = 10,
                                                   int cache_line_bytes = 64,
                                                   bool extract_workload = false);
@@ -109,9 +115,9 @@ class FeatureExtractor : public ffi::ObjectRef {
    * \return The feature extractor created.
    */
   TVM_DLL static FeatureExtractor PyFeatureExtractor(
-      PyFeatureExtractorNode::FExtractFrom f_extract_from);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(FeatureExtractor, ffi::ObjectRef,
-                                             FeatureExtractorNode);
+      PyFeatureExtractorObj::FExtractFrom f_extract_from);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FeatureExtractor, ffi::ObjectRef,
+                                                FeatureExtractorObj);
 };
 
 }  // namespace meta_schedule

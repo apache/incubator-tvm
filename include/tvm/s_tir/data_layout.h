@@ -25,9 +25,12 @@
 #ifndef TVM_S_TIR_DATA_LAYOUT_H_
 #define TVM_S_TIR_DATA_LAYOUT_H_
 
+#include <tvm/base.h>
+#include <tvm/ffi/optional.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
-#include <tvm/tirx/op.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/s_tir/iter_var.h>
 
 #include <algorithm>
 #include <sstream>
@@ -35,7 +38,7 @@
 #include <utility>
 #include <vector>
 
-#include "tvm/tirx/var.h"
+#include "tvm/ir/expr.h"
 
 namespace tvm {
 namespace tirx {
@@ -47,7 +50,7 @@ class SLayoutAxis {
   static const SLayoutAxis& Get(const char name);
 
   // Get the singleton SLayoutAxis using itvar->var->name
-  static const SLayoutAxis& Get(const tirx::IterVar& itvar);
+  static const SLayoutAxis& Get(const s_tir::IterVar& itvar);
 
   // Get the singleton SLayoutAxis using name[0] (size of name must be 1).
   static const SLayoutAxis& Get(const std::string& name);
@@ -98,34 +101,34 @@ class SLayoutAxis {
  *  Here subordinate axis channel_block=16 is the factor size of the primal axis C (channel).
  *  SLayout for scalar is defined, while both its name and axes have size 0.
  */
-class SLayoutNode : public ffi::Object {
+class SLayoutObj : public ffi::Object {
  public:
   /*! \brief string representation of layout, "" for scalar. */
   ffi::String name;
   /*! \brief specify each axis of the layout,
    *   in which the variable name is the name of the axis.
-   *   The IterVar's extent indicates the size of the axis,
+   *   The s_tir::IterVar's extent indicates the size of the axis,
    *   it is a variable for a primal axis, but a constant for a subordinate axis.
    *   Empty for scalar's layout.
    */
-  ffi::Array<tirx::IterVar> axes;
+  ffi::Array<s_tir::IterVar> axes;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SLayoutNode>()
-        .def_ro("name", &SLayoutNode::name)
-        .def_ro("axes", &SLayoutNode::axes);
+    refl::ObjectDef<SLayoutObj>()
+        .def_ro("name", &SLayoutObj::name)
+        .def_ro("axes", &SLayoutObj::axes);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SLayout", SLayoutNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SLayout", SLayoutObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to SLayoutNode
- * \sa SLayoutNode
+ * \brief Managed reference to SLayoutObj
+ * \sa SLayoutObj
  */
 class SLayout : public ffi::ObjectRef {
  public:
-  explicit SLayout(const ffi::Array<tirx::IterVar>& axes);
+  explicit SLayout(const ffi::Array<s_tir::IterVar>& axes);
 
   /*! \brief construct from a string */
   SLayout(const tvm::ffi::String& name) : SLayout(name.operator std::string()) {}  // NOLINT(*)
@@ -139,42 +142,41 @@ class SLayout : public ffi::ObjectRef {
    *        upper case indicates a dimension and
    *        the corresponding lower case with factor size
    *        indicates the split dimension.
-   *        return undefined layout if "__undef__" is passed.
+   *        "__undef__" is reserved for an absent Optional<SLayout>.
    * \param index_ty The type of generated axes vars in the returned layout.
    *        It is required to be integer type.
    */
   TVM_DLL SLayout(const std::string& name, PrimType index_ty = PrimType::Int(32));  // NOLINT(*)
+  TVM_DLL static ffi::Optional<SLayout> Create(const std::string& name,
+                                               PrimType index_ty = PrimType::Int(32));
 
   /*!
    * \brief access the internal node container
    * \return the pointer to the internal node container
    */
-  SLayoutNode* operator->() { return static_cast<SLayoutNode*>(get_mutable()); }
+  SLayoutObj* operator->() { return static_cast<SLayoutObj*>(get_mutable()); }
 
   /*!
    * \brief Return an undefined layout.
-   * \return a (global) undefined layout.
+   * \return an absent layout.
    */
-  static const SLayout& Undef() {
-    static SLayout undef;
-    return undef;
-  }
+  static ffi::Optional<SLayout> Undef() { return std::nullopt; }
 
   /*!
-   * \brief Packs the Given Array of IterVars into a Single IterVar. Each IterVar in the Array
-   *        should represent either a single primal axis or one or more subordinate axis
+   * \brief Packs the Given Array of IterVars into a Single s_tir::IterVar. Each s_tir::IterVar in
+   * the Array should represent either a single primal axis or one or more subordinate axis
    * \param iters Array of iter vars to be packed
    * \return A packed iter var
    */
-  static IterVar PackIterVar(ffi::Array<IterVar> iters);
+  static s_tir::IterVar PackIterVar(ffi::Array<s_tir::IterVar> iters);
 
   /*!
-   * \brief Unpacks a Packed IterVar into its constituents
-   * \param packed_iter A Packed IterVar containing a single primal axis or one or more subordinate
-   *                    axis
+   * \brief Unpacks a Packed s_tir::IterVar into its constituents
+   * \param packed_iter A Packed s_tir::IterVar containing a single primal axis or one or more
+   * subordinate axis
    * \return Constituent IterVars
    */
-  static ffi::Array<IterVar> UnpackIterVar(IterVar packed_iter);
+  static ffi::Array<s_tir::IterVar> UnpackIterVar(s_tir::IterVar packed_iter);
 
   /*!
    * \brief Returns a sub-layout which is the portion of the object
@@ -182,9 +184,9 @@ class SLayout : public ffi::ObjectRef {
    *        (or until the end of the layout, whichever comes first).
    * \param pos The start position.
    * \param len The length of the sub-layout. if 0, return layout of scalar
-   * \return A newly constructed SLayout object.
+   * \return A newly constructed SLayout object, or std::nullopt if pos is out of range.
    */
-  SLayout SubLayout(size_t pos, size_t len) const;
+  ffi::Optional<SLayout> SubLayout(size_t pos, size_t len) const;
 
   /*!
    * \brief Split \p axis by \p size and put the sub-axis to position \p target_pos.
@@ -221,8 +223,7 @@ class SLayout : public ffi::ObjectRef {
    * \param dst_layout The dst layout to which current layout has to be expanded.
    * \return The expanded SLayout.
    */
-  inline SLayout ExpandPrimal(const SLayout& dst_layout) {
-    SLayout new_src_layout;
+  inline ffi::Optional<SLayout> ExpandPrimal(const SLayout& dst_layout) {
     // 1) Find the axis which are missing in the current layout. Make them the prefix.
     std::string new_src_layout_str = "";
     for (auto packed_axis : dst_layout->axes) {
@@ -237,8 +238,7 @@ class SLayout : public ffi::ObjectRef {
     }
     // 2) Now, add the primal axis of the current layout.
     new_src_layout_str += this->name();
-    new_src_layout = SLayout(new_src_layout_str);
-    return new_src_layout;
+    return SLayout::Create(new_src_layout_str);
   }
 
   /*!
@@ -273,7 +273,7 @@ class SLayout : public ffi::ObjectRef {
    * \param iter the input iter var.
    * \return the index or -1 if not found.
    */
-  inline int32_t IndexOf(const tirx::IterVar& iter) const { return IndexOf(iter->var->name); }
+  inline int32_t IndexOf(const s_tir::IterVar& iter) const { return IndexOf(iter->var->name); }
 
   /*!
    * \brief Get the factor size of the subordinate axis.
@@ -291,7 +291,7 @@ class SLayout : public ffi::ObjectRef {
    */
   bool Contains(const SLayoutAxis& axis) const {
     if (!defined()) return false;
-    for (const tirx::IterVar packed_var : operator->()->axes) {
+    for (const s_tir::IterVar packed_var : operator->()->axes) {
       auto iter_vars = UnpackIterVar(packed_var);
       for (auto var : iter_vars) {
         if (var->var->name == axis.name()) {
@@ -306,15 +306,15 @@ class SLayout : public ffi::ObjectRef {
     TVM_FFI_ICHECK(defined()) << "Try to access axis from an undefined layout.";
     int32_t index = i < 0 ? static_cast<int32_t>(ndim() + i) : i;
     TVM_FFI_ICHECK(index >= 0 && static_cast<size_t>(index) < ndim()) << "Invalid index " << i;
-    const tirx::IterVar axis = operator->()->axes[index];
+    const s_tir::IterVar axis = operator->()->axes[index];
     return SLayoutAxis::Get(axis);
   }
 
-  IterVar PackedAxisAt(int32_t i) const {
+  s_tir::IterVar PackedAxisAt(int32_t i) const {
     TVM_FFI_ICHECK(defined()) << "Try to access axis from an undefined layout.";
     int32_t index = i < 0 ? static_cast<int32_t>(ndim() + i) : i;
     TVM_FFI_ICHECK(index >= 0 && static_cast<size_t>(index) < ndim()) << "Invalid index " << i;
-    const tirx::IterVar axis = operator->()->axes[index];
+    const s_tir::IterVar axis = operator->()->axes[index];
     return axis;
   }
 
@@ -342,12 +342,16 @@ class SLayout : public ffi::ObjectRef {
     return os;
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(SLayout, ffi::ObjectRef, SLayoutNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SLayout, ffi::ObjectRef, SLayoutObj);
 };
 
 // Internal node container SBijectiveLayout
-class SBijectiveLayoutNode : public ffi::Object {
+class SBijectiveLayoutObj : public ffi::Object {
  public:
+  explicit SBijectiveLayoutObj(ffi::UnsafeInit tag) : src_layout(tag), dst_layout(tag) {}
+
+  SBijectiveLayoutObj(SLayout src, SLayout dst)
+      : src_layout(std::move(src)), dst_layout(std::move(dst)) {}
   /*! \brief Describes how source axes can be mapped to the destination axes,
    *   e.g., [i0 / 16, i1, i0 % 16] can describe NC -> NC16n
    */
@@ -366,15 +370,15 @@ class SBijectiveLayoutNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBijectiveLayoutNode>()
-        .def_ro("src_layout", &SBijectiveLayoutNode::src_layout)
-        .def_ro("dst_layout", &SBijectiveLayoutNode::dst_layout)
-        .def_ro("index_forward_rule", &SBijectiveLayoutNode::index_forward_rule)
-        .def_ro("index_backward_rule", &SBijectiveLayoutNode::index_backward_rule)
-        .def_ro("shape_forward_rule", &SBijectiveLayoutNode::shape_forward_rule)
-        .def_ro("shape_backward_rule", &SBijectiveLayoutNode::shape_backward_rule);
+    refl::ObjectDef<SBijectiveLayoutObj>()
+        .def_ro("src_layout", &SBijectiveLayoutObj::src_layout)
+        .def_ro("dst_layout", &SBijectiveLayoutObj::dst_layout)
+        .def_ro("index_forward_rule", &SBijectiveLayoutObj::index_forward_rule)
+        .def_ro("index_backward_rule", &SBijectiveLayoutObj::index_backward_rule)
+        .def_ro("shape_forward_rule", &SBijectiveLayoutObj::shape_forward_rule)
+        .def_ro("shape_backward_rule", &SBijectiveLayoutObj::shape_backward_rule);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBijectiveLayout", SBijectiveLayoutNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBijectiveLayout", SBijectiveLayoutObj, ffi::Object);
 };
 
 /*!
@@ -385,12 +389,18 @@ class SBijectiveLayoutNode : public ffi::Object {
  */
 class SBijectiveLayout : public ffi::ObjectRef {
  public:
+  explicit SBijectiveLayout(ffi::UnsafeInit tag, ffi::ObjectPtr<SBijectiveLayoutObj> data)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief The constructor
    * \param src_layout The source layout
    * \param dst_layout The destination layout
    */
   TVM_DLL SBijectiveLayout(SLayout src_layout, SLayout dst_layout);
+  TVM_DLL static ffi::Optional<SBijectiveLayout> Create(SLayout src_layout, SLayout dst_layout);
 
   // Given the source shape, infer the destination shape.
   TVM_DLL ffi::Array<PrimExpr> ForwardShape(const ffi::Array<PrimExpr>& shape) const;
@@ -401,8 +411,8 @@ class SBijectiveLayout : public ffi::ObjectRef {
   // Given the destination indices, recover the source indices.
   TVM_DLL ffi::Array<PrimExpr> BackwardIndex(const ffi::Array<PrimExpr>& dst_index) const;
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(SBijectiveLayout, ffi::ObjectRef,
-                                             SBijectiveLayoutNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBijectiveLayout, ffi::ObjectRef,
+                                                SBijectiveLayoutObj);
 };
 
 }  // namespace tirx

@@ -19,6 +19,7 @@
 """FIFO buffer op"""
 
 import tvm
+import tvm_tirx
 from tvm import te
 
 from .. import tag
@@ -77,7 +78,7 @@ def fifo_buffer(data, buffer, axis):
     if len(buffer.shape) == 1:
         return te.compute(
             buffer.shape,
-            lambda i: tvm.tirx.if_then_else(
+            lambda i: tvm_tirx.tirx.if_then_else(
                 i < buflen - data_size, buffer[i + data_size], data[i - buflen + data_size]
             ),
             name="new_buffer",
@@ -86,7 +87,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 0:
             return te.compute(
                 buffer.shape,
-                lambda i, j: tvm.tirx.if_then_else(
+                lambda i, j: tvm_tirx.tirx.if_then_else(
                     i < buflen - data_size,
                     buffer[i + data_size, j],
                     data[i - buflen + data_size, j],
@@ -96,7 +97,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 1:
             return te.compute(
                 buffer.shape,
-                lambda i, j: tvm.tirx.if_then_else(
+                lambda i, j: tvm_tirx.tirx.if_then_else(
                     j < buflen - data_size,
                     buffer[i, j + data_size],
                     data[i, j - buflen + data_size],
@@ -108,7 +109,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 0:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k: tvm.tirx.if_then_else(
+                lambda i, j, k: tvm_tirx.tirx.if_then_else(
                     i < buflen - data_size,
                     buffer[i + data_size, j, k],
                     data[i - buflen + data_size, j, k],
@@ -118,7 +119,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 1:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k: tvm.tirx.if_then_else(
+                lambda i, j, k: tvm_tirx.tirx.if_then_else(
                     j < buflen - data_size,
                     buffer[i, j + data_size, k],
                     data[i, j - buflen + data_size, k],
@@ -128,7 +129,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 2:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k: tvm.tirx.if_then_else(
+                lambda i, j, k: tvm_tirx.tirx.if_then_else(
                     k < buflen - data_size,
                     buffer[i, j, k + data_size],
                     data[i, j, k - buflen + data_size],
@@ -140,7 +141,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 0:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k, l: tvm.tirx.if_then_else(
+                lambda i, j, k, l: tvm_tirx.tirx.if_then_else(
                     i < buflen - data_size,
                     buffer[i + data_size, j, k, l],
                     data[i - buflen + data_size, j, k, l],
@@ -150,7 +151,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 1:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k, l: tvm.tirx.if_then_else(
+                lambda i, j, k, l: tvm_tirx.tirx.if_then_else(
                     j < buflen - data_size,
                     buffer[i, j + data_size, k, l],
                     data[i, j - buflen + data_size, k, l],
@@ -160,7 +161,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 2:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k, l: tvm.tirx.if_then_else(
+                lambda i, j, k, l: tvm_tirx.tirx.if_then_else(
                     k < buflen - data_size,
                     buffer[i, j, k + data_size, l],
                     data[i, j, k - buflen + data_size, l],
@@ -170,7 +171,7 @@ def fifo_buffer(data, buffer, axis):
         if axis == 3:
             return te.compute(
                 buffer.shape,
-                lambda i, j, k, l: tvm.tirx.if_then_else(
+                lambda i, j, k, l: tvm_tirx.tirx.if_then_else(
                     l < buflen - data_size,
                     buffer[i, j, k, l + data_size],
                     data[i, j, k, l - buflen + data_size],

@@ -18,15 +18,17 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
 import tvm.topi.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+from tvm import relax
 from tvm.relax import VDevice
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
@@ -40,7 +42,7 @@ def test_op_correctness():
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_resize2d_infer_ty():
@@ -462,7 +464,7 @@ def test_affine_grid_wrong_size_ndim():
 def test_affine_grid_e2e(batch, target_h, target_w):
     """End-to-end numerical correctness test: build, run, compare with numpy reference."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class AffineGridModule:
         @R.function
         def main(theta: R.Tensor((batch, 2, 3), "float32")) -> R.Tensor("float32", ndim=4):
@@ -470,20 +472,20 @@ def test_affine_grid_e2e(batch, target_h, target_w):
             return gv
 
     target = "llvm"
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
     exe = tvm.compile(AffineGridModule, target=target)
     vm = relax.VirtualMachine(exe, dev)
 
     theta_np = np.random.uniform(-1, 1, size=(batch, 2, 3)).astype("float32")
-    theta_nd = tvm.runtime.tensor(theta_np, dev)
+    theta_nd = tvm_tirx.runtime.tensor(theta_np, dev)
 
     out_nd = vm["main"](theta_nd)
     out_np = out_nd.numpy()
 
     ref_np = tvm.topi.testing.affine_grid_python(theta_np, (target_h, target_w))
 
-    tvm.testing.assert_allclose(out_np, ref_np, rtol=1e-5, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out_np, ref_np, rtol=1e-5, atol=1e-5)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

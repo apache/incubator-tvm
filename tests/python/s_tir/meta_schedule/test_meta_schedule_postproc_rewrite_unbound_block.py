@@ -18,11 +18,12 @@
 # ruff: noqa: F401
 
 import tvm
-from tvm import tirx
+import tvm_tirx
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _target() -> Target:
@@ -46,11 +47,11 @@ def _create_context(mod, target) -> ms.TuneContext:
 # pylint: disable=no-member,invalid-name,unused-variable,no-self-argument,line-too-long,chained-comparison,not-callable,too-many-nested-blocks
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Before_cooperative_fetch:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A: T.Buffer([512, 512], dtype="float32"), B: T.Buffer([512, 512], dtype="float32")
+        A: T.Tensor([512, 512], dtype="float32"), B: T.Tensor([512, 512], dtype="float32")
     ) -> None:
         for i, j in T.grid(512, 512):
             with Ts.sblock("C"):
@@ -58,25 +59,25 @@ class Before_cooperative_fetch:
                 B[vi, vj] = A[vi, vj] + 1.0
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class After_cooperative_fetch:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A: T.Buffer([512, 512], dtype="float32"), B: T.Buffer([512, 512], dtype="float32")
+        A: T.Tensor([512, 512], dtype="float32"), B: T.Tensor([512, 512], dtype="float32")
     ) -> None:
-        for i_j_fused_0 in T.thread_binding(256, thread="blockIdx.x"):
-            for i_j_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+        for i_j_fused_0 in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+            for i_j_fused_1 in T.parallel(1024, annotations={"thread_binding": "threadIdx.x"}):
                 with Ts.sblock("C"):
                     vi = Ts.axis.spatial(512, (i_j_fused_0 * 1024 + i_j_fused_1) // 512)
                     vj = Ts.axis.spatial(512, (i_j_fused_0 * 1024 + i_j_fused_1) % 512)
                     B[vi, vj] = A[vi, vj] + 1.0
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Before_norm_bmn:
-    @Ts.prim_func
-    def main(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer((1,), "float32")) -> None:
-        C = Ts.sblock_alloc_buffer([1], dtype="float32")
+    @Ts.function
+    def main(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor((1,), "float32")) -> None:
+        C = Ts.sblock_alloc_tensor([1], dtype="float32")
         for i0, i1, i2 in T.grid(1, 256, 256):
             with Ts.sblock("C"):
                 b, i, j = Ts.axis.remap("SRR", [i0, i1, i2])
@@ -86,16 +87,16 @@ class Before_norm_bmn:
         for i0 in T.serial(1):
             with Ts.sblock("D"):
                 b = Ts.axis.S(1, i0)
-                D[b] = T.sqrt(C[b], dtype="float32")
+                D[b] = T.sqrt(C[b])
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class After_norm_bmn:
-    @Ts.prim_func
-    def main(A: T.Buffer((1, 256, 256), "float32"), D: T.Buffer((1,), "float32")) -> None:
-        C = Ts.sblock_alloc_buffer([1], dtype="float32")
-        for i0_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-            for i0_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+    @Ts.function
+    def main(A: T.Tensor((1, 256, 256), "float32"), D: T.Tensor((1,), "float32")) -> None:
+        C = Ts.sblock_alloc_tensor([1], dtype="float32")
+        for i0_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                 for i1, i2 in T.grid(256, 256):
                     with Ts.sblock("C"):
                         b = Ts.axis.S(1, 0)
@@ -103,18 +104,18 @@ class After_norm_bmn:
                         with Ts.init():
                             C[b] = T.float32(0)
                         C[b] = C[b] + A[b, i, j] * A[b, i, j]
-        for i0_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-            for i0_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+        for i0_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                 with Ts.sblock("D"):
                     b = Ts.axis.S(1, 0)
-                    D[b] = T.sqrt(C[b], dtype="float32")
+                    D[b] = T.sqrt(C[b])
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Bert_fused_reshape_transpose_reshape:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((12, 64, 64), "float32"), T_reshape: T.Buffer((64, 768), "float32")
+        placeholder: T.Tensor((12, 64, 64), "float32"), T_reshape: T.Tensor((64, 768), "float32")
     ) -> None:
         for i0_i1_fused_0, i0_i1_fused_1 in T.grid(1536, 32):
             with Ts.sblock("T_reshape_1"):
@@ -129,11 +130,11 @@ class Bert_fused_reshape_transpose_reshape:
                 ]
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Bert_fused_reshape_transpose_reshape_large:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((12, 64, 64), "float32"), T_reshape: T.Buffer((64, 768), "float32")
+        placeholder: T.Tensor((12, 64, 64), "float32"), T_reshape: T.Tensor((64, 768), "float32")
     ) -> None:
         for i0_i1_fused_0, i0_i1_fused_1 in T.grid(1536000, 32):
             with Ts.sblock("T_reshape_1"):
@@ -148,14 +149,18 @@ class Bert_fused_reshape_transpose_reshape_large:
                 ]
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Bert_fused_reshape_transpose_reshape_after_rub:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((12, 64, 64), "float32"), T_reshape: T.Buffer((64, 768), "float32")
+        placeholder: T.Tensor((12, 64, 64), "float32"), T_reshape: T.Tensor((64, 768), "float32")
     ) -> None:
-        for i0_i1_fused_0_i0_i1_fused_1_fused_0 in T.thread_binding(48, thread="blockIdx.x"):
-            for i0_i1_fused_0_i0_i1_fused_1_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+        for i0_i1_fused_0_i0_i1_fused_1_fused_0 in T.parallel(
+            48, annotations={"thread_binding": "blockIdx.x"}
+        ):
+            for i0_i1_fused_0_i0_i1_fused_1_fused_1 in T.parallel(
+                1024, annotations={"thread_binding": "threadIdx.x"}
+            ):
                 with Ts.sblock("T_reshape_1"):
                     ax0 = Ts.axis.spatial(
                         64,
@@ -182,16 +187,20 @@ class Bert_fused_reshape_transpose_reshape_after_rub:
                     ]
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Bert_fused_reshape_transpose_reshape_after_rub_large:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((12, 64, 64), "float32"), T_reshape: T.Buffer((64, 768), "float32")
+        placeholder: T.Tensor((12, 64, 64), "float32"), T_reshape: T.Tensor((64, 768), "float32")
     ) -> None:
         # body
         # with Ts.sblock("root")
-        for i0_i1_fused_0_i0_i1_fused_1_fused_1 in T.thread_binding(256, thread="blockIdx.x"):
-            for i0_i1_fused_0_i0_i1_fused_1_fused_2 in T.thread_binding(1024, thread="threadIdx.x"):
+        for i0_i1_fused_0_i0_i1_fused_1_fused_1 in T.parallel(
+            256, annotations={"thread_binding": "blockIdx.x"}
+        ):
+            for i0_i1_fused_0_i0_i1_fused_1_fused_2 in T.parallel(
+                1024, annotations={"thread_binding": "threadIdx.x"}
+            ):
                 for i0_i1_fused_0_i0_i1_fused_1_fused_0 in T.serial(188):
                     with Ts.sblock("T_reshape_1"):
                         ax0 = Ts.axis.spatial(
@@ -231,14 +240,14 @@ class Bert_fused_reshape_transpose_reshape_after_rub_large:
                         ]
 
 
-@Ts.prim_func
+@Ts.function
 def before_unrolled_loop(
-    placeholder: T.Buffer((1, 56, 56, 64), "float32"),
+    placeholder: T.Tensor((1, 56, 56, 64), "float32"),
 ) -> None:
     # function attr dict
     T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-    bgemm = Ts.sblock_alloc_buffer([6, 6, 196, 64], dtype="float32")
-    inverse = Ts.sblock_alloc_buffer([4, 4, 196, 64], dtype="float32")
+    bgemm = Ts.sblock_alloc_tensor([6, 6, 196, 64], dtype="float32")
+    inverse = Ts.sblock_alloc_tensor([4, 4, 196, 64], dtype="float32")
     for i2_0, i3_0, i2_1, i3_1 in T.grid(98, 4, 2, 16):
         for i0 in T.unroll(4):
             for i1 in T.unroll(4):
@@ -256,17 +265,19 @@ def before_unrolled_loop(
                             inverse[vh, vw, p, co] = inverse[vh, vw, p, co] + bgemm[r_a, r_b, p, co]
 
 
-@Ts.prim_func
+@Ts.function
 def after_unrolled_loop(
-    placeholder: T.Buffer((1, 56, 56, 64), "float32"),
+    placeholder: T.Tensor((1, 56, 56, 64), "float32"),
 ) -> None:
     T.func_attr({"global_symbol": "main", "tirx.noalias": True})
     # body
     # with Ts.sblock("root")
-    bgemm = Ts.sblock_alloc_buffer([6, 6, 196, 64], dtype="float32")
-    inverse = Ts.sblock_alloc_buffer([4, 4, 196, 64], dtype="float32")
-    for i2_0_i3_0_i2_1_i3_1_fused_0 in T.thread_binding(13, thread="blockIdx.x"):
-        for i2_0_i3_0_i2_1_i3_1_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+    bgemm = Ts.sblock_alloc_tensor([6, 6, 196, 64], dtype="float32")
+    inverse = Ts.sblock_alloc_tensor([4, 4, 196, 64], dtype="float32")
+    for i2_0_i3_0_i2_1_i3_1_fused_0 in T.parallel(13, annotations={"thread_binding": "blockIdx.x"}):
+        for i2_0_i3_0_i2_1_i3_1_fused_1 in T.parallel(
+            1024, annotations={"thread_binding": "threadIdx.x"}
+        ):
             for i0 in T.unroll(4):
                 for i1 in T.unroll(4):
                     for i4 in T.unroll(6):
@@ -328,7 +339,7 @@ def test_rewrite_cooperative_fetch():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod, After_cooperative_fetch)
+    tvm_tirx.ir.assert_structural_equal(sch.mod, After_cooperative_fetch)
 
 
 def test_rewrite_norm_bmn():
@@ -338,7 +349,7 @@ def test_rewrite_norm_bmn():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod, After_norm_bmn)
+    tvm_tirx.ir.assert_structural_equal(sch.mod, After_norm_bmn)
 
 
 def test_rewrite_cuda_loop_split_no_reduction():
@@ -348,7 +359,7 @@ def test_rewrite_cuda_loop_split_no_reduction():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod, Bert_fused_reshape_transpose_reshape_after_rub)
+    tvm_tirx.ir.assert_structural_equal(sch.mod, Bert_fused_reshape_transpose_reshape_after_rub)
 
 
 def test_rewrite_cuda_loop_split_no_reduction_large():
@@ -358,7 +369,9 @@ def test_rewrite_cuda_loop_split_no_reduction_large():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod, Bert_fused_reshape_transpose_reshape_after_rub_large)
+    tvm_tirx.ir.assert_structural_equal(
+        sch.mod, Bert_fused_reshape_transpose_reshape_after_rub_large
+    )
 
 
 def test_rewrite_cuda_loop_split_for_kind():
@@ -368,7 +381,7 @@ def test_rewrite_cuda_loop_split_for_kind():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod["main"], after_unrolled_loop)
+    tvm_tirx.ir.assert_structural_equal(sch.mod["main"], after_unrolled_loop)
 
 
 if __name__ == "__main__":

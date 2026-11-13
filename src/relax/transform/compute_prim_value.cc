@@ -18,13 +18,16 @@
  */
 
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/ir/prim/builtin.h>
+#include <tvm/ir/analysis.h>
+#include <tvm/ir/function.h>
+#include <tvm/ir/op.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/relax/expr_functor.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/relax/transform.h>
-#include <tvm/s_tir/transform.h>
+#include <tvm/s_tir/analysis.h>
 #include <tvm/tirx/analysis.h>
-#include <tvm/tirx/builtin.h>
+#include <tvm/tirx/function.h>
 #include <tvm/tirx/stmt_functor.h>
 
 namespace tvm {
@@ -32,13 +35,13 @@ namespace relax {
 
 namespace {
 
-bool HasRelaxCallCapabilities(const CallNode* call) {
+bool HasRelaxCallCapabilities(const CallObj* call) {
   auto op = call->op.as<Op>();
   if (!op) return true;
-  static auto infer_type_map = Op::GetAttrMap<FInferType>("FInferType");
+  static auto infer_type_map = Op::GetAttrMap(tvm::op_attr::kInferType);
   static auto infer_type_with_builder_map =
-      Op::GetAttrMap<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder");
-  static auto legalize_map = Op::GetAttrMap<FLegalize>("FLegalize");
+      Op::GetAttrMap(tvm::relax::op_attr::kInferTypeWithBuilder);
+  static auto legalize_map = Op::GetAttrMap(tvm::relax::op_attr::kLegalize);
   return infer_type_map.count(op.value()) || infer_type_with_builder_map.count(op.value()) ||
          legalize_map.count(op.value());
 }
@@ -50,7 +53,7 @@ class PrimExprComputeInjector : public ExprMutator {
  private:
   using ExprMutator::VisitExpr_;
 
-  Expr VisitExpr_(const CallNode* op) final {
+  Expr VisitExpr_(const CallObj* op) final {
     Call call = ffi::GetRef<Call>(op);
     if (auto prim_expr = call.as<PrimExpr>()) {
       if (call->op.as<Op>() && !HasRelaxCallCapabilities(op)) {
@@ -65,63 +68,68 @@ class PrimExprComputeInjector : public ExprMutator {
     return LiftPrimValue(ffi::GetRef<Expr>(op).as_or_throw<PrimExpr>()); \
   }
 
-  RELAX_LIFT_PRIM_EXPR(TensorLoadNode);
-  RELAX_LIFT_PRIM_EXPR(prim::AddNode);
-  RELAX_LIFT_PRIM_EXPR(prim::LShiftNode);
-  RELAX_LIFT_PRIM_EXPR(prim::RShiftNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseAndNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseOrNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseXorNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BitwiseNotNode);
-  RELAX_LIFT_PRIM_EXPR(prim::SubNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MulNode);
-  RELAX_LIFT_PRIM_EXPR(prim::DivNode);
-  RELAX_LIFT_PRIM_EXPR(prim::ModNode);
-  RELAX_LIFT_PRIM_EXPR(prim::FloorDivNode);
-  RELAX_LIFT_PRIM_EXPR(prim::FloorModNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MinNode);
-  RELAX_LIFT_PRIM_EXPR(prim::MaxNode);
-  RELAX_LIFT_PRIM_EXPR(prim::EQNode);
-  RELAX_LIFT_PRIM_EXPR(prim::NENode);
-  RELAX_LIFT_PRIM_EXPR(prim::LTNode);
-  RELAX_LIFT_PRIM_EXPR(prim::LENode);
-  RELAX_LIFT_PRIM_EXPR(prim::GTNode);
-  RELAX_LIFT_PRIM_EXPR(prim::GENode);
-  RELAX_LIFT_PRIM_EXPR(prim::AndNode);
-  RELAX_LIFT_PRIM_EXPR(prim::OrNode);
-  RELAX_LIFT_PRIM_EXPR(prim::CastNode);
-  RELAX_LIFT_PRIM_EXPR(prim::NotNode);
-  RELAX_LIFT_PRIM_EXPR(prim::SelectNode);
-  RELAX_LIFT_PRIM_EXPR(prim::RampNode);
-  RELAX_LIFT_PRIM_EXPR(prim::BroadcastNode);
-  RELAX_LIFT_PRIM_EXPR(prim::ShuffleNode);
-  RELAX_LIFT_PRIM_EXPR(tvm::IntImmNode);
-  RELAX_LIFT_PRIM_EXPR(tvm::FloatImmNode);
+  RELAX_LIFT_PRIM_EXPR(TensorLoadObj);
+  RELAX_LIFT_PRIM_EXPR(prim::AddObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LShiftObj);
+  RELAX_LIFT_PRIM_EXPR(prim::RShiftObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseAndObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseOrObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseXorObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BitwiseNotObj);
+  RELAX_LIFT_PRIM_EXPR(prim::SubObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MulObj);
+  RELAX_LIFT_PRIM_EXPR(prim::DivObj);
+  RELAX_LIFT_PRIM_EXPR(prim::ModObj);
+  RELAX_LIFT_PRIM_EXPR(prim::FloorDivObj);
+  RELAX_LIFT_PRIM_EXPR(prim::FloorModObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MinObj);
+  RELAX_LIFT_PRIM_EXPR(prim::MaxObj);
+  RELAX_LIFT_PRIM_EXPR(prim::EQObj);
+  RELAX_LIFT_PRIM_EXPR(prim::NEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LTObj);
+  RELAX_LIFT_PRIM_EXPR(prim::LEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::GTObj);
+  RELAX_LIFT_PRIM_EXPR(prim::GEObj);
+  RELAX_LIFT_PRIM_EXPR(prim::AndObj);
+  RELAX_LIFT_PRIM_EXPR(prim::OrObj);
+  RELAX_LIFT_PRIM_EXPR(prim::CastObj);
+  RELAX_LIFT_PRIM_EXPR(prim::NotObj);
+  RELAX_LIFT_PRIM_EXPR(prim::SelectObj);
+  RELAX_LIFT_PRIM_EXPR(prim::RampObj);
+  RELAX_LIFT_PRIM_EXPR(prim::BroadcastObj);
+  RELAX_LIFT_PRIM_EXPR(prim::ShuffleObj);
+  RELAX_LIFT_PRIM_EXPR(tvm::IntImmObj);
+  RELAX_LIFT_PRIM_EXPR(tvm::FloatImmObj);
 
 #undef RELAX_LIFT_PRIM_EXPR
 
-  Expr VisitExpr_(const ShapeExprNode* op) final { return ffi::GetRef<Expr>(op); }
+  Expr VisitExpr_(const ShapeExprObj* op) final { return ffi::GetRef<Expr>(op); }
 
   PrimExpr VisitTypePrimExprField(const PrimExpr& expr) final { return expr; }
 
   Expr LiftPrimValue(const PrimExpr& node) {
-    if (node->IsInstance<IntImmNode>() || node->IsInstance<VarNode>()) {
+    if (node->IsInstance<IntImmObj>() || node->IsInstance<VarObj>()) {
       return node;
     }
 
     tvm::PrimType ret_ty = node.ty();
-    auto param_vars = tirx::UndefinedVars(node);
-    tirx::Stmt body = tirx::Return(node);
+    auto param_vars = tvm::UndefinedVars(node);
+    tvm::Stmt body = tvm::Return(node);
 
-    tirx::PrimFunc func(param_vars, body, ret_ty,
-                        DictAttrs({{tirx::attr::kIsHostFunc, true}, {tvm::attr::kSTir, true}}));
-    func = s_tir::RenewDefs(func);
+    tirx::Function func(param_vars, tvm::SeqStmt(body), ret_ty,
+                        DictAttrs({{tvm::tirx::attr::kIsHostFunc.name, true},
+                                   {tvm::attr::kScriptNamespace.name, ffi::String("s_tir")}}));
+    func = tirx::RenewDef(func);
 
     auto callee = builder_->AddFunction(func, "compute_symbolic_expr");
 
-    return Call(ret_ty, callee, param_vars.Map([](const tirx::Var& tir_var) -> relax::Expr {
-      return tir_var.as_or_throw<PrimExpr>();
-    }));
+    Tuple args(param_vars.Map(
+        [](const tvm::Var& tir_var) -> relax::Expr { return tir_var.as_or_throw<PrimExpr>(); }));
+    const Op& bridge = Op::Get("relax.call_tir_packed");
+    if (s_tir::IsPureFunction(func)) {
+      return Call(Type::Missing(), Op::Get("relax.call_pure_packed"), {bridge, callee, args});
+    }
+    return Call(Type::Missing(), bridge, {callee, args});
   }
 };
 
@@ -151,7 +159,7 @@ Pass ComputePrimValue() {
 
     return mod;
   };
-  return CreateModulePass(pass_func, 0, "ComputePrimValue", {});
+  return CreateModulePass(pass_func, 0, "ComputePrimValue");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

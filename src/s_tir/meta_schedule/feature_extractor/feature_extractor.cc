@@ -24,7 +24,7 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-ffi::Array<tvm::runtime::Tensor> PyFeatureExtractorNode::ExtractFrom(
+ffi::Array<tvm::ffi::Tensor> PyFeatureExtractorObj::ExtractFrom(
     const TuneContext& context, const ffi::Array<MeasureCandidate>& candidates) {
   TVM_FFI_ICHECK(f_extract_from != nullptr)
       << "PyFeatureExtractor's ExtractFrom method not implemented!";
@@ -32,24 +32,24 @@ ffi::Array<tvm::runtime::Tensor> PyFeatureExtractorNode::ExtractFrom(
 }
 
 FeatureExtractor FeatureExtractor::PyFeatureExtractor(
-    PyFeatureExtractorNode::FExtractFrom f_extract_from) {
-  ffi::ObjectPtr<PyFeatureExtractorNode> n = ffi::make_object<PyFeatureExtractorNode>();
+    PyFeatureExtractorObj::FExtractFrom f_extract_from) {
+  ffi::ObjectPtr<PyFeatureExtractorObj> n = ffi::make_object<PyFeatureExtractorObj>();
   n->f_extract_from = std::move(f_extract_from);
-  return FeatureExtractor(n);
+  return FeatureExtractor(ffi::UnsafeInit{}, n);
 }
 
 // Pattern A (RM): auto-default repr from reflection.
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  FeatureExtractorNode::RegisterReflection();
-  PyFeatureExtractorNode::RegisterReflection();
+  FeatureExtractorObj::RegisterReflection();
+  PyFeatureExtractorObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def_method("s_tir.meta_schedule.FeatureExtractorExtractFrom",
-                  &FeatureExtractorNode::ExtractFrom)
+                  &FeatureExtractorObj::ExtractFrom)
       .def("s_tir.meta_schedule.FeatureExtractorPyFeatureExtractor",
            FeatureExtractor::PyFeatureExtractor);
 }

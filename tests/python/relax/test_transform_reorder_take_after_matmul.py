@@ -19,11 +19,11 @@ import inspect
 
 import pytest
 
-import tvm.testing
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 class Base:
@@ -35,11 +35,11 @@ class Base:
                 transform(self.Before)
         else:
             after = transform(self.Before)
-            tvm.ir.assert_structural_equal(self.Expected, after)
+            tvm_tirx.ir.assert_structural_equal(self.Expected, after)
 
 
-weight_table_size_before = T.dynamic("weight_table_size")
-weight_table_size_expected = T.dynamic("weight_table_size")
+weight_table_size_before = T.dynamic("weight_table_size", "int64")
+weight_table_size_expected = T.dynamic("weight_table_size", "int64")
 
 
 class TestSimple(Base):
@@ -74,10 +74,10 @@ class TestSimple(Base):
             return out
 
 
-batch_size_before = T.dynamic("batch_size")
-weight_table_size_before = T.dynamic("weight_table_size")
-batch_size_expected = T.dynamic("batch_size")
-weight_table_size_expected = T.dynamic("weight_table_size")
+batch_size_before = T.dynamic("batch_size", "int64")
+weight_table_size_before = T.dynamic("weight_table_size", "int64")
+batch_size_expected = T.dynamic("batch_size", "int64")
+weight_table_size_expected = T.dynamic("weight_table_size", "int64")
 
 
 class TestBatchedActivations(Base):
@@ -114,10 +114,10 @@ class TestBatchedActivations(Base):
             return out
 
 
-batch_size_before = T.dynamic("batch_size")
-routing_table_size_before = T.dynamic("routing_table_size")
-batch_size_expected = T.dynamic("batch_size")
-routing_table_size_expected = T.dynamic("routing_table_size")
+batch_size_before = T.dynamic("batch_size", "int64")
+routing_table_size_before = T.dynamic("routing_table_size", "int64")
+batch_size_expected = T.dynamic("batch_size", "int64")
+routing_table_size_expected = T.dynamic("routing_table_size", "int64")
 
 
 class TestStaticBatchedActivationsAndWeights(Base):
@@ -156,10 +156,10 @@ class TestStaticBatchedActivationsAndWeights(Base):
             return out
 
 
-batch_size_before = T.dynamic("batch_size")
-routing_table_size_before = T.dynamic("routing_table_size")
-batch_size_expected = T.dynamic("batch_size")
-routing_table_size_expected = T.dynamic("routing_table_size")
+batch_size_before = T.dynamic("batch_size", "int64")
+routing_table_size_before = T.dynamic("routing_table_size", "int64")
+batch_size_expected = T.dynamic("batch_size", "int64")
+routing_table_size_expected = T.dynamic("routing_table_size", "int64")
 
 
 class TestDynamicBatchedActivationsAndWeights(Base):
@@ -263,4 +263,4 @@ class TestPreserveTakeModeForBatchedWeights(Base):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

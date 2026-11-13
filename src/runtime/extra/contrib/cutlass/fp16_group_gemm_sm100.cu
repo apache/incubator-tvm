@@ -41,8 +41,23 @@ struct CutlassGroupGemm<100, ElementA, ElementB, ElementC> {
   }
 };
 
-void tvm_cutlass_group_gemm_sm100(Tensor x, Tensor weight, Tensor indptr, Tensor workspace,
-                                  Tensor out) {
+void tvm_cutlass_group_gemm_sm100(ffi::Tensor x, ffi::Tensor weight, ffi::Tensor indptr,
+                                  ffi::Tensor workspace, ffi::Tensor out) {
+  TVM_FFI_ICHECK(x.defined());
+  TVM_FFI_ICHECK(x.IsContiguous());
+  TVM_FFI_ICHECK(x.numel() == 0 || x.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(weight.defined());
+  TVM_FFI_ICHECK(weight.IsContiguous());
+  TVM_FFI_ICHECK(weight.numel() == 0 || weight.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(indptr.defined());
+  TVM_FFI_ICHECK(indptr.IsContiguous());
+  TVM_FFI_ICHECK(indptr.numel() == 0 || indptr.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(workspace.defined());
+  TVM_FFI_ICHECK(workspace.IsContiguous());
+  TVM_FFI_ICHECK(workspace.numel() == 0 || workspace.IsAligned(kAllocAlignment));
+  TVM_FFI_ICHECK(out.defined());
+  TVM_FFI_ICHECK(out.IsContiguous());
+  TVM_FFI_ICHECK(out.numel() == 0 || out.IsAligned(kAllocAlignment));
   tvm_cutlass_group_gemm_impl<100>(x, weight, indptr, workspace, out);
 }
 

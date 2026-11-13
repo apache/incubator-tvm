@@ -16,56 +16,56 @@
 # under the License.
 # ruff: noqa: E501
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.analysis import estimate_memory_usage
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
 
 
 def test_basic():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
-        @Ts.prim_func
+        @Ts.function
         def add(
-            rxplaceholder: T.Buffer(T.int64(8), "float32"),
-            rxplaceholder_1: T.Buffer((), "float32"),
-            T_add: T.Buffer(T.int64(8), "float32"),
+            rxplaceholder: T.Tensor(T.int64(8), "float32"),
+            rxplaceholder_1: T.Tensor((), "float32"),
+            T_add: T.Tensor(T.int64(8), "float32"),
         ):
             T.evaluate(0)
 
-        @Ts.prim_func
+        @Ts.function
         def reshape(
-            rxplaceholder: T.Buffer((T.int64(2), T.int64(4)), "float32"),
-            T_reshape: T.Buffer(T.int64(8), "float32"),
+            rxplaceholder: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+            T_reshape: T.Tensor(T.int64(8), "float32"),
         ):
             T.evaluate(0)
 
-        @Ts.prim_func
+        @Ts.function
         def relu(
-            rxplaceholder: T.Buffer(T.int64(8), "float32"), compute: T.Buffer(T.int64(8), "float32")
+            rxplaceholder: T.Tensor(T.int64(8), "float32"), compute: T.Tensor(T.int64(8), "float32")
         ):
             T.evaluate(0)
 
-        @Ts.prim_func
+        @Ts.function
         def log(
-            rxplaceholder: T.Buffer(T.int64(10), "float32"),
-            compute: T.Buffer(T.int64(10), "float32"),
+            rxplaceholder: T.Tensor(T.int64(10), "float32"),
+            compute: T.Tensor(T.int64(10), "float32"),
         ):
             T.evaluate(0)
 
-        @Ts.prim_func
+        @Ts.function
         def exp(
-            rxplaceholder: T.Buffer((T.int64(2), T.int64(4)), "float32"),
-            compute: T.Buffer((T.int64(2), T.int64(4)), "float32"),
+            rxplaceholder: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+            compute: T.Tensor((T.int64(2), T.int64(4)), "float32"),
         ):
             T.evaluate(0)
 
-        @Ts.prim_func
+        @Ts.function
         def pad(
-            rxplaceholder: T.Buffer(T.int64(8), "float32"),
-            PadInput: T.Buffer(T.int64(10), "float32"),
+            rxplaceholder: T.Tensor(T.int64(8), "float32"),
+            PadInput: T.Tensor(T.int64(10), "float32"),
         ):
             T.evaluate(0)
 
@@ -78,7 +78,7 @@ def test_basic():
             alloc: R.Tensor((2, 4), dtype="float32") = R.memory.alloc_tensor(
                 storage, offset=0, shape=R.shape([2, 4]), dtype="float32"
             )
-            _: R.Tuple() = cls.exp(x, alloc)
+            _: R.Tuple() = R.call_tir_packed(cls.exp, (x, alloc))
             lv: R.Tensor((2, 4), dtype="float32") = alloc
             lv1: R.Tensor((8,), dtype="float32") = R.call_packed(
                 "vm.builtin.reshape", lv, R.shape([8]), ty_args=[R.Tensor((8,), dtype="float32")]
@@ -89,26 +89,26 @@ def test_basic():
             alloc1: R.Tensor((8,), dtype="float32") = R.memory.alloc_tensor(
                 storage1, offset=0, shape=R.shape([8]), dtype="float32"
             )
-            _1: R.Tuple() = cls.relu(lv1, alloc1)
+            _1: R.Tuple() = R.call_tir_packed(cls.relu, (lv1, alloc1))
             _2: R.Tuple() = R.memory.kill_tensor(alloc)
             _3: R.Tuple() = R.memory.kill_tensor(lv1)
             lv2: R.Tensor((8,), dtype="float32") = alloc1
             alloc2: R.Tensor((8,), dtype="float32") = R.memory.alloc_tensor(
                 storage, offset=0, shape=R.shape([8]), dtype="float32"
             )
-            _4: R.Tuple() = cls.add(lv2, R.const(1, "float32"), alloc2)
+            _4: R.Tuple() = R.call_tir_packed(cls.add, (lv2, R.const(1, "float32"), alloc2))
             _5: R.Tuple() = R.memory.kill_tensor(alloc1)
             lv3: R.Tensor((8,), dtype="float32") = alloc2
             alloc3: R.Tensor((10,), dtype="float32") = R.memory.alloc_tensor(
                 storage1, offset=0, shape=R.shape([10]), dtype="float32"
             )
-            _6: R.Tuple() = cls.pad(lv3, alloc3)
+            _6: R.Tuple() = R.call_tir_packed(cls.pad, (lv3, alloc3))
             _7: R.Tuple() = R.memory.kill_tensor(alloc2)
             lv4: R.Tensor((10,), dtype="float32") = alloc3
             alloc4: R.Tensor((10,), dtype="float32") = R.builtin.alloc_tensor(
                 R.shape([10]), dtype="float32", runtime_device_index=0
             )
-            _8: R.Tuple() = cls.log(lv4, alloc4)
+            _8: R.Tuple() = R.call_tir_packed(cls.log, (lv4, alloc4))
             _9: R.Tuple() = R.memory.kill_tensor(alloc3)
             gv5: R.Tensor((10,), dtype="float32") = alloc4
             _11: R.Tuple() = R.memory.kill_storage(storage)
@@ -127,4 +127,4 @@ def test_basic():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

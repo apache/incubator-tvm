@@ -17,23 +17,24 @@
 import numpy as np  # type: ignore
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir import Op
-from tvm.script import relax as R
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_op_correctness():
     x = relax.Var("x", R.Tensor((2, 3), "float32"))
-    c = relax.const(tvm.runtime.tensor(np.array([1, 2, 3], dtype="float16")))
+    c = relax.const(tvm_tirx.runtime.tensor(np.array([1, 2, 3], dtype="float16")))
     assert relax.op.astype(x, "float16").op == Op.get("relax.astype")
     assert relax.op.wrap_param(c, "float32").op == Op.get("relax.wrap_param")
 
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_astype_infer_ty():
@@ -102,11 +103,11 @@ def test_astype_infer_ty_wrong_input_type():
 
 def test_wrap_param_infer_ty():
     bb = relax.BlockBuilder()
-    x0 = relax.const(tvm.runtime.tensor(np.zeros([1, 2, 3], dtype="float16")))
-    x1 = relax.const(tvm.runtime.tensor(np.zeros([1, 2, 3], dtype="int8")))
+    x0 = relax.const(tvm_tirx.runtime.tensor(np.zeros([1, 2, 3], dtype="float16")))
+    x1 = relax.const(tvm_tirx.runtime.tensor(np.zeros([1, 2, 3], dtype="int8")))
     _check_inference(bb, relax.op.wrap_param(x0, "float32"), relax.TensorType((1, 2, 3), "float32"))
     _check_inference(bb, relax.op.wrap_param(x1, "int32"), relax.TensorType((1, 2, 3), "int32"))
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

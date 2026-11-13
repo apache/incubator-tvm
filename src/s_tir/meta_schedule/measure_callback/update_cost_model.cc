@@ -24,7 +24,7 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class UpdateCostModelNode : public MeasureCallbackNode {
+class UpdateCostModelObj : public MeasureCallbackObj {
  public:
   void Apply(const TaskScheduler& task_scheduler, int task_id,
              const ffi::Array<MeasureCandidate>& measure_candidates,
@@ -59,21 +59,21 @@ class UpdateCostModelNode : public MeasureCallbackNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<UpdateCostModelNode>();
+    refl::ObjectDef<UpdateCostModelObj>();
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.UpdateCostModel", UpdateCostModelNode,
-                                    MeasureCallbackNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.UpdateCostModel", UpdateCostModelObj,
+                                    MeasureCallbackObj);
 };
 
 MeasureCallback MeasureCallback::UpdateCostModel() {
-  ffi::ObjectPtr<UpdateCostModelNode> n = ffi::make_object<UpdateCostModelNode>();
-  return MeasureCallback(n);
+  ffi::ObjectPtr<UpdateCostModelObj> n = ffi::make_object<UpdateCostModelObj>();
+  return MeasureCallback(ffi::UnsafeInit{}, n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  UpdateCostModelNode::RegisterReflection();
+  UpdateCostModelObj::RegisterReflection();
   refl::GlobalDef().def("s_tir.meta_schedule.MeasureCallbackUpdateCostModel",
                         MeasureCallback::UpdateCostModel);
 }

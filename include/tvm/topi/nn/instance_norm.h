@@ -50,13 +50,14 @@ using namespace tvm::te;
  * \param tag The tag to mark the operation.
  * \return The normalized tensor, with the same shape as data.
  */
-inline Tensor instance_norm(const Tensor& data, const Tensor& gamma, const Tensor& beta,
-                            int channel_axis, const ffi::Array<int64_t>& axis, double epsilon,
+inline Tensor instance_norm(const Tensor& data, const Tensor& gamma,
+                            const ffi::Optional<Tensor>& beta, int channel_axis,
+                            const ffi::Array<int64_t>& axis, double epsilon,
                             std::string name = "T_instance_norm", std::string tag = kInjective) {
   using namespace tvm::prim;
   const auto& data_type = data->dtype;
-  const auto& gamma_type = gamma.defined() ? gamma->dtype : data_type;
-  const auto& beta_type = beta.defined() ? beta->dtype : data_type;
+  const auto& gamma_type = gamma->dtype;
+  const auto& beta_type = beta.has_value() ? beta.value()->dtype : data_type;
   TVM_FFI_ICHECK(data_type == gamma_type && data_type == beta_type)
       << "instance_norm: data, gamma and beta must have the same type";
   TVM_FFI_ICHECK(data_type == PrimType::Float(32) || data_type == PrimType::Float(16))
@@ -103,7 +104,7 @@ inline Tensor instance_norm(const Tensor& data, const Tensor& gamma, const Tenso
   };
 
   auto temp_x_x2 =
-      tvm::te::compute(target_shape, compute, data->op->name + "_red_temp", kCommReduce);
+      tvm::te::compute(target_shape, compute, data->op.value()->name + "_red_temp", kCommReduce);
 
   auto temp_x = temp_x_x2[0];
   auto temp_x2 = temp_x_x2[1];
@@ -122,8 +123,7 @@ inline Tensor instance_norm(const Tensor& data, const Tensor& gamma, const Tenso
         non_reduce_indices.push_back(indices[i]);
       }
     }
-    PrimVar channel;
-    channel = indices[channel_axis];
+    PrimVar channel = indices[channel_axis];
     auto mean = temp_x(non_reduce_indices) / reduce_extent;
     auto var = temp_x2(non_reduce_indices) / reduce_extent - mean * mean;
     auto instance_norm =
@@ -132,8 +132,8 @@ inline Tensor instance_norm(const Tensor& data, const Tensor& gamma, const Tenso
       instance_norm = prim::Cast(PrimType::Float(16), instance_norm);
     }
     instance_norm = topi::multiply(instance_norm, gamma(channel));
-    if (beta.defined()) {
-      instance_norm = topi::add(instance_norm, beta(channel));
+    if (beta.has_value()) {
+      instance_norm = topi::add(instance_norm, beta.value()(channel));
     }
     return instance_norm;
   };

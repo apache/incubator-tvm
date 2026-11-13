@@ -19,17 +19,23 @@
 
 from __future__ import annotations
 
+import sys
+
 import pytest
 
 import tvm
-import tvm.script
-import tvm.testing
-from tvm import IRModule, relax, tirx, topi
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
+from tvm import relax, topi
 from tvm.relax import DummyGlobalInfo, VDevice
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx import IRModule, tirx
+from tvm_tirx.ir import TupleType as _TupleType
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def _check(
@@ -37,37 +43,47 @@ def _check(
     expect: relax.Function | IRModule | None = None,
 ):
     test = parsed.script(show_meta=True)
-    roundtrip_mod = tvm.script.from_source(
+    roundtrip_mod = tvm_tirx.script.from_source(
         test,
         extra_vars={
-            "I": tvm.script.ir,
-            "R": tvm.script.relax,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
+            "I": tvm_tirx.script.ir,
+            "R": tvm.relax.script,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
         },
     )
-    tvm.ir.assert_structural_equal(parsed, roundtrip_mod)
+    tvm_tirx.ir.assert_structural_equal(parsed, roundtrip_mod)
     if isinstance(parsed, IRModule) and isinstance(roundtrip_mod, IRModule):
-        relax.analysis.well_formed(parsed)
-        relax.analysis.well_formed(roundtrip_mod)
+        relax.analysis.check_well_formed(parsed)
+        relax.analysis.check_well_formed(roundtrip_mod)
     if expect:
-        tvm.ir.assert_structural_equal(parsed, expect)
+        tvm_tirx.ir.assert_structural_equal(parsed, expect)
 
 
 def test_simple_func():
     @R.function
     def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor((128, 128), "float32"):
         R.func_attr({"Primitive": True})
-        gv0 = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
-        gv1 = R.call_dps_packed("extern_dps_func", gv0, R.Tensor((128, 128), dtype="float32"))
+        gv0 = R.call_dps_packed(
+            _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
+        gv1 = R.call_dps_packed(
+            _ExternFunc("extern_dps_func"), gv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
         return gv1
 
     x = relax.Var("x", R.Tensor((128, 128), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x,), attrs={"Primitive": True}):
-        y = bb.emit(relax.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32")))
+        y = bb.emit(
+            relax.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
+        )
         out = bb.emit(
-            relax.call_dps_packed("extern_dps_func", y, R.Tensor((128, 128), dtype="float32"))
+            relax.call_dps_packed(
+                _ExternFunc("extern_dps_func"), y, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
         )
         bb.emit_func_output(out)
 
@@ -77,10 +93,10 @@ def test_simple_func():
 def test_simple_module():
     @I.ir_module
     class TestModule:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            x: T.Buffer((T.int64(128), T.int64(128)), "float32"),
-            y: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+            x: T.Tensor((T.int64(128), T.int64(128)), "float32"),
+            y: T.Tensor((T.int64(128), T.int64(128)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i, j in T.grid(T.int64(128), T.int64(128)):
@@ -91,13 +107,13 @@ def test_simple_module():
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor((128, 128), "float32"):
             cls = TestModule
-            gv0 = R.call_tir(cls.tir_func, x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = R.call_tir(cls.tir_func, x, ty_args=[R.Tensor((128, 128), dtype="float32")])
             return gv0
 
     x = relax.Var("x", R.Tensor((128, 128), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x,), {"global_symbol": "foo"}):
-        out = bb.emit_te(lambda x: x + 1, x, primfunc_name_hint="tir_func")
+        out = bb.emit_te(lambda x: x + 1, x, function_name_hint="tir_func")
         bb.emit_func_output(out)
 
     _check(TestModule, bb.get())
@@ -116,10 +132,10 @@ def test_module_with_attr_and_global_info():
             }
         )
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            x: T.Buffer((T.int64(128), T.int64(128)), "float32"),
-            y: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+            x: T.Tensor((T.int64(128), T.int64(128)), "float32"),
+            y: T.Tensor((T.int64(128), T.int64(128)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i, j in T.grid(T.int64(128), T.int64(128)):
@@ -130,13 +146,13 @@ def test_module_with_attr_and_global_info():
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor((128, 128), "float32"):
             cls = TestModule
-            gv0 = R.call_tir(cls.tir_func, x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = R.call_tir(cls.tir_func, x, ty_args=[R.Tensor((128, 128), dtype="float32")])
             return gv0
 
     x = relax.Var("x", R.Tensor((128, 128), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x,), {"global_symbol": "foo"}):
-        out = bb.emit_te(lambda x: x + 1, x, primfunc_name_hint="tir_func")
+        out = bb.emit_te(lambda x: x + 1, x, function_name_hint="tir_func")
         bb.emit_func_output(out)
     mod = bb.get()
     mod.update_global_info("dummy", [DummyGlobalInfo(), DummyGlobalInfo()])
@@ -166,10 +182,10 @@ def test_global_info_vdevice():
             }
         )
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def tir_func(
-            x: T.Buffer((T.int64(128), T.int64(128)), "float32"),
-            y: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+            x: T.Tensor((T.int64(128), T.int64(128)), "float32"),
+            y: T.Tensor((T.int64(128), T.int64(128)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for i, j in T.grid(T.int64(128), T.int64(128)):
@@ -180,13 +196,13 @@ def test_global_info_vdevice():
         @R.function
         def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor((128, 128), "float32"):
             cls = TestModule
-            gv0 = R.call_tir(cls.tir_func, x, R.Tensor((128, 128), dtype="float32"))
+            gv0 = R.call_tir(cls.tir_func, x, ty_args=[R.Tensor((128, 128), dtype="float32")])
             return gv0
 
     x = relax.Var("x", R.Tensor((128, 128), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x,)):
-        out = bb.emit_te(lambda x: x + 1, x, primfunc_name_hint="tir_func")
+        out = bb.emit_te(lambda x: x + 1, x, function_name_hint="tir_func")
         bb.emit_func_output(out)
     mod = bb.get()
     mod.update_global_info("vdevice", vdevices)
@@ -246,15 +262,27 @@ def test_relax_shape_to_tensor():
 def test_tuple_return():
     @R.function
     def foo(x: R.Tensor((4, 4), "float32")):
-        gv0 = R.call_dps_packed("extern_func_0", x, R.Tensor((4, 4), dtype="float32"))
-        gv1 = R.call_dps_packed("extern_func_1", x, R.Tensor((4, 4), dtype="float32"))
+        gv0 = R.call_dps_packed(
+            _ExternFunc("extern_func_0"), x, ty_args=[R.Tensor((4, 4), dtype="float32")]
+        )
+        gv1 = R.call_dps_packed(
+            _ExternFunc("extern_func_1"), x, ty_args=[R.Tensor((4, 4), dtype="float32")]
+        )
         return (gv0, gv1)
 
     x = relax.Var("x", R.Tensor((4, 4), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x,)):
-        gv0 = bb.emit(relax.call_dps_packed("extern_func_0", x, R.Tensor((4, 4), dtype="float32")))
-        gv1 = bb.emit(relax.call_dps_packed("extern_func_1", x, R.Tensor((4, 4), dtype="float32")))
+        gv0 = bb.emit(
+            relax.call_dps_packed(
+                _ExternFunc("extern_func_0"), x, ty_args=[R.Tensor((4, 4), dtype="float32")]
+            )
+        )
+        gv1 = bb.emit(
+            relax.call_dps_packed(
+                _ExternFunc("extern_func_1"), x, ty_args=[R.Tensor((4, 4), dtype="float32")]
+            )
+        )
         bb.emit_func_output(relax.Tuple((gv0, gv1)))
 
     _check(foo, bb.get()["foo"])
@@ -305,7 +333,7 @@ def test_tuple_binding():
 def test_tuple_get_item():
     @R.function
     def foo(x: R.Tensor, y: R.Tensor):
-        t1 = R.tuple(x, y)
+        t1 = (x, y)
         t2 = (x, y)
         a = t1[0]
         b = R.TupleGetItem(t2, 1)
@@ -330,8 +358,12 @@ def test_dataflow_block():
     @R.function
     def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
         with R.dataflow():
-            lv0 = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
-            lv1 = R.call_dps_packed("extern_func", lv0, R.Tensor((128, 128), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
+            lv1 = R.call_dps_packed(
+                _ExternFunc("extern_func"), lv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             gv = lv1
             R.output(gv)
         return gv
@@ -341,10 +373,14 @@ def test_dataflow_block():
     with bb.function("foo", (x,)):
         with bb.dataflow():
             lv0 = bb.emit(
-                relax.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+                relax.call_dps_packed(
+                    _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             )
             lv1 = bb.emit(
-                relax.call_dps_packed("extern_func", lv0, R.Tensor((128, 128), dtype="float32"))
+                relax.call_dps_packed(
+                    _ExternFunc("extern_func"), lv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             )
             gv = bb.emit_output(lv1)
         bb.emit_func_output(gv)
@@ -358,20 +394,34 @@ def test_dataflow_block_advanced():
 
     @R.function
     def foo(x: R.Tensor((128, 128), "float32")) -> R.Tensor(None, "float32", ndim=2):
-        gv0 = R.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
-        gv1 = R.call_dps_packed("extern_func", gv0, R.Tensor((128, 128), dtype="float32"))
+        gv0 = R.call_dps_packed(
+            _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
+        gv1 = R.call_dps_packed(
+            _ExternFunc("extern_func"), gv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
         with R.dataflow():
-            lv0 = R.call_dps_packed("extern_func", gv1, R.Tensor((128, 128), dtype="float32"))
+            lv0 = R.call_dps_packed(
+                _ExternFunc("extern_func"), gv1, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             lv1 = R.match_cast(lv0, R.Tensor((m, n), "float32"))
-            gv2 = R.call_dps_packed("extern_func", lv0, R.Tensor((128, 128), dtype="float32"))
-            gv2 = R.call_dps_packed("extern_func", gv2, R.Tensor((128, 128), dtype="float32"))
+            gv2 = R.call_dps_packed(
+                _ExternFunc("extern_func"), lv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
+            gv2 = R.call_dps_packed(
+                _ExternFunc("extern_func"), gv2, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
             gv3 = R.match_cast(gv2, R.Tensor((m, n), "float32"))
             gv3 = R.match_cast(lv0, R.Tensor((m, n), "float32"))
             gv4 = gv3
             gv5 = gv2
             R.output(gv5, gv4)
-        gv6 = R.call_dps_packed("extern_func", gv5, R.Tensor((128, 128), dtype="float32"))
-        gv7 = R.call_dps_packed("extern_func", gv6, R.Tensor((128, 128), dtype="float32"))
+        gv6 = R.call_dps_packed(
+            _ExternFunc("extern_func"), gv5, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
+        gv7 = R.call_dps_packed(
+            _ExternFunc("extern_func"), gv6, ty_args=[R.Tensor((128, 128), dtype="float32")]
+        )
         return gv7
 
     x = relax.Var("x", R.Tensor((128, 128), "float32"))
@@ -380,31 +430,45 @@ def test_dataflow_block_advanced():
     n = tirx.Var("n", ty="int64")
     with bb.function("foo", (x,)):
         gv0 = bb.emit(
-            relax.call_dps_packed("extern_func", x, R.Tensor((128, 128), dtype="float32"))
+            relax.call_dps_packed(
+                _ExternFunc("extern_func"), x, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
         )
         gv1 = bb.emit(
-            relax.call_dps_packed("extern_func", gv0, R.Tensor((128, 128), dtype="float32"))
+            relax.call_dps_packed(
+                _ExternFunc("extern_func"), gv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
         )
         with bb.dataflow():
             lv0 = bb.emit(
-                relax.call_dps_packed("extern_func", gv1, R.Tensor((128, 128), dtype="float32"))
+                relax.call_dps_packed(
+                    _ExternFunc("extern_func"), gv1, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             )
             lv1 = bb.match_cast(lv0, R.Tensor((m, n), "float32"))
             gv2 = bb.emit(
-                relax.call_dps_packed("extern_func", lv0, R.Tensor((128, 128), dtype="float32"))
+                relax.call_dps_packed(
+                    _ExternFunc("extern_func"), lv0, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             )
             gv21 = bb.emit(
-                relax.call_dps_packed("extern_func", gv2, R.Tensor((128, 128), dtype="float32"))
+                relax.call_dps_packed(
+                    _ExternFunc("extern_func"), gv2, ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
             )
             gv3 = bb.match_cast(gv21, R.Tensor((m, n), "float32"))
             gv31 = bb.match_cast(lv0, R.Tensor((m, n), "float32"))
             gv32 = bb.emit_output(gv31)
             gv22 = bb.emit_output(gv21)
         gv4 = bb.emit(
-            relax.call_dps_packed("extern_func", gv22, R.Tensor((128, 128), dtype="float32"))
+            relax.call_dps_packed(
+                _ExternFunc("extern_func"), gv22, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
         )
         gv5 = bb.emit(
-            relax.call_dps_packed("extern_func", gv4, R.Tensor((128, 128), dtype="float32"))
+            relax.call_dps_packed(
+                _ExternFunc("extern_func"), gv4, ty_args=[R.Tensor((128, 128), dtype="float32")]
+            )
         )
         bb.emit_func_output(gv5)
 
@@ -427,13 +491,19 @@ def test_return_without_binding():
 def test_tensor_type_without_args():
     @R.function
     def foo(x: R.Tensor((32, 32), "float32")) -> R.Tensor:
-        v = R.call_dps_packed("extern_relu", x, R.Tensor((32, 32), dtype="float32"))
+        v = R.call_dps_packed(
+            _ExternFunc("extern_relu"), x, ty_args=[R.Tensor((32, 32), dtype="float32")]
+        )
         return v
 
     x = relax.Var("x", R.Tensor((32, 32), "float32"))
     bb = relax.BlockBuilder()
     with bb.function("foo", (x)):
-        v = bb.emit(relax.call_dps_packed("extern_relu", x, R.Tensor((32, 32), dtype="float32")))
+        v = bb.emit(
+            relax.call_dps_packed(
+                _ExternFunc("extern_relu"), x, ty_args=[R.Tensor((32, 32), dtype="float32")]
+            )
+        )
         bb.emit_func_output(v)
 
     _check(foo, bb.get()["foo"])
@@ -568,8 +638,8 @@ def test_annotation():
         return o
 
     def _check_ty(binding, expected_ty):
-        tvm.ir.assert_structural_equal(binding.var.ty, expected_ty)
-        tvm.ir.assert_structural_equal(binding.value.ty, expected_ty)
+        tvm_tirx.ir.assert_structural_equal(binding.var.ty, expected_ty)
+        tvm_tirx.ir.assert_structural_equal(binding.value.ty, expected_ty)
 
     # Cannot use block builder here because we need to check the annotated type,
     # which may be inconsistent with deduced type.
@@ -590,7 +660,7 @@ def test_annotation():
 def test_call_dps_packed_empty_shape():
     @R.function
     def foo(x: R.Tensor((), "float32")):
-        z = R.call_dps_packed("scalar_add", x, R.Tensor((), dtype="float32"))
+        z = R.call_dps_packed(_ExternFunc("scalar_add"), x, ty_args=[R.Tensor((), dtype="float32")])
         return z
 
     (z_bind,) = foo.body.blocks[0].bindings
@@ -613,8 +683,10 @@ def test_call_tir_empty_tuple_arg():
 def test_call_tir_with_grad():
     @I.ir_module
     class Module:
-        @Ts.prim_func
-        def identity_tir(A: T.Buffer([54, 96]), B: T.Buffer([54, 96])) -> None:
+        @Ts.function
+        def identity_tir(
+            A: T.Tensor([54, 96], "float32"), B: T.Tensor([54, 96], "float32")
+        ) -> None:
             for i, j in T.grid(54, 96):
                 with Ts.sblock("compute"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -626,7 +698,7 @@ def test_call_tir_with_grad():
             out = R.call_tir_with_grad(
                 cls.identity_tir,
                 (v0,),
-                R.Tensor((54, 96), "float32"),
+                ty_args=[R.Tensor((54, 96), "float32")],
                 te_grad_name="identity_k_grad",
                 te_grad_kwargs={"k": 1.0},
             )
@@ -636,13 +708,13 @@ def test_call_tir_with_grad():
 
 
 def test_call_tir_inplace():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Module:
-        @Ts.prim_func
+        @Ts.function
         def copy(
-            A: T.Buffer((2, 3), "int32"),
-            B: T.Buffer((2, 3), "int32"),
-            out1: T.Buffer((2, 3), "int32"),
+            A: T.Tensor((2, 3), "int32"),
+            B: T.Tensor((2, 3), "int32"),
+            out1: T.Tensor((2, 3), "int32"),
         ):
             # copies the contents of B into A and out1
             T.func_attr({"tirx.noalias": True})
@@ -661,8 +733,8 @@ def test_call_tir_inplace():
             res = R.call_tir_inplace(
                 Module.copy,
                 (x, y),
-                [0, -1],
-                [R.Tensor((2, 3), "int32"), R.Tensor((2, 3), "int32")],
+                inplace_indices=[0, -1],
+                ty_args=[_TupleType([R.Tensor((2, 3), "int32"), R.Tensor((2, 3), "int32")])],
             )
             return res
 
@@ -687,7 +759,7 @@ def test_if_branch():
     assert isinstance(y, relax.Var)
     assert y.name == "y"
 
-    assert isinstance(ite, relax.If)
+    assert isinstance(ite, relax.IfExpr)
     assert isinstance(ite.true_branch, relax.SeqExpr)
     assert isinstance(ite.false_branch, relax.SeqExpr)
 
@@ -697,7 +769,7 @@ def test_if_branch():
             assert call.op.name == op
         else:
             assert call.op == op
-        tvm.ir.assert_structural_equal(call.args, args)
+        tvm_tirx.ir.assert_structural_equal(call.args, args)
 
     w_bind = ite.true_branch.blocks[0].bindings[0]
     # the seq exprts in the branches are normalized to bind any call
@@ -727,7 +799,7 @@ def test_scalar_tensor_as_branch_condition():
 
     if_else = func.body.blocks[0].bindings[0].value
     assert isinstance(if_else.cond, relax.Var)
-    tvm.ir.assert_structural_equal(if_else.cond.ty, R.Tensor([], "bool"))
+    tvm_tirx.ir.assert_structural_equal(if_else.cond.ty, R.Tensor([], "bool"))
 
 
 def test_prim_value_as_branch_condition():
@@ -743,7 +815,7 @@ def test_prim_value_as_branch_condition():
 
     if_else = func.body.blocks[0].bindings[0].value
     assert isinstance(if_else.cond, relax.Var)
-    tvm.ir.assert_structural_equal(if_else.cond.ty, tvm.ir.PrimType("bool"))
+    tvm_tirx.ir.assert_structural_equal(if_else.cond.ty, tvm_tirx.ir.PrimType("bool"))
 
 
 def test_computed_prim_value_as_branch_condition():
@@ -761,9 +833,9 @@ def test_computed_prim_value_as_branch_condition():
 
     N = func.params[0].ty.shape[0]
     if_else = func.body.blocks[0].bindings[0].value
-    assert tvm.ir.is_prim_expr(if_else.cond)
-    tvm.ir.assert_structural_equal(N % 16 == 0, if_else.cond)
-    tvm.ir.assert_structural_equal(if_else.cond.ty, tvm.ir.PrimType("bool"))
+    assert tvm_tirx.ir.is_prim_expr(if_else.cond)
+    tvm_tirx.ir.assert_structural_equal(N % 16 == 0, if_else.cond)
+    tvm_tirx.ir.assert_structural_equal(if_else.cond.ty, tvm_tirx.ir.PrimType("bool"))
 
 
 def test_tir_expr_as_branch_condition():
@@ -789,7 +861,7 @@ def test_tir_expr_as_branch_condition():
             out = R.call_pure_packed("slow_non_vectorized_impl", x, ty_args=[x.ty])
         return out
 
-    tvm.ir.assert_structural_equal(unsugared, sugared)
+    tvm_tirx.ir.assert_structural_equal(unsugared, sugared)
 
 
 def test_scalar_tensor_as_assert_condition():
@@ -804,7 +876,7 @@ def test_scalar_tensor_as_assert_condition():
     assert_op = func.body.blocks[0].bindings[0].value
     condition = assert_op.args[0]
     assert isinstance(condition, relax.Var)
-    tvm.ir.assert_structural_equal(condition.ty, R.Tensor([], "bool"))
+    tvm_tirx.ir.assert_structural_equal(condition.ty, R.Tensor([], "bool"))
 
 
 def test_prim_value_as_assert_condition():
@@ -819,7 +891,7 @@ def test_prim_value_as_assert_condition():
     assert_op = func.body.blocks[0].bindings[0].value
     condition = assert_op.args[0]
     assert isinstance(condition, relax.Var)
-    tvm.ir.assert_structural_equal(condition.ty, tvm.ir.PrimType("bool"))
+    tvm_tirx.ir.assert_structural_equal(condition.ty, tvm_tirx.ir.PrimType("bool"))
 
 
 def test_computed_prim_value_as_assert_condition():
@@ -836,9 +908,9 @@ def test_computed_prim_value_as_assert_condition():
     N = func.params[0].ty.shape[0]
     assert_op = func.body.blocks[0].bindings[0].value
     condition = assert_op.args[0]
-    assert tvm.ir.is_prim_expr(condition)
-    tvm.ir.assert_structural_equal(N % 16 == 0, condition)
-    tvm.ir.assert_structural_equal(condition.ty, tvm.ir.PrimType("bool"))
+    assert tvm_tirx.ir.is_prim_expr(condition)
+    tvm_tirx.ir.assert_structural_equal(N % 16 == 0, condition)
+    tvm_tirx.ir.assert_structural_equal(condition.ty, tvm_tirx.ir.PrimType("bool"))
 
 
 def test_tir_expr_as_assert_condition():
@@ -860,13 +932,13 @@ def test_tir_expr_as_assert_condition():
         out = R.call_packed("fast_vectorized_impl", x, ty_args=[x.ty])
         return out
 
-    tvm.ir.assert_structural_equal(unsugared, sugared)
+    tvm_tirx.ir.assert_structural_equal(unsugared, sugared)
 
 
 def test_empty_tuple():
     @R.function
     def foo(x: R.Tuple()):
-        y: R.Tuple() = R.tuple()
+        y: R.Tuple() = ()
         return y
 
     x = relax.Var("x", relax.TupleType([]))
@@ -878,9 +950,10 @@ def test_empty_tuple():
     _check(foo, bb.get()["foo"])
 
 
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="PEP 695 requires Python 3.12")
 def test_arith_operators():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @R.function
     def foo(x: R.Tensor((m, n), "float32"), y: R.Tensor((m, n), "float32")):
@@ -932,6 +1005,7 @@ def test_arith_operators():
     _check(foo, bb.get()["foo"])
 
 
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="PEP 695 requires Python 3.12")
 def test_memory_ops():
     m = T.dynamic("m", "int64")
     n = T.dynamic("n", "int64")
@@ -949,6 +1023,7 @@ def test_memory_ops():
     _check(foo)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="PEP 695 requires Python 3.12")
 def test_vm_ops():
     m = T.dynamic("m", "int64")
     n = T.dynamic("n", "int64")
@@ -964,9 +1039,10 @@ def test_vm_ops():
     _check(foo)
 
 
+@pytest.mark.skipif(sys.version_info < (3, 12), reason="PEP 695 requires Python 3.12")
 def test_builtin_ops():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @R.function
     def foo(x: R.Tensor((m, n), dtype="float32")):
@@ -1005,7 +1081,7 @@ def test_datatype_imm():
 
 
 def test_function_void_return_type():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Foo:
         @R.function
         def main(x: R.Tensor((3, 3), dtype="float32")):
@@ -1023,7 +1099,7 @@ def test_function_void_return_type():
     assert isinstance(Foo["main"].ret_ty, relax.AnyType)
     assert isinstance(Foo["mul"].ret_ty, relax.TensorType)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Bar:
         @R.function
         def main(x1: R.Tensor((3, 3), dtype="float32")):
@@ -1038,8 +1114,8 @@ def test_function_void_return_type():
     # Since the return type of function `mul` is not annotated,
     # the function `main` regards it as a generic return type.
     _check(Bar)
-    tvm.ir.assert_structural_equal(Bar["main"].ret_ty, relax.TupleType([]))
-    tvm.ir.assert_structural_equal(Bar["mul"].ret_ty, relax.TupleType([]))
+    tvm_tirx.ir.assert_structural_equal(Bar["main"].ret_ty, relax.TupleType([]))
+    tvm_tirx.ir.assert_structural_equal(Bar["mul"].ret_ty, relax.TupleType([]))
 
 
 def test_unit_tuple_on_rhs_of_assign():
@@ -1076,8 +1152,8 @@ def test_global_var_ty():
         (R.Tensor((128, 128), dtype="float32"),), R.Tensor((128, 128), dtype="float32")
     )
     gv = Module.get_global_var("foo")
-    tvm.ir.assert_structural_equal(gv.ty, target_ty)
-    tvm.ir.assert_structural_equal(Module["foo"].ty, target_ty)
+    tvm_tirx.ir.assert_structural_equal(gv.ty, target_ty)
+    tvm_tirx.ir.assert_structural_equal(Module["foo"].ty, target_ty)
     _check(Module)
 
 
@@ -1086,7 +1162,7 @@ def test_assert_op():
     class AssertOp:
         @R.function(pure=False)
         def main(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.assert_op(R.const(False, dtype="bool"), x, format="x: {}")
+            y = R.assert_op(R.const(False, dtype="bool"), "x: {}", x)
             return x
 
     _check(AssertOp)
@@ -1095,7 +1171,7 @@ def test_assert_op():
 def test_assert_outside_of_class():
     @R.function(pure=False)
     def func(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-        y = R.assert_op(R.const(False, dtype="bool"), x, format="x: {}")
+        y = R.assert_op(R.const(False, dtype="bool"), "x: {}", x)
         return x
 
     # this just makes sure that the machinery regarding the pure attribute parses
@@ -1109,7 +1185,7 @@ def test_impure_inner_function():
         # we will not actually call it
         @R.function(pure=False)
         def g(y: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            z = R.assert_op(R.const(False, dtype="bool"), y, format="y: {}")
+            z = R.assert_op(R.const(False, dtype="bool"), "y: {}", y)
             return y
 
         return x
@@ -1130,7 +1206,7 @@ def test_impure_inner_function_in_class():
             # we will not actually call it
             @R.function(pure=False)
             def g(y: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-                z = R.assert_op(R.const(False, dtype="bool"), y, format="y: {}")
+                z = R.assert_op(R.const(False, dtype="bool"), "y: {}", y)
                 return y
 
             return x
@@ -1148,7 +1224,7 @@ def test_print():
     class Print:
         @R.function(pure=False)
         def main(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.print(x, format="x: {}")
+            y = R.print("x: {}", x)
             return x
 
     _check(Print)
@@ -1159,12 +1235,12 @@ def test_parse_multiple_pure_and_impure_funcs():
     class Mixture:
         @R.function(pure=False)
         def print(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.print(x, format="x: {}")
+            y = R.print("x: {}", x)
             return x
 
         @R.function(pure=False)
         def assert_func(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.assert_op(R.const(False, dtype="bool"), x, format="x: {}")
+            y = R.assert_op(R.const(False, dtype="bool"), "x: {}", x)
             return x
 
         @R.function
@@ -1184,27 +1260,27 @@ def test_function_with_void_return_type_may_be_used_as_statements():
     class Unsugared:
         @R.function(pure=False)
         def print(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.print(x, format="x: {}")
+            y = R.print("x: {}", x)
             return x
 
         @R.function(pure=False)
         def assert_func(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            y = R.assert_op(R.const(False, dtype="bool"), x, format="x: {}")
+            y = R.assert_op(R.const(False, dtype="bool"), "x: {}", x)
             return x
 
     @I.ir_module
     class Sugared:
         @R.function(pure=False)
         def print(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            R.print(x, format="x: {}")
+            R.print("x: {}", x)
             return x
 
         @R.function(pure=False)
         def assert_func(x: R.Tensor((), "int32")) -> R.Tensor((), "int32"):
-            R.assert_op(R.const(False, dtype="bool"), x, format="x: {}")
+            R.assert_op(R.const(False, dtype="bool"), "x: {}", x)
             return x
 
-    tvm.ir.assert_structural_equal(Unsugared, Sugared)
+    tvm_tirx.ir.assert_structural_equal(Unsugared, Sugared)
 
 
 def test_function_with_void_return_type_in_if_else():
@@ -1217,9 +1293,9 @@ def test_function_with_void_return_type_in_if_else():
             (), "int32"
         ):
             if condition:
-                y = R.print(x, format="True condition: {}")
+                y = R.print("True condition: {}", x)
             else:
-                y = R.print(x, format="False condition: {}")
+                y = R.print("False condition: {}", x)
             return x
 
     @I.ir_module
@@ -1229,9 +1305,9 @@ def test_function_with_void_return_type_in_if_else():
             (), "int32"
         ):
             if condition:
-                R.print(x, format="True condition: {}")
+                R.print("True condition: {}", x)
             else:
-                R.print(x, format="False condition: {}")
+                R.print("False condition: {}", x)
             return x
 
     _check(Sugared, Unsugared)
@@ -1340,12 +1416,12 @@ def test_primitive_assignments_emit_fresh_bindings():
         (floating, "float32"),
         (boolean, "bool"),
     ]:
-        assert isinstance(binding.var.ty, tvm.ir.PrimType)
+        assert isinstance(binding.var.ty, tvm_tirx.ir.PrimType)
         assert binding.var.ty.dtype == dtype
-        assert tvm.ir.is_prim_expr(binding.value)
-        assert not isinstance(binding.value, tvm.ir.GenericConst)
+        assert tvm_tirx.ir.is_prim_expr(binding.value)
+        assert not isinstance(binding.value, tvm_tirx.ir.GenericConst)
 
-    source = func.script(show_all_ty=False)
+    source = func.script(extra_config={"relax.show_all_ty": False})
     assert "R.prim_value" not in source
     for annotation in [
         "alias: T.int64",
@@ -1370,8 +1446,8 @@ def test_primitive_if_emits_fresh_result():
 
     outer_binding = func.body.blocks[0].bindings[0]
     assert isinstance(outer_binding, relax.VarBinding)
-    assert isinstance(outer_binding.value, relax.If)
-    assert isinstance(outer_binding.var.ty, tvm.ir.PrimType)
+    assert isinstance(outer_binding.value, relax.IfExpr)
+    assert isinstance(outer_binding.var.ty, tvm_tirx.ir.PrimType)
     assert not outer_binding.var.same_as(func.params[1])
     assert not outer_binding.var.same_as(func.params[2])
     for branch, param in [
@@ -1381,7 +1457,7 @@ def test_primitive_if_emits_fresh_result():
         assert not branch.blocks
         assert branch.body.same_as(param)
 
-    source = func.script(show_all_ty=False)
+    source = func.script(extra_config={"relax.show_all_ty": False})
     assert "R.prim_value" not in source
     assert source.count("output: T.int64") == 2
     _check(func)
@@ -1415,7 +1491,7 @@ def test_return_from_dataflow_block():
             C = R.multiply(B, B)
             return C
 
-    tvm.ir.assert_structural_equal(output_then_return, return_inside_dataflow)
+    tvm_tirx.ir.assert_structural_equal(output_then_return, return_inside_dataflow)
 
 
 def relax_match_cast_ty_proxy():
@@ -1469,18 +1545,62 @@ def relax_float_symbolic_var():
 )
 def test_roundtrip_basic_usage(ir_generator):
     original = ir_generator()
-    after_roundtrip = tvm.script.from_source(
+    after_roundtrip = tvm_tirx.script.from_source(
         original.script(show_meta=True),
         check_well_formed=False,
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(original, after_roundtrip, map_free_vars=True)
+    tvm_tirx.ir.assert_structural_equal(original, after_roundtrip, map_free_vars=True)
+
+
+def test_tuple_literals_preserve_expression_structure():
+    @R.function(private=True)
+    def literal(x: T.int64):
+        empty = ()
+        singleton = (x,)
+        nested = (empty, singleton)
+        return nested
+
+    @R.function(private=True)
+    def constructed(x: T.int64):
+        empty = R.tuple()
+        singleton = R.tuple(x)
+        nested = R.tuple(empty, singleton)
+        return nested
+
+    tvm_tirx.ir.assert_structural_equal(literal, constructed)
+    for show_all_ty in [False, True]:
+        source = literal.script(extra_config={"relax.show_all_ty": show_all_ty})
+        assert "R.tuple" not in source
+        tvm_tirx.ir.assert_structural_equal(
+            literal, tvm_tirx.script.from_source(source, extra_vars={"I": I, "R": R, "T": T})
+        )
+
+
+def test_primitive_scalar_conversion_depends_on_context():
+    @R.function(private=True)
+    def tensor():
+        return 1
+
+    @R.function(private=True)
+    def primitive():
+        return R.prim_value(1)
+
+    @R.function(private=True)
+    def typed():
+        value: T.int32 = 1
+        return value
+
+    assert isinstance(tensor.ret_ty, relax.TensorType)
+    assert primitive.ret_ty.dtype == "int64"
+    assert typed.ret_ty.dtype == "int32"
+    _check(typed)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

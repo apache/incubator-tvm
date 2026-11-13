@@ -219,8 +219,7 @@ class CodegenCBase {
       // constant copying process used packed imports in other external
       // codegen. Moreover, in microTVM we dont expect this part to be generated.
       code_stream_ << "#ifdef __cplusplus\n";
-      code_stream_ << "int " << func_name
-                   << "_init_wrapper_(tvm::ffi::Array<tvm::runtime::Tensor> arr) {\n";
+      code_stream_ << "int " << func_name << "_init_wrapper_(tvm::ffi::Array<tvm::Tensor> arr) {\n";
       EnterScope();
       PrintIndents();
       code_stream_ << func_name << "_consts = arr;\n";
@@ -333,19 +332,19 @@ class CodegenCBase {
    * \return The dtype string.
    */
   std::string GetDtypeString(const Var& var) {
-    auto tensor_ty = var->ty.as<TensorTypeNode>();
-    TVM_FFI_ICHECK(tensor_ty) << "Expect TensorTypeNode";
+    auto tensor_ty = var->ty.as<TensorTypeObj>();
+    TVM_FFI_ICHECK(tensor_ty) << "Expect TensorTypeObj";
     return GetDtypeString(tensor_ty);
   }
 
   /*!
    * \brief Returns dtype string
    *
-   * \param ttype TensorTypeNode* to get the dtype of
+   * \param ttype TensorTypeObj* to get the dtype of
    *
    * \return The dtype string.
    */
-  std::string GetDtypeString(const TensorTypeNode* tensor_ty) {
+  std::string GetDtypeString(const TensorTypeObj* tensor_ty) {
     std::string dtype;
     DLDataType raw_dtype = tensor_ty->dtype.value()->dtype;
     if (raw_dtype == DLDataType{kDLFloat, 32, 1}) {
@@ -391,7 +390,7 @@ class CodegenCBase {
    * \return The created declaration
    */
   std::string CreateTensorPool(const std::string& symbol) const {
-    return "tvm::ffi::Array<tvm::runtime::Tensor> " + symbol + "_consts;";
+    return "tvm::ffi::Array<tvm::Tensor> " + symbol + "_consts;";
   }
 
   /*!

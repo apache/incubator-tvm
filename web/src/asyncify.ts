@@ -146,7 +146,10 @@ export class AsyncifyHandler {
    * @param func The input function
    * @returns The wrapped async function
    */
-  wrapExport(func: (...args: Array<any>) => any): (...args: Array<any>) => Promise<any> {
+  wrapExport(
+    func: (...args: Array<any>) => any,
+    onSuspend?: () => void
+  ): (...args: Array<any>) => Promise<any> {
     return async (...args: Array<any>) => {
       assert(this.getState() == AsyncifyStateKind.None);
 
@@ -159,6 +162,11 @@ export class AsyncifyHandler {
       // the if (isPromise(value)) condition in wrapImport
       while (this.getState() == AsyncifyStateKind.Unwinding) {
         this.stopUnwind();
+        // The stack is unwound and no other JavaScript has run yet, so the
+        // caller can still take references before the await below.
+        if (onSuspend !== undefined) {
+          onSuspend();
+        }
         // try to resolve the promise that the internal requested
         // we then store it into the temp value in storedValueBeforeRewind
         // which then get passed onto the function(see wrapImport)

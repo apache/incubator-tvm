@@ -19,10 +19,10 @@
 # Enhanced version of find NVSHMEM.
 #
 # Usage:
-#   find_nvshmem(${USE_NVSHMEM})
+#   find_nvshmem(${TVM_USE_NVSHMEM})
 #
-# - When USE_NVSHMEM=ON, use auto search
-# - When USE_NVSHMEM=/path/to/installed/nvshmem, use the installed nvshmem path.
+# - When TVM_USE_NVSHMEM=ON, use auto search
+# - When TVM_USE_NVSHMEM=/path/to/installed/nvshmem, use the installed nvshmem path.
 #   Can be useful when nvshmem is installed at specified location.
 #
 # Provide variables:

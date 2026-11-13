@@ -280,7 +280,7 @@ class ExampleNPURuntime : public JSONRuntimeBase {
   /*!
    * \brief Initialize the runtime with NPU-specific setup
    */
-  void Init(const ffi::Array<Tensor>& consts) override {
+  void Init(const ffi::Array<ffi::Tensor>& consts) override {
     TVM_FFI_ICHECK_EQ(consts.size(), const_idx_.size())
         << "The number of input constants must match the number of required constants.";
 

@@ -22,6 +22,7 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 #include <tvm/relax/type.h>
@@ -38,38 +39,37 @@ class PurityRemover : public ExprMutator {
     bool purity = func->is_pure;
     auto ret = func;
     if (purity) {
-      ret = WithAttr<Function>(func, relax::attr::kForcePure, true);
+      ret = WithAttr<Function>(func, tvm::relax::attr::kForcePure.name, true);
     }
     auto new_body = VisitExpr(ret->body);
     if (!new_body.same_as(ret->body)) {
-      return Function(ret->params, new_body, ret->ret_ty, ret->is_pure, ret->attrs, ret->span);
+      return Function(ret->params, new_body, ret->ret_ty, ret->is_pure, ret->attrs, ret->loc);
     }
     return ret;
   }
 
-  Expr VisitExpr_(const CallNode* call) override {
+  Expr VisitExpr_(const CallObj* call) override {
     if (call->op.same_as(call_pure_packed_op_)) {
-      auto ret = Call::Unchecked(Type::Missing(), call->args[0],
-                                 ffi::Array<Expr>(call->args.begin() + 1, call->args.end()),
-                                 call->attrs, call->ty_args);
+      auto ret = Call(Type::Missing(), call->args[0],
+                      ffi::Array<Expr>(call->args.begin() + 1, call->args.end()), call->attrs,
+                      call->ty_args);
       return VisitExpr(ret);
     }
     if (call->op.same_as(call_inplace_packed_op_)) {
       // call_inplace_packed has its own attrs so we don't pass those down
-      auto ret = Call::Unchecked(Type::Missing(), call->args[0],
-                                 ffi::Array<Expr>(call->args.begin() + 1, call->args.end()),
-                                 tvm::Attrs(), call->ty_args);
+      auto ret = Call(Type::Missing(), call->args[0],
+                      ffi::Array<Expr>(call->args.begin() + 1, call->args.end()), std::nullopt,
+                      call->ty_args);
       return VisitExpr(ret);
     }
     if (call->op.same_as(invoke_pure_closure_op_)) {
-      auto ret = Call::Unchecked(Type::Missing(), invoke_closure_op_, call->args, call->attrs,
-                                 call->ty_args);
+      auto ret = Call(Type::Missing(), invoke_closure_op_, call->args, call->attrs, call->ty_args);
       return VisitExpr(ret);
     }
     return ExprMutator::VisitExpr_(call);
   }
 
-  Expr VisitExpr_(const FunctionNode* func) override {
+  Expr VisitExpr_(const FunctionObj* func) override {
     // handling inner functions: we will remove purity annotations from them too
     return RemovePurity(ffi::GetRef<Function>(func));
   }
@@ -89,7 +89,7 @@ Pass RemovePurityChecking() {
   auto pass_func = [=](const Function& f, IRModule mod, PassContext pc) {
     return relax::RemovePurityChecking(f);
   };
-  return CreateFunctionPass(pass_func, 0, "RemovePurityChecking", {});
+  return CreateFunctionPass(pass_func, 0, "RemovePurityChecking");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

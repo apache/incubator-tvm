@@ -25,6 +25,7 @@ import functools
 import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm.relax import build as relax_build
 
 from .fx_translator import from_fx
@@ -37,12 +38,12 @@ def device_from_inputs(example_inputs):
     return None
 
 
-def relax_dynamo(pipeline: tvm.transform.Pass | None = None):
+def relax_dynamo(pipeline: tvm_tirx.ir.transform.Pass | None = None):
     """A helper function to create a relax backend.
 
     Parameters
     ----------
-    pipeline : Optional[tvm.transform.Pass]
+    pipeline : Optional[tvm_tirx.ir.transform.Pass]
         The pipeline to be applied to the relax module before sent to build.
 
     Returns
@@ -63,7 +64,7 @@ def relax_dynamo(pipeline: tvm.transform.Pass | None = None):
                 # ffi::Tensor items returned in containers back to torch.Tensor when
                 # the call site passed torch.Tensor inputs.
                 return nd_tensor
-            if isinstance(nd_tensor, tvm.runtime.Tensor):
+            if isinstance(nd_tensor, tvm_tirx.runtime.Tensor):
                 return torch.from_numpy(nd_tensor.numpy())
             elif isinstance(nd_tensor, tvm_ffi.Array):
                 return tuple(to_torch_tensor(x) for x in nd_tensor)
@@ -99,7 +100,7 @@ def relax_dynamo(pipeline: tvm.transform.Pass | None = None):
             for s in tensor.shape:
                 if isinstance(s, torch.SymInt):
                     if str(s) not in shape_vars:
-                        shape_vars[str(s)] = tvm.tirx.Var(str(s), "int64")
+                        shape_vars[str(s)] = tvm_tirx.tirx.Var(str(s), "int64")
                     shape.append(shape_vars[str(s)])
                 else:
                     shape.append(s)
@@ -108,11 +109,11 @@ def relax_dynamo(pipeline: tvm.transform.Pass | None = None):
         mod = from_fx(graph_module, input_info)
 
         if device.type == "cuda":
-            dev = tvm.cuda(device.index)
-            target = tvm.target.Target("cuda")
+            dev = tvm_tirx.cuda(device.index)
+            target = tvm_tirx.target.Target("cuda")
         else:
-            dev = tvm.cpu(0)
-            target = tvm.target.Target(llvm_target())
+            dev = tvm_tirx.cpu(0)
+            target = tvm_tirx.target.Target(llvm_target())
 
         # invoke optimization pipeline.
         if pipeline is None:
@@ -149,7 +150,7 @@ def relax_dynamo(pipeline: tvm.transform.Pass | None = None):
     return _relax_backend
 
 
-def dynamo_capture_subgraphs(model, *params, **kwargs) -> tvm.IRModule:
+def dynamo_capture_subgraphs(model, *params, **kwargs) -> tvm_tirx.IRModule:
     """Capture subgraphs of the PyTorch model using torch.compile into an IRModule.
 
     Parameters
@@ -177,7 +178,7 @@ def dynamo_capture_subgraphs(model, *params, **kwargs) -> tvm.IRModule:
 
     keep_params_as_input = "keep_params_as_input" in kwargs and kwargs["keep_params_as_input"]
     kwargs.pop("keep_params_as_input", None)
-    mod = tvm.IRModule()
+    mod = tvm_tirx.IRModule()
 
     def _capture(graph_module: fx.GraphModule, example_inputs):
         assert isinstance(graph_module, torch.fx.GraphModule)

@@ -26,11 +26,23 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/op.h>
+#include <tvm/relax/op_attr.h>
 
 #include <utility>
 
 namespace tvm {
 namespace relax {
+
+void ROIPoolAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<ROIPoolAttrs>()
+      .def_ro("pooled_size", &ROIPoolAttrs::pooled_size, "Output size of roi pool.")
+      .def_ro("spatial_scale", &ROIPoolAttrs::spatial_scale,
+              "Ratio of input feature map height (or width) to raw image height (or width).")
+      .def_ro("layout", &ROIPoolAttrs::layout, "Dimension ordering of the input data.",
+              refl::DefaultValue(ffi::String("NCHW")));
+}
 
 TVM_FFI_STATIC_INIT_BLOCK() { ROIPoolAttrs::RegisterReflection(); }
 
@@ -49,7 +61,7 @@ Expr roi_pool(Expr data, Expr rois, ffi::Array<int64_t> pooled_size, double spat
   attrs->layout = layout;
 
   static const Op op = Op::Get("relax.vision.roi_pool");
-  return Call::Unchecked(Type::Missing(), op, {std::move(data), std::move(rois)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(data), std::move(rois)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -57,7 +69,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.vision.roi_pool", roi_pool);
 }
 
-Type InferTypeROIPool(const CallNode* call_node) {
+Type InferTypeROIPool(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
   if (call->args.size() != 2) {
     TVM_FFI_VISIT_THROW(ValueError, call)
@@ -65,8 +77,8 @@ Type InferTypeROIPool(const CallNode* call_node) {
         << call->args.size();
   }
 
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* rois_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* rois_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
   if (data_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "ROIPool expects the input data to be a Tensor, while the given data is "
@@ -95,9 +107,9 @@ Type InferTypeROIPool(const CallNode* call_node) {
         << "ROIPool only supports NCHW layout, but got " << attrs->layout;
   }
 
-  const auto* rois_shape = rois_ty->shape.as<ShapeExprNode>();
+  const auto* rois_shape = rois_ty->shape.as<ShapeExprObj>();
   if (rois_shape != nullptr) {
-    const auto* last_dim = rois_shape->values[1].as<IntImmNode>();
+    const auto* last_dim = rois_shape->values[1].as<IntImmObj>();
     if (last_dim != nullptr && last_dim->value != 5) {
       TVM_FFI_VISIT_THROW(ValueError, call)
           << "ROIPool expects rois to have shape (num_roi, 5), but got last "
@@ -106,11 +118,11 @@ Type InferTypeROIPool(const CallNode* call_node) {
     }
   }
 
-  if (data_ty->shape.as<ShapeExprNode>() == nullptr || rois_shape == nullptr) {
+  if (data_ty->shape.as<ShapeExprObj>() == nullptr || rois_shape == nullptr) {
     return TensorType(data_ty->dtype, 4, data_ty->vdevice);
   }
 
-  ffi::Array<PrimExpr> data_shape = data_ty->shape.as<ShapeExprNode>()->values;
+  ffi::Array<PrimExpr> data_shape = data_ty->shape.as<ShapeExprObj>()->values;
   ffi::Array<PrimExpr> out_shape = {rois_shape->values[0], data_shape[1],
                                     IntImm::Int32(attrs->pooled_size[0]),
                                     IntImm::Int32(attrs->pooled_size[1])};
@@ -124,9 +136,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
           sig::arg("rois",
                    "The input rois with shape (num_roi, 5) in [batch_idx, x1, y1, x2, y2] format."),
           sig::call_attrs<ROIPoolAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeROIPool>())
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeROIPool>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 }  // namespace relax

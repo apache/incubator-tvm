@@ -19,9 +19,11 @@
 
 from math import pi
 
-from tvm import ir, te, tirx
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+import tvm_tirx
+from tvm import te
+from tvm_tirx import ir, tirx
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx.script import ir_builder as T
 
 
 def stft(
@@ -90,55 +92,55 @@ def stft(
                 with col_loop(0, output_ptr.shape[2]) as col:
                     batch = tirx.floordiv(batch_row, output_ptr.shape[1])
                     row = tirx.floormod(batch_row, output_ptr.shape[1])
-                    T.buffer_store(
+                    T.tensor_store(
                         output,
-                        tirx.Cast(data_ptr.dtype, 0),
                         (batch, row, col, 0),
-                    )
-                    T.buffer_store(
-                        output,
                         tirx.Cast(data_ptr.dtype, 0),
+                    )
+                    T.tensor_store(
+                        output,
                         (batch, row, col, 1),
+                        tirx.Cast(data_ptr.dtype, 0),
                     )
                     with T.serial(0, win_length) as wlen:
-                        T.buffer_store(
+                        T.tensor_store(
                             output,
+                            (batch, row, col, 0),
                             output[(batch, row, col, 0)]
                             + (
-                                window[T.buffer_indices(window, wlen)]
+                                window[T.tensor_indices(window, wlen)]
                                 * data[(batch, col * hop_length + wlen)]
                                 * tirx.cos(2 * pi * row * wlen / win_length)
                             ),
-                            (batch, row, col, 0),
                         )
-                        T.buffer_store(
+                        T.tensor_store(
                             output,
+                            (batch, row, col, 1),
                             output[(batch, row, col, 1)]
                             - (
-                                window[T.buffer_indices(window, wlen)]
+                                window[T.tensor_indices(window, wlen)]
                                 * data[(batch, col * hop_length + wlen)]
                                 * tirx.sin(2 * pi * row * wlen / win_length)
                             ),
-                            (batch, row, col, 1),
                         )
                     with T.if_(normalized):
                         with T.then_():
-                            T.buffer_store(
+                            T.tensor_store(
                                 output,
+                                (batch, row, col, 0),
                                 output[(batch, row, col, 0)]
                                 / (tirx.sqrt(tirx.const(n_fft, "float32"))),
-                                (batch, row, col, 0),
                             )
-                            T.buffer_store(
+                            T.tensor_store(
                                 output,
+                                (batch, row, col, 1),
                                 output[(batch, row, col, 1)]
                                 / (tirx.sqrt(tirx.const(n_fft, "float32"))),
-                                (batch, row, col, 1),
                             )
 
             return ib.get()
 
-    output_buf = tirx.decl_buffer(output_shape, data.dtype, "output_buf", layout=None)
+    output_buf = tirx.Var("output_buf", tirx.TensorType(output_shape, data.dtype, layout=None))
     loop_kind = "vectorize"
     if ir.is_prim_var(output_shape[2]):  # any_dim
         loop_kind = "serial"
@@ -150,7 +152,7 @@ def stft(
             ins[0], n_fft, hop_length, win_length, ins[1], normalized, onesided, outs[0], loop_kind
         ),
         dtype=[data.dtype],
-        out_buffers=[output_buf],
+        out_tensors=[output_buf],
         name="stft_cpu",
         tag="stft_cpu",
     )
@@ -159,7 +161,7 @@ def stft(
 def dft(
     re_data: te.Tensor,
     im_data: te.Tensor,
-    inverse: tirx.IntImm,
+    inverse: tvm_tirx.ir.IntImm,
 ):
     """
     Computes the discrete Fourier transform of input (calculation along the last axis).
@@ -210,15 +212,15 @@ def dft(
                 base_idx = i * n_fft
                 with T.serial(0, n_fft) as n:
                     n_idx = base_idx + n
-                    T.buffer_store(
+                    T.tensor_store(
                         re_output_ptr,
+                        T.tensor_indices(re_output_ptr, n_idx),
                         tirx.Cast(re_output_ptr.dtype, 0),
-                        T.buffer_indices(re_output_ptr, n_idx),
                     )
-                    T.buffer_store(
+                    T.tensor_store(
                         im_output_ptr,
+                        T.tensor_indices(im_output_ptr, n_idx),
                         tirx.Cast(im_output_ptr.dtype, 0),
-                        T.buffer_indices(im_output_ptr, n_idx),
                     )
                     _w = sign * -2 * pi * n / n_fft
                     with T.serial(0, n_fft) as k:
@@ -226,36 +228,36 @@ def dft(
                         w = _w * k
                         cos_w = tirx.Cast(re_output_ptr.dtype, tirx.cos(w))
                         sin_w = tirx.Cast(re_output_ptr.dtype, tirx.sin(w))
-                        T.buffer_store(
+                        T.tensor_store(
                             re_output_ptr,
-                            re_output_ptr[T.buffer_indices(re_output_ptr, n_idx)]
+                            T.tensor_indices(re_output_ptr, n_idx),
+                            re_output_ptr[T.tensor_indices(re_output_ptr, n_idx)]
                             + (
-                                re_data_ptr[T.buffer_indices(re_data_ptr, k_idx)] * cos_w
-                                - im_data_ptr[T.buffer_indices(im_data_ptr, k_idx)] * sin_w
+                                re_data_ptr[T.tensor_indices(re_data_ptr, k_idx)] * cos_w
+                                - im_data_ptr[T.tensor_indices(im_data_ptr, k_idx)] * sin_w
                             ),
-                            T.buffer_indices(re_output_ptr, n_idx),
                         )
-                        T.buffer_store(
+                        T.tensor_store(
                             im_output_ptr,
-                            im_output_ptr[T.buffer_indices(im_output_ptr, n_idx)]
+                            T.tensor_indices(im_output_ptr, n_idx),
+                            im_output_ptr[T.tensor_indices(im_output_ptr, n_idx)]
                             + (
-                                re_data_ptr[T.buffer_indices(re_data_ptr, k_idx)] * sin_w
-                                + im_data_ptr[T.buffer_indices(im_data_ptr, k_idx)] * cos_w
+                                re_data_ptr[T.tensor_indices(re_data_ptr, k_idx)] * sin_w
+                                + im_data_ptr[T.tensor_indices(im_data_ptr, k_idx)] * cos_w
                             ),
-                            T.buffer_indices(im_output_ptr, n_idx),
                         )
 
-                    T.buffer_store(
+                    T.tensor_store(
                         re_output_ptr,
-                        re_output_ptr[T.buffer_indices(re_output_ptr, n_idx)]
+                        T.tensor_indices(re_output_ptr, n_idx),
+                        re_output_ptr[T.tensor_indices(re_output_ptr, n_idx)]
                         * (tirx.Cast(re_output_ptr.dtype, factor)),
-                        T.buffer_indices(re_output_ptr, n_idx),
                     )
-                    T.buffer_store(
+                    T.tensor_store(
                         im_output_ptr,
-                        im_output_ptr[T.buffer_indices(im_output_ptr, n_idx)]
+                        T.tensor_indices(im_output_ptr, n_idx),
+                        im_output_ptr[T.tensor_indices(im_output_ptr, n_idx)]
                         * (tirx.Cast(im_output_ptr.dtype, factor)),
-                        T.buffer_indices(im_output_ptr, n_idx),
                     )
 
             return ib.get()

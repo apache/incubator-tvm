@@ -17,5 +17,5 @@
 # pylint: disable=redefined-builtin, wrong-import-order, no-member, invalid-name
 """S-TIR uses the common TIRx expression operators."""
 
-from tvm.tirx.script.ir_builder.op import *  # noqa: F403
-from tvm.tirx.script.ir_builder.op import __all__ as __all__
+from tvm_tirx.tirx.script.ir_builder.op import *  # noqa: F403
+from tvm_tirx.tirx.script.ir_builder.op import __all__ as __all__

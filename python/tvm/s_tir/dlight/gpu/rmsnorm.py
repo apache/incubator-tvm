@@ -18,12 +18,12 @@
 """A RMS norm schedule rule for GPU operators."""
 
 import tvm
-from tvm import tirx
-from tvm.ir import Call, TensorLoad
+import tvm_tirx
 from tvm.s_tir import SBlock
-from tvm.target import Target
-from tvm.tirx import BufferStore
-from tvm.tirx.expr import Cast
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call, TensorLoad, TensorStore
+from tvm_tirx.target import Target
+from tvm_tirx.tirx.expr import Cast
 
 from ..base import ScheduleRule
 
@@ -32,9 +32,9 @@ def identify_cast_or_load_block(block: SBlock) -> bool:
     if len(block.reads) != 1 or len(block.writes) != 1:
         return False
 
-    if not isinstance(block.body, BufferStore):
+    if len(block.body) != 1 or not isinstance(block.body[0], TensorStore):
         return False
-    store = block.body
+    store = block.body[0]
 
     # check types
     if isinstance(store.value, TensorLoad):
@@ -61,16 +61,16 @@ def identify_rsqrt_block(block: SBlock) -> bool:
     if len(block.reads) != 1 or len(block.writes) != 1:
         return False
 
-    if not isinstance(block.body, BufferStore):
+    if len(block.body) != 1 or not isinstance(block.body[0], TensorStore):
         return False
-    store = block.body
+    store = block.body[0]
 
     if not isinstance(store.value, Call):
         return False
     call = store.value
     op = call.op
 
-    return op == tvm.ir.op.Op.get("tirx.rsqrt")
+    return op == tvm_tirx.ir.op.Op.get("prim.rsqrt")
 
 
 class RMSNorm(ScheduleRule):
@@ -78,7 +78,7 @@ class RMSNorm(ScheduleRule):
 
     def apply(  # pylint: disable=too-many-locals,missing-docstring
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         _: bool,
     ) -> "tvm.s_tir.Schedule":
@@ -97,8 +97,8 @@ class RMSNorm(ScheduleRule):
         if not any([identify_rsqrt_block(sch.get(block)) for block in blocks]):
             return None
 
-        read = sch.cache_read(block=blocks[0], read_buffer_index=0, storage_scope="local")
-        write = sch.cache_write(block=blocks[-1], write_buffer_index=0, storage_scope="local")
+        read = sch.cache_read(block=blocks[0], read_tensor_index=0, storage_scope="local")
+        write = sch.cache_write(block=blocks[-1], write_tensor_index=0, storage_scope="local")
 
         for block in blocks:
             if identify_cast_or_load_block(sch.get(block)):
@@ -136,9 +136,9 @@ class RMSNorm(ScheduleRule):
         sch.reverse_compute_at(block=write, loop=thread_loop, index=-1)
         sch.vectorize(sch.get_loops(block=write)[-1])
 
-        sch.set_scope(block=sqr, buffer_index=0, storage_scope="local")
-        sch.set_scope(block=redsum, buffer_index=0, storage_scope="local")
-        sch.set_scope(block=rsqrt, buffer_index=0, storage_scope="shared")
-        sch.set_scope(block=norm, buffer_index=0, storage_scope="local")
+        sch.set_scope(block=sqr, tensor_index=0, storage_scope="local")
+        sch.set_scope(block=redsum, tensor_index=0, storage_scope="local")
+        sch.set_scope(block=rsqrt, tensor_index=0, storage_scope="shared")
+        sch.set_scope(block=norm, tensor_index=0, storage_scope="local")
 
         return sch

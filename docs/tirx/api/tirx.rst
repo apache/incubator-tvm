@@ -23,15 +23,16 @@ namespace.  Layouts, execution scopes, visitors, compilation helpers, and
 tile-dispatch extensions are documented on their focused pages and excluded
 here so the same objects are not expanded twice.
 
-For C++ construction, include ``tvm/tirx/expr.h`` for ``BufferVar``, buffer
-loads, and buffer-region constructors. Include ``tvm/tirx/type.h`` for
-``BufferType``, ``BufferRegionType``, and ``TensorMapType``. Buffer regions
-use the shared ``TensorRegion`` expression from ``tvm/ir/expr.h``.
+For C++ construction, include ``tvm/tirx/expr.h`` for ``TensorVar``, tensor
+loads, and tensor-region constructors. Include ``tvm/tirx/type.h`` for
+``TensorType`` and ``TensorMapType``. Tensor regions use the shared
+``TensorRegion`` expression from ``tvm/ir/expr.h`` and ``TensorRegionType``
+from ``tvm/ir/type.h``.
 
-.. automodule:: tvm.tirx
+.. automodule:: tvm_tirx.tirx
    :members:
    :imported-members:
    :exclude-members: Call, CommReducer, ComposeLayout, DispatchContext,
-      ExecScope, Expr, Layout, Op, PrimExpr, Reduce, ScopeIdDef,
+      ThreadScope, Expr, Layout, Op, PrimExpr, Reduce,
       TileLayout, Var, build, const,
       get_default_tir_pipeline, get_tir_pipeline, register_tir_pipeline

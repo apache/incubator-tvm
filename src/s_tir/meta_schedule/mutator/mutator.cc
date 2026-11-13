@@ -24,32 +24,32 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-void PyMutatorNode::InitializeWithTuneContext(const TuneContext& context) {
+void PyMutatorObj::InitializeWithTuneContext(const TuneContext& context) {
   TVM_FFI_ICHECK(f_initialize_with_tune_context != nullptr)
       << "PyMutator's InitializeWithTuneContext method not implemented!";
   f_initialize_with_tune_context(context);
 }
 
-ffi::Optional<s_tir::Trace> PyMutatorNode::Apply(const s_tir::Trace& trace,
-                                                 LinearCongruentialEngine::TRandState* rand_state) {
+ffi::Optional<s_tir::Trace> PyMutatorObj::Apply(const s_tir::Trace& trace,
+                                                LinearCongruentialEngine::TRandState* rand_state) {
   TVM_FFI_ICHECK(f_apply != nullptr) << "PyMutator's Apply method not implemented!";
   return f_apply(trace, *rand_state);
 }
 
-Mutator PyMutatorNode::Clone() const {
+Mutator PyMutatorObj::Clone() const {
   TVM_FFI_ICHECK(f_clone != nullptr) << "PyMutator's Clone method not implemented!";
   return f_clone();
 }
 
 Mutator Mutator::PyMutator(
-    PyMutatorNode::FInitializeWithTuneContext f_initialize_with_tune_context,  //
-    PyMutatorNode::FApply f_apply,                                             //
-    PyMutatorNode::FClone f_clone) {
-  ffi::ObjectPtr<PyMutatorNode> n = ffi::make_object<PyMutatorNode>();
+    PyMutatorObj::FInitializeWithTuneContext f_initialize_with_tune_context,  //
+    PyMutatorObj::FApply f_apply,                                             //
+    PyMutatorObj::FClone f_clone) {
+  ffi::ObjectPtr<PyMutatorObj> n = ffi::make_object<PyMutatorObj>();
   n->f_initialize_with_tune_context = std::move(f_initialize_with_tune_context);
   n->f_apply = std::move(f_apply);
   n->f_clone = std::move(f_clone);
-  return Mutator(n);
+  return Mutator(ffi::UnsafeInit{}, n);
 }
 
 ffi::Map<Mutator, FloatImm> Mutator::DefaultLLVM() {
@@ -67,8 +67,6 @@ ffi::Map<Mutator, FloatImm> Mutator::DefaultCUDA() {
       {Mutator::MutateThreadBinding(), FloatImm(PrimType::Float(64), 0.02)}};
 }
 
-ffi::Map<Mutator, FloatImm> Mutator::DefaultCUDATensorCore() { return Mutator::DefaultCUDA(); }
-
 ffi::Map<Mutator, FloatImm> Mutator::DefaultHexagon() {
   return ffi::Map<Mutator, FloatImm>{
       {Mutator::MutateTileSize(), FloatImm(PrimType::Float(64), 0.9)},
@@ -80,25 +78,24 @@ ffi::Map<Mutator, FloatImm> Mutator::DefaultHexagon() {
 // Pattern A (RM): auto-default repr from reflection.
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  MutatorNode::RegisterReflection();
-  PyMutatorNode::RegisterReflection();
+  MutatorObj::RegisterReflection();
+  PyMutatorObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def_method("s_tir.meta_schedule.MutatorInitializeWithTuneContext",
-                  &MutatorNode::InitializeWithTuneContext)
+                  &MutatorObj::InitializeWithTuneContext)
       .def("s_tir.meta_schedule.MutatorApply",
            [](Mutator self, s_tir::Trace trace, TRandState seed) -> ffi::Optional<s_tir::Trace> {
              TRandState seed_ = (seed != -1) ? seed : LinearCongruentialEngine::DeviceRandom();
              return self->Apply(trace, &seed_);
            })
-      .def_method("s_tir.meta_schedule.MutatorClone", &MutatorNode::Clone)
+      .def_method("s_tir.meta_schedule.MutatorClone", &MutatorObj::Clone)
       .def("s_tir.meta_schedule.MutatorPyMutator", Mutator::PyMutator)
       .def("s_tir.meta_schedule.MutatorDefaultLLVM", Mutator::DefaultLLVM)
       .def("s_tir.meta_schedule.MutatorDefaultCUDA", Mutator::DefaultCUDA)
-      .def("s_tir.meta_schedule.MutatorDefaultCUDATensorCore", Mutator::DefaultCUDATensorCore)
       .def("s_tir.meta_schedule.MutatorDefaultHexagon", Mutator::DefaultHexagon);
 }
 

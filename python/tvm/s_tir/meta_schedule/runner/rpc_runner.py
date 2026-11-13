@@ -21,10 +21,12 @@ import os.path as osp
 from collections.abc import Callable
 from contextlib import contextmanager
 
-from tvm.ir.utils import derived_object
+import tvm_ffi
+
 from tvm.rpc import RPCSession
-from tvm.runtime import Device, Module
-from tvm.support.popen_pool import PopenPoolExecutor
+from tvm.s_tir.utils import derived_object
+from tvm_tirx.runtime import Device
+from tvm_tirx.support.popen_pool import PopenPoolExecutor
 
 from ..logging import get_logger
 from ..profiler import Profiler
@@ -54,7 +56,7 @@ T_UPLOAD_MODULE = Callable[  # pylint: disable=invalid-name
         str,  # local path to the artifact
         str,  # remote path to the artifact
     ],
-    Module,  # the Module opened on the remote
+    tvm_ffi.Module,  # the Module opened on the remote
 ]
 T_ALLOC_ARGUMENT = Callable[  # pylint: disable=invalid-name
     [
@@ -68,7 +70,7 @@ T_ALLOC_ARGUMENT = Callable[  # pylint: disable=invalid-name
 T_RUN_EVALUATOR = Callable[  # pylint: disable=invalid-name
     [
         RPCSession,  # The RPC Session
-        Module,  # The Module opened on the remote
+        tvm_ffi.Module,  # The Module opened on the remote
         Device,  # The device on the remote
         EvaluatorConfig,  # The evaluator configuration
         list[T_ARGUMENT_LIST],  # A list of argument lists
@@ -178,7 +180,7 @@ class RPCRunner(PyRunner):
             session: RPCSession,
             local_path: str,
             remote_path: str,
-        ) -> Module:
+        ) -> tvm_ffi.Module:
             ...
 
     T_ALLOC_ARGUMENT : typing._GenericAlias
@@ -201,7 +203,7 @@ class RPCRunner(PyRunner):
 
         def default_run_evaluator(
             session: RPCSession,
-            rt_mod: Module,
+            rt_mod: tvm_ffi.Module,
             device: Device,
             evaluator_config: EvaluatorConfig,
             repeated_args: List[T_ARGUMENT_LIST],
@@ -390,7 +392,7 @@ def _worker_func(
         with Profiler.timeit("RPCRunner/upload_module"):
             _, remote_path = osp.split(artifact_path)
             local_path: str = artifact_path
-            rt_mod: Module = f_upload_module(session, local_path, remote_path)
+            rt_mod: tvm_ffi.Module = f_upload_module(session, local_path, remote_path)
         # Step 3: Allocate input arguments
         with Profiler.timeit("RPCRunner/alloc_argument"):
             repeated_args: list[T_ARGUMENT_LIST] = f_alloc_argument(
@@ -431,7 +433,7 @@ def default_upload_module(
     session: RPCSession,
     local_path: str,
     remote_path: str,
-) -> Module:
+) -> tvm_ffi.Module:
     """Default function to upload the module
 
     Parameters
@@ -445,11 +447,11 @@ def default_upload_module(
 
     Returns
     -------
-    rt_mod : Module
+    rt_mod : tvm_ffi.Module
         The runtime module
     """
     session.upload(local_path, remote_path)
-    rt_mod: Module = session.load_module(remote_path)
+    rt_mod: tvm_ffi.Module = session.load_module(remote_path)
     return rt_mod
 
 
@@ -480,15 +482,15 @@ def default_alloc_argument(
     f_random_fill = get_global_func_on_rpc_session(
         session,
         "tvm.contrib.random.random_fill_for_measure",
-        "Please make sure 'USE_RANDOM' is turned ON in the config.cmake on the RPC server.",
+        "Please make sure '-DTVM_USE_RANDOM=ON' is set when configuring CMake on the RPC server.",
     )
 
-    return alloc_argument_common(f_random_fill, device, args_info, alloc_repeat)
+    return alloc_argument_common(f_random_fill, device, args_info, alloc_repeat, device.empty)
 
 
 def default_run_evaluator(
     session: RPCSession,  # pylint: disable=unused-argument
-    rt_mod: Module,
+    rt_mod: tvm_ffi.Module,
     device: Device,
     evaluator_config: EvaluatorConfig,
     repeated_args: list[T_ARGUMENT_LIST],
@@ -499,7 +501,7 @@ def default_run_evaluator(
     ----------
     session: RPCSession
         The session to run the evaluator
-    rt_mod: Module
+    rt_mod: tvm_ffi.Module
         The runtime module
     device: Device
         The device to run the evaluator

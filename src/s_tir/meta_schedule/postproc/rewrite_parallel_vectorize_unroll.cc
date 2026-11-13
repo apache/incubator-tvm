@@ -20,6 +20,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/logging.h>
 #include <tvm/s_tir/stmt.h>
+#include <tvm/tirx/stmt.h>
 
 #include "../utils.h"
 
@@ -32,8 +33,8 @@ using namespace tvm::tirx;
  * \param sref The sref of loop
  * \return Whether the loop has any annotation
  */
-inline bool HasAnnOrBinding(const ForNode* loop) {
-  return loop->kind == ForKind::kThreadBinding || !loop->annotations.empty();
+inline bool HasAnnOrBinding(const ForObj* loop) {
+  return tvm::s_tir::GetThreadBinding(loop).has_value() || !loop->annotations.empty();
 }
 
 /*! \brief The visitor for extracting the stride of a var in a PrimExpr. */
@@ -57,14 +58,14 @@ class StrideExtractor : public StmtExprVisitor {
   explicit StrideExtractor(const Var& var) : var_(var) {}
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const MulNode* node) final {
+  ffi::Optional<VisitInterrupt> Visit_(const MulObj* node) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(node));
 
-    if (const auto* a = node->a.as<IntImmNode>()) {
+    if (const auto* a = node->a.as<IntImmObj>()) {
       if (strides_.count(node->b.get())) {
         strides_[node] = static_cast<int64_t>(strides_[node->b.get()] * a->value);
       }
-    } else if (const auto* b = node->b.as<IntImmNode>()) {
+    } else if (const auto* b = node->b.as<IntImmObj>()) {
       if (strides_.count(node->a.get())) {
         strides_[node] = static_cast<int64_t>(strides_[node->a.get()] * b->value);
       }
@@ -72,7 +73,7 @@ class StrideExtractor : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const AddNode* node) final {
+  ffi::Optional<VisitInterrupt> Visit_(const AddObj* node) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit_(node));
     int64_t stride_a, stride_b;
     if (strides_.count(node->a.get())) {
@@ -91,7 +92,7 @@ class StrideExtractor : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* node) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* node) final {
     if (node == var_.get()) {
       strides_[node] = 1;
     }
@@ -99,7 +100,7 @@ class StrideExtractor : public StmtExprVisitor {
   }
 
   const Var& var_;
-  std::unordered_map<const ExprNode*, int64_t> strides_;
+  std::unordered_map<const ExprObj*, int64_t> strides_;
 };
 
 struct ParsedAnnotation {
@@ -115,22 +116,22 @@ bool ParseAnnotation(const SBlock& block, ParsedAnnotation* parsed) {
   bool found = false;
   *parsed = ParsedAnnotation{-1, -1, -1, -1, -1, -1};
   for (const auto& ann : block->annotations) {
-    if (ann.first == s_tir::attr::meta_schedule_parallel) {
+    if (ann.first == tvm::s_tir::attr::kMetaScheduleParallel.name) {
       found = true;
       if (auto opt_int_imm = ann.second.try_cast<IntImm>()) {
         parsed->max_parallel_extent = (*opt_int_imm)->value.as<int>().value();
       }
-    } else if (ann.first == s_tir::attr::meta_schedule_vectorize) {
+    } else if (ann.first == tvm::s_tir::attr::kMetaScheduleVectorize.name) {
       found = true;
       if (auto opt_int_imm = ann.second.try_cast<IntImm>()) {
         parsed->max_vectorize_extent = (*opt_int_imm)->value.as<int>().value();
       }
-    } else if (ann.first == s_tir::attr::meta_schedule_unroll_explicit) {
+    } else if (ann.first == tvm::s_tir::attr::kMetaScheduleUnrollExplicit.name) {
       found = true;
       if (auto opt_int_imm = ann.second.try_cast<IntImm>()) {
         parsed->unroll_explicit = (*opt_int_imm)->value.as<int>().value();
       }
-    } else if (ann.first == s_tir::attr::meta_schedule_unroll_implicit) {
+    } else if (ann.first == tvm::s_tir::attr::kMetaScheduleUnrollImplicit.name) {
       found = true;
       if (auto opt_int_imm = ann.second.try_cast<IntImm>()) {
         parsed->unroll_implicit = (*opt_int_imm)->value.as<int>().value();
@@ -143,16 +144,16 @@ bool ParseAnnotation(const SBlock& block, ParsedAnnotation* parsed) {
 void RemoveParsedAnn(const Schedule& sch, const SBlockRV& block_rv,
                      const ParsedAnnotation& parsed) {
   if (parsed.max_parallel_extent != -1) {
-    sch->Unannotate(block_rv, s_tir::attr::meta_schedule_parallel);
+    sch->Unannotate(block_rv, tvm::s_tir::attr::kMetaScheduleParallel.name);
   }
   if (parsed.max_vectorize_extent != -1) {
-    sch->Unannotate(block_rv, s_tir::attr::meta_schedule_vectorize);
+    sch->Unannotate(block_rv, tvm::s_tir::attr::kMetaScheduleVectorize.name);
   }
   if (parsed.unroll_explicit != -1) {
-    sch->Unannotate(block_rv, s_tir::attr::meta_schedule_unroll_explicit);
+    sch->Unannotate(block_rv, tvm::s_tir::attr::kMetaScheduleUnrollExplicit.name);
   }
   if (parsed.unroll_implicit != -1) {
-    sch->Unannotate(block_rv, s_tir::attr::meta_schedule_unroll_implicit);
+    sch->Unannotate(block_rv, tvm::s_tir::attr::kMetaScheduleUnrollImplicit.name);
   }
 }
 
@@ -162,7 +163,7 @@ int CalculateNumRewritableLoops(const ffi::Array<StmtSRef>& loop_srefs,
   TVM_FFI_ICHECK_EQ(loop_srefs.size(), loop_types.size());
   for (size_t i = 0; i < loop_srefs.size(); ++i) {
     const StmtSRef& loop_sref = loop_srefs[i];
-    const ForNode* loop = TVM_SREF_TO_FOR(loop_sref);
+    const ForObj* loop = TVM_SREF_TO_FOR(loop_sref);
     if (HasAnnOrBinding(loop)) {
       continue;
     }
@@ -175,7 +176,8 @@ int CalculateNumRewritableLoops(const ffi::Array<StmtSRef>& loop_srefs,
       continue;
     }
     // Check if the loop extent is valid
-    if (const auto* extent = loop->extent.as<IntImmNode>();
+    PrimExpr extent_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
+    if (const auto* extent = extent_expr.as<IntImmObj>();
         !extent || !extent->value.as<int64_t>().has_value()) {
       continue;
     }
@@ -209,12 +211,12 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
   }
   // check the maximal number of axes that are vectorizable (contiguous memory access)
   SBlockRealize realize = GetSBlockRealize(sch->state(), block_sref);
-  ffi::Array<TensorRegion> buffer_access(realize->block->reads);
-  buffer_access.insert(buffer_access.end(), realize->block->writes.begin(),
+  ffi::Array<TensorRegion> tensor_access(realize->block->reads);
+  tensor_access.insert(tensor_access.end(), realize->block->writes.begin(),
                        realize->block->writes.end());
-  std::unordered_map<const VarNode*, PrimExpr> binding_map;
+  std::unordered_map<const VarObj*, PrimExpr> binding_map;
   for (size_t i = 0; i < realize->iter_values.size(); i++) {
-    binding_map[realize->block->iter_vars[i]->var.get()] = realize->iter_values[i];
+    binding_map.insert_or_assign(realize->block->iter_vars[i]->var.get(), realize->iter_values[i]);
   }
   auto f_substitute = [&binding_map](const Var& var) -> ffi::Expected<ffi::UnchangedOr<ffi::Any>> {
     if (auto it = binding_map.find(var.get()); it != binding_map.end()) {
@@ -225,31 +227,31 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
   int max_fusible = INT32_MAX;
   // for each block read/write, get the strides of the loop vars and find the fusible
   // (vectorizable) axes
-  for (const TensorRegion& access : buffer_access) {
+  for (const TensorRegion& access : tensor_access) {
     int fusible = 0;
     bool can_analyze_contiguous_access = true;
     std::vector<int64_t> strides;
     // get strides for each loop var
     for (const StmtSRef& loop_sref : loop_srefs) {
-      int64_t stride = 0, buffer_stride = 1;
-      const auto* var = loop_sref->StmtAs<ForNode>();
+      int64_t stride = 0, tensor_stride = 1;
+      const auto* var = loop_sref->StmtAs<ForObj>();
       sym::Analyzer analyzer;
       for (int i = access->region.size() - 1; i >= 0; i--) {
         PrimExpr idx = analyzer->Simplify(
-            ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(access->region[i]->min, f_substitute)
+            ffi::StructuralMap<ffi::WalkOrder::kPreOrder>(access->region[i]->begin, f_substitute)
                 .as_or_throw<PrimExpr>());
-        int64_t coef = StrideExtractor::Extract(idx, var->loop_var);
+        int64_t coef = StrideExtractor::Extract(idx, var->var);
         if (coef != 0) {
-          stride = coef * buffer_stride;
+          stride = coef * tensor_stride;
           break;
         }
         const auto* shape =
-            access->source.as_or_throw<tvm::tirx::BufferVar>()->shape[i].as<IntImmNode>();
+            access->source.as_or_throw<tvm::tirx::TensorVar>().shape()[i].as<IntImmObj>();
         if (shape == nullptr) {
           can_analyze_contiguous_access = false;
           break;
         }
-        buffer_stride = static_cast<int64_t>(buffer_stride * shape->value);
+        tensor_stride = static_cast<int64_t>(tensor_stride * shape->value);
       }
       if (!can_analyze_contiguous_access) {
         break;
@@ -264,7 +266,7 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
     // check the number of fusible loops
     for (int i = strides.size() - 1; i >= 0; i--) {
       if (strides[i] == 0) {
-        // not used in the buffer access, safe to fuse
+        // not used in the tensor access, safe to fuse
         fusible++;
         continue;
       } else if (prev_used_iter == -1) {
@@ -276,8 +278,10 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
         prev_used_iter = i;
       } else {
         // contiguous memory access
-        const auto* prev_used_iter_extent_imm =
-            TVM_SREF_TO_FOR(loop_srefs[prev_used_iter])->extent.as<IntImmNode>();
+        PrimExpr prev_used_iter_extent_imm_expr =
+            Range::GetExtentFromBeginEnd(TVM_SREF_TO_FOR(loop_srefs[prev_used_iter])->begin,
+                                         TVM_SREF_TO_FOR(loop_srefs[prev_used_iter])->end);
+        const auto* prev_used_iter_extent_imm = prev_used_iter_extent_imm_expr.as<IntImmObj>();
         auto prev_used_iter_extent = prev_used_iter_extent_imm
                                          ? prev_used_iter_extent_imm->value.as<int64_t>()
                                          : std::nullopt;
@@ -305,12 +309,13 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
     int64_t prod_extent = 1;
     for (int i = 0; i < n_loops && loop_types[i] == IterVarType::kDataPar; ++i) {
       const StmtSRef& loop_sref = loop_srefs[i];
-      const ForNode* loop = TVM_SREF_TO_FOR(loop_sref);
+      const ForObj* loop = TVM_SREF_TO_FOR(loop_sref);
       if (HasAnnOrBinding(loop)) {
         break;
       }
       // Check if the loop extent is valid
-      const auto* extent_imm = loop->extent.as<IntImmNode>();
+      PrimExpr extent_imm_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
+      const auto* extent_imm = extent_imm_expr.as<IntImmObj>();
       auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
       if (!extent.has_value()) {
         break;
@@ -335,7 +340,7 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
     for (int i = n_loops - 1;
          i >= 0 && loop_types[i] == IterVarType::kDataPar && num_fusible < max_fusible; --i) {
       const StmtSRef& loop_sref = loop_srefs[i];
-      const ForNode* loop = TVM_SREF_TO_FOR(loop_sref);
+      const ForObj* loop = TVM_SREF_TO_FOR(loop_sref);
       if (HasAnnOrBinding(loop)) {
         break;
       }
@@ -348,7 +353,8 @@ void AdjustParallelVectorize(const Schedule& sch, const SBlockRV& block_rv,
         break;
       }
       // Check if the loop extent is valid
-      const auto* extent_imm = loop->extent.as<IntImmNode>();
+      PrimExpr extent_imm_expr = Range::GetExtentFromBeginEnd(loop->begin, loop->end);
+      const auto* extent_imm = extent_imm_expr.as<IntImmObj>();
       auto extent = extent_imm ? extent_imm->value.as<int64_t>() : std::nullopt;
       if (!extent.has_value()) {
         break;
@@ -383,8 +389,9 @@ bool FindAnnotatedRootBlock(const Schedule& sch, ParsedAnnotation* parsed, SBloc
   for (const auto& kv : mod->functions) {
     const GlobalVar& g_var = kv.first;
     const BaseFunc& base_func = kv.second;
-    if (const auto* prim_func = base_func.as<PrimFuncNode>()) {
-      const SBlockRealizeNode* block_realize = prim_func->body.as<SBlockRealizeNode>();
+    if (const auto* function = base_func.as<FunctionObj>()) {
+      const SBlockRealizeObj* block_realize =
+          function->body->size() == 1 ? function->body->seq[0].as<SBlockRealizeObj>() : nullptr;
       if (block_realize != nullptr) {
         SBlock block = block_realize->block;
         if (ParseAnnotation(block, parsed)) {
@@ -440,8 +447,8 @@ void RewriteUnroll(const Schedule& sch, int unroll_explicit, int max_step, const
     return;
   }
 
-  sch->Annotate(loop, tirx::attr::pragma_auto_unroll_max_step, IntImm::Int32(max_step));
-  sch->Annotate(loop, tirx::attr::pragma_unroll_explicit, IntImm::Int32(unroll_explicit));
+  sch->Annotate(loop, tvm::tirx::attr::kAutoUnrollMaxStep.name, max_step);
+  sch->Annotate(loop, tvm::tirx::attr::kUnrollExplicit.name, unroll_explicit);
 }
 
 }  // namespace s_tir
@@ -451,7 +458,7 @@ namespace meta_schedule {
 
 using s_tir::Schedule;
 
-class RewriteParallelVectorizeUnrollNode : public PostprocNode {
+class RewriteParallelVectorizeUnrollObj : public PostprocObj {
  public:
   void InitializeWithTuneContext(const TuneContext& context) final {}
 
@@ -501,29 +508,29 @@ class RewriteParallelVectorizeUnrollNode : public PostprocNode {
   }
 
   Postproc Clone() const {
-    ffi::ObjectPtr<RewriteParallelVectorizeUnrollNode> n =
-        ffi::make_object<RewriteParallelVectorizeUnrollNode>(*this);
-    return Postproc(n);
+    ffi::ObjectPtr<RewriteParallelVectorizeUnrollObj> n =
+        ffi::make_object<RewriteParallelVectorizeUnrollObj>(*this);
+    return Postproc(ffi::UnsafeInit{}, n);
   }
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<RewriteParallelVectorizeUnrollNode>();
+    refl::ObjectDef<RewriteParallelVectorizeUnrollObj>();
   }
 
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.RewriteParallelVectorizeUnroll",
-                                    RewriteParallelVectorizeUnrollNode, PostprocNode);
+                                    RewriteParallelVectorizeUnrollObj, PostprocObj);
 };
 
 Postproc Postproc::RewriteParallelVectorizeUnroll() {
-  ffi::ObjectPtr<RewriteParallelVectorizeUnrollNode> n =
-      ffi::make_object<RewriteParallelVectorizeUnrollNode>();
-  return Postproc(n);
+  ffi::ObjectPtr<RewriteParallelVectorizeUnrollObj> n =
+      ffi::make_object<RewriteParallelVectorizeUnrollObj>();
+  return Postproc(ffi::UnsafeInit{}, n);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  RewriteParallelVectorizeUnrollNode::RegisterReflection();
+  RewriteParallelVectorizeUnrollObj::RegisterReflection();
   refl::GlobalDef().def("s_tir.meta_schedule.PostprocRewriteParallelVectorizeUnroll",
                         Postproc::RewriteParallelVectorizeUnroll);
 }

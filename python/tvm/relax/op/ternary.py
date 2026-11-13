@@ -17,11 +17,15 @@
 # pylint: disable=redefined-builtin, invalid-name
 """Relax ternary arithmetic operators."""
 
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+
 from ..expr import Expr
-from . import _ffi_api
 
 
-def ewise_fma(x1: Expr, x2: Expr, x3: Expr) -> Expr:
+def ewise_fma(
+    x1: Expr, x2: Expr, x3: Expr, *, ty_args=None, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     """Elementwise fused multiply-add operator
     Returns elementwise result of :math:`x1 * x2 + x3`
 
@@ -41,4 +45,4 @@ def ewise_fma(x1: Expr, x2: Expr, x3: Expr) -> Expr:
     result : relax.Expr
         The computed result.
     """
-    return _ffi_api.ewise_fma(x1, x2, x3)  # type: ignore
+    return _Call("relax.ewise_fma", [x1, x2, x3], ty_args=ty_args, loc=loc, ty=ty)  # type: ignore

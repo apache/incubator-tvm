@@ -26,7 +26,9 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/op.h>
 #include <tvm/relax/analysis.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/runtime/logging.h>
 #include <tvm/topi/transform.h>
 
@@ -39,6 +41,24 @@
 namespace tvm {
 namespace relax {
 using namespace tvm::prim;
+
+void TakeAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<TakeAttrs>()
+      .def_ro("axis", &TakeAttrs::axis, "The axis over which to select values.",
+              refl::DefaultValue(ffi::Optional<int64_t>{}))
+      .def_ro("mode", &TakeAttrs::mode, "The mode for handling out-of-bounds indices.",
+              refl::DefaultValue("fast"));
+}
+
+void StridedSliceAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<StridedSliceAttrs>().def_ro(
+      "assume_inbound", &StridedSliceAttrs::assume_inbound,
+      "Whether to assume the indices are in bound. If it is set to false, "
+      "out of bound indices will be clipped to the bound.",
+      refl::DefaultValue(true));
+}
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   TakeAttrs::RegisterReflection();
@@ -53,7 +73,7 @@ Expr take(Expr x, Expr indices, ffi::Optional<int64_t> axis, ffi::String mode) {
   attrs->mode = std::move(mode);
 
   static const Op op = Op::Get("relax.take");
-  return Call::Unchecked(Type::Missing(), op, {std::move(x), std::move(indices)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(x), std::move(indices)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -61,8 +81,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.take", take);
 }
 
-Type InferTypeTake(const CallNode* call_node) {
+Type InferTypeTake(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
   CheckNumArguments(call);
   TensorType data_ty = GetInputTensorType(call, 0);
 
@@ -73,7 +94,7 @@ Type InferTypeTake(const CallNode* call_node) {
     auto ty = GetType(arg);
     if (auto tensor_ty = ty.as<TensorType>()) {
       return tensor_ty.value();
-    } else if (auto prim_ty = ty.as<PrimTypeNode>()) {
+    } else if (auto prim_ty = ty.as<PrimTypeObj>()) {
       return TensorType(ShapeExpr(ffi::Array<PrimExpr>{}), ffi::GetRef<PrimType>(prim_ty));
     } else {
       TVM_FFI_VISIT_THROW(TypeError, call)
@@ -111,8 +132,8 @@ Type InferTypeTake(const CallNode* call_node) {
   if (attrs->axis.has_value()) {
     axis = NormalizeAxis(call, data_ty->ndim, attrs->axis.value());
   }
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
-  const auto* indices_shape = indices_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
+  const auto* indices_shape = indices_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr || indices_shape == nullptr) {
     return TensorType(data_ty->dtype, indices_ty->ndim + data_ty->ndim - 1, data_ty->vdevice);
   }
@@ -133,8 +154,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("x", "The source tensor."),
                  sig::arg("indices", "The indices of the values to extract."),
                  sig::call_attrs<TakeAttrs>())
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeTake>())
-      .set_attr<bool>("FPurity", true);
+      .set_native_fn_attr<&InferTypeTake>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.strided_slice */
@@ -147,7 +168,7 @@ Expr strided_slice(Expr x, Expr axes, Expr begin, Expr end, ffi::Optional<Expr> 
 
   std::optional<std::tuple<const char*, size_t, Expr>> known_length;
   auto check_tuple = [&known_length](const char* name, Expr expr) {
-    if (const auto* tuple = expr.as<TupleNode>()) {
+    if (const auto* tuple = expr.as<TupleObj>()) {
       size_t length = tuple->fields.size();
       if (known_length.has_value()) {
         const auto& prev = known_length.value();
@@ -176,7 +197,7 @@ Expr strided_slice(Expr x, Expr axes, Expr begin, Expr end, ffi::Optional<Expr> 
   }
 
   static const Op op = Op::Get("relax.strided_slice");
-  auto call = Call::Unchecked(Type::Missing(), op, args, Attrs(attrs));
+  auto call = Call(Type::Missing(), op, args, Attrs(attrs));
 
   return call;
 }
@@ -214,9 +235,9 @@ ffi::Optional<ffi::Array<PrimType>> UnpackTupleOfPrimExpr(ffi::Optional<Type> ty
   // An AnyType may contain a tuple of the desired type, but
   // it isn't yet known whether it does.  Return early, as we cannot
   // provide a known `ffi::Array<PrimType>` to the caller.
-  if (ty.as<AnyTypeNode>()) return std::nullopt;
+  if (ty.as<AnyTypeObj>()) return std::nullopt;
 
-  auto tuple = ty.as<TupleTypeNode>();
+  auto tuple = ty.as<TupleTypeObj>();
   TVM_FFI_CHECK(tuple, TypeError) << "The type " << ty
                                   << " cannot contain a tuple whose elements are "
                                   << PrimType::ContainerType::_type_key;
@@ -225,9 +246,9 @@ ffi::Optional<ffi::Array<PrimType>> UnpackTupleOfPrimExpr(ffi::Optional<Type> ty
   for (size_t i = 0; i < tuple->fields.size(); i++) {
     auto field = tuple->fields[i];
 
-    if (field.as<AnyTypeNode>()) return std::nullopt;
+    if (field.as<AnyTypeObj>()) return std::nullopt;
 
-    auto prim_ty = field.as<PrimTypeNode>();
+    auto prim_ty = field.as<PrimTypeObj>();
     TVM_FFI_CHECK(prim_ty, TypeError)
         << "The type " << ty << " cannot contain a tuple whose elements are "
         << PrimType::ContainerType::_type_key << ", because element " << i << " has type " << field;
@@ -263,7 +284,7 @@ ffi::Optional<ffi::Array<PrimType>> UnpackTupleOfPrimExpr(ffi::Optional<Expr> ex
   if (!expr) return std::nullopt;
 
   const Expr& value = expr.value();
-  if (const auto* tuple = value.as<TupleNode>()) {
+  if (const auto* tuple = value.as<TupleObj>()) {
     ffi::Array<PrimType> output;
     for (size_t i = 0; i < tuple->fields.size(); i++) {
       const Expr& field = tuple->fields[i];
@@ -325,11 +346,11 @@ Type InferTypeStridedSlice(const Call& call, const BlockBuilder& ctx) {
   // so will require a way to represent a `relax::TupleType` of
   // unknown length, where each element has the same `Type`.
   auto is_base_of_tuple_of_int64 = [&](const Type& ty) -> bool {
-    if (ty.as<AnyTypeNode>()) {
+    if (ty.as<AnyTypeObj>()) {
       return true;
     }
 
-    const auto* tuple = ty.as<TupleTypeNode>();
+    const auto* tuple = ty.as<TupleTypeObj>();
     if (!tuple) return false;
 
     return std::all_of(tuple->fields.begin(), tuple->fields.end(),
@@ -351,7 +372,7 @@ Type InferTypeStridedSlice(const Call& call, const BlockBuilder& ctx) {
     check_tuple("strides", call->args[4]);
   }
 
-  const auto* data_ty = data->ty.as<TensorTypeNode>();
+  const auto* data_ty = data->ty.as<TensorTypeObj>();
 
   ffi::Optional<PrimType> dtype = std::nullopt;
   ffi::Optional<VDevice> vdevice = std::nullopt;
@@ -432,12 +453,16 @@ Type InferTypeStridedSlice(const Call& call, const BlockBuilder& ctx) {
           topi::GetLength(begin, end, strides_tuple[i], input_dim, attrs->assume_inbound);
 
       sym::Analyzer analyzer = ctx->GetAnalyzer();
-      std::optional<With<sym::ConstraintContext>> context;
+      auto saved_context = analyzer->GetConstraintContext();
       if (attrs->assume_inbound) {
-        context.emplace(analyzer, 0 <= begin && begin <= input_dim && 0 <= end && end <= input_dim);
+        auto context = saved_context->Snapshot();
+        context->Append(sym::PredicateConstraint(0 <= begin && begin <= input_dim && 0 <= end &&
+                                                 end <= input_dim));
+        analyzer->SyncConstraintContext(context);
       }
 
       output_dim = analyzer->Simplify(output_dim);
+      analyzer->SyncConstraintContext(saved_context);
 
       output_shape.Set(axis, output_dim);
     }
@@ -459,7 +484,7 @@ InferLayoutOutput InferLayoutStridedSlice(
   const auto* attrs = call->attrs.as<StridedSliceAttrs>();
   TVM_FFI_ICHECK(attrs != nullptr) << "Invalid Call";
 
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim())
       << "Layout inference only supports known dimensionality, "
@@ -467,7 +492,8 @@ InferLayoutOutput InferLayoutStridedSlice(
       << " of unknown dimensionality.";
   LayoutDecision existing_layout = GetLayoutDecision(var_layout_map, call->args[0]);
   // Can't handle sub indexed layouts.
-  if (existing_layout->layout.ndim() != existing_layout->layout.ndim_primal()) {
+  if ((existing_layout->layout.has_value() ? existing_layout->layout.value().ndim() : 0) !=
+      (existing_layout->layout.has_value() ? existing_layout->layout.value().ndim_primal() : 0)) {
     existing_layout = LayoutDecision(InitialLayout(tensor_ty->ndim));
   }
 
@@ -480,7 +506,7 @@ InferLayoutOutput InferLayoutStridedSlice(
 
   ffi::Array<Expr> new_axes;
   for (const auto& axis : axes_tuple) {
-    int new_axis = FindAxis(existing_layout->layout, axis->value.as<int>().value());
+    int new_axis = FindAxis(existing_layout->layout.value(), axis->value.as<int>().value());
     new_axes.push_back(IntImm::Int64(new_axis));
   }
 
@@ -493,10 +519,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("x", "The source tensor to be sliced."), sig::arg("axes", "The axes."),
                  sig::arg("begin", "The start index."), sig::arg("end", "The end index."),
                  sig::var_args("args"), sig::call_attrs<StridedSliceAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeStridedSlice)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutStridedSlice)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeStridedSlice)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutStridedSlice)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.dynamic_strided_slice */
@@ -505,8 +531,8 @@ Expr dynamic_strided_slice(Expr x,      //
                            Expr end,    //
                            Expr strides) {
   static const Op op = Op::Get("relax.dynamic_strided_slice");
-  return Call::Unchecked(Type::Missing(), op,
-                         {std::move(x), std::move(begin), std::move(end), std::move(strides)}, {});
+  return Call(Type::Missing(), op,
+              {std::move(x), std::move(begin), std::move(end), std::move(strides)}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -514,12 +540,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("relax.op.dynamic_strided_slice", dynamic_strided_slice);
 }
 
-Type InferTypeDynStridedSlice(const CallNode* call_node) {
+Type InferTypeDynStridedSlice(const CallObj* call_node) {
   const Call call = ffi::GetRef<Call>(call_node);
-  const auto* data_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
-  const auto* begin_ty = GetTypeAs<TensorTypeNode>(call->args[1]);
-  const auto* end_ty = GetTypeAs<TensorTypeNode>(call->args[2]);
-  const auto* strides_ty = GetTypeAs<TensorTypeNode>(call->args[3]);
+  if (RequiresTensorInputNormalization(call)) return Type::Missing();
+  const auto* data_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
+  const auto* begin_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
+  const auto* end_ty = GetTypeAs<TensorTypeObj>(call->args[2]);
+  const auto* strides_ty = GetTypeAs<TensorTypeObj>(call->args[3]);
 
   TVM_FFI_ICHECK(data_ty);
   if (data_ty->IsUnknownNdim()) {
@@ -535,17 +562,17 @@ Type InferTypeDynStridedSlice(const CallNode* call_node) {
   }
 
   int n_axis = data_ty->ndim;
-  auto diag_def = [&](const TensorTypeNode* ty, ffi::String name) {
+  auto diag_def = [&](const TensorTypeObj* ty, ffi::String name) {
     TVM_FFI_ICHECK(ty) << "Dynamic strided slice requires the input " << name
                        << " to be have the type. Please try normalizing the inputs.";
     TVM_FFI_ICHECK_EQ(ty->ndim, 1)
         << "Dynamic strided slice requires " << name << " to be 1d tensor (list of values).";
-    const auto* shape = ty->shape.as<ShapeExprNode>();
+    const auto* shape = ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK(shape) << "Dynamic strided slice requires the input " << name
                           << " to have well-defined shape.";
     // NOTE(tvm-team): This strong restriction seems necessary for now until we have a generic
     // solution in converting 1d Tensor with unknown num_elem to ffi::Array<PrimExpr>.
-    const auto* num_elem = shape->values[0].as<IntImmNode>();
+    const auto* num_elem = shape->values[0].as<IntImmObj>();
     TVM_FFI_ICHECK(num_elem) << "Dynamic strided slice requires the input " << name
                              << " to have a known integer shape value.";
     TVM_FFI_ICHECK_EQ(num_elem->value, n_axis)
@@ -575,7 +602,7 @@ InferLayoutOutput InferLayoutDynStridedSlice(
     const VarLayoutMap& var_layout_map) {
   TVM_FFI_ICHECK(NoDesiredLayout(call, desired_layouts));
 
-  const auto* tensor_ty = GetTypeAs<TensorTypeNode>(call->args[0]);
+  const auto* tensor_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(tensor_ty) << "Invalid Call";
   TVM_FFI_ICHECK(!tensor_ty->IsUnknownNdim())
       << "Layout inference only supports known dimensionality, "
@@ -585,7 +612,7 @@ InferLayoutOutput InferLayoutDynStridedSlice(
   // Since begin/end/strides are dynamic tensors, we cannot transform
   // them at compile time. Fall back to the initial layout.
   LayoutDecision initial = LayoutDecision(InitialLayout(ndim));
-  return InferLayoutOutput({initial}, {initial}, Attrs());
+  return InferLayoutOutput({initial}, {initial}, std::nullopt);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -594,11 +621,11 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                  sig::arg("begin", "The indices to begin with in the slicing."),
                  sig::arg("end", "Indices indicating end of the slice."),
                  sig::arg("strides", "The stride values."))
-      .set_attr<FInferType>("FInferType", FInferType::FromNative<&InferTypeDynStridedSlice>())
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutDynStridedSlice)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true)
-      .set_attr<bool>("FDataDependent", true);
+      .set_native_fn_attr<&InferTypeDynStridedSlice>(tvm::op_attr::kInferType)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutDynStridedSlice)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true)
+      .set_attr(tvm::relax::op_attr::kDataDependent, true);
 }
 
 }  // namespace relax

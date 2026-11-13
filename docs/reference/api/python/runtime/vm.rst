@@ -19,3 +19,4 @@ tvm.runtime.vm
 --------------------
 .. automodule:: tvm.runtime.vm
     :members:
+    :imported-members:

@@ -15,28 +15,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# TensorRT Codegen only. This can be enabled independently of USE_TENSORRT_RUNTIME to enable
+# TensorRT Codegen only. This can be enabled independently of TVM_USE_TENSORRT_RUNTIME to enable
 # compilation of TensorRT modules without requiring TensorRT to be installed. The compiled modules
-# will only be able to be executed using a TVM built with USE_TENSORRT_RUNTIME=ON.
+# will only be able to be executed using a TVM built with TVM_USE_TENSORRT_RUNTIME=ON.
 
 include(FindPackageHandleStandardArgs)
 
-if(USE_TENSORRT_CODEGEN)
+if(TVM_USE_TENSORRT_CODEGEN)
     message(STATUS "Build with TensorRT codegen")
-    tvm_file_glob(GLOB COMPILER_TENSORRT_SRCS src/relax/backend/contrib/tensorrt/*.cc)
+    file(GLOB COMPILER_TENSORRT_SRCS CONFIGURE_DEPENDS src/relax/backend/contrib/tensorrt/*.cc)
     set_source_files_properties(${COMPILER_TENSORRT_SRCS} PROPERTIES COMPILE_FLAGS "-Wno-deprecated-declarations")
-    tvm_file_glob(GLOB RUNTIME_TENSORRT_SRCS src/runtime/extra/contrib/tensorrt/tensorrt_runtime.cc)
+    file(GLOB RUNTIME_TENSORRT_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/tensorrt/tensorrt_runtime.cc)
     set_source_files_properties(${RUNTIME_TENSORRT_SRCS} PROPERTIES COMPILE_FLAGS "-Wno-deprecated-declarations")
     list(APPEND COMPILER_SRCS ${COMPILER_TENSORRT_SRCS})
-    if(NOT USE_TENSORRT_RUNTIME)
-        list(APPEND COMPILER_SRCS ${RUNTIME_TENSORRT_SRCS})
+    if(NOT TVM_USE_TENSORRT_RUNTIME)
+        add_library(tvm_tensorrt_objs OBJECT ${RUNTIME_TENSORRT_SRCS})
+        tvm_configure_target(tvm_tensorrt_objs)
+        target_link_libraries(tvm_tensorrt_objs PRIVATE tvm_runtime_extra_defs)
+        target_link_libraries(tvm_runtime_extra PRIVATE tvm_tensorrt_objs)
     endif()
 endif()
 
 # TensorRT Runtime — goes into libtvm_runtime_extra.
-if(USE_TENSORRT_RUNTIME)
-    if(IS_DIRECTORY ${USE_TENSORRT_RUNTIME})
-        set(TENSORRT_ROOT_DIR ${USE_TENSORRT_RUNTIME})
+if(TVM_USE_TENSORRT_RUNTIME)
+    if(IS_DIRECTORY ${TVM_USE_TENSORRT_RUNTIME})
+        set(TENSORRT_ROOT_DIR ${TVM_USE_TENSORRT_RUNTIME})
         message(STATUS "Custom TensorRT path: " ${TENSORRT_ROOT_DIR})
     endif()
     find_path(TENSORRT_INCLUDE_DIR NvInfer.h HINTS ${TENSORRT_ROOT_DIR} PATH_SUFFIXES include)
@@ -46,14 +49,16 @@ if(USE_TENSORRT_RUNTIME)
         message(ERROR "Could not find TensorRT.")
     endif()
     message(STATUS "TENSORRT_LIB_DIR: " ${TENSORRT_LIB_DIR})
-    include_directories(${TENSORRT_INCLUDE_DIR})
     # TRT runtime sources
-    tvm_file_glob(GLOB RUNTIME_TENSORRT_SRCS src/runtime/extra/contrib/tensorrt/*.cc)
+    file(GLOB RUNTIME_TENSORRT_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/tensorrt/*.cc)
     set_source_files_properties(${RUNTIME_TENSORRT_SRCS} PROPERTIES COMPILE_FLAGS "-Wno-deprecated-declarations")
     add_library(tvm_tensorrt_objs OBJECT ${RUNTIME_TENSORRT_SRCS})
+    tvm_configure_target(tvm_tensorrt_objs)
     target_link_libraries(tvm_tensorrt_objs PRIVATE tvm_runtime_extra_defs)
     target_link_libraries(tvm_runtime_extra PRIVATE tvm_tensorrt_objs ${TENSORRT_LIB_DIR})
 
-    # Set defines
-    add_definitions(-DTVM_GRAPH_EXECUTOR_TENSORRT)
+    target_include_directories(tvm_tensorrt_objs PRIVATE ${TENSORRT_INCLUDE_DIR})
+    target_include_directories(tvm_compiler PRIVATE ${TENSORRT_INCLUDE_DIR})
+    target_compile_definitions(tvm_tensorrt_objs PRIVATE TVM_GRAPH_EXECUTOR_TENSORRT)
+    target_compile_definitions(tvm_compiler PRIVATE TVM_GRAPH_EXECUTOR_TENSORRT)
 endif()

@@ -19,7 +19,7 @@ Getting Started
 ===============
 
 Install TIRx, then build and run a first CUDA kernel.  The first-kernel chapter
-introduces the ``Tx`` authoring alias, buffers, execution scope, compilation,
+introduces the ``Tx`` authoring alias, tensors, execution scope, compilation,
 launch, and generated-source inspection.
 
 .. toctree::
@@ -29,4 +29,4 @@ launch, and generated-source inspection.
    ../native_basics/cuda/first_kernel
 
 Continue with the :doc:`programming guide <../programming/index>` for the core
-language, CUDA intrinsics, layouts, and tile primitives.
+language, CUDA intrinsics, layouts, and tile ops.

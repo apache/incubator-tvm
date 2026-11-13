@@ -23,22 +23,24 @@ import tempfile
 
 import numpy as np
 import pytest
+import tvm_ffi
 from tvm_ffi import Shape, register_global_func
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
 from tvm.contrib import tvmjs
+from tvm.relax import script as R
 from tvm.runtime import disco as di
 from tvm.s_tir import dlight as dl
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.target import Target
-from tvm.testing import env
+from tvm_tirx.script import ir as I
+from tvm_tirx.target import Target
+from tvm_tirx.testing import env
 
 # `runtime.disco.compiled_ccl` is registered together with the CCL runtime
 # functions, so its absence means the disco CCL runtime is not in this build.
-_compiled_ccl = tvm.get_global_func("runtime.disco.compiled_ccl", allow_missing=True)
+_compiled_ccl = tvm_ffi.get_global_func("runtime.disco.compiled_ccl", allow_missing=True)
 if _compiled_ccl is None or _compiled_ccl() != "nccl":
     pytest.skip("Disco NCCL support is not available", allow_module_level=True)
 
@@ -57,7 +59,7 @@ def _run_with_nccl_session(devices, func):
         finally:
             sess.shutdown()
 
-    return tvm.testing.run_with_gpu_lock(run_and_check)
+    return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @register_global_func("tests.disco.shard_dim_0", override=True)
@@ -125,7 +127,7 @@ def _simulate_presharded_weights(base_path, param_dict, num_shards, shard_info):
         assert key in shard_info, f"ShardInfo lacks shard info about param: {key}"
         shard_dim = shard_info[key]
         sharded_params[key] = [
-            tvm.runtime.tensor(np_shard)
+            tvm_tirx.runtime.tensor(np_shard)
             for np_shard in np.split(ndarray, num_shards, axis=shard_dim)
         ]
 
@@ -291,15 +293,14 @@ def test_load_shard_in_relax():
                     R.shape([1]),
                     ty_args=R.Tensor((16, 128), "float32"),
                 )
-                lv2 = R.tuple(lv0, lv1)
+                lv2 = (lv0, lv1)
                 R.output(lv2)
             return lv2
 
     # pylint: enable=invalid-name
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            return tvm.compile(mod, target="cuda")
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        return tvm.compile(mod, target="cuda")
 
     target = Target(
         {
@@ -493,4 +494,4 @@ def test_load_qkv_proj_shard():  # pylint: disable=too-many-locals
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

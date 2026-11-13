@@ -130,7 +130,7 @@ class TensorRTOpConverter {
 
   /*!
    * \brief Convert to TRT. Implementation should use inputs and attributes
-   * from the CallNode to add the corresponding TRT layers to network. Outputs
+   * from the CallObj to add the corresponding TRT layers to network. Outputs
    * should be pushed to outputs vector.
    * \param params Parameters for this op.
    */

@@ -28,12 +28,12 @@ with one block of 256 threads.
     from tvm.script import tirx as Tx
 
 
-    @Tx.prim_func
-    def scale(A: Tx.Buffer((256,), "float32"), B: Tx.Buffer((256,), "float32")):
+    @Tx.function
+    def scale(A: Tx.Tensor((256,), "float32"), B: Tx.Tensor((256,), "float32")):
 
-        Tx.device_entry()  # everything below runs on the device
-        bx = Tx.cta_id([1])  # 1 block  (blockIdx)
-        tx = Tx.thread_id([256])  # 256 threads per block (threadIdx)
+        Tx.device_entry(launch=Tx.cuda.LaunchConfig(grid=(1,), block=(256,)))  # everything below runs on the device
+        bx = Tx.cuda.block_idx("x")  # 1 block  (blockIdx)
+        tx = Tx.cuda.thread_idx("x")  # 256 threads per block (threadIdx)
 
         B[tx] = A[tx] * Tx.float32(2.0)
 
@@ -51,7 +51,7 @@ with one block of 256 threads.
 
 What the surrounding calls do:
 
-- ``tvm.IRModule({"main": scale})`` wraps the ``PrimFunc`` into an *IRModule* — a
+- ``tvm.IRModule({"main": scale})`` wraps the ``Function`` into an *IRModule* — a
   named collection of functions; ``"main"`` is the entry point the compiler builds
   and the symbol you call.
 - ``tvm.compile(mod, target=..., tir_pipeline="tirx")`` returns an **Executable**:
@@ -90,5 +90,5 @@ generated indexing.
        exe(a, b)
        torch.testing.assert_close(b, a * 2)
 
-The following chapters expand each piece: :doc:`functions`, :doc:`buffers`,
+The following chapters expand each piece: :doc:`functions`, :doc:`tensors`,
 :doc:`control_flow`, :doc:`threads_sync`, and :doc:`compiling`.

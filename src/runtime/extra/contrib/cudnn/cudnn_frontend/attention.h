@@ -40,11 +40,11 @@
 namespace tvm {
 namespace contrib {
 
-class CuDNNSDPARunnerNode : public tvm::ffi::Object {
+class CuDNNSDPARunnerObj : public tvm::ffi::Object {
  public:
-  CuDNNSDPARunnerNode() {}
+  CuDNNSDPARunnerObj() {}
 
-  ~CuDNNSDPARunnerNode() {}
+  ~CuDNNSDPARunnerObj() {}
 
   static constexpr const char* _type_key = "contrib.cudnn.SDPARunner";
 
@@ -69,12 +69,17 @@ class CuDNNSDPARunnerNode : public tvm::ffi::Object {
 class CuDNNSDPARunner : public tvm::ffi::ObjectRef {
  public:
   static CuDNNSDPARunner Create() {
-    auto n = ffi::make_object<CuDNNSDPARunnerNode>();
-    return CuDNNSDPARunner(n);
+    auto n = ffi::make_object<CuDNNSDPARunnerObj>();
+    return CuDNNSDPARunner(ffi::UnsafeInit{}, n);
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(CuDNNSDPARunner, tvm::ffi::ObjectRef,
-                                             CuDNNSDPARunnerNode);
+  explicit CuDNNSDPARunner(ffi::UnsafeInit tag, ffi::ObjectPtr<CuDNNSDPARunnerObj> n)
+      : tvm::ffi::ObjectRef(tag) {
+    data_ = std::move(n);
+  }
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CuDNNSDPARunner, tvm::ffi::ObjectRef,
+                                                CuDNNSDPARunnerObj);
 };
 
 }  // namespace contrib

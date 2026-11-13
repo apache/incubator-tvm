@@ -27,10 +27,10 @@
 #include <tvm/ir/op.h>
 #include <tvm/ir/transform.h>
 #include <tvm/relax/analysis.h>
-#include <tvm/relax/attrs/manipulate.h>
-#include <tvm/relax/attrs/nn.h>
-#include <tvm/relax/attrs/statistical.h>
 #include <tvm/relax/expr.h>
+#include <tvm/relax/op/manipulate.h>
+#include <tvm/relax/op/nn.h>
+#include <tvm/relax/op/statistical.h>
 #include <tvm/relax/type.h>
 #include <tvm/relax/utils.h>
 #include <tvm/runtime/logging.h>
@@ -55,7 +55,7 @@ using namespace tvm::prim;
 namespace contrib {
 
 /*! \brief Attributes to store the compiler options for TensorRT. */
-struct TensorRTCompilerConfigNode : public ffi::Object {
+struct TensorRTCompilerConfigObj : public ffi::Object {
   ffi::Array<int64_t> tensorrt_version;
   bool use_implicit_batch;
   size_t max_workspace_size;
@@ -66,38 +66,41 @@ struct TensorRTCompilerConfigNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TensorRTCompilerConfigNode>()
-        .def_ro("tensorrt_version", &TensorRTCompilerConfigNode::tensorrt_version,
+    refl::ObjectDef<TensorRTCompilerConfigObj>()
+        .def_ro("tensorrt_version", &TensorRTCompilerConfigObj::tensorrt_version,
                 "TensorRT version as (major, minor, patch).",
                 refl::DefaultValue(ffi::Array<int64_t>({6, 0, 1})))
-        .def_ro("use_implicit_batch", &TensorRTCompilerConfigNode::use_implicit_batch,
+        .def_ro("use_implicit_batch", &TensorRTCompilerConfigObj::use_implicit_batch,
                 "Use implicit batch (removed in TensorRT 10; networks are always explicit-batch)",
                 refl::DefaultValue(false))
-        .def_ro("max_workspace_size", &TensorRTCompilerConfigNode::max_workspace_size,
+        .def_ro("max_workspace_size", &TensorRTCompilerConfigObj::max_workspace_size,
                 "Max workspace size", refl::DefaultValue(size_t(1) << 30))
-        .def_ro("remove_no_mac_subgraphs", &TensorRTCompilerConfigNode::remove_no_mac_subgraphs,
+        .def_ro("remove_no_mac_subgraphs", &TensorRTCompilerConfigObj::remove_no_mac_subgraphs,
                 "Remove no-mac subgraphs", refl::DefaultValue(false))
-        .def_ro("use_fp16", &TensorRTCompilerConfigNode::use_fp16, "Use FP16",
+        .def_ro("use_fp16", &TensorRTCompilerConfigObj::use_fp16, "Use FP16",
                 refl::DefaultValue(false))
-        .def_ro("use_uint8", &TensorRTCompilerConfigNode::use_uint8, "Use uint8",
+        .def_ro("use_uint8", &TensorRTCompilerConfigObj::use_uint8, "Use uint8",
                 refl::DefaultValue(false))
-        .def_ro("build_at_compile_time", &TensorRTCompilerConfigNode::build_at_compile_time,
+        .def_ro("build_at_compile_time", &TensorRTCompilerConfigObj::build_at_compile_time,
                 "Build and embed TensorRT engines during code generation",
                 refl::DefaultValue(false));
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.ext.attrs.TensorRTCompilerConfig",
-                                    TensorRTCompilerConfigNode, ffi::Object);
+                                    TensorRTCompilerConfigObj, ffi::Object);
 };
 
 class TensorRTCompilerConfig : public ffi::ObjectRef {
  public:
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorRTCompilerConfig, ffi::ObjectRef,
-                                                TensorRTCompilerConfigNode);
+                                                TensorRTCompilerConfigObj);
 };
 
-TVM_FFI_STATIC_INIT_BLOCK() { TensorRTCompilerConfigNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { TensorRTCompilerConfigObj::RegisterReflection(); }
 
-TVM_REGISTER_PASS_CONFIG_OPTION("relax.ext.tensorrt.options", TensorRTCompilerConfig);
+TVM_FFI_STATIC_INIT_BLOCK() {
+  ::tvm::transform::PassContext::RegisterConfigOption<TensorRTCompilerConfig>(
+      "relax.ext.tensorrt.options");
+}
 
 using JSONGraphNode = tvm::runtime::json::JSONGraphNode;
 using JSONGraphNodeEntry = tvm::runtime::json::JSONGraphNodeEntry;
@@ -112,9 +115,9 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
  public:
   CollectFromCompositeFunctionBody() : node_(std::make_shared<JSONGraphNode>()) {}
 
-  void VisitExpr_(const CallNode* call_node) final;
+  void VisitExpr_(const CallObj* call_node) final;
 
-  void SetGenericAttributes(const CallNode* call_node) {
+  void SetGenericAttributes(const CallObj* call_node) {
     OpAttrExtractor extractor(node_);
     const ffi::Object* attr_obj = call_node->attrs.get();
     extractor.Extract(const_cast<ffi::Object*>(attr_obj));
@@ -122,8 +125,8 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
 
   // Serialize an op's non-tensor arguments (scalars/shapes) as "arg_<name>" attributes; the "arg_"
   // prefix avoids JSONGraphNode's reserved "shape"/"dtype".
-  void SetArgumentAttributes(const CallNode* call_node) {
-    const auto* op_node = call_node->op.as<OpNode>();
+  void SetArgumentAttributes(const CallObj* call_node) {
+    const auto* op_node = call_node->op.as<OpObj>();
     if (op_node == nullptr) return;
     const ffi::Array<ArgumentInfo>& arg_infos = op_node->args_info;
     for (size_t i = 0; i < call_node->args.size() && i < arg_infos.size(); ++i) {
@@ -131,12 +134,12 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
       const std::string key = "arg_" + std::string(arg_infos[i]->name);
       if (auto prim_value = arg.as<PrimExpr>()) {
         PrimExpr value = prim_value.value();
-        if (const auto* imm = value.as<IntImmNode>()) {
+        if (const auto* imm = value.as<IntImmObj>()) {
           node_->SetAttr(key, static_cast<int64_t>(imm->value));
-        } else if (const auto* fimm = value.as<FloatImmNode>()) {
+        } else if (const auto* fimm = value.as<FloatImmObj>()) {
           node_->SetAttr(key, static_cast<double>(fimm->value));
         }
-      } else if (const auto* shape_expr = arg.as<ShapeExprNode>()) {
+      } else if (const auto* shape_expr = arg.as<ShapeExprObj>()) {
         SetIntArrayAttr(key, shape_expr->values);
       }
     }
@@ -144,12 +147,12 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
 
   // Relax reduce axis is optional; materialize the all-axes default (it otherwise serializes as
   // "").
-  void MaybeFillReduceAxes(const CallNode* call_node) {
+  void MaybeFillReduceAxes(const CallObj* call_node) {
     const auto* attrs = call_node->attrs.as<StatisticalAttrs>();
     if (attrs == nullptr || attrs->axis.has_value()) return;
-    const auto* tensor_ty = GetType(call_node->args[0]).as<TensorTypeNode>();
+    const auto* tensor_ty = GetType(call_node->args[0]).as<TensorTypeObj>();
     if (tensor_ty == nullptr || !tensor_ty->shape.has_value()) return;
-    const auto* shape = tensor_ty->shape.value().as<ShapeExprNode>();
+    const auto* shape = tensor_ty->shape.value().as<ShapeExprObj>();
     if (shape == nullptr) return;
     ffi::Array<int64_t> all_axes;
     for (size_t i = 0; i < shape->values.size(); ++i) all_axes.push_back(static_cast<int64_t>(i));
@@ -158,12 +161,12 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
 
   // strided_slice's axes/begin/end/strides are tuple args the op does not name; serialize by
   // position.
-  void SetStridedSliceArguments(const CallNode* call_node) {
-    const auto* op_node = call_node->op.as<OpNode>();
+  void SetStridedSliceArguments(const CallObj* call_node) {
+    const auto* op_node = call_node->op.as<OpObj>();
     if (op_node == nullptr || op_node->name != "relax.strided_slice") return;
     static constexpr const char* kNames[] = {"arg_axes", "arg_begin", "arg_end", "arg_strides"};
     for (size_t i = 1; i < call_node->args.size() && i <= 4; ++i) {
-      const auto* tuple = call_node->args[i].as<TupleNode>();
+      const auto* tuple = call_node->args[i].as<TupleObj>();
       if (tuple == nullptr) continue;
       ffi::Array<PrimExpr> values;
       for (const Expr& field : tuple->fields) {
@@ -179,7 +182,7 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
   void SetIntArrayAttr(const std::string& key, const ffi::Array<PrimExpr>& exprs) {
     ffi::Array<int64_t> values;
     for (const PrimExpr& expr : exprs) {
-      const auto* imm = expr.as<IntImmNode>();
+      const auto* imm = expr.as<IntImmObj>();
       if (imm == nullptr) return;
       values.push_back(static_cast<int64_t>(imm->value));
     }
@@ -188,8 +191,8 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
 
   // layout_transform's IndexMap is not generically serializable; emit a pure permutation as
   // "arg_axes". Returns true for layout_transform (so generic extraction is skipped for it).
-  bool TrySetLayoutTransformAttributes(const CallNode* call_node) {
-    const auto* op_node = call_node->op.as<OpNode>();
+  bool TrySetLayoutTransformAttributes(const CallObj* call_node) {
+    const auto* op_node = call_node->op.as<OpObj>();
     if (op_node == nullptr || op_node->name != "relax.layout_transform") return false;
     const auto* attrs = call_node->attrs.as<LayoutTransformAttrs>();
     if (attrs == nullptr) return true;
@@ -216,7 +219,7 @@ class CollectFromCompositeFunctionBody : public ExprVisitor {
   }
 
   /*! \brief The primitive operator call in the composite function. */
-  const CallNode* operator_call_{nullptr};
+  const CallObj* operator_call_{nullptr};
   /*!
    * \brief Temporary node into which we'll accumulate attributes. Ideally this would be the
    * final JSONGraphNode however we don't yet know how many inputs that will have.
@@ -237,13 +240,13 @@ class TensorRTJSONSerializer : public JSONSerializer {
 
   using JSONSerializer::VisitExpr_;
 
-  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallNode* call_node) final {
+  std::vector<JSONGraphNodeEntry> VisitExpr_(const CallObj* call_node) final {
     // The call must be to an inline "Composite" function
-    const auto* fn_var = call_node->op.as<VarNode>();
+    const auto* fn_var = call_node->op.as<VarObj>();
     TVM_FFI_ICHECK(fn_var);
     const auto fn = bindings_[ffi::GetRef<Var>(fn_var)].as_or_throw<Function>();
 
-    auto opt_composite = fn->GetAttr<ffi::String>(attr::kComposite);
+    auto opt_composite = fn->GetAttr(tvm::relax::attr::kComposite);
     TVM_FFI_ICHECK(opt_composite.has_value());
     std::string name = opt_composite.value();
 
@@ -266,12 +269,12 @@ class TensorRTJSONSerializer : public JSONSerializer {
 
     std::vector<JSONGraphNodeEntry> inputs;
     auto append_tensor_inputs = [&](const auto& self, const Expr& expr) -> void {
-      if (const auto* tuple = expr.as<TupleNode>()) {
+      if (const auto* tuple = expr.as<TupleObj>()) {
         for (const Expr& field : tuple->fields) self(self, field);
         return;
       }
       Type type = GetType(expr);
-      if (type->IsInstance<TensorTypeNode>() || type->IsInstance<TupleTypeNode>()) {
+      if (type->IsInstance<TensorTypeObj>() || type->IsInstance<TupleTypeObj>()) {
         auto entries = VisitExpr(expr);
         inputs.insert(inputs.end(), entries.begin(), entries.end());
       }
@@ -293,24 +296,20 @@ class TensorRTJSONSerializer : public JSONSerializer {
 
     VLOG(1) << name << " has " << node->GetInputs().size() << " inputs";
 
-    return AddNode(node, ffi::GetRef<Expr>(call_node));
+    return AddObj(node, ffi::GetRef<Expr>(call_node));
   }
 
   static void SaveGlobalAttributes(std::shared_ptr<JSONGraphNode> node) {
     auto ctx = transform::PassContext::Current();
-    auto cfg = ctx->GetConfig<TensorRTCompilerConfig>("relax.ext.tensorrt.options");
-    if (!cfg.has_value()) {
-      cfg = transform::PassConfigWithDefaults<TensorRTCompilerConfig>();
-    }
-    TVM_FFI_ICHECK_EQ(cfg.value()->tensorrt_version.size(), 3);
-    ffi::Array<int64_t> tensorrt_version = {cfg.value()->tensorrt_version[0],
-                                            cfg.value()->tensorrt_version[1],
-                                            cfg.value()->tensorrt_version[2]};
+    auto cfg = ctx->GetConfigOrDefault<TensorRTCompilerConfig>("relax.ext.tensorrt.options");
+    TVM_FFI_ICHECK_EQ(cfg->tensorrt_version.size(), 3);
+    ffi::Array<int64_t> tensorrt_version = {cfg->tensorrt_version[0], cfg->tensorrt_version[1],
+                                            cfg->tensorrt_version[2]};
     node->SetAttr("tensorrt_version", std::move(tensorrt_version));
-    node->SetAttr("use_implicit_batch", static_cast<int64_t>(cfg.value()->use_implicit_batch));
-    node->SetAttr("max_workspace_size", static_cast<int64_t>(cfg.value()->max_workspace_size));
-    node->SetAttr("use_fp16", static_cast<int64_t>(cfg.value()->use_fp16));
-    node->SetAttr("use_uint8", static_cast<int64_t>(cfg.value()->use_uint8));
+    node->SetAttr("use_implicit_batch", static_cast<int64_t>(cfg->use_implicit_batch));
+    node->SetAttr("max_workspace_size", static_cast<int64_t>(cfg->max_workspace_size));
+    node->SetAttr("use_fp16", static_cast<int64_t>(cfg->use_fp16));
+    node->SetAttr("use_uint8", static_cast<int64_t>(cfg->use_uint8));
   }
 
  private:
@@ -318,8 +317,8 @@ class TensorRTJSONSerializer : public JSONSerializer {
   ffi::Map<Var, Expr> bindings_;
 };
 
-void CollectFromCompositeFunctionBody::VisitExpr_(const CallNode* call_node) {
-  TVM_FFI_ICHECK(call_node->op->IsInstance<OpNode>())
+void CollectFromCompositeFunctionBody::VisitExpr_(const CallObj* call_node) {
+  TVM_FFI_ICHECK(call_node->op->IsInstance<OpObj>())
       << "TensorRT Composite functions must contain exactly one primitive Relax operator call";
   TVM_FFI_ICHECK(operator_call_ == nullptr)
       << "TensorRT Composite functions must contain exactly one primitive Relax operator call";
@@ -344,10 +343,10 @@ ffi::Array<ffi::Module> TensorRTCompiler(ffi::Array<Function> functions,
   auto cfg = transform::PassContext::Current()->GetConfig<TensorRTCompilerConfig>(
       "relax.ext.tensorrt.options");
   bool build_at_compile_time = cfg.has_value() && cfg.value()->build_at_compile_time;
-  ffi::Map<ffi::String, runtime::Tensor> constant_tensors;
+  ffi::Map<ffi::String, ffi::Tensor> constant_tensors;
   if (build_at_compile_time) {
     for (const auto& entry : constant_names) {
-      constant_tensors.Set(entry.second, entry.first->value.cast<runtime::Tensor>());
+      constant_tensors.Set(entry.second, entry.first->value.cast<ffi::Tensor>());
     }
   }
 
@@ -357,18 +356,18 @@ ffi::Array<ffi::Module> TensorRTCompiler(ffi::Array<Function> functions,
     if (build_at_compile_time) {
       // Reject dynamic inputs before the JSON serializer requires integer shapes.
       auto check_input_type = [&](const auto& self, const Type& type) -> void {
-        if (const auto* tuple = type.as<TupleTypeNode>()) {
+        if (const auto* tuple = type.as<TupleTypeObj>()) {
           for (const auto& field : tuple->fields) self(self, field);
           return;
         }
-        const auto* tensor = type.as<TensorTypeNode>();
+        const auto* tensor = type.as<TensorTypeObj>();
         TVM_FFI_CHECK(tensor != nullptr && tensor->shape.has_value(), ValueError)
             << "TensorRT compile-time engine building requires static positive input dimensions";
-        const auto* shape = tensor->shape.value().as<ShapeExprNode>();
+        const auto* shape = tensor->shape.value().as<ShapeExprObj>();
         TVM_FFI_CHECK(shape != nullptr, ValueError)
             << "TensorRT compile-time engine building requires static positive input dimensions";
         for (const auto& dim : shape->values) {
-          const auto* value = dim.as<IntImmNode>();
+          const auto* value = dim.as<IntImmObj>();
           TVM_FFI_CHECK(value != nullptr && value->value > 0, ValueError)
               << "TensorRT compile-time engine building requires static positive input dimensions";
         }
@@ -388,7 +387,7 @@ ffi::Array<ffi::Module> TensorRTCompiler(ffi::Array<Function> functions,
       auto build_engine = module->GetFunction("build_engine");
       TVM_FFI_CHECK(build_engine.has_value(), RuntimeError)
           << "TensorRT compile-time engine building requires the TensorRT runtime";
-      ffi::Array<runtime::Tensor> ordered_constants;
+      ffi::Array<ffi::Tensor> ordered_constants;
       for (const auto& name : ordered_constant_names) {
         ordered_constants.push_back(constant_tensors[name]);
       }

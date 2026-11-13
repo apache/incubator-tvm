@@ -19,9 +19,11 @@
 """Sort related operators"""
 
 import tvm
+import tvm_tirx
 from tvm import te
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+from tvm.s_tir.script import ir_builder as Ts
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx.script import ir_builder as T
 
 from ..math import cast, ceil_log2
 from ..searchsorted import binary_search
@@ -29,20 +31,18 @@ from ..transform import strided_slice, transpose
 from ..utils import ceil_div, prod, swap
 
 
-def _get_threads(nthread_tx, nthread_bx, nthread_by):
-    target = tvm.target.Target.current(allow_none=True)
+def _thread_launches(nthread_tx, nthread_bx, nthread_by, *, target=None):
     is_cuda = target is not None and target.kind.name == "cuda"
-    tx = te.thread_axis("threadIdx.x")
-    if is_cuda:
-        bx = te.thread_axis("blockIdx.y")
-        by = te.thread_axis("blockIdx.x")
-    else:
-        bx = te.thread_axis("blockIdx.x")
-        by = te.thread_axis("blockIdx.y")
-    return tx, bx, by, nthread_tx, nthread_bx, nthread_by
+    return [
+        T.launch_thread("threadIdx.x", nthread_tx),
+        T.launch_thread("blockIdx.y" if is_cuda else "blockIdx.x", nthread_bx),
+        T.launch_thread("blockIdx.x" if is_cuda else "blockIdx.y", nthread_by),
+    ]
 
 
-def _sort_init(shape, axis, keys_in, keys_out, values_out=None, value_init_func=None):
+def _sort_init(
+    shape, axis, keys_in, keys_out, values_out=None, value_init_func=None, *, target=None
+):
     """Initialize the output buffers by copying from inputs"""
     axis_mul_before = 1
     axis_mul_after = 1
@@ -55,19 +55,16 @@ def _sort_init(shape, axis, keys_in, keys_out, values_out=None, value_init_func=
             axis_mul_after *= value
 
     # Set up threading
-    max_threads = int(tvm.target.Target.current(allow_none=False).attrs["max_num_threads"])
+    max_threads = int(target.attrs["max_num_threads"])
     nthread_tx = max_threads
     nthread_bx = ceil_div(shape[axis], max_threads)
     nthread_by = axis_mul_before * axis_mul_after
 
     # Copy the keys_in to initial output
-    tx, bx, by, ntx, nbx, nby = _get_threads(nthread_tx, nthread_bx, nthread_by)
-    with T.frame_scope(
-        [
-            T.attr(tx, "thread_extent", ntx),
-            T.attr(bx, "thread_extent", nbx),
-            T.attr(by, "thread_extent", nby),
-        ]
+    with T.frame_scope(_thread_launches(nthread_tx, nthread_bx, nthread_by, target=target)) as (
+        tx,
+        bx,
+        by,
     ):
         tid = bx * nthread_tx + tx
         by_val = by % axis_mul_before
@@ -75,14 +72,14 @@ def _sort_init(shape, axis, keys_in, keys_out, values_out=None, value_init_func=
         idx = (by_val * shape[axis] + tid) * axis_mul_after + bz
         with T.if_(tid < shape[axis]):
             with T.then_():
-                T.buffer_store(
+                T.tensor_store(
                     keys_out,
-                    keys_in[T.buffer_indices(keys_in, idx)],
-                    T.buffer_indices(keys_out, idx),
+                    T.tensor_indices(keys_out, idx),
+                    keys_in[T.tensor_indices(keys_in, idx)],
                 )
                 if values_out is not None:
-                    T.buffer_store(
-                        values_out, value_init_func(idx, tid), T.buffer_indices(values_out, idx)
+                    T.tensor_store(
+                        values_out, T.tensor_indices(values_out, idx), value_init_func(idx, tid)
                     )
 
     return axis_mul_before, axis_mul_after
@@ -103,89 +100,106 @@ def _odd_even_sort(
     keys_swap,
     values=None,
     values_swap=None,
+    *,
+    target=None,
 ):
     nthread_tx = block_size // 2
     nthread_bx = ceil_div(size, block_size)
     nthread_by = axis_mul_before * axis_mul_after
 
-    tx, bx, by, ntx, nbx, nby = _get_threads(nthread_tx, nthread_bx, nthread_by)
     with T.frame_scope(
         [
-            T.attr(tvm.tirx.const(0), "hand_threaded", 0),
-            T.attr(tx, "thread_extent", ntx),
-            T.attr(bx, "thread_extent", nbx),
-            T.attr(by, "thread_extent", nby),
+            Ts.manual_sync(),
+            *_thread_launches(nthread_tx, nthread_bx, nthread_by, target=target),
         ]
-    ):
+    ) as (_, tx, bx, by):
         by_val = by % axis_mul_before
         bz = by // axis_mul_before
         tid = 2 * tx
         start = bx * block_size
 
-        # Buffer declarations (DeclBuffer generates both Allocate + DeclBuffer nodes)
-        tmp_keys_swap = T.decl_buffer([block_size], keys_swap.dtype, scope="shared")
-        temp_keys = T.decl_buffer([1], keys_swap.dtype, scope="local")
-        temp_cond1 = T.decl_buffer([1], keys_swap.dtype, scope="local")
-        temp_cond2 = T.decl_buffer([1], keys_swap.dtype, scope="local")
+        # Tensor declarations without data allocate their storage.
+        tmp_keys_swap = T.bind_(
+            T.alloc_tensor(ty_args=[T.Tensor([block_size], keys_swap.dtype, scope="shared")])
+        )
+        temp_keys = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], keys_swap.dtype, scope="local")]))
+        temp_cond1 = T.bind_(
+            T.alloc_tensor(ty_args=[T.Tensor([1], keys_swap.dtype, scope="local")])
+        )
+        temp_cond2 = T.bind_(
+            T.alloc_tensor(ty_args=[T.Tensor([1], keys_swap.dtype, scope="local")])
+        )
         if values_swap is not None:
-            tmp_values_swap = T.decl_buffer([block_size], values_swap.dtype, scope="shared")
-            temp_values = T.decl_buffer([1], values_swap.dtype, scope="local")
+            tmp_values_swap = T.bind_(
+                T.alloc_tensor(ty_args=[T.Tensor([block_size], values_swap.dtype, scope="shared")])
+            )
+            temp_values = T.bind_(
+                T.alloc_tensor(ty_args=[T.Tensor([1], values_swap.dtype, scope="local")])
+            )
 
         # Copy data to scratch space
         base_idx = by_val * size * axis_mul_after + bz
         with T.serial(0, 2) as n:
             with T.if_((tid + n + start) < size):
                 with T.then_():
-                    T.buffer_store(
+                    T.tensor_store(
                         tmp_keys_swap,
-                        keys[
-                            T.buffer_indices(keys, (base_idx + (tid + n + start) * axis_mul_after))
-                        ],
                         [tid + n],
+                        keys[
+                            T.tensor_indices(keys, (base_idx + (tid + n + start) * axis_mul_after))
+                        ],
                     )
                     if values_swap is not None:
-                        T.buffer_store(
+                        T.tensor_store(
                             tmp_values_swap,
+                            [tid + n],
                             values[
-                                T.buffer_indices(
+                                T.tensor_indices(
                                     values, (base_idx + (tid + n + start) * axis_mul_after)
                                 )
                             ],
-                            [tid + n],
                         )
 
         T.evaluate(
-            tvm.ir.Call("tirx.tvm_storage_sync", [tvm.ir.StringImm("shared")], ret_ty="void")
+            tvm_tirx.ir.Call(
+                "tirx.gpu_storage_sync",
+                [tvm_tirx.ir.StringImm("shared")],
+                ty="void",
+            )
         )
 
-        idxm = tvm.tirx.indexmod
+        idxm = tvm_tirx.tirx.indexmod
         # OddEvenTransposeSort
-        current_sort_num = tvm.tirx.min(block_size, size - start)
+        current_sort_num = tvm_tirx.tirx.min(block_size, size - start)
         with T.serial(0, current_sort_num) as k:
             n = idxm(tid + k, 2)
             with T.if_(tid + n < current_sort_num - 1):
                 with T.then_():
-                    T.buffer_store(temp_cond1, tmp_keys_swap[tid + n], [0])
-                    T.buffer_store(temp_cond2, tmp_keys_swap[tid + n + 1], [0])
+                    T.tensor_store(temp_cond1, [0], tmp_keys_swap[tid + n])
+                    T.tensor_store(temp_cond2, [0], tmp_keys_swap[tid + n + 1])
                     if is_ascend:
                         cond = temp_cond1[0] > temp_cond2[0]
                     else:
                         cond = temp_cond1[0] < temp_cond2[0]
                     with T.if_(cond):
                         with T.then_():
-                            T.buffer_store(temp_keys, tmp_keys_swap[tid + n], [0])
-                            T.buffer_store(tmp_keys_swap, tmp_keys_swap[tid + n + 1], [tid + n])
-                            T.buffer_store(tmp_keys_swap, temp_keys[0], [tid + n + 1])
+                            T.tensor_store(temp_keys, [0], tmp_keys_swap[tid + n])
+                            T.tensor_store(tmp_keys_swap, [tid + n], tmp_keys_swap[tid + n + 1])
+                            T.tensor_store(tmp_keys_swap, [tid + n + 1], temp_keys[0])
                             if values_swap is not None:
-                                T.buffer_store(temp_values, tmp_values_swap[tid + n], [0])
-                                T.buffer_store(
+                                T.tensor_store(temp_values, [0], tmp_values_swap[tid + n])
+                                T.tensor_store(
                                     tmp_values_swap,
-                                    tmp_values_swap[tid + n + 1],
                                     [tid + n],
+                                    tmp_values_swap[tid + n + 1],
                                 )
-                                T.buffer_store(tmp_values_swap, temp_values[0], [tid + n + 1])
+                                T.tensor_store(tmp_values_swap, [tid + n + 1], temp_values[0])
             T.evaluate(
-                tvm.ir.Call("tirx.tvm_storage_sync", [tvm.ir.StringImm("shared")], ret_ty="void")
+                tvm_tirx.ir.Call(
+                    "tirx.gpu_storage_sync",
+                    [tvm_tirx.ir.StringImm("shared")],
+                    ty="void",
+                )
             )
 
         ## Copy sorted data to output
@@ -193,18 +207,18 @@ def _odd_even_sort(
             with T.if_(tid + n + start < size):
                 with T.then_():
                     out_idx = base_idx + (tid + n + start) * axis_mul_after
-                    T.buffer_store(keys, tmp_keys_swap[tid + n], T.buffer_indices(keys, out_idx))
-                    T.buffer_store(
-                        keys_swap, tmp_keys_swap[tid + n], T.buffer_indices(keys_swap, out_idx)
+                    T.tensor_store(keys, T.tensor_indices(keys, out_idx), tmp_keys_swap[tid + n])
+                    T.tensor_store(
+                        keys_swap, T.tensor_indices(keys_swap, out_idx), tmp_keys_swap[tid + n]
                     )
                     if values_swap is not None:
-                        T.buffer_store(
-                            values, tmp_values_swap[tid + n], T.buffer_indices(values, out_idx)
+                        T.tensor_store(
+                            values, T.tensor_indices(values, out_idx), tmp_values_swap[tid + n]
                         )
-                        T.buffer_store(
+                        T.tensor_store(
                             values_swap,
+                            T.tensor_indices(values_swap, out_idx),
                             tmp_values_swap[tid + n],
-                            T.buffer_indices(values_swap, out_idx),
                         )
 
 
@@ -217,6 +231,8 @@ def _sort_common(
     keys_swap,
     values=None,
     values_swap=None,
+    *,
+    target=None,
 ):
     """Either sort only values or sort values by keys."""
 
@@ -231,7 +247,6 @@ def _sort_common(
     ##    finds the start/end locations of the inner mergepath so that we can split
     ##    the merge into more blocks
 
-    target = tvm.target.Target.current(allow_none=False)
     max_threads = int(target.attrs["max_num_threads"])
     is_webgpu = "webgpu" in str(target)
     target_dtype = "int32" if is_webgpu else "int64"
@@ -248,7 +263,7 @@ def _sort_common(
         return out
 
     # Sort the lower levels of the merge using odd-even sort, it's fast for small inputs
-    lower_lim = ceil_log2(block_size)
+    lower_lim = ceil_log2(block_size, target=target)
 
     _odd_even_sort(
         size,
@@ -259,28 +274,29 @@ def _sort_common(
         keys_swap,
         values,
         values_swap,
+        target=target,
     )
 
-    upper_lim = ceil_log2(size)
+    upper_lim = ceil_log2(size, target=target)
 
     def get_merge_begin(source, base_idx, aCount, bCount, aStart, bStart, diag, first, last):
         max_val = tvm.te.max(0, diag - bCount)
         min_val = tvm.te.min(diag, aCount)
         if is_webgpu:
-            T.buffer_store(first, cast(max_val, target_dtype), T.buffer_indices(first, 0))
-            T.buffer_store(last, cast(min_val, target_dtype), T.buffer_indices(last, 0))
+            T.tensor_store(first, T.tensor_indices(first, 0), cast(max_val, target_dtype))
+            T.tensor_store(last, T.tensor_indices(last, 0), cast(min_val, target_dtype))
         else:
-            T.buffer_store(first, max_val, T.buffer_indices(first, 0))
-            T.buffer_store(last, min_val, T.buffer_indices(last, 0))
-        with T.while_(first[T.buffer_indices(first, 0)] < last[T.buffer_indices(last, 0)]):
-            mid = (first[T.buffer_indices(first, 0)] + last[T.buffer_indices(last, 0)]) >> 1
-            a = source[T.buffer_indices(source, (base_idx + (aStart + mid)))]
-            b = source[T.buffer_indices(source, (base_idx + (bStart + diag - 1 - mid)))]
+            T.tensor_store(first, T.tensor_indices(first, 0), max_val)
+            T.tensor_store(last, T.tensor_indices(last, 0), min_val)
+        with T.while_(first[T.tensor_indices(first, 0)] < last[T.tensor_indices(last, 0)]):
+            mid = (first[T.tensor_indices(first, 0)] + last[T.tensor_indices(last, 0)]) >> 1
+            a = source[T.tensor_indices(source, (base_idx + (aStart + mid)))]
+            b = source[T.tensor_indices(source, (base_idx + (bStart + diag - 1 - mid)))]
             with T.if_(compare(a, b)):
                 with T.then_():
-                    T.buffer_store(first, mid + 1, T.buffer_indices(first, 0))
+                    T.tensor_store(first, T.tensor_indices(first, 0), mid + 1)
                 with T.else_():
-                    T.buffer_store(last, mid, T.buffer_indices(last, 0))
+                    T.tensor_store(last, T.tensor_indices(last, 0), mid)
 
     def serial_merge(
         source,
@@ -300,102 +316,102 @@ def _sort_common(
         i_buf,
         j_buf,
     ):
-        i_val = aStart + first[T.buffer_indices(first, 0)]
-        j_val = bStart + diag - last[T.buffer_indices(last, 0)]
+        i_val = aStart + first[T.tensor_indices(first, 0)]
+        j_val = bStart + diag - last[T.tensor_indices(last, 0)]
         if is_webgpu:
-            T.buffer_store(i_buf, cast(i_val, target_dtype), T.buffer_indices(i_buf, 0))
-            T.buffer_store(j_buf, cast(j_val, target_dtype), T.buffer_indices(j_buf, 0))
+            T.tensor_store(i_buf, T.tensor_indices(i_buf, 0), cast(i_val, target_dtype))
+            T.tensor_store(j_buf, T.tensor_indices(j_buf, 0), cast(j_val, target_dtype))
         else:
-            T.buffer_store(i_buf, i_val, T.buffer_indices(i_buf, 0))
-            T.buffer_store(j_buf, j_val, T.buffer_indices(j_buf, 0))
+            T.tensor_store(i_buf, T.tensor_indices(i_buf, 0), i_val)
+            T.tensor_store(j_buf, T.tensor_indices(j_buf, 0), j_val)
 
         with T.serial(0, tvm.te.min(aCount + bCount - diag, step_count)) as count:
-            i_idx = base_idx + i_buf[T.buffer_indices(i_buf, 0)]
-            j_idx = base_idx + j_buf[T.buffer_indices(j_buf, 0)]
+            i_idx = base_idx + i_buf[T.tensor_indices(i_buf, 0)]
+            j_idx = base_idx + j_buf[T.tensor_indices(j_buf, 0)]
             k_idx = base_idx + (kStart + diag + count)
 
             with T.if_(
-                tvm.tirx.all(
-                    i_buf[T.buffer_indices(i_buf, 0)] < aStart + aCount,
-                    j_buf[T.buffer_indices(j_buf, 0)] < bStart + bCount,
+                tvm_tirx.tirx.all(
+                    i_buf[T.tensor_indices(i_buf, 0)] < aStart + aCount,
+                    j_buf[T.tensor_indices(j_buf, 0)] < bStart + bCount,
                 )
             ):
                 with T.then_():
                     with T.if_(
                         compare(
-                            source[T.buffer_indices(source, i_idx)],
-                            source[T.buffer_indices(source, j_idx)],
+                            source[T.tensor_indices(source, i_idx)],
+                            source[T.tensor_indices(source, j_idx)],
                         )
                     ):
                         with T.then_():
-                            T.buffer_store(
+                            T.tensor_store(
                                 dest,
-                                source[T.buffer_indices(source, i_idx)],
-                                T.buffer_indices(dest, k_idx),
+                                T.tensor_indices(dest, k_idx),
+                                source[T.tensor_indices(source, i_idx)],
                             )
                             if values is not None:
-                                T.buffer_store(
+                                T.tensor_store(
                                     dest_idx,
-                                    source_idx[T.buffer_indices(source_idx, i_idx)],
-                                    T.buffer_indices(dest_idx, k_idx),
+                                    T.tensor_indices(dest_idx, k_idx),
+                                    source_idx[T.tensor_indices(source_idx, i_idx)],
                                 )
-                            T.buffer_store(
+                            T.tensor_store(
                                 i_buf,
-                                i_buf[T.buffer_indices(i_buf, 0)] + 1,
-                                T.buffer_indices(i_buf, 0),
+                                T.tensor_indices(i_buf, 0),
+                                i_buf[T.tensor_indices(i_buf, 0)] + 1,
                             )
                         with T.else_():
-                            T.buffer_store(
+                            T.tensor_store(
                                 dest,
-                                source[T.buffer_indices(source, j_idx)],
-                                T.buffer_indices(dest, k_idx),
+                                T.tensor_indices(dest, k_idx),
+                                source[T.tensor_indices(source, j_idx)],
                             )
                             if values is not None:
-                                T.buffer_store(
+                                T.tensor_store(
                                     dest_idx,
-                                    source_idx[T.buffer_indices(source_idx, j_idx)],
-                                    T.buffer_indices(dest_idx, k_idx),
+                                    T.tensor_indices(dest_idx, k_idx),
+                                    source_idx[T.tensor_indices(source_idx, j_idx)],
                                 )
-                            T.buffer_store(
+                            T.tensor_store(
                                 j_buf,
-                                j_buf[T.buffer_indices(j_buf, 0)] + 1,
-                                T.buffer_indices(j_buf, 0),
+                                T.tensor_indices(j_buf, 0),
+                                j_buf[T.tensor_indices(j_buf, 0)] + 1,
                             )
                 with T.else_():
-                    with T.if_(i_buf[T.buffer_indices(i_buf, 0)] < aStart + aCount):
+                    with T.if_(i_buf[T.tensor_indices(i_buf, 0)] < aStart + aCount):
                         with T.then_():
-                            T.buffer_store(
+                            T.tensor_store(
                                 dest,
-                                source[T.buffer_indices(source, i_idx)],
-                                T.buffer_indices(dest, k_idx),
+                                T.tensor_indices(dest, k_idx),
+                                source[T.tensor_indices(source, i_idx)],
                             )
                             if values is not None:
-                                T.buffer_store(
+                                T.tensor_store(
                                     dest_idx,
-                                    source_idx[T.buffer_indices(source_idx, i_idx)],
-                                    T.buffer_indices(dest_idx, k_idx),
+                                    T.tensor_indices(dest_idx, k_idx),
+                                    source_idx[T.tensor_indices(source_idx, i_idx)],
                                 )
-                            T.buffer_store(
+                            T.tensor_store(
                                 i_buf,
-                                i_buf[T.buffer_indices(i_buf, 0)] + 1,
-                                T.buffer_indices(i_buf, 0),
+                                T.tensor_indices(i_buf, 0),
+                                i_buf[T.tensor_indices(i_buf, 0)] + 1,
                             )
                         with T.else_():
-                            T.buffer_store(
+                            T.tensor_store(
                                 dest,
-                                source[T.buffer_indices(source, j_idx)],
-                                T.buffer_indices(dest, k_idx),
+                                T.tensor_indices(dest, k_idx),
+                                source[T.tensor_indices(source, j_idx)],
                             )
                             if values is not None:
-                                T.buffer_store(
+                                T.tensor_store(
                                     dest_idx,
-                                    source_idx[T.buffer_indices(source_idx, j_idx)],
-                                    T.buffer_indices(dest_idx, k_idx),
+                                    T.tensor_indices(dest_idx, k_idx),
+                                    source_idx[T.tensor_indices(source_idx, j_idx)],
                                 )
-                            T.buffer_store(
+                            T.tensor_store(
                                 j_buf,
-                                j_buf[T.buffer_indices(j_buf, 0)] + 1,
-                                T.buffer_indices(j_buf, 0),
+                                T.tensor_indices(j_buf, 0),
+                                j_buf[T.tensor_indices(j_buf, 0)] + 1,
                             )
 
     def mergepath(
@@ -413,10 +429,10 @@ def _sort_common(
         step_count,
         even,
     ):
-        first_buf = T.decl_buffer([1], target_dtype, scope="local")
-        last_buf = T.decl_buffer([1], target_dtype, scope="local")
-        i_buf_buf = T.decl_buffer([1], target_dtype, scope="local")
-        j_buf_buf = T.decl_buffer([1], target_dtype, scope="local")
+        first_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        last_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        i_buf_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        j_buf_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
         first = first_buf
         last = last_buf
         i_buf = i_buf_buf
@@ -480,12 +496,16 @@ def _sort_common(
         step_count,
         even,
     ):
-        outer_first_buf = T.decl_buffer([1], target_dtype, scope="local")
-        outer_last_buf = T.decl_buffer([1], target_dtype, scope="local")
-        first_buf = T.decl_buffer([1], target_dtype, scope="local")
-        last_buf = T.decl_buffer([1], target_dtype, scope="local")
-        i_buf_buf = T.decl_buffer([1], target_dtype, scope="local")
-        j_buf_buf = T.decl_buffer([1], target_dtype, scope="local")
+        outer_first_buf = T.bind_(
+            T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")])
+        )
+        outer_last_buf = T.bind_(
+            T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")])
+        )
+        first_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        last_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        i_buf_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
+        j_buf_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], target_dtype, scope="local")]))
         outer_first = outer_first_buf
         outer_last = outer_last_buf
         first = first_buf
@@ -507,8 +527,8 @@ def _sort_common(
                     outer_first,
                     outer_last,
                 )
-                aStart = start_pos + outer_first[T.buffer_indices(outer_first, 0)]
-                bStart = middle + diag - outer_last[T.buffer_indices(outer_last, 0)]
+                aStart = start_pos + outer_first[T.tensor_indices(outer_first, 0)]
+                bStart = middle + diag - outer_last[T.tensor_indices(outer_last, 0)]
                 aCount = tvm.te.min(middle - aStart, step_count)
                 bCount = tvm.te.min(end - bStart, step_count)
                 inner_diag = tx * thread_work
@@ -545,8 +565,8 @@ def _sort_common(
                     outer_first,
                     outer_last,
                 )
-                aStart = start_pos + outer_first[T.buffer_indices(outer_first, 0)]
-                bStart = middle + diag - outer_last[T.buffer_indices(outer_last, 0)]
+                aStart = start_pos + outer_first[T.tensor_indices(outer_first, 0)]
+                bStart = middle + diag - outer_last[T.tensor_indices(outer_last, 0)]
                 aCount = tvm.te.min(middle - aStart, step_count)
                 bCount = tvm.te.min(end - bStart, step_count)
                 inner_diag = tx * thread_work
@@ -575,7 +595,6 @@ def _sort_common(
     with T.serial(0, cast(upper_lim - lower_lim, target_dtype)) as l2_width:
         width = 2 << (l2_width + lower_lim)
         # Define and launch the CUDA kernel
-        target = tvm.target.Target.current()
         if "vulkan" in str(target):
             ntx = max_threads
             nbx = cast(ceil_div(width, max_threads * thread_work), "int32")
@@ -585,42 +604,40 @@ def _sort_common(
             nbx = cast(ceil_div(width, max_threads * thread_work), "int32")
             nbz = cast(ceil_div(size, width), "int32")
 
-        tx = te.thread_axis("threadIdx.x")
         if target.kind.name == "webgpu":
             # WebGPU reserves blockIdx.z to extend blockIdx.x beyond 65535, so fold the
             # merge-path (nbx) and section (nbz) axes into blockIdx.x.
-            bxz = te.thread_axis("blockIdx.x")
-            by = te.thread_axis("blockIdx.y")  # batch
-            grid_extents = [
-                T.attr(bxz, "thread_extent", nbx * nbz),
-                T.attr(by, "thread_extent", nthread_by),
+            grid_launches = [
+                T.launch_thread("blockIdx.x", nbx * nbz),
+                T.launch_thread("blockIdx.y", nthread_by),
             ]
-            bx = tvm.tirx.indexmod(bxz, nbx)
-            bz = tvm.tirx.indexdiv(bxz, nbx)
         else:
-            bx = te.thread_axis("blockIdx.z")  # nbx
-            if target.kind.name == "cuda":
-                by = te.thread_axis("blockIdx.x")  # batch
-                bz = te.thread_axis("blockIdx.y")  # nbz
-            else:
-                by = te.thread_axis("blockIdx.y")  # batch
-                bz = te.thread_axis("blockIdx.x")  # nbz
-            grid_extents = [
-                T.attr(bx, "thread_extent", nbx),
-                T.attr(by, "thread_extent", nthread_by),
-                T.attr(bz, "thread_extent", nbz),
+            is_cuda = target.kind.name == "cuda"
+            grid_launches = [
+                T.launch_thread("blockIdx.z", nbx),
+                T.launch_thread("blockIdx.x" if is_cuda else "blockIdx.y", nthread_by),
+                T.launch_thread("blockIdx.y" if is_cuda else "blockIdx.x", nbz),
             ]
-        with T.frame_scope([T.attr(tx, "thread_extent", ntx), *grid_extents]):
+        with T.frame_scope([T.launch_thread("threadIdx.x", ntx), *grid_launches]) as bindings:
+            tx = bindings[0]
+            if target.kind.name == "webgpu":
+                bxz, by = bindings[1:]
+                bx = tvm_tirx.tirx.indexmod(bxz, nbx)
+                bz = tvm_tirx.tirx.indexdiv(bxz, nbx)
+            else:
+                bx, by, bz = bindings[1:]
             base_idx = by * size
 
             # calculate the start, mid, and end points of this section
             start_pos = width * bz
-            middle = cast(tvm.te.min(start_pos + tvm.tirx.indexdiv(width, 2), size), target_dtype)
+            middle = cast(
+                tvm.te.min(start_pos + tvm_tirx.tirx.indexdiv(width, 2), size), target_dtype
+            )
             end = cast(tvm.te.min(start_pos + width, size), target_dtype)
 
             with T.if_(start_pos < size):
                 with T.then_():
-                    even = tvm.tirx.indexmod(l2_width, 2) == 0
+                    even = tvm_tirx.tirx.indexmod(l2_width, 2) == 0
                     with T.if_(nbx == 1):
                         with T.then_():
                             ## merge the start->middle and middle->end arrays
@@ -660,36 +677,45 @@ def _sort_common(
     ## if the final sorted data ended up in the swap, copy it to the real output
     nthread_bx = ceil_div(size, nthread_tx)
     with T.if_(
-        tvm.tirx.all(upper_lim > lower_lim, tvm.tirx.indexmod(upper_lim - lower_lim, 2) == 1)
+        tvm_tirx.tirx.all(
+            upper_lim > lower_lim, tvm_tirx.tirx.indexmod(upper_lim - lower_lim, 2) == 1
+        )
     ):
         with T.then_():
-            tx2, bx2, by2, _, _, _ = _get_threads(nthread_tx, nthread_bx, nthread_by)
             with T.frame_scope(
-                [
-                    T.attr(tx2, "thread_extent", nthread_tx),
-                    T.attr(bx2, "thread_extent", nthread_bx),
-                    T.attr(by2, "thread_extent", nthread_by),
-                ]
+                _thread_launches(nthread_tx, nthread_bx, nthread_by, target=target)
+            ) as (
+                tx2,
+                bx2,
+                by2,
             ):
                 tid = bx2 * nthread_tx + tx2
                 idx = by2 * size + tid
                 with T.if_(tid < size):
                     with T.then_():
-                        T.buffer_store(
+                        T.tensor_store(
                             keys,
-                            keys_swap[T.buffer_indices(keys_swap, idx)],
-                            T.buffer_indices(keys, idx),
+                            T.tensor_indices(keys, idx),
+                            keys_swap[T.tensor_indices(keys_swap, idx)],
                         )
                         if values is not None:
-                            T.buffer_store(
+                            T.tensor_store(
                                 values,
-                                values_swap[T.buffer_indices(values_swap, idx)],
-                                T.buffer_indices(values, idx),
+                                T.tensor_indices(values, idx),
+                                values_swap[T.tensor_indices(values_swap, idx)],
                             )
 
 
 def sort_ir(
-    data, values_out, values_out_swap, axis, is_ascend, indices_out=None, indices_out_swap=None
+    data,
+    values_out,
+    values_out_swap,
+    axis,
+    is_ascend,
+    indices_out=None,
+    indices_out_swap=None,
+    *,
+    target=None,
 ):
     """Low level IR to do sorting on the GPU, same usage as tvm.contrib.sort.argsort on the CPU.
 
@@ -741,6 +767,7 @@ def sort_ir(
                             cast(tid, indices_out_orig.dtype) if indices_out is not None else None
                         )
                     ),
+                    target=target,
                 )
 
                 _sort_common(
@@ -752,12 +779,13 @@ def sort_ir(
                     values_out_swap,
                     values=indices_out,
                     values_swap=indices_out_swap,
+                    target=target,
                 )
 
         return ib.get()
 
 
-def sort(data, axis=-1, is_ascend=1):
+def sort(data, axis=-1, is_ascend=1, *, target=None):
     """Performs sorting along the given axis and returns an array of
     sorted values with the same shape as the input data.
 
@@ -784,18 +812,19 @@ def sort(data, axis=-1, is_ascend=1):
         axes = swap(list(range(ndim)), axis)
         data = transpose(data, axes)
 
-    value_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "value_buf", data_alignment=8, layout=None
+    value_buf = tvm_tirx.tirx.Var(
+        "value_buf", tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None)
     )
-    value_buf_swap = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "value_buf_swap", data_alignment=8, layout=None
+    value_buf_swap = tvm_tirx.tirx.Var(
+        "value_buf_swap",
+        tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None),
     )
 
     out = te.extern(
         [data.shape, data.shape],
         [data],
-        lambda ins, outs: sort_ir(ins[0], outs[0], outs[1], -1, is_ascend),
-        out_buffers=[value_buf, value_buf_swap],
+        lambda ins, outs: sort_ir(ins[0], outs[0], outs[1], -1, is_ascend, target=target),
+        out_tensors=[value_buf, value_buf_swap],
         name="sort_gpu",
         tag="sort_gpu",
     )[0]
@@ -807,7 +836,7 @@ def sort(data, axis=-1, is_ascend=1):
     return out
 
 
-def sort_thrust(data, axis=-1, is_ascend=1, workspace=None):
+def sort_thrust(data, axis=-1, is_ascend=1, workspace=None, *, target=None):
     """Performs sorting along the given axis and returns an array of
     sorted values with the same shape as the input data.
 
@@ -842,16 +871,21 @@ def sort_thrust(data, axis=-1, is_ascend=1, workspace=None):
         axes = swap(list(range(ndim)), axis)
         data = transpose(data, axes)
 
-    value_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "value_buf", data_alignment=8, layout=None
+    value_buf = tvm_tirx.tirx.Var(
+        "value_buf", tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None)
     )
-    indices_buf = tvm.tirx.decl_buffer(data.shape, dtype, "out_buf", data_alignment=8, layout=None)
+    indices_buf = tvm_tirx.tirx.Var(
+        "out_buf",
+        tvm_tirx.tirx.TensorType(
+            data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+        ),
+    )
 
     def f_compute(ins, outs):
         args = ["tvm.contrib.thrust.sort", ins[0], outs[0], outs[1], is_ascend]
         if workspace is not None:
             args.append(ins[1])
-        return tvm.tirx.call_packed(*args)
+        return tvm_tirx.tirx.call_packed(*args)
 
     out = te.extern(
         [data.shape, data.shape],
@@ -860,7 +894,7 @@ def sort_thrust(data, axis=-1, is_ascend=1, workspace=None):
         ## For performance, we should probably rename the contrib function and add
         ## a pure sort
         f_compute,
-        out_buffers=[value_buf, indices_buf],
+        out_tensors=[value_buf, indices_buf],
         name="sort_gpu",
         tag="sort_gpu",
     )[0]
@@ -871,7 +905,7 @@ def sort_thrust(data, axis=-1, is_ascend=1, workspace=None):
     return out
 
 
-def argsort(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices"):
+def argsort(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices", *, target=None):
     """Performs sorting along the given axis and returns an array of indices
     having same shape as an input array that index data in sorted order.
 
@@ -906,15 +940,24 @@ def argsort(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices"):
         axes = swap(list(range(ndim)), axis)
         data = transpose(data, axes)
 
-    value_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "value_buf", data_alignment=8, layout=None
+    value_buf = tvm_tirx.tirx.Var(
+        "value_buf", tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None)
     )
-    value_swap_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "value_swap_buf", data_alignment=8, layout=None
+    value_swap_buf = tvm_tirx.tirx.Var(
+        "value_swap_buf",
+        tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None),
     )
-    indices_buf = tvm.tirx.decl_buffer(data.shape, dtype, "out_buf", data_alignment=8, layout=None)
-    indices_swap_buf = tvm.tirx.decl_buffer(
-        data.shape, dtype, "out_swap_buf", data_alignment=8, layout=None
+    indices_buf = tvm_tirx.tirx.Var(
+        "out_buf",
+        tvm_tirx.tirx.TensorType(
+            data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+        ),
+    )
+    indices_swap_buf = tvm_tirx.tirx.Var(
+        "out_swap_buf",
+        tvm_tirx.tirx.TensorType(
+            data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+        ),
     )
 
     outs = te.extern(
@@ -928,8 +971,9 @@ def argsort(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices"):
             is_ascend,
             indices_out=outs[1],
             indices_out_swap=outs[3],
+            target=target,
         ),
-        out_buffers=[value_buf, indices_buf, value_swap_buf, indices_swap_buf],
+        out_tensors=[value_buf, indices_buf, value_swap_buf, indices_swap_buf],
         name="argsort_gpu",
         tag="argsort_gpu",
     )
@@ -944,7 +988,9 @@ def argsort(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices"):
     return outs[0], outs[1]
 
 
-def argsort_thrust(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices", workspace=None):
+def argsort_thrust(
+    data, axis=-1, is_ascend=1, dtype="float32", ret_type="indices", workspace=None, *, target=None
+):
     """Performs sorting along the given axis and returns an array of indices
     having same shape as an input array that index data in sorted order.
 
@@ -977,10 +1023,10 @@ def argsort_thrust(data, axis=-1, is_ascend=1, dtype="float32", ret_type="indice
     out : tvm.te.Tensor
         The output of this function.
     """
-    return topk_thrust(data, 0, axis, ret_type, is_ascend, dtype, workspace)
+    return topk_thrust(data, 0, axis, ret_type, is_ascend, dtype, workspace, target=target)
 
 
-def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
+def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64", *, target=None):
     """Get the top k elements in an input tensor along the given axis.
 
     Parameters
@@ -1020,25 +1066,33 @@ def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
         axes = swap(list(range(ndim)), axis)
         data = transpose(data, axes)
 
-    values_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "values_buf", data_alignment=8, layout=None
+    values_buf = tvm_tirx.tirx.Var(
+        "values_buf",
+        tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None),
     )
-    values_swap_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "values_swap_buf", data_alignment=8, layout=None
+    values_swap_buf = tvm_tirx.tirx.Var(
+        "values_swap_buf",
+        tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None),
     )
-    indices_buf = tvm.tirx.decl_buffer(
-        data.shape, dtype, "indices_buf", data_alignment=8, layout=None
+    indices_buf = tvm_tirx.tirx.Var(
+        "indices_buf",
+        tvm_tirx.tirx.TensorType(
+            data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+        ),
     )
-    indices_swap_buf = tvm.tirx.decl_buffer(
-        data.shape, dtype, "indies_swap_buf", data_alignment=8, layout=None
+    indices_swap_buf = tvm_tirx.tirx.Var(
+        "indies_swap_buf",
+        tvm_tirx.tirx.TensorType(
+            data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+        ),
     )
 
     if ret_type == "values":
         output = te.extern(
             [data.shape, data.shape],
             [data],
-            lambda ins, outs: sort_ir(ins[0], outs[0], outs[1], -1, is_ascend),
-            out_buffers=[values_buf, values_swap_buf],
+            lambda ins, outs: sort_ir(ins[0], outs[0], outs[1], -1, is_ascend, target=target),
+            out_tensors=[values_buf, values_swap_buf],
             name="topk_gpu",
             tag="topk_gpu",
         )[0]
@@ -1049,8 +1103,10 @@ def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
         output = te.extern(
             [data.shape, data.shape, data.shape, data.shape],
             [data],
-            lambda ins, outs: sort_ir(ins[0], outs[0], outs[2], -1, is_ascend, outs[1], outs[3]),
-            out_buffers=[values_buf, indices_buf, values_swap_buf, indices_swap_buf],
+            lambda ins, outs: sort_ir(
+                ins[0], outs[0], outs[2], -1, is_ascend, outs[1], outs[3], target=target
+            ),
+            out_tensors=[values_buf, indices_buf, values_swap_buf, indices_swap_buf],
             name="topk_gpu",
             tag="topk_gpu",
         )[0:2]
@@ -1085,7 +1141,15 @@ def topk(data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64"):
 
 
 def topk_thrust(
-    data, k=1, axis=-1, ret_type="both", is_ascend=False, dtype="int64", workspace=None
+    data,
+    k=1,
+    axis=-1,
+    ret_type="both",
+    is_ascend=False,
+    dtype="int64",
+    workspace=None,
+    *,
+    target=None,
 ):
     """Get the top k elements in an input tensor along the given axis.
 
@@ -1131,25 +1195,36 @@ def topk_thrust(
         axes = swap(list(range(ndim)), axis)
         data = transpose(data, axes)
 
-    data_buf = tvm.tirx.decl_buffer(
-        data.shape, data.dtype, "data_buf", data_alignment=8, layout=None
+    data_buf = tvm_tirx.tirx.Var(
+        "data_buf", tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None)
     )
     if workspace is not None:
-        workspace_buf = tvm.tirx.decl_buffer(
-            workspace.shape, workspace.dtype, "workspace_buf", data_alignment=8, layout=None
+        workspace_buf = tvm_tirx.tirx.Var(
+            "workspace_buf",
+            tvm_tirx.tirx.TensorType(
+                workspace.shape, workspace.dtype, data_alignment=8, layout=None
+            ),
         )
     else:
         workspace_buf = None
     out_bufs = [
-        tvm.tirx.decl_buffer(data.shape, data.dtype, "value_buf", data_alignment=8, layout=None),
-        tvm.tirx.decl_buffer(data.shape, dtype, "indices_buf", data_alignment=8, layout=None),
+        tvm_tirx.tirx.Var(
+            "value_buf",
+            tvm_tirx.tirx.TensorType(data.shape, data.dtype, data_alignment=8, layout=None),
+        ),
+        tvm_tirx.tirx.Var(
+            "indices_buf",
+            tvm_tirx.tirx.TensorType(
+                data.shape, "float32" if dtype is None else dtype, data_alignment=8, layout=None
+            ),
+        ),
     ]
 
     def f_compute(ins, outs):
         args = ["tvm.contrib.thrust.sort", ins[0], outs[0], outs[1], is_ascend]
         if workspace is not None:
             args.append(ins[1])
-        return tvm.tirx.call_packed(*args)
+        return tvm_tirx.tirx.call_packed(*args)
 
     is_ascend = 1 if is_ascend else 0
 
@@ -1157,13 +1232,13 @@ def topk_thrust(
         [data.shape, data.shape],
         [data] if workspace is None else [data, workspace],
         f_compute,
-        in_buffers=[data_buf] if workspace is None else [data_buf, workspace_buf],
-        out_buffers=out_bufs,
+        in_tensors=[data_buf] if workspace is None else [data_buf, workspace_buf],
+        out_tensors=out_bufs,
         name="topk_gpu",
         tag="topk_gpu",
     )
 
-    if isinstance(k, tvm.tirx.IntImm):
+    if isinstance(k, tvm_tirx.ir.IntImm):
         k = k.value
 
     if not isinstance(k, int) or k > 0:
@@ -1184,7 +1259,7 @@ def topk_thrust(
     return out
 
 
-def searchsorted(sorted_sequence, values, right=False, out_dtype="int64"):
+def searchsorted(sorted_sequence, values, right=False, out_dtype="int64", *, target=None):
     """Find indices where elements should be inserted to maintain order.
        If `sorted_sequence` is N-dimensional, the innermost dimension of
        `values` are searched in the corresponding dimension of `sorted_sequence`.
@@ -1233,17 +1308,15 @@ def searchsorted(sorted_sequence, values, right=False, out_dtype="int64"):
             values_ptr = values_buf
             indices_ptr = indices_buf
 
-            max_threads = int(tvm.target.Target.current(allow_none=False).attrs["max_num_threads"])
+            max_threads = int(target.attrs["max_num_threads"])
             nthread_tx = max_threads
             nthread_bx = ceil_div(num_search, nthread_tx)
-            tx = te.thread_axis("threadIdx.x")
-            bx = te.thread_axis("blockIdx.x")
             with T.frame_scope(
                 [
-                    T.attr(tx, "thread_extent", nthread_tx),
-                    T.attr(bx, "thread_extent", nthread_bx),
+                    T.launch_thread("threadIdx.x", nthread_tx),
+                    T.launch_thread("blockIdx.x", nthread_bx),
                 ]
-            ):
+            ) as (tx, bx):
                 tid = bx * nthread_tx + tx
 
                 with T.if_(tid < num_search):
@@ -1254,17 +1327,17 @@ def searchsorted(sorted_sequence, values, right=False, out_dtype="int64"):
                             sequence_id = tid // values_shape[-1]
                             sequence_offset = sequence_id * search_range
 
-                        T.buffer_store(
+                        T.tensor_store(
                             indices_ptr,
+                            T.tensor_indices(indices_ptr, tid),
                             binary_search(
                                 sequence_offset,
                                 search_range,
                                 sorted_sequence_ptr,
-                                values_ptr[T.buffer_indices(values_ptr, tid)],
+                                values_ptr[T.tensor_indices(values_ptr, tid)],
                                 right,
                                 out_dtype,
                             ),
-                            T.buffer_indices(indices_ptr, tid),
                         )
 
             return ib.get()

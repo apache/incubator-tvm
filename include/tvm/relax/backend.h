@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_BACKEND_H_
 #define TVM_RELAX_BACKEND_H_
 
+#include <tvm/base.h>
 #include <tvm/relax/transform.h>
 
 namespace tvm {

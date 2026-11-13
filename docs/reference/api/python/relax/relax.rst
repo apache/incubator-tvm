@@ -21,4 +21,14 @@ tvm.relax
 .. automodule:: tvm.relax
     :members:
     :imported-members:
-    :exclude-members: AnyType, ObjectType, BlockBuilder, Call, Tuple, TupleGetItem, Var, Span, GlobalVar, SourceName, TupleType, Type, FuncType
+    :exclude-members: AnyType, ObjectType, BlockBuilder, Call, Tuple, TupleGetItem, Var, Location, GlobalVar, SourceName, TupleType, Type, FuncType, VirtualMachine, VMInstrumentReturnKind
+
+.. py:class:: VirtualMachine
+    :canonical: tvm.runtime.vm.VirtualMachine
+
+    Alias of :py:class:`tvm.runtime.vm.VirtualMachine`.
+
+.. py:class:: VMInstrumentReturnKind
+    :canonical: tvm.runtime.vm.VMInstrumentReturnKind
+
+    Alias of :py:class:`tvm.runtime.vm.VMInstrumentReturnKind`.

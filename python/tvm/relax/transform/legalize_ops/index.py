@@ -17,9 +17,10 @@
 # pylint: disable=invalid-name
 """Default legalization function for index operators."""
 
-import tvm
-from tvm import te, tirx, topi
-from tvm.ir import Call, PrimType
+import tvm_tirx
+from tvm import te, topi
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call, PrimType
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr, Tuple
@@ -41,7 +42,7 @@ def _strided_slice(bb: BlockBuilder, call: Call) -> Expr:
         if isinstance(relax_tuple, Tuple):
             output = []
             for field in relax_tuple.fields:
-                assert tvm.ir.is_prim_expr(field)
+                assert tvm_tirx.ir.is_prim_expr(field)
                 output.append(field)
             return output
 
@@ -53,7 +54,7 @@ def _strided_slice(bb: BlockBuilder, call: Call) -> Expr:
 
     if len(call.args) == 4:
         data, axes, begin, end = call.args
-        strides = [tirx.IntImm("int64", 1)] * len(axes.ty.fields)
+        strides = [tvm_tirx.ir.IntImm("int64", 1)] * len(axes.ty.fields)
     elif len(call.args) == 5:
         data, axes, begin, end, strides = call.args
         strides = _relax_tuple_to_tir(strides)
@@ -87,19 +88,21 @@ def _dynamic_strided_slice(bb: BlockBuilder, call: Call) -> Expr:
     # 1. Insert shape function
     def shape_func(data, begin, end, strides):
         def _compute(i):
-            def canonicalize_index(index, extent, strides):
-                begin_range = tirx.Select(
-                    strides < 0, tirx.const(-1, "int64"), tirx.const(0, "int64")
-                )
-                end_range = tirx.Select(strides < 0, extent - 1, extent)
+            def canonicalize_index(index, extent, negative_stride):
+                begin_range = tirx.const(-1 if negative_stride else 0, "int64")
+                end_range = extent - 1 if negative_stride else extent
                 index = tirx.Select(index < 0, index + extent, index)
                 return tirx.Min(tirx.Max(index, begin_range), end_range)
 
             def get_length(begin, end, strides, length):
-                begin = canonicalize_index(begin, length, strides)
-                end = canonicalize_index(end, length, strides)
-                len1 = tirx.ceildiv(begin - end, -strides)
-                len2 = tirx.ceildiv(end - begin, strides)
+                # Construct each branch with its known stride sign. Tensor reads are
+                # mutable, so the analyzer cannot assume repeated reads agree.
+                begin_neg = canonicalize_index(begin, length, True)
+                end_neg = canonicalize_index(end, length, True)
+                begin_pos = canonicalize_index(begin, length, False)
+                end_pos = canonicalize_index(end, length, False)
+                len1 = tirx.ceildiv(begin_neg - end_neg, -strides)
+                len2 = tirx.ceildiv(end_pos - begin_pos, strides)
                 return tirx.Select(strides < 0, len1, len2)
 
             length = tirx.const(-1, "int64")

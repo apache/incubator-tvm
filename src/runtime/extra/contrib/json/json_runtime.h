@@ -29,6 +29,7 @@
 #include <tvm/ffi/extra/json.h>
 #include <tvm/ffi/extra/module.h>
 #include <tvm/runtime/tensor.h>
+#include <tvm/support/bytes_io.h>
 #include <tvm/support/io.h>
 
 #include <cstddef>
@@ -40,7 +41,6 @@
 #include <utility>
 #include <vector>
 
-#include "../../../../support/bytes_io.h"
 #include "json_node.h"
 
 namespace tvm {
@@ -67,7 +67,7 @@ class JSONRuntimeBase : public ffi::ModuleObj {
   }
 
   /*! \brief Initialize a specific json runtime. */
-  virtual void Init(const ffi::Array<Tensor>& consts) = 0;
+  virtual void Init(const ffi::Array<ffi::Tensor>& consts) = 0;
 
   /*! \brief Invoke the execution engine to inteprete a specific json runtime. */
   virtual void Run() = 0;
@@ -111,7 +111,11 @@ class JSONRuntimeBase : public ffi::ModuleObj {
         TVM_FFI_ICHECK_EQ(args.size(), 1U);
         std::lock_guard<std::mutex> guard(this->initialize_mutex_);
         if (!this->initialized_) {
-          this->Init(args[0].cast<ffi::Array<Tensor>>());
+          auto consts = args[0].cast<ffi::Array<ffi::Tensor>>();
+          for (const auto& tensor : consts) {
+            TVM_FFI_ICHECK(tensor.defined());
+          }
+          this->Init(consts);
           this->initialized_ = true;
         }
         *rv = 0;
@@ -180,9 +184,9 @@ class JSONRuntimeBase : public ffi::ModuleObj {
                                            : EntryID(outputs_[i - input_var_eid_.size()]);
 
       const DLTensor* arg;
-      if (auto opt_nd = args[i].as<Tensor>()) {
-        Tensor arr = opt_nd.value();
-        arg = arr.operator->();
+      if (auto opt_nd = args[i].as<ffi::Tensor>(); opt_nd && opt_nd->defined()) {
+        ffi::Tensor arr = opt_nd.value();
+        arg = arr.GetDLTensorPtr();
       } else {
         arg = args[i].cast<DLTensor*>();
       }
@@ -238,9 +242,12 @@ class JSONRuntimeBase : public ffi::ModuleObj {
    *
    * \param consts A list of constant Tensor to be used.
    */
-  void SetupConstants(const ffi::Array<Tensor>& consts) {
+  void SetupConstants(const ffi::Array<ffi::Tensor>& consts) {
+    for (const auto& tensor : consts) {
+      TVM_FFI_ICHECK(tensor.defined());
+    }
     for (size_t i = 0; i < consts.size(); ++i) {
-      data_entry_[EntryID(const_idx_[i], 0)] = consts[i].operator->();
+      data_entry_[EntryID(const_idx_[i], 0)] = consts[i].GetDLTensorPtr();
     }
   }
 

@@ -21,13 +21,14 @@
 from collections.abc import Callable
 from typing import Any
 
-import tvm
-from tvm import relax, tirx
+import tvm_tirx
+from tvm import relax
+from tvm_tirx import tirx
 
 
 def _is_tensor_var(value) -> bool:
     """Whether ``value`` belongs to Relax's tensor domain."""
-    return isinstance(value, tvm.ir.Var) and isinstance(value.ty, relax.TensorType)
+    return isinstance(value, tvm_tirx.ir.Var) and isinstance(value.ty, relax.TensorType)
 
 
 class StableHLOImporter:
@@ -357,7 +358,7 @@ class StableHLOImporter:
             "stablehlo.return": self._return,
         }
 
-    def from_stablehlo(self, model, input_info: list[tuple[tuple[int], str]]) -> tvm.IRModule:
+    def from_stablehlo(self, model, input_info: list[tuple[tuple[int], str]]) -> tvm_tirx.IRModule:
         """Convert a StableHLO Module to a Relax program.
 
         Parameters
@@ -370,7 +371,7 @@ class StableHLOImporter:
 
         Returns
         -------
-        output : tvm.IRModule
+        output : tvm_tirx.IRModule
             The result IRModule with entry function "main"
         """
         from jaxlib import mlir
@@ -423,7 +424,7 @@ class StableHLOImporter:
 def from_stablehlo(
     stablehlo_module,
     input_info: list[tuple[tuple[int], str]] | None = None,
-) -> tvm.IRModule:
+) -> tvm_tirx.IRModule:
     """Convert a StableHLO Module to a Relax program
 
     Parameters
@@ -436,7 +437,7 @@ def from_stablehlo(
 
     Returns
     -------
-    output : tvm.IRModule
+    output : tvm_tirx.IRModule
         The result IRModule with entry function "main"
     """
     from jax._src.interpreters import mlir as jax_mlir

@@ -19,8 +19,8 @@
 
 from collections.abc import Iterable
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 
 
 class LibCompareVMInstrument:
@@ -37,7 +37,7 @@ class LibCompareVMInstrument:
 
     Parameters
     ----------
-    mod: runtime.Module
+    mod: tvm_ffi.Module
         The module of interest to be validated.
 
     device: runtime.Device
@@ -64,8 +64,8 @@ class LibCompareVMInstrument:
     def compare(
         self,
         name: str,
-        ref_args: list[tvm.runtime.Tensor] | tuple[tvm.runtime.Tensor, ...],
-        new_args: list[tvm.runtime.Tensor] | tuple[tvm.runtime.Tensor, ...],
+        ref_args: list[tvm_tirx.runtime.Tensor] | tuple[tvm_tirx.runtime.Tensor, ...],
+        new_args: list[tvm_tirx.runtime.Tensor] | tuple[tvm_tirx.runtime.Tensor, ...],
         ret_indices: Iterable[int],
     ):
         """Comparison function, can be overloaded.
@@ -89,7 +89,7 @@ class LibCompareVMInstrument:
             print(f"[{self.counter}] Validating {name} ...")
         my_func(*new_args)
         for rindex in ret_indices:
-            tvm.testing.assert_allclose(
+            tvm_tirx.testing.assert_allclose(
                 new_args[rindex].numpy(), ref_args[rindex].numpy(), atol=self.atol, rtol=self.rtol
             )
         if self.verbose:
@@ -104,7 +104,7 @@ class LibCompareVMInstrument:
             return
         if name.startswith("vm.builtin."):
             return
-        if any(not isinstance(x, tvm.runtime.Tensor) for x in args):
+        if any(not isinstance(x, tvm_tirx.runtime.Tensor) for x in args):
             return
         try:
             self.mod.get_function(name, query_imports=True)
@@ -121,10 +121,10 @@ class LibCompareVMInstrument:
         ret_indices = (len(args) - 1,)
         temp_args = []
         for i, arg in enumerate(args):
-            arr = tvm.runtime.empty(arg.shape, arg.dtype, device=self.device)
+            arr = tvm_tirx.runtime.empty(arg.shape, arg.dtype, device=self.device)
             # copy from cpu since we look at different device
             if i not in ret_indices:
-                temp_cpu = arg.copyto(tvm.cpu())
+                temp_cpu = arg.copyto(tvm_tirx.cpu())
                 temp_args.append(temp_cpu)
                 arr.copyfrom(temp_cpu)
             new_args.append(arr)

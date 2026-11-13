@@ -17,17 +17,17 @@
 # pylint: disable=invalid-name
 """scatter_elements related operators"""
 
-import tvm
-from tvm import te, tirx
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+from tvm import te
+from tvm_tirx import tirx
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx.script import ir_builder as T
 
 from .. import utils
 from ..math import cast
 from ..utils import ceil_div
 
 
-def scatter_elements(data, indices, updates, axis=0, reduction="update"):
+def scatter_elements(data, indices, updates, axis=0, reduction="update", *, target=None):
     """GPU implementation of scatter_elements with explicit thread bindings"""
     if not isinstance(axis, int):
         axis = utils.get_const_int(axis)
@@ -66,94 +66,89 @@ def scatter_elements(data, indices, updates, axis=0, reduction="update"):
         updates = updates_ptr
         out = out_ptr
 
-        max_threads = int(tvm.target.Target.current(allow_none=False).attrs["max_num_threads"])
+        max_threads = int(target.attrs["max_num_threads"])
 
         with IRBuilder() as ib:
-            with T.seq_scope():
-                # Init
-                nthread_bx_init = cast(ceil_div(full_range, max_threads), "int32")
-                tx_init = te.thread_axis("threadIdx.x")
-                bx_init = te.thread_axis("blockIdx.x")
-                with T.frame_scope(
-                    [
-                        T.attr(bx_init, "thread_extent", nthread_bx_init),
-                        T.attr(tx_init, "thread_extent", max_threads),
-                    ]
-                ):
-                    tid = bx_init * max_threads + tx_init
-                    with T.if_(tid < full_range):
-                        with T.then_():
-                            T.buffer_store(
-                                out,
-                                data[T.buffer_indices(data, tid)],
-                                T.buffer_indices(out, tid),
-                            )
+            # Init
+            nthread_bx_init = cast(ceil_div(full_range, max_threads), "int32")
+            with T.frame_scope(
+                [
+                    T.launch_thread("blockIdx.x", nthread_bx_init),
+                    T.launch_thread("threadIdx.x", max_threads),
+                ]
+            ) as (bx_init, tx_init):
+                tid = bx_init * max_threads + tx_init
+                with T.if_(tid < full_range):
+                    with T.then_():
+                        T.tensor_store(
+                            out,
+                            T.tensor_indices(out, tid),
+                            data[T.tensor_indices(data, tid)],
+                        )
 
-                # Scatter
-                nthread_bx_scat = cast(ceil_div(ind_full_range_excl_axis, max_threads), "int32")
-                tx_scat = te.thread_axis("threadIdx.x")
-                bx_scat = te.thread_axis("blockIdx.x")
-                with T.frame_scope(
-                    [
-                        T.attr(bx_scat, "thread_extent", nthread_bx_scat),
-                        T.attr(tx_scat, "thread_extent", max_threads),
-                    ]
-                ):
-                    fused = bx_scat * max_threads + tx_scat
-                    with T.if_(fused < ind_full_range_excl_axis):
-                        with T.then_():
-                            i = fused // ind_after_axis_range
-                            j = fused % ind_after_axis_range
-                            pre_index1 = i * ind_before_axis_stride + j
-                            pre_index2 = i * before_axis_stride + j
-                            with T.serial(0, ind_axis_range) as k:
-                                # Offset along indices or updates
-                                index1 = pre_index1 + k * ind_after_axis_range
-                                # Get index and shift to positive side if need
-                                k_new = indices[T.buffer_indices(indices, index1)]
-                                shifted_index = k_new + (k_new < 0) * axis_range
-                                # Offset along data
-                                index2 = pre_index2 + shifted_index * after_axis_range
-                                reduce_func(out, index2, updates[T.buffer_indices(updates, index1)])
+            # Scatter
+            nthread_bx_scat = cast(ceil_div(ind_full_range_excl_axis, max_threads), "int32")
+            with T.frame_scope(
+                [
+                    T.launch_thread("blockIdx.x", nthread_bx_scat),
+                    T.launch_thread("threadIdx.x", max_threads),
+                ]
+            ) as (bx_scat, tx_scat):
+                fused = bx_scat * max_threads + tx_scat
+                with T.if_(fused < ind_full_range_excl_axis):
+                    with T.then_():
+                        i = fused // ind_after_axis_range
+                        j = fused % ind_after_axis_range
+                        pre_index1 = i * ind_before_axis_stride + j
+                        pre_index2 = i * before_axis_stride + j
+                        with T.serial(0, ind_axis_range) as k:
+                            # Offset along indices or updates
+                            index1 = pre_index1 + k * ind_after_axis_range
+                            # Get index and shift to positive side if need
+                            k_new = indices[T.tensor_indices(indices, index1)]
+                            shifted_index = k_new + (k_new < 0) * axis_range
+                            # Offset along data
+                            index2 = pre_index2 + shifted_index * after_axis_range
+                            reduce_func(out, index2, updates[T.tensor_indices(updates, index1)])
 
             return ib.get()
 
     def update_func(dst_ptr, dst_index, update):
-        T.buffer_store(dst_ptr, update, T.buffer_indices(dst_ptr, dst_index))
+        T.tensor_store(dst_ptr, T.tensor_indices(dst_ptr, dst_index), update)
 
     def add_func(dst_ptr, dst_index, update):
-        T.buffer_store(
+        T.tensor_store(
             dst_ptr,
-            dst_ptr[T.buffer_indices(dst_ptr, dst_index)] + (update),
-            T.buffer_indices(dst_ptr, dst_index),
+            T.tensor_indices(dst_ptr, dst_index),
+            dst_ptr[T.tensor_indices(dst_ptr, dst_index)] + (update),
         )
 
     def mul_func(dst_ptr, dst_index, update):
-        T.buffer_store(
+        T.tensor_store(
             dst_ptr,
-            dst_ptr[T.buffer_indices(dst_ptr, dst_index)] * (update),
-            T.buffer_indices(dst_ptr, dst_index),
+            T.tensor_indices(dst_ptr, dst_index),
+            dst_ptr[T.tensor_indices(dst_ptr, dst_index)] * (update),
         )
 
     def mean_func(dst_ptr, dst_index, update):
-        T.buffer_store(
+        T.tensor_store(
             dst_ptr,
-            (dst_ptr[T.buffer_indices(dst_ptr, dst_index)] + update) / 2,
-            T.buffer_indices(dst_ptr, dst_index),
+            T.tensor_indices(dst_ptr, dst_index),
+            (dst_ptr[T.tensor_indices(dst_ptr, dst_index)] + update) / 2,
         )
 
     def min_func(dst_ptr, dst_index, update):
-        T.buffer_store(
+        T.tensor_store(
             dst_ptr,
-            tirx.min(dst_ptr[T.buffer_indices(dst_ptr, dst_index)], update),
-            T.buffer_indices(dst_ptr, dst_index),
+            T.tensor_indices(dst_ptr, dst_index),
+            tirx.min(dst_ptr[T.tensor_indices(dst_ptr, dst_index)], update),
         )
 
     def max_func(dst_ptr, dst_index, update):
-        T.buffer_store(
+        T.tensor_store(
             dst_ptr,
-            tirx.max(dst_ptr[T.buffer_indices(dst_ptr, dst_index)], update),
-            T.buffer_indices(dst_ptr, dst_index),
+            T.tensor_indices(dst_ptr, dst_index),
+            tirx.max(dst_ptr[T.tensor_indices(dst_ptr, dst_index)], update),
         )
 
     reduce_func = None
@@ -174,13 +169,13 @@ def scatter_elements(data, indices, updates, axis=0, reduction="update"):
             "scatter_elements reduction not in [update, add, mul, mean, min, max]:", reduction
         )
 
-    out_buf = tirx.decl_buffer(data.shape, data.dtype, "out_buf", layout=None)
+    out_buf = tirx.Var("out_buf", tirx.TensorType(data.shape, data.dtype, layout=None))
     return te.extern(
         [data.shape],
         [data, indices, updates],
         lambda ins, outs: gen_ir(ins[0], ins[1], ins[2], outs[0], reduce_func),
         dtype=data.dtype,
-        out_buffers=[out_buf],
+        out_tensors=[out_buf],
         name="scatter_elements.gpu",
         tag="scatter_elements.gpu",
     )

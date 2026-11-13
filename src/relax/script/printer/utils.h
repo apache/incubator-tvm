@@ -16,155 +16,31 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#ifndef TVM_RELAX_SCRIPT_PRINTER_UTILS_H_
-#define TVM_RELAX_SCRIPT_PRINTER_UTILS_H_
+#ifndef SRC_RELAX_SCRIPT_PRINTER_UTILS_H_
+#define SRC_RELAX_SCRIPT_PRINTER_UTILS_H_
 
-#include <tvm/ffi/reflection/registry.h>
-#include <tvm/relax/analysis.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/expr.h>
+#include <tvm/relax/global_info.h>
 #include <tvm/relax/type.h>
-#include <tvm/relax/utils.h>
-#include <tvm/script/printer/ir_docsifier.h>
+#include <tvm/script/printer/support.h>
 
-#include <string>
-#include <unordered_set>
-#include <utility>
-#include <vector>
-
-#include "../../../script/printer/utils.h"
+#include <optional>
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-class RelaxFrameNode : public FrameNode {
- public:
-  bool is_func = false;
-  bool module_alias_printed = false;
-  std::unordered_set<const VarNode*>* func_vars = nullptr;
-  std::unordered_set<const VarNode*>* type_vars = nullptr;
-  std::unordered_set<const VarNode*>* prim_params = nullptr;
+ffi::Optional<ffi::String> GlobalInfoSelector(DocTranslatorObj* d, const GlobalInfo& info);
+ExprDoc RelaxShapeDim(DocTranslatorObj* d, const PrimExpr& dim);
+ffi::Array<StmtDoc> RelaxSeqBody(DocTranslatorObj* d, const relax::SeqExprObj* seq,
+                                 ffi::Optional<IdDoc> destination = std::nullopt,
+                                 ffi::Optional<ExprDoc> annotation = std::nullopt,
+                                 const ffi::Object* destination_object = nullptr);
 
-  static void RegisterReflection() {
-    namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<RelaxFrameNode>()
-        .def_ro("is_func", &RelaxFrameNode::is_func)
-        .def_ro("module_alias_printed", &RelaxFrameNode::module_alias_printed);
-  }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("script.printer.RelaxFrame", RelaxFrameNode, FrameNode);
-};
-
-class RelaxFrame : public Frame {
- public:
-  explicit RelaxFrame(const IRDocsifier& d) {
-    ffi::ObjectPtr<RelaxFrameNode> n = ffi::make_object<RelaxFrameNode>();
-    n->stmts.clear();
-    n->d = d.get();
-    n->is_func = false;
-    n->func_vars = nullptr;
-    n->type_vars = nullptr;
-    n->prim_params = nullptr;
-    data_ = std::move(n);
-  }
-
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(RelaxFrame, Frame, RelaxFrameNode);
-};
-
-/*! \brief Redirected method for the ffi repr hook */
-inline std::string ReprPrintRelax(const ffi::ObjectRef& obj, const PrinterConfig& cfg) {
-  IRDocsifier d(cfg);
-  With<RelaxFrame> f(d);
-  (*f)->AddDispatchToken(d, "relax");
-  return Docsify(obj, d, *f, cfg);
-}
-
-inline IdDoc DefineRelaxVar(const tvm::Var& var, const Frame& frame, const IRDocsifier& d) {
-  return d->Define(var, frame, var->name.empty() ? "v" : var->name);
-}
-
-inline ffi::Optional<ExprDoc> TypeAsAnn(const tvm::Var& v, const AccessPath& v_p,
-                                        const IRDocsifier& d,
-                                        const ffi::Optional<relax::Expr>& rhs) {
-  if (v->ty.IsMissing()) {
-    return std::nullopt;
-  }
-  bool attempt_to_hide_ty = !d->cfg->GetExtraConfig<bool>("relax.show_all_ty", true);
-
-  if (rhs.has_value()) {
-    if (const auto* call = rhs.as<tvm::CallNode>()) {
-      static const Op call_tir_op = Op::Get("relax.call_tir");
-      static const Op call_dps_packed_op = Op::Get("relax.call_dps_packed");
-      if (call->op.same_as(call_tir_op) || call->op.same_as(call_dps_packed_op)) {
-        attempt_to_hide_ty = true;
-      }
-    }
-  }
-  if (attempt_to_hide_ty && rhs.has_value()) {
-    ffi::Optional<tvm::Type> inferred_ty = std::nullopt;
-    if (auto opt = rhs.as<tvm::Call>()) {
-      auto call = opt.value();
-      if (auto opt = call->op.as<Op>()) {
-        auto op = opt.value();
-
-        static auto op_map_context_free = Op::GetAttrMap<FInferType>("FInferType");
-        if (op_map_context_free.count(op)) {
-          inferred_ty = Call::ReinferType(call.get());
-        } else {
-          static auto op_map_infer_ty =
-              Op::GetAttrMap<relax::FInferTypeWithBuilder>("relax.FInferTypeWithBuilder");
-          if (op_map_infer_ty.count(op)) {
-            auto temp_builder = relax::BlockBuilder::Create(std::nullopt);
-            inferred_ty = op_map_infer_ty[op](call, temp_builder);
-          }
-        }
-      } else if (auto opt = call->op.as<relax::FuncType>()) {
-        auto temp_builder = relax::BlockBuilder::Create(std::nullopt);
-        inferred_ty =
-            DeriveCallRetType(opt.value(), call, temp_builder, temp_builder->GetAnalyzer());
-      }
-
-    } else if (const auto* tuple = rhs.as<relax::TupleNode>()) {
-      inferred_ty = relax::TupleType(tuple->fields.Map(relax::GetType));
-
-    } else if (const auto* get_item = rhs.as<relax::TupleGetItemNode>()) {
-      if (auto ptr = get_item->tuple->ty.as<relax::TupleTypeNode>();
-          ptr && get_item->index < static_cast<int>(ptr->fields.size())) {
-        inferred_ty = ptr->fields[get_item->index];
-      }
-
-    } else if (const auto* trivial_binding = rhs.as<tvm::VarNode>()) {
-      inferred_ty = trivial_binding->ty.as<tvm::Type>();
-    }
-
-    if (inferred_ty && ffi::StructuralEqual()(inferred_ty, v->ty)) {
-      return std::nullopt;
-    }
-  }
-  return d->AsDoc<ExprDoc>(v->ty, v_p->Attr("ty"));
-}
-
-ffi::Array<StmtDoc> PrintSeqExpr(const relax::SeqExpr& n, const AccessPath& n_p,
-                                 const IRDocsifier& d, bool use_ret);
-
-Doc PrintRelaxVar(tvm::Var n, AccessPath p, IRDocsifier d);
-
-inline int FindVDeviceIndexByTargetKind(const relax::VDevice& vdevice, const IRDocsifier& d) {
-  ffi::Array<GlobalInfo> vdevices = d->global_infos["vdevice"];
-  int kind_index = 0;
-  for (size_t i = 0; i < vdevices.size(); ++i) {
-    auto vdev = vdevices[i].as_or_throw<relax::VDevice>();
-    if (vdev.same_as(vdevice)) {
-      return kind_index;
-    }
-    if (vdev->target->kind->name == vdevice->target->kind->name) {
-      kind_index++;
-    }
-  }
-  return -1;
-}
-
+}  // namespace details
 }  // namespace printer
 }  // namespace script
 }  // namespace tvm
 
-#endif  // TVM_RELAX_SCRIPT_PRINTER_UTILS_H_
+#endif  // SRC_RELAX_SCRIPT_PRINTER_UTILS_H_

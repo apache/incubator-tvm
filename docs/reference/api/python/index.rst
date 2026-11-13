@@ -22,12 +22,12 @@ Python API
     :maxdepth: 1
     :caption: tvm
 
-    error
     ir
     sym
     instrument
     transform
     target
+    codegen
     driver
     testing
     exec

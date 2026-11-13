@@ -24,9 +24,6 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 
-namespace tvm {
-namespace runtime {
-
 #ifdef __linux__
 #include <errno.h>
 #include <fcntl.h>
@@ -37,6 +34,12 @@ namespace runtime {
 #include <tvm/runtime/logging.h>
 #include <unistd.h>
 
+#endif
+
+namespace tvm {
+namespace runtime {
+
+#ifdef __linux__
 #define XFEATURE_XTILECFG 17
 #define XFEATURE_XTILEDATA 18
 #define XFEATURE_MASK_XTILECFG (1 << XFEATURE_XTILECFG)

@@ -16,11 +16,11 @@
 # under the License.
 
 [build-system]
-# mlc-z3-static ships the PIC static libz3 + headers consumed by USE_Z3=ON.
+# The parent links against the separately installed core package.
 requires = [
   "scikit-build-core>=0.11",
   "setuptools-scm>=8",
-  "mlc-z3-static>=4.16.0",
+  "apache-tvm-tirx>=0.1.0rc2,<=0.1.0rc3",
 ]
 build-backend = "scikit_build_core.build"
 
@@ -49,13 +49,10 @@ classifiers = [
   "Topic :: Scientific/Engineering :: Artificial Intelligence",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
-dependencies = [
-  "apache-tvm-ffi>=0.1.14.post1",
-  "apache-tvm-ffi-orcjit==0.1.2",
-  "ml_dtypes",
-  "numpy",
-  "typing_extensions",
-]
+dependencies = ["apache-tvm-tirx>=0.1.0rc2,<=0.1.0rc3"]
+
+[project.scripts]
+tvm-config = "tvm.config:__main__"
 
 [project.optional-dependencies]
 torch = ["torch"]
@@ -95,6 +92,7 @@ wheel.py-api = "py3"
 build-dir = "build"
 
 # Wheel configuration
+install.components = ["tvm"]
 wheel.packages = ["python/tvm"]
 wheel.install-dir = "tvm"
 
@@ -104,51 +102,49 @@ metadata.version.provider = "scikit_build_core.metadata.setuptools_scm"
 
 # Source distribution configuration
 sdist.include = [
-  # Build files
   "/CMakeLists.txt",
   "/pyproject.toml",
-  "/cmake/**/*",
-
-  # Source code
-  "/src/**/*.cc",
-  "/src/**/*.h",
-  "/include/**/*.h",
-
-  # Python source
-  "/python/tvm/**/*.py",
-  "/python/tvm/**/*.pyi",
-
-  # Documentation and metadata
-  "/docs/**/*",
+  "/cmake/**",
+  "/src/**",
+  "/include/**",
+  "/python/tvm/**",
+  "/licenses/**",
   "/LICENSE",
-  "/README.md",
   "/NOTICE",
-
-  # Tests
-  "/tests/**/*",
+  "/tests/**",
+  "/README.md",
+  "/apps/**",
+  "/web/**",
+  # Private build inputs remain in the source distribution, outside the core's
+  # installed public-header interface.
+  "/3rdparty/tvm-tirx/3rdparty/compiler-rt/builtin_fp16.h",
+  "/3rdparty/tvm-tirx/src/backend/opencl/memory_scope.h",
+  "/3rdparty/tvm-tirx/src/backend/opencl/runtime/opencl_common.h",
+  "/3rdparty/tvm-tirx/src/backend/opencl/runtime/texture.h",
+  "/3rdparty/tvm-tirx/src/runtime/metadata.h",
+  "/3rdparty/tvm-tirx/src/runtime/pack_args.h",
+  "/3rdparty/tvm-tirx/src/runtime/workspace_pool.h",
+  "/3rdparty/cutlass/**",
+  "/3rdparty/cutlass_fpA_intB_gemm/**",
+  "/3rdparty/libflash_attn/**",
+  "/3rdparty/tensorrt_llm/**",
+  "!**/.git",
+  "!**/.git/**",
+  "!**/__pycache__/**",
+  "!**/*.pyc",
+  "!**/.pytest_cache/**",
+  "!**/build/**",
+  "!**/node_modules/**",
 ]
-
-sdist.exclude = [
-  "**/.git",
-  "**/.github",
-  "**/__pycache__",
-  "**/*.pyc",
-  "build",
-  "dist",
-  "**/3rdparty/*/docs",
-  "**/3rdparty/*/media",
-  "**/3rdparty/*/examples",
-  "**/3rdparty/*/test",
-]
+sdist.exclude = ["**"]
 
 # Logging
 logging.level = "INFO"
 
 [tool.scikit-build.cmake.define]
 TVM_BUILD_PYTHON_MODULE = "ON"
-USE_CUDA = "OFF"
-# Statically link Z3 from the mlc-z3-static build dependency by default.
-USE_Z3 = "AUTO"
+TVM_USE_INSTALLED_TIRX = "ON"
+TVM_TIRX_USE_CUDA = "OFF"
 BUILD_TESTING = "OFF"
 
 [tool.setuptools_scm]
@@ -179,7 +175,7 @@ include = [
   "tests/**/*.py",
   "docs/**/*.py",
   "apps/**/*.py",
-  "ci/scripts/**/*.py",
+  "ci/**/*.py",
   "conftest.py",
   "jvm/**/*.py",
   "web/tests/**/*.py",
@@ -215,13 +211,9 @@ unfixable = []
 "docs/how_to/tutorials/mix_python_and_tvm_with_pymodule.py" = ["RUF003"]
 "python/tvm/relax/frontend/tflite/tflite_frontend.py" = ["E501"]
 "python/tvm/relax/transform/legalize_ops/nn.py" = ["E501"]
-# Scope-id declarations like ``lane_id = Tx.lane_id([32])`` register a TIR
-# scope_id for side effect; the Python handle is often unused. Silence F841
-# for paths that heavily use this idiom.
-"tests/python/tirx/**/*.py" = ["F841"]
 
 [tool.ruff.lint.isort]
-known-first-party = ["tvm"]
+known-first-party = ["tvm", "tvm_tirx"]
 
 [tool.ruff.format]
 quote-style = "double"
@@ -236,10 +228,10 @@ docstring-code-line-length = "dynamic"
 skip = "*-win32 *-manylinux_i686 *-musllinux*"
 build-verbosity = 1
 test-requires = ["pytest", "numpy"]
-test-command = "pytest -vvs {project}/tests/python/all-platform-minimal-test"
+test-command = "pytest -vvs {project}/3rdparty/tvm-tirx/tests/python/codegen/llvm/test_minimal.py"
 
 [tool.cibuildwheel.linux]
-repair-wheel-command = "auditwheel repair --exclude libtvm_ffi.so --exclude libtvm_runtime_cuda.so --exclude 'libcuda.so.*' --exclude 'libcudart.so.*' --exclude 'libnvrtc.so.*' --exclude 'libnvrtc-builtins.so.*' -w {dest_dir} {wheel}"
+repair-wheel-command = "auditwheel repair --exclude libtvm_tirx_compiler.so --exclude libtvm_runtime.so --exclude libtvm_ffi.so --exclude libtvm_runtime_cuda.so --exclude 'libcuda.so.*' --exclude 'libcudart.so.*' --exclude 'libnvrtc.so.*' --exclude 'libnvrtc-builtins.so.*' -w {dest_dir} {wheel}"
 
 [tool.cibuildwheel.macos]
 # delocate breaks libtvm_runtime.dylib's ad-hoc signature (it links the excluded
@@ -247,7 +239,7 @@ repair-wheel-command = "auditwheel repair --exclude libtvm_ffi.so --exclude libt
 repair-wheel-command = '''
 set -euo pipefail
 DELOCATE_TMP_DIR="$(mktemp -d)"
-delocate-wheel --ignore-missing-dependencies --exclude libtvm_ffi.dylib --require-archs {delocate_archs} -w "$DELOCATE_TMP_DIR" -v {wheel}
+delocate-wheel --ignore-missing-dependencies --exclude libtvm_tirx_compiler.dylib --exclude libtvm_runtime.dylib --exclude libtvm_ffi.dylib --require-archs {delocate_archs} -w "$DELOCATE_TMP_DIR" -v {wheel}
 python -m pip install -q wheel
 TMP_DIR="$(mktemp -d)"
 python -m wheel unpack "$DELOCATE_TMP_DIR"/*.whl -d "$TMP_DIR"
@@ -258,4 +250,4 @@ rm -rf "$DELOCATE_TMP_DIR" "$TMP_DIR"
 
 [tool.cibuildwheel.windows]
 before-build = 'python -m pip install "delvewheel>=1.12.0"'
-repair-wheel-command = 'delvewheel repair --analyze-existing --ignore-existing --exclude "*tvm_ffi*.dll" --exclude tvm_runtime_cuda.dll --exclude nvcuda.dll --exclude cudart64_13.dll --exclude nvrtc64_130_0.dll -w {dest_dir} {wheel}'
+repair-wheel-command = 'delvewheel repair --analyze-existing --ignore-existing --exclude "*tvm_ffi*.dll" --exclude tvm_tirx_compiler.dll --exclude tvm_runtime.dll --exclude tvm_runtime_cuda.dll --exclude nvcuda.dll --exclude cudart64_13.dll --exclude nvrtc64_130_0.dll -w {dest_dir} {wheel}'

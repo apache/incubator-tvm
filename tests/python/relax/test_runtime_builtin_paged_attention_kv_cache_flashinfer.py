@@ -22,8 +22,8 @@ import torch
 import tvm_ffi
 from tvm_ffi import Shape
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 from tvm.relax.frontend.nn.llm.kv_cache import (
     AttnKind,
@@ -98,17 +98,17 @@ def set_global_func(rope_mode: RopeMode, target):
     global fattention_merge_state, fsplit_rotary, fcopy_single_page
     global ftranspose_append, fcopy_cache, fcompact_copy
 
-    fclear = tvm.get_global_func("vm.builtin.kv_state_clear")
-    fadd_sequence = tvm.get_global_func("vm.builtin.kv_state_add_sequence")
-    fremove_sequence = tvm.get_global_func("vm.builtin.kv_state_remove_sequence")
-    ffork_sequence = tvm.get_global_func("vm.builtin.kv_state_fork_sequence")
-    fpopn = tvm.get_global_func("vm.builtin.kv_state_popn")
-    fbegin_forward = tvm.get_global_func("vm.builtin.kv_state_begin_forward")
-    fend_forward = tvm.get_global_func("vm.builtin.kv_state_end_forward")
-    fattention_with_fuse_qkv = tvm.get_global_func(
+    fclear = tvm_ffi.get_global_func("vm.builtin.kv_state_clear")
+    fadd_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_add_sequence")
+    fremove_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_remove_sequence")
+    ffork_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_fork_sequence")
+    fpopn = tvm_ffi.get_global_func("vm.builtin.kv_state_popn")
+    fbegin_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_begin_forward")
+    fend_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_end_forward")
+    fattention_with_fuse_qkv = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_attention_with_fused_qkv"
     )
-    fdebug_get_kv = tvm.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
+    fdebug_get_kv = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv")
 
     flashinfer_prefill_mod = relax.backend.cuda.flashinfer.gen_flashinfer_prefill_module(
         dtype_q=dtype,
@@ -145,10 +145,9 @@ def set_global_func(rope_mode: RopeMode, target):
         _kv_cache_debug_get_kv(num_layers, num_kv_heads, head_dim, dtype),
         _compact_kv_copy(num_kv_heads, head_dim, dtype, target),
     ]:
-        mod = tvm.IRModule({"main": tir_func})
-        with target:
-            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
-        f = tvm.tirx.build(mod["main"], target=target)
+        mod = tvm_tirx.IRModule({"main": tir_func})
+        mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
+        f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
         builts.append(f.main)
 
     (
@@ -162,7 +161,7 @@ def set_global_func(rope_mode: RopeMode, target):
 
 
 def create_kv_cache(rope_mode):
-    fcreate = tvm.get_global_func("vm.builtin.paged_attention_kv_cache_create")
+    fcreate = tvm_ffi.get_global_func("vm.builtin.paged_attention_kv_cache_create")
     support_sliding_window = 0
     cache = fcreate(
         tvm_ffi.Shape(
@@ -185,7 +184,7 @@ def create_kv_cache(rope_mode):
         rope_scale,
         rope_theta,
         None,  # rope_ext_factors
-        tvm.runtime.empty((), dtype, device=device),
+        tvm_tirx.runtime.empty((), dtype, device=device),
         ftranspose_append,
         None,  # f_transpose_append_mla
         ["flashinfer", fattention_prefill_ragged, fattention_prefill_ragged_plan],
@@ -214,13 +213,13 @@ def kv_cache_and_rope_mode(request):
         # tvm/relax/frontend/nn/llm/kv_cache.py); models pair FlashInfer with
         # NORMAL/NONE rope and apply rotary embedding in a separate kernel.
         pytest.skip("FlashInfer does not support inline RoPE mode")
-    target = tvm.testing.run_with_gpu_lock(_get_cuda_target)
+    target = tvm_tirx.testing.run_with_gpu_lock(_get_cuda_target)
     set_global_func(request.param, target)
     return request.param
 
 
 def _get_cuda_target():
-    return tvm.target.Target.from_device(tvm.cuda())
+    return tvm_tirx.target.Target.from_device(tvm_tirx.cuda())
 
 
 def _run_with_kv_cache(test):
@@ -228,14 +227,14 @@ def _run_with_kv_cache(test):
     def wrapper(kv_cache_and_rope_mode):
         def run_and_check():
             global device
-            device = tvm.cuda()
+            device = tvm_tirx.cuda()
             try:
                 cache = create_kv_cache(kv_cache_and_rope_mode)
                 return test((cache, kv_cache_and_rope_mode))
             finally:
                 device = None
 
-        return tvm.testing.run_with_gpu_lock(run_and_check)
+        return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
     return wrapper
 
@@ -246,8 +245,8 @@ def verify_cached_kv(kv_cache, seq_ids, expected_k, expected_v):
         values_expected = expected_v[seq_id]
         assert keys_expected.shape == values_expected.shape
         seq_length = expected_k[seq_id].shape[1]
-        keys = tvm.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
-        values = tvm.runtime.empty(values_expected.shape, dtype=dtype, device=device)
+        keys = tvm_tirx.runtime.empty(keys_expected.shape, dtype=dtype, device=device)
+        values = tvm_tirx.runtime.empty(values_expected.shape, dtype=dtype, device=device)
         fdebug_get_kv(kv_cache, seq_id, 0, seq_length, keys, values)
         torch.testing.assert_close(
             torch.from_numpy(keys.numpy()).to(device_torch), keys_expected, rtol=1e-3, atol=1e-3
@@ -387,10 +386,10 @@ def apply_attention(
         queries_np = global_new_q[layer_id]
         keys_np = global_new_k[layer_id]
         values_np = global_new_v[layer_id]
-        qkv = tvm.runtime.tensor(
+        qkv = tvm_tirx.runtime.tensor(
             torch.cat([queries_np, keys_np, values_np], dim=1).cpu().numpy(), device
         )
-        outputs = tvm.runtime.empty(queries_np.shape, dtype, device=device)
+        outputs = tvm_tirx.runtime.empty(queries_np.shape, dtype, device=device)
         fattention_with_fuse_qkv(kv_cache, layer_id, sm_scale, qkv, outputs)
 
         # Compute attention expected results.
@@ -582,4 +581,4 @@ def test_paged_attention_kv_cache_popn(kv_cache_and_rope_mode):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -101,7 +101,7 @@ ENV/
 *.pyc
 *~
 config.mk
-config.cmake
+CMakeUserPresets.json
 Win32
 *.dir
 perf
@@ -258,12 +258,7 @@ conda/pkg
 _docs/
 jvm/target
 .config/configstore/
-.ci-py-scripts/
 
-# Generated Hexagon files
-src/runtime/hexagon/rpc/hexagon_rpc.h
-src/runtime/hexagon/rpc/hexagon_rpc_skel.c
-src/runtime/hexagon/rpc/hexagon_rpc_stub.c
 
 # Local tvm-site checkout
 tvm-site/

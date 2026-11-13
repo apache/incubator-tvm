@@ -18,8 +18,10 @@
 # ruff: noqa: RUF005
 """Default legalization function for ccl operators."""
 
-from tvm import sym, tirx, topi
-from tvm.ir import Call
+from tvm import topi
+from tvm.relax import ExternFunc as _ExternFunc
+from tvm_tirx import sym, tirx
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr, ShapeExpr
@@ -44,9 +46,9 @@ def _allreduce(_bb: BlockBuilder, call: Call) -> Expr:
             f"Supported operations are {op_type_map.keys()}."
         )
     return call_dps_packed(
-        "runtime.disco.allreduce",
+        _ExternFunc("runtime.disco.allreduce"),
         [call.args[0], ShapeExpr([op_type_map[op_type_str]]), call.attrs.in_group],
-        out_ty=call.args[0].ty,
+        ty_args=[call.args[0].ty],
     )
 
 
@@ -63,22 +65,24 @@ def _allgather(_bb: BlockBuilder, call: Call) -> Expr:
         else:
             output_shape.append(shape_value)
     return call_dps_packed(
-        "runtime.disco.allgather",
+        _ExternFunc("runtime.disco.allgather"),
         [call.args[0], call.attrs.in_group],
-        out_ty=TensorType(
-            shape=output_shape,
-            dtype=arg_ty.dtype,
-            vdevice=arg_ty.vdevice,
-        ),
+        ty_args=[
+            TensorType(
+                shape=output_shape,
+                dtype=arg_ty.dtype,
+                vdevice=arg_ty.vdevice,
+            )
+        ],
     )
 
 
 @register_legalize("relax.ccl.broadcast_from_worker0")
 def _broadcast_from_worker0(_bb: BlockBuilder, call: Call) -> Expr:
     return call_dps_packed(
-        "runtime.disco.broadcast_from_worker0",
+        _ExternFunc("runtime.disco.broadcast_from_worker0"),
         [call.args[0], False],
-        out_ty=call.args[0].ty,
+        ty_args=[call.args[0].ty],
     )
 
 
@@ -115,11 +119,13 @@ def _scatter_from_worker0(_bb: BlockBuilder, call: Call) -> Expr:
     output_shape = transpose_var.ty.shape.ty.values
     output_shape = output_shape[1:]
     return call_dps_packed(
-        "runtime.disco.scatter_from_worker0",
+        _ExternFunc("runtime.disco.scatter_from_worker0"),
         [transpose_var, False],
-        out_ty=TensorType(
-            shape=output_shape,
-            dtype=call.args[0].ty.dtype,
-            vdevice=call.args[0].ty.vdevice,
-        ),
+        ty_args=[
+            TensorType(
+                shape=output_shape,
+                dtype=call.args[0].ty.dtype,
+                vdevice=call.args[0].ty.vdevice,
+            )
+        ],
     )

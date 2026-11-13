@@ -26,7 +26,7 @@ namespace meta_schedule {
 
 RunnerInput::RunnerInput(ffi::String artifact_path, ffi::String device_type,
                          ffi::Array<ArgInfo> args_info) {
-  ffi::ObjectPtr<RunnerInputNode> n = ffi::make_object<RunnerInputNode>();
+  ffi::ObjectPtr<RunnerInputObj> n = ffi::make_object<RunnerInputObj>();
   n->artifact_path = artifact_path;
   n->device_type = device_type;
   n->args_info = args_info;
@@ -35,21 +35,21 @@ RunnerInput::RunnerInput(ffi::String artifact_path, ffi::String device_type,
 
 RunnerResult::RunnerResult(ffi::Optional<ffi::Array<FloatImm>> run_secs,
                            ffi::Optional<ffi::String> error_msg) {
-  ffi::ObjectPtr<RunnerResultNode> n = ffi::make_object<RunnerResultNode>();
+  ffi::ObjectPtr<RunnerResultObj> n = ffi::make_object<RunnerResultObj>();
   n->run_secs = run_secs;
   n->error_msg = error_msg;
   this->data_ = n;
 }
 
 RunnerFuture::RunnerFuture(RunnerFuture::FDone f_done, RunnerFuture::FResult f_result) {
-  ffi::ObjectPtr<RunnerFutureNode> n = ffi::make_object<RunnerFutureNode>();
+  ffi::ObjectPtr<RunnerFutureObj> n = ffi::make_object<RunnerFutureObj>();
   n->f_done = f_done;
   n->f_result = f_result;
   this->data_ = n;
 }
 
 Runner Runner::PyRunner(Runner::FRun f_run) {
-  ffi::ObjectPtr<PyRunnerNode> n = ffi::make_object<PyRunnerNode>();
+  ffi::ObjectPtr<PyRunnerObj> n = ffi::make_object<PyRunnerObj>();
   n->f_run = f_run;
   return Runner(n);
 }
@@ -57,11 +57,11 @@ Runner Runner::PyRunner(Runner::FRun f_run) {
 /******** FFI ********/
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  RunnerNode::RegisterReflection();
-  RunnerInputNode::RegisterReflection();
-  RunnerResultNode::RegisterReflection();
-  RunnerFutureNode::RegisterReflection();
-  PyRunnerNode::RegisterReflection();
+  RunnerObj::RegisterReflection();
+  RunnerInputObj::RegisterReflection();
+  RunnerResultObj::RegisterReflection();
+  RunnerFutureObj::RegisterReflection();
+  PyRunnerObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -77,9 +77,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
            [](RunnerFuture::FDone f_done, RunnerFuture::FResult f_result) -> RunnerFuture {
              return RunnerFuture(f_done, f_result);
            })
-      .def_method("s_tir.meta_schedule.RunnerFutureDone", &RunnerFutureNode::Done)
-      .def_method("s_tir.meta_schedule.RunnerFutureResult", &RunnerFutureNode::Result)
-      .def_method("s_tir.meta_schedule.RunnerRun", &RunnerNode::Run)
+      .def_method("s_tir.meta_schedule.RunnerFutureDone", &RunnerFutureObj::Done)
+      .def_method("s_tir.meta_schedule.RunnerFutureResult", &RunnerFutureObj::Result)
+      .def_method("s_tir.meta_schedule.RunnerRun", &RunnerObj::Run)
       .def("s_tir.meta_schedule.RunnerPyRunner", Runner::PyRunner);
 }
 

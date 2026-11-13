@@ -31,9 +31,9 @@ bool IsRootBlock(const Schedule& sch, const SBlockRV& block_rv) {
   return block_sref->parent == nullptr;
 }
 
-bool CheckSpatialPrimFunc(const Schedule& sch, const SBlockRV& root_block_rv) {
-  return IsSpatialPrimFunc(
-      ffi::GetRef<PrimFunc>(GetRootPrimFunc(sch->mod(), sch->Get(root_block_rv).get(), nullptr)));
+bool CheckSpatialFunction(const Schedule& sch, const SBlockRV& root_block_rv) {
+  return IsSpatialFunction(
+      ffi::GetRef<Function>(GetRootFunction(sch->mod(), sch->Get(root_block_rv).get(), nullptr)));
 }
 
 }  // namespace s_tir
@@ -43,9 +43,9 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class ParallelizeVectorizeUnrollNode : public ScheduleRuleNode {
+class ParallelizeVectorizeUnrollObj : public ScheduleRuleObj {
  public:
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   void InitializeWithTuneContext(const TuneContext& context) final {
     TVM_FFI_ICHECK(context->target.has_value());
     if (this->max_jobs_per_core != -1) {
@@ -54,7 +54,7 @@ class ParallelizeVectorizeUnrollNode : public ScheduleRuleNode {
     }
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch, const s_tir::SBlockRV& root_rv) {
     // Currently only mark the root block with annotations.
     if (!s_tir::IsRootBlock(sch, root_rv)) {
@@ -63,34 +63,33 @@ class ParallelizeVectorizeUnrollNode : public ScheduleRuleNode {
 
     // Parallelization
     if (max_jobs_per_core != -1) {
-      sch->Annotate(root_rv, s_tir::attr::meta_schedule_parallel,
-                    IntImm::Int32(this->max_parallel_extent_));
+      sch->Annotate(root_rv, tvm::s_tir::attr::kMetaScheduleParallel.name,
+                    this->max_parallel_extent_);
     }
     // Vectorization
     if (max_vectorize_extent != -1) {
-      sch->Annotate(root_rv, s_tir::attr::meta_schedule_vectorize,
-                    IntImm::Int32(max_vectorize_extent));
+      sch->Annotate(root_rv, tvm::s_tir::attr::kMetaScheduleVectorize.name, max_vectorize_extent);
     }
     // Unroll
-    if (!unroll_max_steps.empty() && !s_tir::CheckSpatialPrimFunc(sch, root_rv)) {
+    if (!unroll_max_steps.empty() && !s_tir::CheckSpatialFunction(sch, root_rv)) {
       int n = unroll_max_steps.size();
       double prob = 1.0 / n;
       ffi::Array<FloatImm> probs(n, FloatImm(PrimType::Float(32), prob));
       PrimExpr max_step = sch->SampleCategorical(unroll_max_steps, probs);
       if (unroll_explicit) {
-        sch->Annotate(root_rv, s_tir::attr::meta_schedule_unroll_explicit, max_step);
+        sch->Annotate(root_rv, tvm::s_tir::attr::kMetaScheduleUnrollExplicit.name, max_step);
       } else {
-        sch->Annotate(root_rv, s_tir::attr::meta_schedule_unroll_implicit, max_step);
+        sch->Annotate(root_rv, tvm::s_tir::attr::kMetaScheduleUnrollImplicit.name, max_step);
       }
     }
     return {sch};
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<ParallelizeVectorizeUnrollNode> n =
-        ffi::make_object<ParallelizeVectorizeUnrollNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<ParallelizeVectorizeUnrollObj> n =
+        ffi::make_object<ParallelizeVectorizeUnrollObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
  public:
@@ -117,31 +116,31 @@ class ParallelizeVectorizeUnrollNode : public ScheduleRuleNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ParallelizeVectorizeUnrollNode>()
-        .def_ro("max_jobs_per_core", &ParallelizeVectorizeUnrollNode::max_jobs_per_core)
-        .def_ro("max_vectorize_extent", &ParallelizeVectorizeUnrollNode::max_vectorize_extent)
-        .def_ro("unroll_max_steps", &ParallelizeVectorizeUnrollNode::unroll_max_steps)
-        .def_ro("unroll_explicit", &ParallelizeVectorizeUnrollNode::unroll_explicit);
+    refl::ObjectDef<ParallelizeVectorizeUnrollObj>()
+        .def_ro("max_jobs_per_core", &ParallelizeVectorizeUnrollObj::max_jobs_per_core)
+        .def_ro("max_vectorize_extent", &ParallelizeVectorizeUnrollObj::max_vectorize_extent)
+        .def_ro("unroll_max_steps", &ParallelizeVectorizeUnrollObj::unroll_max_steps)
+        .def_ro("tirx.unroll_explicit", &ParallelizeVectorizeUnrollObj::unroll_explicit);
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.ParallelizeVectorizeUnroll",
-                                    ParallelizeVectorizeUnrollNode, ScheduleRuleNode);
+                                    ParallelizeVectorizeUnrollObj, ScheduleRuleObj);
 };
 
 ScheduleRule ScheduleRule::ParallelizeVectorizeUnroll(int max_jobs_per_core,
                                                       int max_vectorize_extent,
                                                       ffi::Array<int64_t> unroll_max_steps,
                                                       bool unroll_explicit) {
-  ffi::ObjectPtr<ParallelizeVectorizeUnrollNode> n =
-      ffi::make_object<ParallelizeVectorizeUnrollNode>();
+  ffi::ObjectPtr<ParallelizeVectorizeUnrollObj> n =
+      ffi::make_object<ParallelizeVectorizeUnrollObj>();
   n->max_jobs_per_core = max_jobs_per_core;
   n->max_vectorize_extent = max_vectorize_extent;
   n->unroll_max_steps = unroll_max_steps;
   n->unroll_explicit = unroll_explicit;
   n->max_parallel_extent_ = -1;
-  return ScheduleRule(n);
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { ParallelizeVectorizeUnrollNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ParallelizeVectorizeUnrollObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

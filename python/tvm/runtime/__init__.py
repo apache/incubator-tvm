@@ -15,40 +15,8 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""TVM runtime namespace."""
+# pylint: disable=redefined-builtin, wildcard-import
+"""Parent runtime extensions: benchmarking, virtual machines and distributed execution."""
 
-from tvm_ffi import convert, Object
-from tvm_ffi._dtype import dtype as DataType, DataTypeCode
-
-# Import _ffi_node_api for its side effect of installing AsRepr as
-# tvm_ffi.core.__object_repr__.
-from . import _ffi_node_api
-
-# class exposures
-from .script_printer import Scriptable
-from .object_generic import ObjectConvertible
-from .device import Device
-from ._tensor import Tensor, tensor, empty
-from .module import Module
-from .executable import Executable
-
-# function exposures
-from ._tensor import device, device_from_target, cpu, cuda, opencl, vulkan, metal
-from ._tensor import vpi, rocm, ext_dev, from_dlpack
-from .module import load_module, enabled, system_lib, load_static_library, num_threads
-from .object_generic import const
-from .params import (
-    save_param_dict,
-    load_param_dict,
-    save_param_dict_to_file,
-    load_param_dict_from_file,
-)
-
-try:
-    from . import disco
-except (ImportError, ValueError):
-    # disco C++ runtime is in libtvm_runtime_extra which may not be present.
-    # Make the disco module optional.
-    disco = None  # type: ignore[assignment]
-
-from tvm_ffi import Shape as ShapeTuple
+from .benchmark import BenchmarkResult, time_evaluator
+from . import disco, vm

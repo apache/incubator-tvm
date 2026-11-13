@@ -19,7 +19,7 @@
 
 /*!
  * \file s_tir/analysis/conditional_bounds.h
- * \brief Scoped conditional bounds for S-TIR buffer analysis.
+ * \brief Scoped conditional bounds for S-TIR tensor analysis.
  */
 #ifndef TVM_S_TIR_ANALYSIS_CONDITIONAL_BOUNDS_H_
 #define TVM_S_TIR_ANALYSIS_CONDITIONAL_BOUNDS_H_
@@ -28,7 +28,6 @@
 #include <tvm/ir/with_context.h>
 #include <tvm/sym/int_set.h>
 
-#include <unordered_map>
 #include <vector>
 
 namespace tvm {
@@ -52,9 +51,8 @@ class ConditionalBoundsContext {
    * \param hint_map The domain map for free vars to update.
    * \param pending_conditions The stack of unresolved constraints.
    */
-  ConditionalBoundsContext(const PrimExpr& condition,
-                           std::unordered_map<const VarNode*, sym::IntSet>* relax_map,
-                           std::unordered_map<const VarNode*, sym::IntSet>* hint_map,
+  ConditionalBoundsContext(const PrimExpr& condition, ffi::Map<Var, sym::IntSet>* relax_map,
+                           ffi::Map<Var, sym::IntSet>* hint_map,
                            std::vector<PrimExpr>* pending_constraints);
   void EnterWithScope();
   void ExitWithScope();
@@ -65,13 +63,13 @@ class ConditionalBoundsContext {
   /*! \brief the condition holds on true branch. */
   const PrimExpr& condition_;
   /*! \brief domain map for relaxed vars to update */
-  std::unordered_map<const VarNode*, sym::IntSet>* relax_map_;
+  ffi::Map<Var, sym::IntSet>* relax_map_;
   /*! \brief domain map for free vars to update */
-  std::unordered_map<const VarNode*, sym::IntSet>* hint_map_;
+  ffi::Map<Var, sym::IntSet>* hint_map_;
   /*! \brief unresolved condition stack */
   std::vector<PrimExpr>* pending_conditions_;
   /*! \brief used to record and restore original var bounds */
-  std::unordered_map<const VarNode*, sym::IntSet> origin_map_;
+  ffi::Map<Var, sym::IntSet> origin_map_;
   /*! \brief used to record unresolved conditions num. */
   size_t origin_pending_conditions_num_;
 };

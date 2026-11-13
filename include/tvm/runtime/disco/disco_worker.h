@@ -27,6 +27,7 @@
 
 #include <tvm/ffi/function.h>
 #include <tvm/runtime/disco/session.h>
+#include <tvm/runtime/extra_base.h>
 
 #include <vector>
 
@@ -63,7 +64,7 @@ class DiscoWorker {
   /*! \brief Main loop of the worker */
   void MainLoop();
   /*! \brief Get the worker instance on the current thread */
-  TVM_RUNTIME_DLL static DiscoWorker* ThreadLocal();
+  TVM_RUNTIME_EXTRA_DLL static DiscoWorker* ThreadLocal();
   /*! \brief Set the specific register to a specific value */
   void SetRegister(int reg_id, ffi::AnyView value);
 

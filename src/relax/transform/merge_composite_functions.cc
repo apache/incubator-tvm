@@ -56,7 +56,9 @@
 
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
 #include <tvm/relax/analysis.h>
+#include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 #include <tvm/relax/type.h>
@@ -93,8 +95,8 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     }
 
     PostOrderVisit(func, [this](const Expr& expr) {
-      if (expr->IsInstance<GenericConstNode>() || expr->IsInstance<ShapeExprNode>() ||
-          (!expr->IsInstance<CallNode>() && !expr->IsInstance<VarNode>() && expr.as<PrimExpr>())) {
+      if (expr->IsInstance<GenericConstObj>() || expr->IsInstance<ShapeExprObj>() ||
+          (!expr->IsInstance<CallObj>() && !expr->IsInstance<VarObj>() && expr.as<PrimExpr>())) {
         memo_[expr] = arena_->make<Group>();
       }
     });
@@ -110,43 +112,43 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
   }
 
   Group* VisitBinding(const Binding& binding) {
-    if (const auto* node = binding.as<VarBindingNode>()) {
+    if (const auto* node = binding.as<VarBindingObj>()) {
       return VisitBinding_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << binding->GetTypeKey();
     }
   }
 
-  void VisitBindingBlock_(const BindingBlockNode* block) {
+  void VisitBindingBlock_(const BindingBlockObj* block) {
     for (Binding binding : block->bindings) {
       VisitBinding(binding);
     }
   }
 
-  void VisitBindingBlock_(const DataflowBlockNode* block) {
+  void VisitBindingBlock_(const DataflowBlockObj* block) {
     for (Binding binding : block->bindings) {
       VisitBinding(binding);
     }
   }
 
   void VisitBindingBlock(const BindingBlock& block) {
-    if (const auto* node = block.as<DataflowBlockNode>()) {
+    if (const auto* node = block.as<DataflowBlockObj>()) {
       VisitBindingBlock_(node);
-    } else if (const auto* node = block.as<BindingBlockNode>()) {
+    } else if (const auto* node = block.as<BindingBlockObj>()) {
       VisitBindingBlock_(node);
     } else {
       TVM_FFI_THROW(TypeError) << "Invalid type: " << block->GetTypeKey();
     }
   }
 
-  Group* VisitExpr_(const SeqExprNode* op) {
+  Group* VisitExpr_(const SeqExprObj* op) {
     for (BindingBlock block : op->blocks) {
       VisitBindingBlock(block);
     }
     return VisitExpr(op->body);
   }
 
-  Group* VisitExpr_(const CallNode* call) {
+  Group* VisitExpr_(const CallObj* call) {
     for (const Expr& arg : call->args) {
       EnsureVisited(arg);
     }
@@ -173,7 +175,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     return group;
   }
 
-  Group* VisitExpr_(const TupleNode* tuple) {
+  Group* VisitExpr_(const TupleObj* tuple) {
     Expr tuple_expr = ffi::GetRef<Tuple>(tuple);
     if (!IsFlatTensorTuple(tuple_expr)) return arena_->make<Group>();
 
@@ -207,7 +209,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     return group;
   }
 
-  Group* VisitExpr_(const TupleGetItemNode* tuple_get_item) {
+  Group* VisitExpr_(const TupleGetItemObj* tuple_get_item) {
     if (!IsFlatTensorTuple(tuple_get_item->tuple)) return arena_->make<Group>();
 
     EnsureVisited(tuple_get_item->tuple);
@@ -227,19 +229,19 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
 
  private:
   void EnsureVisited(const Expr& expr) {
-    if (!expr.as<GlobalVarNode>() && !memo_.count(expr)) {
+    if (!expr.as<GlobalVarObj>() && !memo_.count(expr)) {
       VisitExpr(expr);
     }
   }
 
   ffi::Optional<ffi::String> GetCodegenName(const Expr& callee) {
-    auto const* gvar = callee.as<GlobalVarNode>();
+    auto const* gvar = callee.as<GlobalVarObj>();
     if (!gvar) {
       return std::nullopt;
     }
 
     auto composite_name_opt =
-        mod_->Lookup(ffi::GetRef<GlobalVar>(gvar))->GetAttr<ffi::String>(attr::kComposite);
+        mod_->Lookup(ffi::GetRef<GlobalVar>(gvar))->GetAttr(tvm::relax::attr::kComposite);
     if (!composite_name_opt) {
       return std::nullopt;
     }
@@ -248,7 +250,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
   }
 
   ffi::Optional<ffi::String> GetCodegenName(Group* group) {
-    if (auto opt_str = group->attrs.Get(attr::kCodegen)) {
+    if (auto opt_str = group->attrs.Get(tvm::relax::attr::kCodegen.name)) {
       return opt_str.value().as_or_throw<ffi::String>();
     }
     return std::nullopt;
@@ -257,10 +259,10 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
   bool CanAbsorbTupleNodes(Group* group) { return GetCodegenName(group->FindRoot()).has_value(); }
 
   bool IsFlatTensorTuple(const Expr& expr) {
-    const auto* tuple_type = GetType(expr).as<TupleTypeNode>();
+    const auto* tuple_type = GetType(expr).as<TupleTypeObj>();
     if (tuple_type == nullptr || tuple_type->fields.empty()) return false;
     return std::all_of(tuple_type->fields.begin(), tuple_type->fields.end(),
-                       [](const Type& field) { return field->IsInstance<TensorTypeNode>(); });
+                       [](const Type& field) { return field->IsInstance<TensorTypeObj>(); });
   }
 
   bool HasOnlyTupleGetItemUsers(const Expr& tuple_expr) {
@@ -276,7 +278,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
 
   bool ComputeHasOnlyTupleGetItemUsers(const Expr& tuple_expr) {
     ffi::Optional<Var> tuple_var;
-    if (const auto* var = tuple_expr.as<VarNode>()) {
+    if (const auto* var = tuple_expr.as<VarObj>()) {
       tuple_var = ffi::GetRef<Var>(var);
     } else if (auto it = value_to_bound_vars_.find(tuple_expr.get());
                it != value_to_bound_vars_.end() && it->second.size() == 1) {
@@ -302,7 +304,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
       // Walk toward the original tuple value when current is itself an alias.
       if (auto binding_it = var_usage_.bound_values.find(current);
           binding_it != var_usage_.bound_values.end()) {
-        if (const auto* source = (*binding_it).second.as<VarNode>()) {
+        if (const auto* source = (*binding_it).second.as<VarObj>()) {
           pending.push_back(ffi::GetRef<Var>(source));
         }
       }
@@ -313,10 +315,10 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
         auto binding_it = var_usage_.bound_values.find(user);
         if (binding_it == var_usage_.bound_values.end()) return false;
         const Expr& bound_value = (*binding_it).second;
-        if (const auto* tuple_get_item = bound_value.as<TupleGetItemNode>()) {
+        if (const auto* tuple_get_item = bound_value.as<TupleGetItemObj>()) {
           if (!tuple_get_item->tuple.same_as(current)) return false;
           has_tuple_get_item = true;
-        } else if (const auto* source = bound_value.as<VarNode>()) {
+        } else if (const auto* source = bound_value.as<VarObj>()) {
           if (!ffi::GetRef<Var>(source).same_as(current)) return false;
           pending.push_back(user);
         } else {
@@ -327,10 +329,10 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     return has_tuple_get_item;
   }
 
-  Group* CreateNewGroup(const CallNode* call) {
+  Group* CreateNewGroup(const CallObj* call) {
     Group* group = arena_->make<Group>();
     if (ffi::Optional<ffi::String> codegen_name = GetCodegenName(call->op)) {
-      group->attrs.Set(attr::kCodegen, codegen_name.value());
+      group->attrs.Set(tvm::relax::attr::kCodegen.name, codegen_name.value());
     }
     return group;
   }
@@ -364,7 +366,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     std::unordered_set<Group*> dependencies;
 
     for (const auto& arg : args) {
-      if (arg.as<GlobalVarNode>()) continue;
+      if (arg.as<GlobalVarObj>()) continue;
       for (auto dep : group_deps_[memo_[arg]->FindRoot()]) {
         dependencies.insert(dep);
       }
@@ -377,8 +379,8 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     Group* group_root = group->FindRoot();
 
     std::function<void(Expr)> visit_expr = [&](Expr expr) {
-      if (expr.as<GlobalVarNode>()) return;
-      if (auto tuple = expr.as<TupleNode>()) {
+      if (expr.as<GlobalVarObj>()) return;
+      if (auto tuple = expr.as<TupleObj>()) {
         for (const auto& field : tuple->fields) {
           visit_expr(field);
         }
@@ -408,7 +410,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     }
   }
 
-  std::vector<Group*> GetGroupsToMerge(const CallNode* call) {
+  std::vector<Group*> GetGroupsToMerge(const CallObj* call) {
     ffi::Optional<ffi::String> codegen_name = GetCodegenName(call->op);
     if (!codegen_name.has_value()) {
       return {};
@@ -418,7 +420,7 @@ class CompositeGroupsBuilder : public MemoizedExprTranslator<Group*> {
     std::unordered_set<Group*> parent_dependencies = GetParentGroupDependencies(call->args);
 
     for (const auto& arg : call->args) {
-      if (arg.as<GlobalVarNode>()) continue;
+      if (arg.as<GlobalVarObj>()) continue;
       auto arg_group = memo_[arg];
       ffi::Optional<ffi::String> arg_codegen_name = GetCodegenName(arg_group);
       if (arg_codegen_name == codegen_name && !parent_dependencies.count(arg_group->FindRoot())) {
@@ -455,21 +457,21 @@ class CompositeInliner : public ExprMutator {
     inlined_functions_ = ffi::Map<Function, Function>();
     auto new_body = VisitExpr(ToNonDataflow(func->body));
     auto new_func =
-        Function(func->params, new_body, func->ret_ty, func->is_pure, func->attrs, func->span);
+        Function(func->params, new_body, func->ret_ty, func->is_pure, func->attrs, func->loc);
     return new_func;
   }
 
-  Expr VisitExpr_(const CallNode* call) {
-    if (call->op->IsInstance<GlobalVarNode>()) {
+  Expr VisitExpr_(const CallObj* call) {
+    if (call->op->IsInstance<GlobalVarObj>()) {
       auto gvar = call->op.as_or_throw<GlobalVar>();
       auto func = mod_->Lookup(gvar).as_or_throw<Function>();
-      if (func->GetAttr<ffi::String>(attr::kComposite)) {
+      if (func->GetAttr(tvm::relax::attr::kComposite)) {
         if (!inlined_functions_.count(func)) {
           auto new_func = CopyWithNewVars(func);
-          new_func = WithoutAttr(new_func, tvm::relax::attr::kPrimitive);
+          new_func = WithoutAttr(new_func, tvm::relax::attr::kPrimitive.name);
           inlined_functions_.Set(func, new_func);
         }
-        return Call::Unchecked(Type::Missing(), inlined_functions_[func], call->args);
+        return Call(Type::Missing(), inlined_functions_[func], call->args);
       }
     }
 
@@ -501,35 +503,37 @@ class CompositeFunctionAnnotator : public ExprMutator {
     return builder_->GetContextIRModule();
   }
 
-  Expr VisitExpr_(const CallNode* call) {
-    if (call->op->IsInstance<GlobalVarNode>()) {
+  Expr VisitExpr_(const CallObj* call) {
+    if (call->op->IsInstance<GlobalVarObj>()) {
       GlobalVar cur_var = call->op.as_or_throw<GlobalVar>();
       auto func = mod_->Lookup(cur_var).as_or_throw<Function>();
-      if (auto codegen_name = func->GetAttr<ffi::String>(attr::kCodegen)) {
-        GlobalVar new_var;
-        if (var_map_.count(cur_var) > 0) {
-          // if we visited before, we don't need to create the new function,
-          // use the one we stored.
-          new_var = var_map_[cur_var];
-        } else {
-          // if it is first time, create the new function with a new name.
-          // remove old function from the irmoulde under construction.
-          auto old_var = builder_->GetContextIRModule()->GetGlobalVar(cur_var->name_hint);
-          builder_->GetContextIRModule()->Remove(old_var);
+      if (auto codegen_name = func->GetAttr(tvm::relax::attr::kCodegen)) {
+        GlobalVar new_var = [&]() -> GlobalVar {
+          if (var_map_.count(cur_var) > 0) {
+            // if we visited before, we don't need to create the new function,
+            // use the one we stored.
+            return var_map_.at(cur_var);
+          } else {
+            // if it is first time, create the new function with a new name.
+            // remove old function from the irmoulde under construction.
+            auto old_var = builder_->GetContextIRModule()->GetGlobalVar(cur_var->name_hint);
+            builder_->GetContextIRModule()->Remove(old_var);
 
-          // rename the function.
-          ffi::String new_func_name = cur_var->name_hint + "_" + codegen_name.value();
-          Function new_func = inliner.Run(func.as_or_throw<Function>());
-          new_func = WithAttr(new_func, tvm::attr::kGlobalSymbol, new_func_name);
-          new_func = WithoutAttr(std::move(new_func), tvm::relax::attr::kPrimitive);
-          // add a function with a new name.
-          new_var = builder_->AddFunction(new_func, new_func_name);
-          var_map_[cur_var] = new_var;
-        }
+            // rename the function.
+            ffi::String new_func_name = cur_var->name_hint + "_" + codegen_name.value();
+            Function new_func = inliner.Run(func.as_or_throw<Function>());
+            new_func = WithAttr(new_func, tvm::attr::kGlobalSymbol.name, new_func_name);
+            new_func = WithoutAttr(std::move(new_func), tvm::relax::attr::kPrimitive.name);
+            // add a function with a new name.
+            auto new_var = builder_->AddFunction(new_func, new_func_name);
+            var_map_.insert_or_assign(cur_var, new_var);
+            return new_var;
+          }
+        }();
         // we call new var instead of the old one.
         // we don't have to update args since we are just updating the function to call,
         // without any change in the arguments.
-        return Call::Unchecked(Type::Missing(), new_var, call->args);
+        return Call(Type::Missing(), new_var, call->args);
       }
     }
     return ffi::GetRef<Call>(call);
@@ -560,10 +564,9 @@ namespace transform {
 Pass MergeCompositeFunctions() {
   auto pass_func =  //
       [=](IRModule mod, PassContext pc) { return relax::MergeCompositeFunctions(mod); };
-  return CreateModulePass(/*pass_function=*/pass_func,              //
-                          /*opt_level=*/0,                          //
-                          /*pass_name=*/"MergeCompositeFunctions",  //
-                          /*required=*/{});
+  return CreateModulePass(/*pass_function=*/pass_func,  //
+                          /*opt_level=*/0,              //
+                          /*pass_name=*/"MergeCompositeFunctions");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

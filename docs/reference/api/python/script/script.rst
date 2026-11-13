@@ -15,36 +15,56 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.script
-----------
+tvm_tirx.script
+---------------
 
-tvm.script
-**********
-.. automodule:: tvm.script
+tvm_tirx.script
+***************
+.. automodule:: tvm_tirx.script
    :members:
    :imported-members:
    :exclude-members: Any
 
-tvm.script.relax
+tvm.relax.script
 ****************
-.. automodule:: tvm.script.relax
+
+Operator attributes re-exported by this namespace are documented in :mod:`tvm.relax.op`.
+The shared ``NoneType`` class is documented in :mod:`tvm_tirx.ir`.
+
+.. automodule:: tvm.relax.script
    :members:
-   :exclude-members: ExternFunc, ShapeExpr, TupleGetItem, Range, function, macro
+   :exclude-members: ExternFunc, NoneType, ShapeExpr, TupleGetItem, Range, function, macro,
+      ArgmaxArgminAttrs, ArgsortAttrs, AstypeAttrs, CallInplacePackedAttrs, CallTIRInplaceAttrs,
+      CallTIRWithGradAttrs, ConcatAttrs, EinsumAttrs, ExpandDimsAttrs, FlipAttrs,
+      GatherElementsAttrs, GatherNDAttrs, HintOnDeviceAttrs, IndexPutAttrs, InitAttrs,
+      LayoutTransformAttrs, MatmulAttrs, MeshgridAttrs, MultinomialFromUniformAttrs,
+      OneHotAttrs, PermuteDimsAttrs, QuantizeAttrs, RepeatAttrs, ReverseSequenceAttrs,
+      ScanopAttrs, ScatterElementsAttrs, ScatterNDAttrs, SliceScatterAttrs, SortAttrs,
+      SplitAttrs, SqueezeAttrs, StackAttrs, StatisticalAttrs, StridedSliceAttrs, TakeAttrs,
+      TileAttrs, TopKAttrs, ToVDeviceAttrs, TriluAttrs, WrapParamAttrs
 
-.. autofunction:: tvm.script.relax.function
+.. autofunction:: tvm.relax.script.function
 
-.. autofunction:: tvm.script.relax.macro
+.. autofunction:: tvm.relax.script.macro
 
-tvm.script.tirx
-***************
-.. automodule:: tvm.script.tirx
+tvm_tirx.script.tirx
+********************
+
+Operator attributes re-exported by this namespace are documented in :mod:`tvm_tirx.tirx`.
+Shared IR classes and builder infrastructure are documented in :mod:`tvm_tirx.ir` and
+:mod:`tvm_tirx.script.ir_builder`.
+The canonical ``MemoryScope`` class is documented in :mod:`tvm_tirx.runtime`.
+
+.. automodule:: tvm_tirx.script.tirx
    :members:
-   :exclude-members: Range, meta_var, Var, Call, CommReducer, Reduce, SMEMPool, TMEMPool, FloatImm, IntImm, Cast, Add, Sub, Mul, Div, Mod, FloorDiv, FloorMod, LShift, RShift, BitwiseAnd, BitwiseOr, BitwiseXor, BitwiseNot, Min, Max, EQ, NE, LT, LE, GT, GE, And, Or, Not, Select, Ramp, Broadcast, Shuffle, CallEffectKind, IterVar, ComposeLayout, DtypeConstructor, ExecScope, Iter, Layout, LetAnnotation, LocalVectorAnnotation, ScopeIdDef, TileLayout, Buffer, buffer, prim_func, jit, inline, macro
+   :exclude-members: AlreadyEmitted, Bind, DataTypeImm, FuncType, GenericConst, IRBuilder,
+      IRModuleFrame, MemoryScope, MissingType, NoneType, Op, PrimType, StringImm, StringType, TensorLoad, TensorRegion,
+      TensorRegionType, Type, Range, meta_var, Var, Call, CommReducer, Reduce, FloatImm, IntImm, Cast, Add, Sub, Mul, Div, Mod, FloorDiv, FloorMod, LShift, RShift, BitwiseAnd, BitwiseOr, BitwiseXor, BitwiseNot, Min, Max, EQ, NE, LT, LE, GT, GE, And, Or, Not, Select, Ramp, Broadcast, Shuffle, CallEffectKind, IterVar, ComposeLayout, DtypeConstructor, ThreadScope, Iter, Layout, LetAnnotation, LocalVectorAnnotation, TileLayout, CallFFIKernelAttr, TensorMapEncodeTiledAttr, function, jit, inline, macro
 
-.. autofunction:: tvm.script.tirx.prim_func
+.. autofunction:: tvm_tirx.script.tirx.function
 
-.. autofunction:: tvm.script.tirx.jit
+.. autofunction:: tvm_tirx.script.tirx.jit
 
-.. autofunction:: tvm.script.tirx.inline
+.. autofunction:: tvm_tirx.script.tirx.inline
 
-.. autofunction:: tvm.script.tirx.macro
+.. autofunction:: tvm_tirx.script.tirx.macro

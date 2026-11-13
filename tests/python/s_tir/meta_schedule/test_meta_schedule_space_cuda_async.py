@@ -18,15 +18,15 @@
 """Tests for MetaSchedule search space on CUDA"""
 
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
     print_sketches,
 )
 from tvm.s_tir.meta_schedule.testing.te_workload import create_te_workload
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _target():
@@ -42,22 +42,22 @@ def _design_space(mod):
     )
 
 
-def get_c2d_prim_func(stage: int):
+def get_c2d_function(stage: int):
     if stage == 0:
         # fmt: off
-        @Ts.prim_func
-        def c2d(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")):
+        @Ts.function
+        def c2d(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             with Ts.sblock("root"):
                 Ts.reads()
                 Ts.writes()
                 Ts.sblock_attr({"meta_schedule.unroll_explicit": 1024})
-                conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 112, 112, 64), scope="local")
-                PadInput_shared = Ts.sblock_alloc_buffer((1, 230, 230, 3), scope="shared")
-                weight_shared = Ts.sblock_alloc_buffer((7, 7, 3, 64), scope="shared")
-                for n_0_h_0_w_0_co_0_fused in T.thread_binding(112, thread="blockIdx.x"):
-                    for n_1_h_1_w_1_co_1_fused in T.thread_binding(8, thread="vthread.x"):
-                        for n_2_h_2_w_2_co_2_fused in T.thread_binding(64, thread="threadIdx.x"):
+                conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 112, 112, 64), scope="local")
+                PadInput_shared = Ts.sblock_alloc_tensor((1, 230, 230, 3), scope="shared")
+                weight_shared = Ts.sblock_alloc_tensor((7, 7, 3, 64), scope="shared")
+                for n_0_h_0_w_0_co_0_fused in T.parallel(112, annotations={"thread_binding": "blockIdx.x"}):
+                    for n_1_h_1_w_1_co_1_fused in T.parallel(8, annotations={"thread_binding": "vthread.x"}):
+                        for n_2_h_2_w_2_co_2_fused in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                             for rh_0, rw_0, rc_0 in T.grid(1, 1, 3):
                                 for ax0_ax1_ax2_ax3_fused in range(693):
                                     with Ts.sblock("PadInput_shared"):
@@ -106,19 +106,19 @@ def get_c2d_prim_func(stage: int):
         # fmt: on
     else:
         # fmt: off
-        @Ts.prim_func
-        def c2d(inputs: T.Buffer((1, 224, 224, 3), "float32"), weight: T.Buffer((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32")):
+        @Ts.function
+        def c2d(inputs: T.Tensor((1, 224, 224, 3), "float32"), weight: T.Tensor((7, 7, 3, 64), "float32"), conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             with Ts.sblock("root"):
                 Ts.reads()
                 Ts.writes()
                 Ts.sblock_attr({"meta_schedule.unroll_explicit": 1024})
-                conv2d_nhwc_local = Ts.sblock_alloc_buffer((1, 112, 112, 64), scope="local")
-                PadInput_shared = Ts.sblock_alloc_buffer((1, 230, 230, 3), scope="shared")
-                weight_shared = Ts.sblock_alloc_buffer((7, 7, 3, 64), scope="shared")
-                for n_0_h_0_w_0_co_0_fused in T.thread_binding(112, thread="blockIdx.x"):
-                    for n_1_h_1_w_1_co_1_fused in T.thread_binding(8, thread="vthread.x"):
-                        for n_2_h_2_w_2_co_2_fused in T.thread_binding(64, thread="threadIdx.x"):
+                conv2d_nhwc_local = Ts.sblock_alloc_tensor((1, 112, 112, 64), scope="local")
+                PadInput_shared = Ts.sblock_alloc_tensor((1, 230, 230, 3), scope="shared")
+                weight_shared = Ts.sblock_alloc_tensor((7, 7, 3, 64), scope="shared")
+                for n_0_h_0_w_0_co_0_fused in T.parallel(112, annotations={"thread_binding": "blockIdx.x"}):
+                    for n_1_h_1_w_1_co_1_fused in T.parallel(8, annotations={"thread_binding": "vthread.x"}):
+                        for n_2_h_2_w_2_co_2_fused in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                             for rh_0_rw_0_rc_0_fused in T.serial(3, annotations={"software_pipeline_async_stages": [0], "software_pipeline_order": [0, 1, 2], "software_pipeline_stage": [0, 0, stage - 2]}):
                                 for ax0_ax1_ax2_ax3_fused in range(693):
                                     with Ts.sblock("PadInput_shared"):
@@ -188,30 +188,30 @@ def test_cuda_c2d():
         mod,
         sketches=actual,
         expected_mods=[
-            get_c2d_prim_func(stage=0),
-            get_c2d_prim_func(stage=4),
-            get_c2d_prim_func(stage=5),
+            get_c2d_function(stage=0),
+            get_c2d_function(stage=4),
+            get_c2d_function(stage=5),
         ],
         expected_decisions=[c2d_decision, c2d_decision, c2d_decision],
     )
 
 
-def get_gmm_prim_func(stage: int):
+def get_gmm_function(stage: int):
     if stage == 0:
         # fmt: off
-        @Ts.prim_func
-        def gmm(X: T.Buffer((1, 1024, 1024), "float32"), Y: T.Buffer((1, 1024, 1024), "float32"), Z: T.Buffer((1, 1024, 1024), "float32")):
+        @Ts.function
+        def gmm(X: T.Tensor((1, 1024, 1024), "float32"), Y: T.Tensor((1, 1024, 1024), "float32"), Z: T.Tensor((1, 1024, 1024), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             with Ts.sblock("root"):
                 Ts.reads()
                 Ts.writes()
                 Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-                Z_local = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="local")
-                X_shared = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="shared")
-                Y_shared = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="shared")
-                for b_0_i_0_j_0_fused in T.thread_binding(256, thread="blockIdx.x"):
-                    for b_1_i_1_j_1_fused in T.thread_binding(32, thread="vthread.x"):
-                        for b_2_i_2_j_2_fused in T.thread_binding(64, thread="threadIdx.x"):
+                Z_local = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="local")
+                X_shared = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="shared")
+                Y_shared = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="shared")
+                for b_0_i_0_j_0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+                    for b_1_i_1_j_1_fused in T.parallel(32, annotations={"thread_binding": "vthread.x"}):
+                        for b_2_i_2_j_2_fused in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                             for k_0 in range(64):
                                 for ax0_ax1_ax2_fused in range(1024):
                                     with Ts.sblock("X_shared"):
@@ -254,19 +254,19 @@ def get_gmm_prim_func(stage: int):
         # fmt: on
     else:
         # fmt: off
-        @Ts.prim_func
-        def gmm(X: T.Buffer((1, 1024, 1024), "float32"), Y: T.Buffer((1, 1024, 1024), "float32"), Z: T.Buffer((1, 1024, 1024), "float32")):
+        @Ts.function
+        def gmm(X: T.Tensor((1, 1024, 1024), "float32"), Y: T.Tensor((1, 1024, 1024), "float32"), Z: T.Tensor((1, 1024, 1024), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             with Ts.sblock("root"):
                 Ts.reads()
                 Ts.writes()
                 Ts.sblock_attr({"meta_schedule.unroll_explicit": 16})
-                Z_local = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="local")
-                X_shared = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="shared")
-                Y_shared = Ts.sblock_alloc_buffer((1, 1024, 1024), scope="shared")
-                for b_0_i_0_j_0_fused in T.thread_binding(256, thread="blockIdx.x"):
-                    for b_1_i_1_j_1_fused in T.thread_binding(32, thread="vthread.x"):
-                        for b_2_i_2_j_2_fused in T.thread_binding(64, thread="threadIdx.x"):
+                Z_local = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="local")
+                X_shared = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="shared")
+                Y_shared = Ts.sblock_alloc_tensor((1, 1024, 1024), scope="shared")
+                for b_0_i_0_j_0_fused in T.parallel(256, annotations={"thread_binding": "blockIdx.x"}):
+                    for b_1_i_1_j_1_fused in T.parallel(32, annotations={"thread_binding": "vthread.x"}):
+                        for b_2_i_2_j_2_fused in T.parallel(64, annotations={"thread_binding": "threadIdx.x"}):
                             for k_0_fused in T.serial(64, annotations={"software_pipeline_async_stages": [0], "software_pipeline_order": [0, 1, 2], "software_pipeline_stage": [0, 0, stage - 2]}):
                                 for ax0_ax1_ax2_fused in range(1024):
                                     with Ts.sblock("X_shared"):
@@ -327,9 +327,9 @@ def test_cuda_gmm():
         mod,
         sketches=actual,
         expected_mods=[
-            get_gmm_prim_func(stage=0),
-            get_gmm_prim_func(stage=4),
-            get_gmm_prim_func(stage=5),
+            get_gmm_function(stage=0),
+            get_gmm_function(stage=4),
+            get_gmm_function(stage=5),
         ],
         expected_decisions=[gmm_decision, gmm_decision, gmm_decision],
     )

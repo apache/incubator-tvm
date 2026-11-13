@@ -37,8 +37,8 @@ class BcastSessionObj : public SessionObj {
   virtual ~BcastSessionObj() = default;
 
   DRef GetGlobalFunc(const std::string& name) override;
-  void CopyFromWorker0(const Tensor& host_array, const DRef& remote_array) override;
-  void CopyToWorker0(const Tensor& host_array, const DRef& remote_array) override;
+  void CopyFromWorker0(const ffi::Tensor& host_array, const DRef& remote_array) override;
+  void CopyToWorker0(const ffi::Tensor& host_array, const DRef& remote_array) override;
   void SyncWorker(int worker_id) override;
   void Shutdown() override;
   void InitCCL(ffi::String ccl, ffi::Shape device_ids) override;
@@ -57,7 +57,7 @@ class BcastSessionObj : public SessionObj {
    worker-0.
    * \param host_array The array to be appended to worker-0
    */
-  virtual void AppendHostTensor(const Tensor& host_array);
+  virtual void AppendHostTensor(const ffi::Tensor& host_array);
   /*!
    * \brief Broadcast a command to all workers via TVM's ffi::Function calling convention.
    * As part of the calling convention, The first argument in the packed sequence must be
@@ -102,7 +102,7 @@ class BcastSessionObj : public SessionObj {
  */
 class BcastSession : public Session {
  public:
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(BcastSession, Session, BcastSessionObj);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BcastSession, Session, BcastSessionObj);
 };
 
 }  // namespace runtime

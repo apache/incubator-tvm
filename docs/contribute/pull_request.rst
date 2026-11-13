@@ -186,31 +186,60 @@ locally beforehand to reduce reviewers' burden and speedup review process.
 
 Docker (recommended)
 ^^^^^^^^^^^^^^^^^^^^
-``tests/scripts/ci.py`` replicates the CI environment locally and provides a user-friendly interface.
-The same Docker images and scripts used in CI are used directly to run tests. It also deposits builds
-in different folders so you can maintain multiple test environments without rebuilding from scratch
-each time (e.g. you can test a change in CPU and GPU while retaining incremental rebuilds).
+Use ``docker/bash.sh`` with the same platform build and test scripts used in CI.
+Run these commands from the repository root. The CPU and GPU Docker images are
+large and may take some time to download on their first use.
 
 .. code:: bash
 
-    # see all available platforms
-    python tests/scripts/ci.py --help
-    python tests/scripts/ci.py cpu --help
+    # show Docker options
+    docker/bash.sh --help
 
-    # run the CPU build in the ci_cpu docker container (build will be left in
-    # the build-cpu/ folder)
-    # note: the CPU and GPU Docker images are quite large and may take some
-    # time to download on their first use
-    python tests/scripts/ci.py cpu
+    # build FFI, TIRx, and TVM wheels and run CPU C++ tests
+    # from the shared native build
+    docker/bash.sh ci_cpu bash -euo pipefail -c '
+        source ./tests/scripts/task_install_build_dependencies.sh
+        ./tests/scripts/task_build_cpu.sh
+        sccache --show-stats
+    '
 
-    # run the CPU build in the ci_cpu docker container and then run unittests
-    python tests/scripts/ci.py cpu --unittest
+    # install the wheels from dist/ and run Python unit tests
+    docker/bash.sh ci_cpu bash -euo pipefail -c '
+        source tests/scripts/test_task_install_dist_wheels.sh
+        tests/scripts/task_python_unittest.sh
+    '
 
-    # quickly iterate by running a specific test and skipping the rebuild each time
-    python tests/scripts/ci.py cpu --skip-build --tests tests/python/s_tir/schedule/test_tir_schedule_rolling_buffer.py::test_upscale
+    # reuse the wheels to run a selected test
+    docker/bash.sh ci_cpu bash -euo pipefail -c '
+        source tests/scripts/test_task_install_dist_wheels.sh
+        tests/scripts/task_python_unittest.sh \
+            tests/python/s_tir/schedule/test_tir_schedule_rolling_buffer.py::test_upscale
+    '
 
-    # run the CPU build and drop into a shell in the container
-    python tests/scripts/ci.py cpu --interactive
+    # enter an interactive container and install the wheels for that shell
+    docker/bash.sh ci_cpu
+    source tests/scripts/test_task_install_dist_wheels.sh
+    python3 -m pytest tests/python/s_tir/schedule/test_tir_schedule_rolling_buffer.py
+    exit
+
+Rebuild the wheels after changing TVM code. For GPU tests, use a host with an
+NVIDIA GPU and Docker GPU support:
+
+.. code:: bash
+
+    docker/bash.sh --no-gpu ci_gpu bash -euo pipefail -c '
+        source ./tests/scripts/task_install_build_dependencies.sh
+        ./tests/scripts/task_build_gpu.sh
+        sccache --show-stats
+    '
+    docker/bash.sh ci_gpu bash -euo pipefail -c '
+        source tests/scripts/test_task_install_dist_wheels.sh
+        tests/scripts/task_python_unittest_gpuonly.sh
+    '
+
+Native builds use ``build/`` and wheels use ``dist/``. Clean these directories
+and run the matching platform build when switching test environments.
+For lint checks, use ``pre-commit run --files <changed-file>...``.
 
 We regularly update our docker images and, over time, stale images may unnecessarily consume disk
 space. You can remove stale images that aren't used in the presently checked-out branch plus any
@@ -258,10 +287,11 @@ If you want to run a single test:
 .. code:: bash
 
   # let python know where to find tvm related libraries
-  export PYTHONPATH=python
+  export PYTHONPATH="$PWD/3rdparty/tvm-tirx/python:$PWD/python:${PYTHONPATH:-}"
+  export TVM_TIRX_LIBRARY_PATH="${PWD}/build/lib"
   rm -rf python/tvm/*.pyc python/tvm/*/*.pyc python/tvm/*/*/*.pyc
 
-  python -m pytest -v tests/python/tirx-transform/test_tir_transform_storage_rewrite.py
+  python -m pytest -v 3rdparty/tvm-tirx/tests/python/tirx/transform/test_storage_rewrite.py
 
   # Additionally if you want to run a single test, for example test_add_one_2d inside a file.
   python -m pytest -v -k "test_add_one_2d" tests/python/relax/test_frontend_tflite.py

@@ -16,132 +16,117 @@
  * specific language governing permissions and limitations
  * under the License.
  */
-#include <tvm/ffi/cast.h>
-#include <tvm/ir/expr.h>
 #include <tvm/relax/distributed/type.h>
+#include <tvm/script/printer/doc_translator.h>
 
-#include "../../../script/printer/ir/utils.h"
-#include "./utils.h"
+#include <optional>
+
+#include "utils.h"
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-// distributed::Placement
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::distributed::Placement>(
-      "", [](relax::distributed::Placement n, AccessPath n_p, IRDocsifier d) -> Doc {
-        return d->AsDoc<Doc>(n->ToString(), n_p);
-      });
+namespace {
+
+ffi::Optional<ExprDoc> PlacementDocTranslate(DocTranslatorObj*, ffi::AnyView input,
+                                             const ffi::Object*) {
+  const auto* placement = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::PlacementObj>(input);
+  return LiteralDoc::Str(placement->ToString(), std::nullopt);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::distributed::DTensorType>(
-      "", [](relax::distributed::DTensorType n, AccessPath n_p, IRDocsifier d) -> Doc {
-        ffi::Array<ExprDoc> args;
-        ffi::Array<ffi::String> kwargs_keys;
-        ffi::Array<ExprDoc> kwargs_values;
-        bool require_kwargs = false;
-        if (n->tensor_ty->shape.has_value()) {
-          // Need to dig into ShapeExpr to preserve the `R.shape` prefix
-          if (const auto* shape = n->tensor_ty->shape.value().as<relax::ShapeExprNode>()) {
-            auto shape_expr = ffi::GetRef<relax::ShapeExpr>(shape);
-            AccessPath shape_p = n_p->Attr("shape")->Attr("values");
-            ffi::Array<ExprDoc> shape_docs;
-            for (int i = 0, ndim = shape_expr->values.size(); i < ndim; ++i) {
-              shape_docs.push_back(d->AsDoc<ExprDoc>(shape_expr->values[i], shape_p->ArrayItem(i)));
-            }
-            args.push_back(TupleDoc(shape_docs));
-          } else {
-            args.push_back(d->AsDoc<ExprDoc>(n->tensor_ty->shape.value(), n_p->Attr("shape")));
-          }
-        } else {
-          require_kwargs = true;
-        }
-        if (!n->tensor_ty->IsUnknownDtype()) {
-          if (!require_kwargs) {
-            args.push_back(
-                LiteralDoc::DataType(n->tensor_ty->dtype.value()->dtype, n_p->Attr("dtype")));
-          } else {
-            kwargs_keys.push_back("dtype");
-            kwargs_values.push_back(
-                LiteralDoc::DataType(n->tensor_ty->dtype.value()->dtype, n_p->Attr("dtype")));
-          }
-        } else {
-          require_kwargs = true;
-        }
-        if (!require_kwargs) {
-          args.push_back(d->AsDoc<ExprDoc>(n->device_mesh, n_p->Attr("device_mesh")));
-        } else {
-          kwargs_keys.push_back("device_mesh");
-          kwargs_values.push_back(d->AsDoc<ExprDoc>(n->device_mesh, n_p->Attr("device_mesh")));
-        }
-        if (!require_kwargs) {
-          args.push_back(d->AsDoc<ExprDoc>(n->placement, n_p->Attr("placement")));
-        } else {
-          kwargs_keys.push_back("placement");
-          kwargs_values.push_back(d->AsDoc<ExprDoc>(n->placement, n_p->Attr("placement")));
-        }
-        if (!n->tensor_ty->shape.has_value() && !n->tensor_ty->IsUnknownNdim()) {
-          kwargs_keys.push_back("ndim");
-          kwargs_values.push_back(LiteralDoc::Int(n->tensor_ty->ndim, n_p->Attr("ndim")));
-        }
-        return Relax(d, "DTensor")->Call(args, kwargs_keys, kwargs_values);
-      });
+  ffi::reflection::TypeAttrDef<relax::distributed::PlacementObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&PlacementDocTranslate>());
+}
+
+ffi::Optional<ExprDoc> DTensorTypeDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                               const ffi::Object*) {
+  const auto* ty = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::DTensorTypeObj>(input);
+  ffi::Array<ExprDoc> args;
+  ffi::Array<ffi::String> keys;
+  ffi::Array<ExprDoc> values;
+  const relax::TensorType& tensor = ty->tensor_ty;
+  bool require_keywords = !tensor->shape.has_value();
+  if (tensor->shape.has_value()) {
+    if (auto shape = tensor->shape.value().as<relax::ShapeExprObj>()) {
+      ffi::Array<ExprDoc> dimensions;
+      for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
+      args.push_back(TupleDoc(dimensions));
+    } else {
+      args.push_back(d->Translate(tensor->shape.value()).value());
+    }
+  }
+  if (!tensor->IsUnknownDtype()) {
+    ExprDoc dtype = LiteralDoc::DataType(tensor->dtype.value()->dtype, std::nullopt);
+    if (require_keywords) {
+      keys.push_back("dtype");
+      values.push_back(dtype);
+    } else {
+      args.push_back(dtype);
+    }
+  } else {
+    require_keywords = true;
+  }
+  ExprDoc mesh = d->Translate(ty->device_mesh).value();
+  if (auto selector = GlobalInfoSelector(d, ty->device_mesh)) {
+    mesh = LiteralDoc::Str(selector.value(), std::nullopt);
+  }
+  ExprDoc placement = d->Translate(ty->placement).value();
+  if (require_keywords) {
+    keys.push_back("device_mesh");
+    values.push_back(mesh);
+    keys.push_back("placement");
+    values.push_back(placement);
+  } else {
+    args.push_back(mesh);
+    args.push_back(placement);
+  }
+  if (!tensor->shape.has_value() && !tensor->IsUnknownNdim()) {
+    keys.push_back("ndim");
+    values.push_back(LiteralDoc::Int(tensor->ndim, std::nullopt));
+  }
+  return NamespaceDoc("relax")->Attr("DTensor")->Call(args, keys, values);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::distributed::DeviceMesh>(
-      "", [](relax::distributed::DeviceMesh n, AccessPath n_p, IRDocsifier d) -> Doc {
-        bool has_relax_frame = false;
-        const IRFrameNode* f = nullptr;
-        for (const Frame& frame : d->frames) {
-          if (frame.as<RelaxFrameNode>()) {
-            has_relax_frame = true;
-            break;
-          } else if (const auto* ir_frame = frame.as<IRFrameNode>()) {
-            f = ir_frame;
-          }
-        }
-        if (!has_relax_frame || !f) {
-          ffi::Array<ExprDoc> args;
-          args.push_back(d->AsDoc<ExprDoc>(n->shape, n_p->Attr("shape")));
-          if (n->device_range.has_value()) {
-            args.push_back(d->AsDoc<ExprDoc>(n->device_range, n_p->Attr("device_range")));
-          } else {
-            args.push_back(d->AsDoc<ExprDoc>(n->device_ids, n_p->Attr("device_ids")));
-          }
-          return Relax(d, "device_mesh")->Call(args);
-        } else {
-          for (const auto& kv : *f->global_infos) {
-            for (int i = 0; i < static_cast<int>(kv.second.size()); i++) {
-              if (kv.second[i].same_as(n)) {
-                // Module-owned selectors must be evaluated inside the declaration frame.
-                for (const Frame& frame : d->frames) {
-                  if (const auto* relax_frame = frame.as<RelaxFrameNode>()) {
-                    if (relax_frame->func_vars != nullptr) {
-                      d->ir_usage.insert("future_annotations");
-                      break;
-                    }
-                  }
-                }
-                std::stringstream ss;
-                ss << kv.first << "[" << i << "]";
-                return d->AsDoc<Doc>(ffi::String(ss.str()), n_p);
-              }
-            }
-          }
-          TVM_FFI_THROW(InternalError) << "Cannot find device mesh in global infos";
-          TVM_FFI_UNREACHABLE();
-        }
-      });
+  ffi::reflection::TypeAttrDef<relax::distributed::DTensorTypeObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&DTensorTypeDocTranslate>());
+}
+
+ffi::Optional<ExprDoc> DeviceMeshDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                              const ffi::Object*) {
+  const auto* mesh = ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<
+      const relax::distributed::DeviceMeshObj>(input);
+  ffi::Array<ExprDoc> dimensions;
+  for (int64_t value : mesh->shape) {
+    dimensions.push_back(LiteralDoc::Int(value, std::nullopt));
+  }
+  ExprDoc devices = LiteralDoc::None(std::nullopt);
+  if (mesh->device_range.has_value()) {
+    devices = d->Translate(mesh->device_range.value()).value();
+  } else {
+    ffi::Array<ExprDoc> ids;
+    for (int64_t value : mesh->device_ids) ids.push_back(LiteralDoc::Int(value, std::nullopt));
+    devices = ListDoc(ids);
+  }
+  return NamespaceDoc("relax")->Attr("device_mesh")->Call({TupleDoc(dimensions), devices});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  TVMScriptPrinter::Register<relax::distributed::DeviceMeshNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::distributed::PlacementNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::distributed::DTensorTypeNode>(ReprPrintRelax);
+  ffi::reflection::TypeAttrDef<relax::distributed::DeviceMeshObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&DeviceMeshDocTranslate>());
 }
+
+}  // namespace
+
+}  // namespace details
 }  // namespace printer
 }  // namespace script
 }  // namespace tvm

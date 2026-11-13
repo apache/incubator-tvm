@@ -16,6 +16,7 @@
  * specific language governing permissions and limitations
  * under the License.
  */
+#include <tvm/ffi/extra/base64.h>
 #include <tvm/ffi/reflection/registry.h>
 
 #include "../module_equality.h"
@@ -28,25 +29,25 @@ namespace meta_schedule {
 /******** Workload ********/
 
 Workload::Workload(IRModule mod) {
-  ffi::ObjectPtr<WorkloadNode> n = ffi::make_object<WorkloadNode>();
+  ffi::ObjectPtr<WorkloadObj> n = ffi::make_object<WorkloadObj>();
   n->mod = mod;
   n->shash = ModuleEquality::Create("structural")->Hash(mod);
   data_ = std::move(n);
 }
 
 Workload::Workload(IRModule mod, Workload::THashCode shash) {
-  ffi::ObjectPtr<WorkloadNode> n = ffi::make_object<WorkloadNode>();
+  ffi::ObjectPtr<WorkloadObj> n = ffi::make_object<WorkloadObj>();
   n->mod = mod;
   n->shash = shash;
   data_ = std::move(n);
 }
 
-ffi::ObjectRef WorkloadNode::AsJSON() const {
+ffi::ObjectRef WorkloadObj::AsJSON() const {
   // Convert `this->mod` to JSON
   std::string json_mod = ffi::json::Stringify(
       ffi::ToJSONGraph(this->mod, ffi::json::Object{{"tvm_version", TVM_VERSION}}), /*indent=*/2);
   // Dump the JSON string to base64
-  std::string b64_mod = Base64Encode(json_mod);
+  std::string b64_mod = ffi::Base64Encode(ffi::Bytes(json_mod));
   // Output
   return ffi::Array<ffi::Any>{SHash2Str(this->shash), ffi::String(b64_mod)};
 }
@@ -62,7 +63,7 @@ Workload Workload::FromJSON(const ffi::ObjectRef& json_obj) {
     // Load json[1] => mod
     {
       ffi::String b64_mod = json_array->at(1).cast<ffi::String>();
-      std::string json_mod = Base64Decode(b64_mod);
+      std::string json_mod = ffi::Base64Decode(b64_mod);
       mod = ffi::FromJSONGraph(ffi::json::Parse(json_mod)).cast<IRModule>();
       std::stringstream(str_shash) >> shash;
     }
@@ -79,7 +80,7 @@ TuningRecord::TuningRecord(s_tir::Trace trace, Workload workload,
                            ffi::Optional<ffi::Array<FloatImm>> run_secs,
                            ffi::Optional<Target> target,
                            ffi::Optional<ffi::Array<ArgInfo>> args_info) {
-  ffi::ObjectPtr<TuningRecordNode> n = ffi::make_object<TuningRecordNode>();
+  ffi::ObjectPtr<TuningRecordObj> n = ffi::make_object<TuningRecordObj>();
   n->trace = trace;
   n->workload = workload;
   n->run_secs = run_secs;
@@ -92,14 +93,14 @@ bool WorkloadEqual::operator()(const Workload& a, const Workload& b) const {
   return a->shash == b->shash && mod_eq_.Equal(a->mod, b->mod);
 }
 
-MeasureCandidate TuningRecordNode::AsMeasureCandidate() const {
+MeasureCandidate TuningRecordObj::AsMeasureCandidate() const {
   s_tir::Schedule sch =
       s_tir::Schedule::Traced(workload->mod, -1, 0, s_tir::ScheduleErrorRenderLevel::kDetail);
   trace->ApplyToSchedule(sch, false, nullptr);
   return MeasureCandidate(sch, ArgInfo::FromEntryFunc(sch->mod(), /*remove_preproc=*/true));
 }
 
-ffi::ObjectRef TuningRecordNode::AsJSON() const {
+ffi::ObjectRef TuningRecordObj::AsJSON() const {
   ffi::Optional<ffi::Array<ffi::ObjectRef>> json_args_info;
   ffi::Optional<ffi::ObjectRef> json_target;
   if (args_info.has_value()) {
@@ -119,7 +120,7 @@ ffi::ObjectRef TuningRecordNode::AsJSON() const {
                               json_args_info};
 }
 
-bool TuningRecordNode::IsValid() const {
+bool TuningRecordObj::IsValid() const {
   if (!GetNumValidInstructions(trace->insts, /*remove_postproc*/ true)) {
     return false;
   }
@@ -177,14 +178,12 @@ TuningRecord TuningRecord::FromJSON(const ffi::ObjectRef& json_obj, const Worklo
 }
 
 /******** Database ********/
-DatabaseNode::DatabaseNode(ffi::String mod_eq_name) {
-  mod_eq_ = ModuleEquality::Create(mod_eq_name);
-}
-DatabaseNode::~DatabaseNode() = default;
+DatabaseObj::DatabaseObj(ffi::String mod_eq_name) { mod_eq_ = ModuleEquality::Create(mod_eq_name); }
+DatabaseObj::~DatabaseObj() = default;
 
-ffi::Optional<TuningRecord> DatabaseNode::QueryTuningRecord(const IRModule& mod,
-                                                            const Target& target,
-                                                            const ffi::String& workload_name) {
+ffi::Optional<TuningRecord> DatabaseObj::QueryTuningRecord(const IRModule& mod,
+                                                           const Target& target,
+                                                           const ffi::String& workload_name) {
   if (!this->HasWorkload(mod)) {
     return std::nullopt;
   }
@@ -196,9 +195,8 @@ ffi::Optional<TuningRecord> DatabaseNode::QueryTuningRecord(const IRModule& mod,
   return records[0];
 }
 
-ffi::Optional<s_tir::Schedule> DatabaseNode::QuerySchedule(const IRModule& mod,
-                                                           const Target& target,
-                                                           const ffi::String& workload_name) {
+ffi::Optional<s_tir::Schedule> DatabaseObj::QuerySchedule(const IRModule& mod, const Target& target,
+                                                          const ffi::String& workload_name) {
   if (ffi::Optional<TuningRecord> opt_record =
           this->QueryTuningRecord(mod, target, workload_name)) {
     TuningRecord record = opt_record.value();
@@ -212,8 +210,8 @@ ffi::Optional<s_tir::Schedule> DatabaseNode::QuerySchedule(const IRModule& mod,
   }
 }
 
-ffi::Optional<IRModule> DatabaseNode::QueryIRModule(const IRModule& mod, const Target& target,
-                                                    const ffi::String& workload_name) {
+ffi::Optional<IRModule> DatabaseObj::QueryIRModule(const IRModule& mod, const Target& target,
+                                                   const ffi::String& workload_name) {
   if (ffi::Optional<s_tir::Schedule> opt_sch = this->QuerySchedule(mod, target, workload_name)) {
     return opt_sch.value()->mod();
   } else {
@@ -221,7 +219,7 @@ ffi::Optional<IRModule> DatabaseNode::QueryIRModule(const IRModule& mod, const T
   }
 }
 
-void DatabaseNode::DumpPruned(Database destination) {
+void DatabaseObj::DumpPruned(Database destination) {
   std::unordered_map<Workload, TuningRecord, ffi::ObjectPtrHash, ffi::ObjectPtrEqual>
       workload2record;
   for (const TuningRecord& record : this->GetAllTuningRecords()) {
@@ -264,18 +262,18 @@ ffi::Optional<Database> Database::Current() {
 }
 
 /******** PyDatabase ********/
-PyDatabaseNode::PyDatabaseNode(ffi::String mod_eq_name) : DatabaseNode(mod_eq_name) {}
+PyDatabaseObj::PyDatabaseObj(ffi::String mod_eq_name) : DatabaseObj(mod_eq_name) {}
 
-Database Database::PyDatabase(PyDatabaseNode::FHasWorkload f_has_workload,
-                              PyDatabaseNode::FCommitWorkload f_commit_workload,
-                              PyDatabaseNode::FCommitTuningRecord f_commit_tuning_record,
-                              PyDatabaseNode::FGetTopK f_get_top_k,
-                              PyDatabaseNode::FGetAllTuningRecords f_get_all_tuning_records,
-                              PyDatabaseNode::FQueryTuningRecord f_query_tuning_record,
-                              PyDatabaseNode::FQuerySchedule f_query_schedule,
-                              PyDatabaseNode::FQueryIRModule f_query_ir_module,
-                              PyDatabaseNode::FSize f_size, ffi::String mod_eq_name) {
-  ffi::ObjectPtr<PyDatabaseNode> n = ffi::make_object<PyDatabaseNode>(mod_eq_name);
+Database Database::PyDatabase(PyDatabaseObj::FHasWorkload f_has_workload,
+                              PyDatabaseObj::FCommitWorkload f_commit_workload,
+                              PyDatabaseObj::FCommitTuningRecord f_commit_tuning_record,
+                              PyDatabaseObj::FGetTopK f_get_top_k,
+                              PyDatabaseObj::FGetAllTuningRecords f_get_all_tuning_records,
+                              PyDatabaseObj::FQueryTuningRecord f_query_tuning_record,
+                              PyDatabaseObj::FQuerySchedule f_query_schedule,
+                              PyDatabaseObj::FQueryIRModule f_query_ir_module,
+                              PyDatabaseObj::FSize f_size, ffi::String mod_eq_name) {
+  ffi::ObjectPtr<PyDatabaseObj> n = ffi::make_object<PyDatabaseObj>(mod_eq_name);
   n->f_has_workload = f_has_workload;
   n->f_commit_workload = f_commit_workload;
   n->f_commit_tuning_record = f_commit_tuning_record;
@@ -291,16 +289,16 @@ Database Database::PyDatabase(PyDatabaseNode::FHasWorkload f_has_workload,
 /******** FFI ********/
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  WorkloadNode::RegisterReflection();
-  TuningRecordNode::RegisterReflection();
-  PyDatabaseNode::RegisterReflection();
+  WorkloadObj::RegisterReflection();
+  TuningRecordObj::RegisterReflection();
+  PyDatabaseObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def("s_tir.meta_schedule.Workload", [](IRModule mod) { return Workload(mod); })
-      .def_method("s_tir.meta_schedule.WorkloadAsJSON", &WorkloadNode::AsJSON)
+      .def_method("s_tir.meta_schedule.WorkloadAsJSON", &WorkloadObj::AsJSON)
       .def("s_tir.meta_schedule.WorkloadFromJSON", &Workload::FromJSON)
       .def("s_tir.meta_schedule.TuningRecord",
            [](s_tir::Trace trace, Workload workload, ffi::Optional<ffi::Array<FloatImm>> run_secs,
@@ -308,24 +306,24 @@ TVM_FFI_STATIC_INIT_BLOCK() {
              return TuningRecord(trace, workload, run_secs, target, args_info);
            })
       .def_method("s_tir.meta_schedule.TuningRecordAsMeasureCandidate",
-                  &TuningRecordNode::AsMeasureCandidate)
-      .def_method("s_tir.meta_schedule.TuningRecordAsJSON", &TuningRecordNode::AsJSON)
+                  &TuningRecordObj::AsMeasureCandidate)
+      .def_method("s_tir.meta_schedule.TuningRecordAsJSON", &TuningRecordObj::AsJSON)
       .def("s_tir.meta_schedule.TuningRecordFromJSON", TuningRecord::FromJSON)
       .def_method("s_tir.meta_schedule.DatabaseEnterWithScope", &Database::EnterWithScope)
       .def_method("s_tir.meta_schedule.DatabaseExitWithScope", &Database::ExitWithScope)
       .def("s_tir.meta_schedule.DatabaseCurrent", Database::Current)
-      .def_method("s_tir.meta_schedule.DatabaseHasWorkload", &DatabaseNode::HasWorkload)
-      .def_method("s_tir.meta_schedule.DatabaseCommitWorkload", &DatabaseNode::CommitWorkload)
+      .def_method("s_tir.meta_schedule.DatabaseHasWorkload", &DatabaseObj::HasWorkload)
+      .def_method("s_tir.meta_schedule.DatabaseCommitWorkload", &DatabaseObj::CommitWorkload)
       .def_method("s_tir.meta_schedule.DatabaseCommitTuningRecord",
-                  &DatabaseNode::CommitTuningRecord)
-      .def_method("s_tir.meta_schedule.DatabaseGetTopK", &DatabaseNode::GetTopK)
+                  &DatabaseObj::CommitTuningRecord)
+      .def_method("s_tir.meta_schedule.DatabaseGetTopK", &DatabaseObj::GetTopK)
       .def_method("s_tir.meta_schedule.DatabaseGetAllTuningRecords",
-                  &DatabaseNode::GetAllTuningRecords)
-      .def_method("s_tir.meta_schedule.DatabaseSize", &DatabaseNode::Size)
-      .def_method("s_tir.meta_schedule.DatabaseQueryTuningRecord", &DatabaseNode::QueryTuningRecord)
-      .def_method("s_tir.meta_schedule.DatabaseQuerySchedule", &DatabaseNode::QuerySchedule)
-      .def_method("s_tir.meta_schedule.DatabaseQueryIRModule", &DatabaseNode::QueryIRModule)
-      .def_method("s_tir.meta_schedule.DatabaseDumpPruned", &DatabaseNode::DumpPruned)
+                  &DatabaseObj::GetAllTuningRecords)
+      .def_method("s_tir.meta_schedule.DatabaseSize", &DatabaseObj::Size)
+      .def_method("s_tir.meta_schedule.DatabaseQueryTuningRecord", &DatabaseObj::QueryTuningRecord)
+      .def_method("s_tir.meta_schedule.DatabaseQuerySchedule", &DatabaseObj::QuerySchedule)
+      .def_method("s_tir.meta_schedule.DatabaseQueryIRModule", &DatabaseObj::QueryIRModule)
+      .def_method("s_tir.meta_schedule.DatabaseDumpPruned", &DatabaseObj::DumpPruned)
       .def("s_tir.meta_schedule.DatabasePyDatabase", Database::PyDatabase);
 }
 

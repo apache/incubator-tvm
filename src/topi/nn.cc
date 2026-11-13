@@ -98,7 +98,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef().def_packed("topi.nn.dense", [](ffi::PackedArgs args, ffi::Any* rv) {
     *rv = nn::dense(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
-                    args[2].cast<te::Tensor>(), args[3].cast<PrimType>());
+                    args[2].cast<ffi::Optional<te::Tensor>>(), args[3].cast<PrimType>());
   });
 }
 
@@ -246,8 +246,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef().def_packed("topi.nn.layer_norm", [](ffi::PackedArgs args, ffi::Any* rv) {
     *rv = nn::layer_norm(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
-                         args[2].cast<te::Tensor>(), args[3].cast<ffi::Array<int64_t>>(),
-                         args[4].cast<double>());
+                         args[2].cast<ffi::Optional<te::Tensor>>(),
+                         args[3].cast<ffi::Array<int64_t>>(), args[4].cast<double>());
   });
 }
 
@@ -255,9 +255,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef().def_packed("topi.nn.group_norm", [](ffi::PackedArgs args, ffi::Any* rv) {
-    *rv = nn::group_norm(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
-                         args[2].cast<te::Tensor>(), args[3].cast<int>(), args[4].cast<int>(),
-                         args[5].cast<ffi::Array<int64_t>>(), args[6].cast<double>());
+    *rv = nn::group_norm(args[0].cast<te::Tensor>(), args[1].cast<ffi::Optional<te::Tensor>>(),
+                         args[2].cast<ffi::Optional<te::Tensor>>(), args[3].cast<int>(),
+                         args[4].cast<int>(), args[5].cast<ffi::Array<int64_t>>(),
+                         args[6].cast<double>());
   });
 }
 
@@ -266,7 +267,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef().def_packed("topi.nn.instance_norm", [](ffi::PackedArgs args, ffi::Any* rv) {
     *rv = nn::instance_norm(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
-                            args[2].cast<te::Tensor>(), args[3].cast<int>(),
+                            args[2].cast<ffi::Optional<te::Tensor>>(), args[3].cast<int>(),
                             args[4].cast<ffi::Array<int64_t>>(), args[5].cast<double>());
   });
 }

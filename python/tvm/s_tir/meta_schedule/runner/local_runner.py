@@ -21,11 +21,14 @@ import subprocess
 from collections.abc import Callable
 from contextlib import contextmanager
 
-import tvm
-from tvm.ir.utils import derived_object
-from tvm.support.popen_pool import PopenPoolExecutor
+import tvm_ffi
 
-from ....runtime import Device, Module
+import tvm_tirx
+from tvm.s_tir.utils import derived_object
+from tvm_tirx.runtime import Device
+from tvm_tirx.support import cc, tar, utils
+from tvm_tirx.support.popen_pool import PopenPoolExecutor
+
 from ..logging import get_logger
 from ..profiler import Profiler
 from ..utils import get_global_func_with_default_on_worker
@@ -51,7 +54,7 @@ T_ALLOC_ARGUMENT = Callable[  # pylint: disable=invalid-name
 ]
 T_RUN_EVALUATOR = Callable[  # pylint: disable=invalid-name
     [
-        Module,  # The Module opened on the remote
+        tvm_ffi.Module,  # The Module opened on the remote
         Device,  # The device on the remote
         EvaluatorConfig,  # The evaluator configuration
         list[T_ARGUMENT_LIST],  # A list of argument lists
@@ -145,10 +148,17 @@ def _worker_func(
     with resource_handler():
         # Step 1: create the local runtime module
         with Profiler.timeit("LocalRunner/load_module"):
-            rt_mod = tvm.runtime.load_module(artifact_path)
+            if artifact_path.endswith((".o", ".tar")):
+                with utils.tempdir() as temp:
+                    objects = tar.normalize_file_list_by_unpacking_tars(temp, [artifact_path])
+                    library = temp.relpath("module.so")
+                    cc.create_shared(library, objects)
+                    rt_mod = tvm_tirx.runtime.load_module(library)
+            else:
+                rt_mod = tvm_tirx.runtime.load_module(artifact_path)
         # Step 2: Allocate input arguments
         with Profiler.timeit("LocalRunner/alloc_argument"):
-            device = tvm.runtime.device(device_type, 0)
+            device = tvm_ffi.device(device_type, 0)
             repeated_args: list[T_ARGUMENT_LIST] = f_alloc_argument(
                 device,
                 args_info,
@@ -206,7 +216,7 @@ class LocalRunner(PyRunner):
         .. code-block:: python
 
         def default_run_evaluator(
-            rt_mod: Module,
+            rt_mod: tvm_ffi.Module,
             device: Device,
             evaluator_config: EvaluatorConfig,
             repeated_args: List[T_ARGUMENT_LIST],
@@ -361,7 +371,7 @@ def default_alloc_argument(
 
 
 def default_run_evaluator(
-    rt_mod: Module,
+    rt_mod: tvm_ffi.Module,
     device: Device,
     evaluator_config: EvaluatorConfig,
     repeated_args: list[T_ARGUMENT_LIST],
@@ -370,7 +380,7 @@ def default_run_evaluator(
 
     Parameters
     ----------
-    rt_mod: Module
+    rt_mod: tvm_ffi.Module
         The runtime module
     device: Device
         The device to run the evaluator
@@ -392,7 +402,7 @@ def default_cleanup() -> None:
     pass  # pylint: disable=unnecessary-pass
 
 
-@tvm.register_global_func("s_tir.meta_schedule.runner.get_local_runner")
+@tvm_ffi.register_global_func("s_tir.meta_schedule.runner.get_local_runner")
 def get_local_builder() -> LocalRunner:
     """Get the local Runner.
 

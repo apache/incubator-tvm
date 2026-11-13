@@ -16,25 +16,25 @@
 # under the License.
 # pylint: disable=invalid-name,,missing-function-docstring
 # ruff: noqa: E501, F841
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.transform import DefaultGPUSchedule
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 
 def test_broadcast_to_symbolic():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    x_0 = T.dynamic("x_0")
-    x_1 = T.dynamic("x_1")
+    x_0 = T.dynamic("x_0", "int64")
+    x_1 = T.dynamic("x_1", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def broadcast_to(
-            rxplaceholder: T.Buffer((T.int64(3), T.int64(1)), "float32"),
-            T_broadcast_to: T.Buffer((x_0, x_1)),
+            rxplaceholder: T.Tensor((T.int64(3), T.int64(1)), "float32"),
+            T_broadcast_to: T.Tensor((x_0, x_1), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
 
@@ -46,17 +46,17 @@ def test_broadcast_to_symbolic():
                     Ts.writes(T_broadcast_to[v_ax0, v_ax1])
                     T_broadcast_to[v_ax0, v_ax1] = rxplaceholder[v_ax0, T.int64(0)]
 
-    x_0 = T.dynamic("x_0")
-    x_1 = T.dynamic("x_1")
+    x_0 = T.dynamic("x_0", "int64")
+    x_1 = T.dynamic("x_1", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
-        def broadcast_to(rxplaceholder: T.Buffer((T.int64(3), T.int64(1)), "float32"), T_broadcast_to: T.Buffer((x_0, x_1))):
+        @Ts.function
+        def broadcast_to(rxplaceholder: T.Tensor((T.int64(3), T.int64(1)), "float32"), T_broadcast_to: T.Tensor((x_0, x_1), "float32")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
 
-            for ax0_ax1_fused_1 in T.thread_binding(T.int64(256), thread="blockIdx.x"):
-                for ax0_ax1_fused_2 in T.thread_binding(T.int64(1024), thread="threadIdx.x"):
+            for ax0_ax1_fused_1 in T.parallel(T.int64(256), annotations={"thread_binding": "blockIdx.x"}):
+                for ax0_ax1_fused_2 in T.parallel(T.int64(1024), annotations={"thread_binding": "threadIdx.x"}):
                     for ax0_ax1_fused_0 in range((x_0 * x_1 + T.int64(262143)) // T.int64(262144)):
                         with Ts.sblock("T_broadcast_to"):
                             v_ax0 = Ts.axis.spatial(x_0, (ax0_ax1_fused_0 * T.int64(262144) + ax0_ax1_fused_1 * T.int64(1024) + ax0_ax1_fused_2) // x_1)
@@ -65,22 +65,22 @@ def test_broadcast_to_symbolic():
                             T_broadcast_to[v_ax0, v_ax1] = rxplaceholder[v_ax0, T.int64(0)]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
-        After = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        After = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_matmul():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def matmul(
-            A: T.Buffer((32, 32), "float16"),
-            B: T.Buffer((32, 32), "float16"),
-            C: T.Buffer((32, 32), "float16"),
+            A: T.Tensor((32, 32), "float16"),
+            B: T.Tensor((32, 32), "float16"),
+            C: T.Tensor((32, 32), "float16"),
         ):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -93,11 +93,11 @@ def test_matmul():
                         C[v_i, v_j] = T.float16(0)
                     C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
 
-        @Ts.prim_func
+        @Ts.function
         def matmul_gpu(
-            A: T.Buffer((32, 32), "float16"),
-            B: T.Buffer((32, 32), "float16"),
-            C: T.Buffer((32, 32), "float16"),
+            A: T.Tensor((32, 32), "float16"),
+            B: T.Tensor((32, 32), "float16"),
+            C: T.Tensor((32, 32), "float16"),
         ):
             T.func_attr({"global_symbol": "main",
                          "target": T.target({"arch": "sm_86",
@@ -117,11 +117,11 @@ def test_matmul():
                         C[v_i, v_j] = T.float16(0)
                     C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
 
-        @Ts.prim_func
+        @Ts.function
         def matmul_cpu(
-            A: T.Buffer((32, 32), "float16"),
-            B: T.Buffer((32, 32), "float16"),
-            C: T.Buffer((32, 32), "float16"),
+            A: T.Tensor((32, 32), "float16"),
+            B: T.Tensor((32, 32), "float16"),
+            C: T.Tensor((32, 32), "float16"),
         ):
             T.func_attr({"global_symbol": "main",
                          "target": T.target({"keys": ["cpu"], "kind": "llvm", "tag": ""}),
@@ -136,18 +136,18 @@ def test_matmul():
                         C[v_i, v_j] = T.float16(0)
                     C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def matmul(
-            A: T.Buffer((32, 32), "float16"),
-            B: T.Buffer((32, 32), "float16"),
-            C: T.Buffer((32, 32), "float16"),
+            A: T.Tensor((32, 32), "float16"),
+            B: T.Tensor((32, 32), "float16"),
+            C: T.Tensor((32, 32), "float16"),
         ):
             T.func_attr({"tirx.is_scheduled": True, "global_symbol": "main", "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i_j_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for i_j_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+            for i_j_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for i_j_fused_1 in T.parallel(1024, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(32):
                         with Ts.sblock("C"):
                             v_i = Ts.axis.spatial(
@@ -163,8 +163,8 @@ def test_matmul():
                                 C[v_i, v_j] = T.float16(0)
                             C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
 
-        @Ts.prim_func
-        def matmul_cpu(A: T.Buffer((32, 32), "float16"), B: T.Buffer((32, 32), "float16"), C: T.Buffer((32, 32), "float16")):
+        @Ts.function
+        def matmul_cpu(A: T.Tensor((32, 32), "float16"), B: T.Tensor((32, 32), "float16"), C: T.Tensor((32, 32), "float16")):
             T.func_attr({"global_symbol": "main", "target": T.target({"keys": ["cpu"], "kind": "llvm", "tag": ""}), "tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
             for i, j, k in T.grid(32, 32, 32):
@@ -176,12 +176,12 @@ def test_matmul():
                         C[v_i, v_j] = T.float16(0)
                     C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
 
-        @Ts.prim_func
-        def matmul_gpu(A: T.Buffer((32, 32), "float16"), B: T.Buffer((32, 32), "float16"), C: T.Buffer((32, 32), "float16")):
+        @Ts.function
+        def matmul_gpu(A: T.Tensor((32, 32), "float16"), B: T.Tensor((32, 32), "float16"), C: T.Tensor((32, 32), "float16")):
             T.func_attr({"global_symbol": "main", "target": T.target({"arch": "sm_86", "keys": ["cuda", "gpu"], "kind": "cuda", "max_num_threads": 1024, "tag": "", "thread_warp_size": 32}), "tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i_j_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for i_j_fused_1 in T.thread_binding(1024, thread="threadIdx.x"):
+            for i_j_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for i_j_fused_1 in T.parallel(1024, annotations={"thread_binding": "threadIdx.x"}):
                     for k in range(32):
                         with Ts.sblock("C"):
                             v_i = Ts.axis.spatial(32, (i_j_fused_0 * 1024 + i_j_fused_1) // 32)
@@ -194,19 +194,19 @@ def test_matmul():
                             C[v_i, v_j] = C[v_i, v_j] + A[v_i, v_k] * B[v_k, v_j]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
-        After = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        After = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_add():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
             T.func_attr({"tirx.noalias": True})
             for i0, i1, i2, i3 in T.grid(T.int64(4), T.int64(3), T.int64(2), T.int64(3)):
                 with Ts.sblock("T_add"):
@@ -215,22 +215,20 @@ def test_add():
                     Ts.writes(T_add[ax0, ax1, ax2, ax3])
                     T_add[ax0, ax1, ax2, ax3] = rxplaceholder[T.int64(0), ax2, ax3] + rxplaceholder_1[ax0, ax1, ax2, T.int64(0)]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def add(
-            rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"),
-            rxplaceholder_1: T.Buffer(
+            rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"),
+            rxplaceholder_1: T.Tensor(
                 (T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"
             ),
-            T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32"),
+            T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32"),
         ):
             T.func_attr({"tirx.is_scheduled": True,  "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i0_i1_i2_i3_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_i2_i3_fused_1 in T.thread_binding(
-                    T.int64(72), thread="threadIdx.x"
-                ):
+            for i0_i1_i2_i3_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_i2_i3_fused_1 in T.parallel(T.int64(72), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_add"):
                         ax0 = Ts.axis.spatial(
                             T.int64(4),
@@ -266,19 +264,19 @@ def test_add():
 
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
-        After = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        After = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_full():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def full(rxplaceholder: T.Buffer((), "int32"), T_full: T.Buffer((T.int64(2), T.int64(3)), "int32")):
+        @Ts.function
+        def full(rxplaceholder: T.Tensor((), "int32"), T_full: T.Tensor((T.int64(2), T.int64(3)), "int32")):
             T.func_attr({"tirx.noalias": True})
             for i0, i1 in T.grid(T.int64(2), T.int64(3)):
                 with Ts.sblock("T_full"):
@@ -287,17 +285,17 @@ def test_full():
                     Ts.writes(T_full[ax0, ax1])
                     T_full[ax0, ax1] = rxplaceholder[()]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def full(
-            rxplaceholder: T.Buffer((), "int32"),
-            T_full: T.Buffer((T.int64(2), T.int64(3)), "int32"),
+            rxplaceholder: T.Tensor((), "int32"),
+            T_full: T.Tensor((T.int64(2), T.int64(3)), "int32"),
         ):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i0_i1_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_fused_1 in T.thread_binding(T.int64(6), thread="threadIdx.x"):
+            for i0_i1_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_fused_1 in T.parallel(T.int64(6), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_full"):
                         ax0 = Ts.axis.spatial(
                             T.int64(2),
@@ -313,27 +311,27 @@ def test_full():
 
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
-        After = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        After = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_scheduled():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Scheduled:
-        @Ts.prim_func
+        @Ts.function
         def full(
-            rxplaceholder: T.Buffer((), "int32"),
-            T_full: T.Buffer((T.int64(2), T.int64(3)), "int32"),
+            rxplaceholder: T.Tensor((), "int32"),
+            T_full: T.Tensor((T.int64(2), T.int64(3)), "int32"),
         ):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i0_i1_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_fused_1 in T.thread_binding(T.int64(6), thread="threadIdx.x"):
+            for i0_i1_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_fused_1 in T.parallel(T.int64(6), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_full"):
                         ax0 = Ts.axis.spatial(
                             T.int64(2),
@@ -349,20 +347,20 @@ def test_scheduled():
 
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
         # should do nothing
-        After = DefaultGPUSchedule()(Scheduled)
-    tvm.ir.assert_structural_equal(After, Scheduled)
+        After = DefaultGPUSchedule(target=target)(Scheduled)
+    tvm_tirx.ir.assert_structural_equal(After, Scheduled)
 
 
 def test_multiple():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
             T.func_attr({"tirx.noalias": True})
             for i0, i1, i2, i3 in T.grid(T.int64(4), T.int64(3), T.int64(2), T.int64(3)):
                 with Ts.sblock("T_add"):
@@ -371,8 +369,8 @@ def test_multiple():
                     Ts.writes(T_add[ax0, ax1, ax2, ax3])
                     T_add[ax0, ax1, ax2, ax3] = rxplaceholder[T.int64(0), ax2, ax3] + rxplaceholder_1[ax0, ax1, ax2, T.int64(0)]
 
-        @Ts.prim_func
-        def full(rxplaceholder: T.Buffer((), "int32"), T_full: T.Buffer((T.int64(2), T.int64(3)), "int32")):
+        @Ts.function
+        def full(rxplaceholder: T.Tensor((), "int32"), T_full: T.Tensor((T.int64(2), T.int64(3)), "int32")):
             T.func_attr({"tirx.noalias": True})
             for i0, i1 in T.grid(T.int64(2), T.int64(3)):
                 with Ts.sblock("T_full"):
@@ -381,22 +379,20 @@ def test_multiple():
                     Ts.writes(T_full[ax0, ax1])
                     T_full[ax0, ax1] = rxplaceholder[()]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def add(
-            rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"),
-            rxplaceholder_1: T.Buffer(
+            rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"),
+            rxplaceholder_1: T.Tensor(
                 (T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"
             ),
-            T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32"),
+            T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32"),
         ):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i0_i1_i2_i3_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_i2_i3_fused_1 in T.thread_binding(
-                    T.int64(72), thread="threadIdx.x"
-                ):
+            for i0_i1_i2_i3_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_i2_i3_fused_1 in T.parallel(T.int64(72), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_add"):
                         ax0 = Ts.axis.spatial(
                             T.int64(4),
@@ -430,15 +426,15 @@ def test_multiple():
                             + rxplaceholder_1[ax0, ax1, ax2, T.int64(0)]
                         )
 
-        @Ts.prim_func
+        @Ts.function
         def full(
-            rxplaceholder: T.Buffer((), "int32"),
-            T_full: T.Buffer((T.int64(2), T.int64(3)), "int32"),
+            rxplaceholder: T.Tensor((), "int32"),
+            T_full: T.Tensor((T.int64(2), T.int64(3)), "int32"),
         ):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for i0_i1_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_fused_1 in T.thread_binding(T.int64(6), thread="threadIdx.x"):
+            for i0_i1_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_fused_1 in T.parallel(T.int64(6), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_full"):
                         ax0 = Ts.axis.spatial(
                             T.int64(2),
@@ -453,19 +449,19 @@ def test_multiple():
                         T_full[ax0, ax1] = rxplaceholder[()]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=3):
-        After = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        After = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_add_on_metal():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
             T.func_attr({"tirx.noalias": True})
             for i0, i1, i2, i3 in T.grid(T.int64(4), T.int64(3), T.int64(2), T.int64(3)):
                 with Ts.sblock("T_add"):
@@ -474,13 +470,13 @@ def test_add_on_metal():
                     Ts.writes(T_add[ax0, ax1, ax2, ax3])
                     T_add[ax0, ax1, ax2, ax3] = rxplaceholder[T.int64(0), ax2, ax3] + rxplaceholder_1[ax0, ax1, ax2, T.int64(0)]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Buffer((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((T.int64(1), T.int64(2), T.int64(3)), "float32"), rxplaceholder_1: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(1)), "float32"), T_add: T.Tensor((T.int64(4), T.int64(3), T.int64(2), T.int64(3)), "float32")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
-            for i0_i1_i2_i3_fused_0 in T.thread_binding(T.int64(1), thread="blockIdx.x"):
-                for i0_i1_i2_i3_fused_1 in T.thread_binding(T.int64(72), thread="threadIdx.x"):
+            for i0_i1_i2_i3_fused_0 in T.parallel(T.int64(1), annotations={"thread_binding": "blockIdx.x"}):
+                for i0_i1_i2_i3_fused_1 in T.parallel(T.int64(72), annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_add"):
                         ax0 = Ts.axis.spatial(T.int64(4), (i0_i1_i2_i3_fused_0 * T.int64(72) + i0_i1_i2_i3_fused_1) // T.int64(18))
                         ax1 = Ts.axis.spatial(T.int64(3), (i0_i1_i2_i3_fused_0 * T.int64(72) + i0_i1_i2_i3_fused_1) % T.int64(18) // T.int64(6))
@@ -491,19 +487,19 @@ def test_add_on_metal():
                         T_add[ax0, ax1, ax2, ax3] = rxplaceholder[T.int64(0), ax2, ax3] + rxplaceholder_1[ax0, ax1, ax2, T.int64(0)]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("apple/m1-gpu")
-    with target, tvm.transform.PassContext(opt_level=0):
-        mod = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    target = tvm_tirx.target.Target("apple/m1-gpu")
+    with tvm_tirx.ir.transform.PassContext(opt_level=0):
+        mod = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_scalar_add():
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((), "int64"), T_add: T.Buffer((), "int64")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((), "int64"), T_add: T.Tensor((), "int64")):
             T.func_attr({"tirx.noalias": True})
             with Ts.sblock("T_add"):
                 vi = Ts.axis.spatial(1, T.int64(0))
@@ -511,14 +507,14 @@ def test_scalar_add():
                 Ts.writes(T_add[()])
                 T_add[()] = rxplaceholder[()] + T.int64(1)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
-        def add(rxplaceholder: T.Buffer((), "int64"), T_add: T.Buffer((), "int64")):
+        @Ts.function
+        def add(rxplaceholder: T.Tensor((), "int64"), T_add: T.Tensor((), "int64")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            for u_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for u_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+            for u_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for u_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_add"):
                         vi = Ts.axis.spatial(1, T.int64(0))
                         Ts.reads(rxplaceholder[()])
@@ -526,20 +522,20 @@ def test_scalar_add():
                         T_add[()] = rxplaceholder[()] + T.int64(1)
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=0):
-        mod = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=0):
+        mod = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_sum():
     # sum has two reduction axes and no spatial axis
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def sum(A: T.Buffer((T.int64(2), T.int64(2)), "float64"), A_red: T.Buffer((), "float64")):
+        @Ts.function
+        def sum(A: T.Tensor((T.int64(2), T.int64(2)), "float64"), A_red: T.Tensor((), "float64")):
             for k0, k1 in T.grid(T.int64(2), T.int64(2)):
                 with Ts.sblock("A_red"):
                     v_k0, v_k1 = Ts.axis.remap("RR", [k0, k1])
@@ -547,14 +543,14 @@ def test_sum():
                         A_red[()] = T.float64(0)
                     A_red[()] = A_red[()] + A[v_k0, v_k1]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
-        def sum(A: T.Buffer((T.int64(2), T.int64(2)), "float64"), A_red: T.Buffer((), "float64")):
+        @Ts.function
+        def sum(A: T.Tensor((T.int64(2), T.int64(2)), "float64"), A_red: T.Tensor((), "float64")):
             T.func_attr({"tirx.is_scheduled": True})
             # with Ts.sblock("root"):
-            for u_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for u_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+            for u_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for u_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                     for k0, k1 in T.grid(T.int64(2), T.int64(2)):
                         with Ts.sblock("A_red"):
                             v_k0, v_k1 = Ts.axis.remap("RR", [k0, k1])
@@ -565,33 +561,33 @@ def test_sum():
                             A_red[()] = A_red[()] + A[v_k0, v_k1]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=0):
-        mod = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=0):
+        mod = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_scalar_block_no_loops():
-    # A PrimFunc whose body is a bare SBlockRealize (e.g. a fully-scalar op)
+    # A Function whose body is a bare SBlockRealize (e.g. a fully-scalar op)
     # used to crash DefaultGPUSchedule with "Cannot add loops on top of the
     # root block" because the realized block was the function's root sref.
     # pylint: disable=no-self-argument,missing-class-docstring,line-too-long
     # fmt: off
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
-        @Ts.prim_func
-        def scalar_add(a: T.Buffer((), "float32"), b: T.Buffer((), "float32"), c: T.Buffer((), "float32")):
+        @Ts.function
+        def scalar_add(a: T.Tensor((), "float32"), b: T.Tensor((), "float32"), c: T.Tensor((), "float32")):
             with Ts.sblock("scalar_add"):
                 c[()] = a[()] + b[()]
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
-        @Ts.prim_func
-        def scalar_add(a: T.Buffer((), "float32"), b: T.Buffer((), "float32"), c: T.Buffer((), "float32")):
+        @Ts.function
+        def scalar_add(a: T.Tensor((), "float32"), b: T.Tensor((), "float32"), c: T.Tensor((), "float32")):
             T.func_attr({"tirx.is_scheduled": True})
             # with Ts.sblock("root"):
-            for u_fused_0 in T.thread_binding(1, thread="blockIdx.x"):
-                for u_fused_1 in T.thread_binding(1, thread="threadIdx.x"):
+            for u_fused_0 in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+                for u_fused_1 in T.parallel(1, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("scalar_add"):
                         vu = Ts.axis.spatial(1, 0)
                         Ts.reads()
@@ -599,11 +595,11 @@ def test_scalar_block_no_loops():
                         c[()] = a[()] + b[()]
     # fmt: on
     # pylint: enable=no-self-argument,missing-class-docstring,line-too-long
-    target = tvm.target.Target("nvidia/geforce-rtx-3070")
-    with target, tvm.transform.PassContext(opt_level=0):
-        mod = DefaultGPUSchedule()(Before)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    target = tvm_tirx.target.Target("nvidia/geforce-rtx-3070")
+    with tvm_tirx.ir.transform.PassContext(opt_level=0):
+        mod = DefaultGPUSchedule(target=target)(Before)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -25,11 +25,11 @@ from typing import Any, TypeVar
 
 import numpy as np
 
-import tvm
+import tvm_tirx
 from tvm import te
-from tvm import tirx as _tir
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx as _tir
+from tvm_tirx.script import tirx as T
 
 from ... import expr as rx
 from ... import op as _op
@@ -331,7 +331,7 @@ def matmul(a: Tensor, b: Tensor, out_dtype: str | None = None, name: str = "matm
     b : Tensor
         The second input tensor.
 
-    out_dtype: Optional[str | DataType]
+    out_dtype: Optional[str | tvm_ffi.dtype]
         The data type of the matmul result.
         When it is not specified, the output dtype will be the same as input dtype.
 
@@ -627,7 +627,7 @@ def conv1d_transpose(
     out_layout : Optional[str]
         Layout of the output. If not specified, it is the same as data_layout
 
-    out_dtype : Optional[str | DataType]
+    out_dtype : Optional[str | tvm_ffi.dtype]
         Specifies the output data type for mixed precision conv2d.
 
     Returns
@@ -1546,7 +1546,7 @@ def full(
     result : Tensor
         The result tensor.
     """
-    if isinstance(fill_value, _tir.FloatImm | _tir.IntImm):
+    if isinstance(fill_value, tvm_tirx.ir.FloatImm | tvm_tirx.ir.IntImm):
         fill_value = rx.const(fill_value.value, dtype=dtype)
     elif isinstance(fill_value, int | float):
         fill_value = rx.const(fill_value, dtype=dtype)
@@ -2030,8 +2030,8 @@ def tensor_expr_op(
         BlockBuilder.current().emit_te(
             tensor_expr_func,
             *[_convert(arg) for arg in args],
-            primfunc_name_hint=name_hint,
-            primfunc_attrs=attrs,
+            function_name_hint=name_hint,
+            function_attrs=attrs,
         ),
         name=name_hint,
     )
@@ -2041,23 +2041,23 @@ OutType = TypeVar("OutType", bound=Tensor | Sequence[Tensor])
 
 
 def tensor_ir_op(
-    func: _tir.PrimFunc,
+    func: _tir.Function,
     name_hint: str,
     args: Tensor | Sequence[Tensor | rx.ShapeExpr | _tir.Expr],
     out: OutType,
 ) -> OutType:
-    """Create a `call_tir` binding with given PrimFunc
+    """Create a `call_tir` binding with given Function
 
     Parameters
     ----------
-    func : _tir.PrimFunc
-        The PrimFunc to call.
+    func : _tir.Function
+        The Function to call.
 
     name_hint : str
         Name hint.
 
     args : Union[Tensor, Sequence[Tensor | rx.ShapeExpr | _tir.Expr]]
-        The arguments to pass to the PrimFunc.
+        The arguments to pass to the Function.
 
     out : Union[Tensor, List[Tensor]]
         The output tensors.
@@ -2078,7 +2078,7 @@ def tensor_ir_op(
             call_tir_args.append(arg._expr)
         elif isinstance(arg, rx.ShapeExpr):
             call_tir_args.extend(arg.values)
-        elif tvm.ir.is_prim_expr(arg):
+        elif tvm_tirx.ir.is_prim_expr(arg):
             call_tir_args.append(arg)
         else:
             raise TypeError(
@@ -2091,34 +2091,35 @@ def tensor_ir_op(
     else:
         out_ty = [x._expr.ty for x in out]
 
+    out_ty = out_ty[0] if len(out_ty) == 1 else tvm_tirx.ir.TupleType(out_ty)
     bb = BlockBuilder.current()
     global_var = bb.add_func(func, name_hint)
 
     return wrap_nested(
-        bb.emit(rx.call_tir(global_var, call_tir_args, out_ty)),
+        bb.emit(rx.call_tir(global_var, call_tir_args, ty_args=[out_ty])),
         name=name_hint,
     )
 
 
 def tensor_ir_inplace_op(
-    func: _tir.PrimFunc,
+    func: _tir.Function,
     name_hint: str,
     args: Tensor | Sequence[Tensor | rx.ShapeExpr | _tir.Expr],
     inplace_indices: int | list[int],
     out: OutType,
 ) -> OutType:
-    """Create a `call_tir_inplace` binding with given PrimFunc
+    """Create a `call_tir_inplace` binding with given Function
 
     Parameters
     ----------
-    func : _tir.PrimFunc
-        The PrimFunc to call.
+    func : _tir.Function
+        The Function to call.
 
     name_hint : str
         Name hint.
 
     args : Union[Tensor, Sequence[Tensor | rx.ShapeExpr | _tir.Expr]]
-        The arguments to pass to the PrimFunc.
+        The arguments to pass to the Function.
 
     inplace_indices : Union[int, List[int]]
         Specify which arguments should be used for in-place computations.
@@ -2147,7 +2148,7 @@ def tensor_ir_inplace_op(
             call_tir_args.append(arg._expr)
         elif isinstance(arg, rx.ShapeExpr):
             call_tir_args.extend(arg.values)
-        elif tvm.ir.is_prim_expr(arg):
+        elif tvm_tirx.ir.is_prim_expr(arg):
             call_tir_args.append(arg)
         else:
             raise TypeError(
@@ -2160,11 +2161,16 @@ def tensor_ir_inplace_op(
     else:
         out_ty = [x._expr.ty for x in out]
 
+    out_ty = out_ty[0] if len(out_ty) == 1 else tvm_tirx.ir.TupleType(out_ty)
     bb = BlockBuilder.current()
     global_var = bb.add_func(func, name_hint)
 
     return wrap_nested(
-        bb.emit(rx.call_tir_inplace(global_var, call_tir_args, inplace_indices, out_ty)),
+        bb.emit(
+            rx.call_tir_inplace(
+                global_var, call_tir_args, inplace_indices=inplace_indices, ty_args=[out_ty]
+            )
+        ),
         name=name_hint,
     )
 
@@ -2175,7 +2181,8 @@ def extern(
     out: OutType,
 ) -> OutType:
     """Invoke an extern function during runtime. The extern function must be registered with the "
-    TVM runtime using `reflection::GlobalDef().def` (C++), or `tvm.register_global_func` (Python).
+    TVM runtime using `reflection::GlobalDef().def` (C++), or
+    `tvm_ffi.register_global_func` (Python).
 
     Parameters
     ----------
@@ -2199,12 +2206,12 @@ def extern(
         if isinstance(arg, Tensor):
             return arg._expr  # pylint: disable=protected-access
         if isinstance(arg, int):
-            return rx.prim_value(_tir.IntImm("int64", arg))
+            return rx.prim_value(tvm_tirx.ir.IntImm("int64", arg))
         if isinstance(arg, float):
-            return rx.prim_value(_tir.FloatImm("float64", arg))
+            return rx.prim_value(tvm_tirx.ir.FloatImm("float64", arg))
         if isinstance(arg, str):
-            return tvm.ir.StringImm(arg)
-        if tvm.ir.is_prim_expr(arg):
+            return tvm_tirx.ir.StringImm(arg)
+        if tvm_tirx.ir.is_prim_expr(arg):
             return rx.prim_value(arg)
         if isinstance(arg, tuple | list):
             return rx.Tuple([_convert(e, f"{name}_{i}") for i, e in enumerate(arg)])
@@ -2214,9 +2221,9 @@ def extern(
     rx_outputs_ty = _convert(out, "dummy").ty
     return wrap_nested(
         _op.call_dps_packed(
-            name,
+            rx.ExternFunc(name),
             args=rx_inputs,
-            out_ty=rx_outputs_ty,
+            ty_args=[rx_outputs_ty],
         ),
         name,
     )  # type: ignore
@@ -2232,7 +2239,7 @@ def debug_func(
 
     .. code-block:: python
 
-        @tvm.register_global_func(name_of_debug_func)
+        @tvm_ffi.register_global_func(name_of_debug_func)
         def debug_func(lineno: str, arg_0, arg_1, ...) -> None:
             ...
 
@@ -2265,13 +2272,13 @@ def debug_func(
         if isinstance(arg, Tensor):
             converted_args.append(arg._expr)  # pylint: disable=protected-access
         elif isinstance(arg, int):
-            converted_args.append(rx.prim_value(_tir.IntImm("int64", arg)))
+            converted_args.append(rx.prim_value(tvm_tirx.ir.IntImm("int64", arg)))
         elif isinstance(arg, float):
-            converted_args.append(rx.prim_value(_tir.FloatImm("float32", arg)))
-        elif tvm.ir.is_prim_expr(arg):
+            converted_args.append(rx.prim_value(tvm_tirx.ir.FloatImm("float32", arg)))
+        elif tvm_tirx.ir.is_prim_expr(arg):
             converted_args.append(rx.prim_value(arg))
         elif isinstance(arg, str):
-            converted_args.append(tvm.ir.StringImm(arg))
+            converted_args.append(tvm_tirx.ir.StringImm(arg))
         else:
             raise TypeError(f"Unsupported type {type(arg)}")
 
@@ -2279,8 +2286,8 @@ def debug_func(
         rx.call_pure_packed(
             "vm.builtin.invoke_debug_func",
             io.effect,
-            tvm.ir.StringImm(name),
-            tvm.ir.StringImm(_line_info),
+            tvm_tirx.ir.StringImm(name),
+            tvm_tirx.ir.StringImm(_line_info),
             *converted_args,
             ty_args=[rx.AnyType()],
         ),
@@ -2795,15 +2802,15 @@ def sample_top_p_top_k_from_sorted_prob(
     def _cumsum_mask(cumsum_sorted, top_p, top_k, i, j):
         return _tir.all(cumsum_sorted[i, j] < top_p[i, 0], j + 1 < top_k[i, 0])
 
-    batch = T.dynamic("batch")
-    vocab_size = T.dynamic("vocab_size")
+    batch = T.dynamic("batch", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def _get_renorm_prob(
-        cumsum_sorted: T.Buffer((batch, vocab_size), prob_dtype),
-        top_p: T.Buffer((batch, 1), prob_dtype),
-        top_k: T.Buffer((batch, 1), index_dtype),
-        renorm_prob: T.Buffer((batch, 1), prob_dtype),
+        cumsum_sorted: T.Tensor((batch, vocab_size), prob_dtype),
+        top_p: T.Tensor((batch, 1), prob_dtype),
+        top_k: T.Tensor((batch, 1), index_dtype),
+        renorm_prob: T.Tensor((batch, 1), prob_dtype),
     ):
         for ax0, ax1 in T.grid(batch, vocab_size):
             with Ts.sblock("T_get_renorm_prob"):
@@ -2816,18 +2823,18 @@ def sample_top_p_top_k_from_sorted_prob(
                     elif not _cumsum_mask(cumsum_sorted, top_p, top_k, v_ax0, v_ax1 + 1):
                         renorm_prob[v_ax0, 0] = cumsum_sorted[v_ax0, v_ax1 + 1]
 
-    batch = T.dynamic("batch")
-    vocab_size = T.dynamic("vocab_size")
-    kernel_out_batch = T.dynamic("out_batch")
+    batch = T.dynamic("batch", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
+    kernel_out_batch = T.dynamic("out_batch", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def _get_index_from_sorted(
-        cumsum_sorted: T.Buffer((batch, vocab_size), prob_dtype),
-        indices: T.Buffer((batch, vocab_size), index_dtype),
-        renorm_prob: T.Buffer((batch, 1), prob_dtype),
-        usample: T.Buffer((kernel_out_batch, 1), prob_dtype),
-        sample_indices: T.Buffer((kernel_out_batch, 1), sample_indices_dtype),
-        output_index: T.Buffer((kernel_out_batch, 1), index_dtype),
+        cumsum_sorted: T.Tensor((batch, vocab_size), prob_dtype),
+        indices: T.Tensor((batch, vocab_size), index_dtype),
+        renorm_prob: T.Tensor((batch, 1), prob_dtype),
+        usample: T.Tensor((kernel_out_batch, 1), prob_dtype),
+        sample_indices: T.Tensor((kernel_out_batch, 1), sample_indices_dtype),
+        output_index: T.Tensor((kernel_out_batch, 1), index_dtype),
     ):
         for ax0, ax1 in T.grid(kernel_out_batch, vocab_size):
             with Ts.sblock("T_get_index_from_sorted"):
@@ -2904,16 +2911,16 @@ def renormalize_top_p_top_k_prob(prob, sorted_prob, top_p, top_k):
     def _cumsum_mask(cumsum_sorted, top_p, top_k, i, j):
         return _tir.all(cumsum_sorted[i, j] < top_p[i, 0], j + 1 < top_k[i, 0])
 
-    kernel_batch = T.dynamic("batch")
-    vocab_size = T.dynamic("vocab_size")
+    kernel_batch = T.dynamic("batch", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def _get_renorm_cutoff(
-        sorted_prob: T.Buffer((kernel_batch, vocab_size), prob_dtype),
-        cumsum_sorted: T.Buffer((kernel_batch, vocab_size), prob_dtype),
-        top_p: T.Buffer((kernel_batch, 1), prob_dtype),
-        top_k: T.Buffer((kernel_batch, 1), top_k_dtype),
-        cutoff: T.Buffer((kernel_batch, 1), prob_dtype),
+        sorted_prob: T.Tensor((kernel_batch, vocab_size), prob_dtype),
+        cumsum_sorted: T.Tensor((kernel_batch, vocab_size), prob_dtype),
+        top_p: T.Tensor((kernel_batch, 1), prob_dtype),
+        top_k: T.Tensor((kernel_batch, 1), top_k_dtype),
+        cutoff: T.Tensor((kernel_batch, 1), prob_dtype),
     ):
         for ax0, ax1 in T.grid(kernel_batch, vocab_size):
             with Ts.sblock("T_get_renorm_cutoff"):

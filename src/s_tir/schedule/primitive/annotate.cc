@@ -18,6 +18,7 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/s_tir/stmt.h>
+#include <tvm/tirx/stmt.h>
 
 #include "../utils.h"
 
@@ -29,9 +30,11 @@ void Annotate(ScheduleState self, const StmtSRef& sref, const ffi::String& ann_k
               const Any& ann_val) {
   // Extract annotation
   const ffi::Map<ffi::String, ffi::Any>* annotations = nullptr;
-  if (const auto* loop = sref->StmtAs<ForNode>()) {
+  if (const auto* loop = sref->StmtAs<ForObj>()) {
+    TVM_FFI_CHECK(ann_key != tvm::s_tir::attr::kThreadBinding.name, ValueError)
+        << "Use loop scheduling primitives to change thread binding";
     annotations = &loop->annotations;
-  } else if (const auto* block = sref->StmtAs<SBlockNode>()) {
+  } else if (const auto* block = sref->StmtAs<SBlockObj>()) {
     annotations = &block->annotations;
   } else {
     TVM_FFI_THROW(TypeError) << "Unknown type of sref: " << sref->stmt->GetTypeKey();
@@ -44,12 +47,12 @@ void Annotate(ScheduleState self, const StmtSRef& sref, const ffi::String& ann_k
   ffi::Map<ffi::String, ffi::Any> new_ann(*annotations);
   new_ann.Set(ann_key, ann_val);
   // Create the new stmt
-  if (const auto* loop = sref->StmtAs<ForNode>()) {
-    ffi::ObjectPtr<ForNode> n = ffi::make_object<ForNode>(*loop);
+  if (const auto* loop = sref->StmtAs<ForObj>()) {
+    ffi::ObjectPtr<ForObj> n = ffi::make_object<ForObj>(*loop);
     n->annotations = std::move(new_ann);
     self->Replace(sref, For(n), {});
-  } else if (const auto* block = sref->StmtAs<SBlockNode>()) {
-    ffi::ObjectPtr<SBlockNode> n = ffi::make_object<SBlockNode>(*block);
+  } else if (const auto* block = sref->StmtAs<SBlockObj>()) {
+    ffi::ObjectPtr<SBlockObj> n = ffi::make_object<SBlockObj>(*block);
     n->annotations = std::move(new_ann);
     SBlock p(n);
     self->Replace(sref, p, {{ffi::GetRef<SBlock>(block), p}});
@@ -62,9 +65,11 @@ void Annotate(ScheduleState self, const StmtSRef& sref, const ffi::String& ann_k
 void Unannotate(ScheduleState self, const StmtSRef& sref, const ffi::String& ann_key) {
   // Extract annotation
   const ffi::Map<ffi::String, ffi::Any>* annotations = nullptr;
-  if (const auto* loop = sref->StmtAs<ForNode>()) {
+  if (const auto* loop = sref->StmtAs<ForObj>()) {
+    TVM_FFI_CHECK(ann_key != tvm::s_tir::attr::kThreadBinding.name, ValueError)
+        << "Use loop scheduling primitives to change thread binding";
     annotations = &loop->annotations;
-  } else if (const auto* block = sref->StmtAs<SBlockNode>()) {
+  } else if (const auto* block = sref->StmtAs<SBlockObj>()) {
     annotations = &block->annotations;
   } else {
     TVM_FFI_THROW(TypeError) << "Unknown type of sref: " << sref->stmt->GetTypeKey();
@@ -75,12 +80,12 @@ void Unannotate(ScheduleState self, const StmtSRef& sref, const ffi::String& ann
   ffi::Map<ffi::String, ffi::Any> new_ann(*annotations);
   new_ann.erase(ann_key);
   // Create the new stmt
-  if (const auto* loop = sref->StmtAs<ForNode>()) {
-    ffi::ObjectPtr<ForNode> n = ffi::make_object<ForNode>(*loop);
+  if (const auto* loop = sref->StmtAs<ForObj>()) {
+    ffi::ObjectPtr<ForObj> n = ffi::make_object<ForObj>(*loop);
     n->annotations = std::move(new_ann);
     self->Replace(sref, For(n), {});
-  } else if (const auto* block = sref->StmtAs<SBlockNode>()) {
-    ffi::ObjectPtr<SBlockNode> n = ffi::make_object<SBlockNode>(*block);
+  } else if (const auto* block = sref->StmtAs<SBlockObj>()) {
+    ffi::ObjectPtr<SBlockObj> n = ffi::make_object<SBlockObj>(*block);
     n->annotations = std::move(new_ann);
     SBlock p(n);
     self->Replace(sref, p, {{ffi::GetRef<SBlock>(block), p}});
@@ -112,9 +117,8 @@ struct AnnotateTraits : public UnpackedInstTraits<AnnotateTraits> {
     throw;
   }
 
-  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs,
-                                      ffi::ObjectRef block_or_loop_rv, Any ann_val,
-                                      ffi::String ann_key) {
+  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::Any block_or_loop_rv,
+                                      Any ann_val, ffi::String ann_key) {
     PythonAPICall py("annotate");
     py.Input("block_or_loop", block_or_loop_rv);
     py.Input("ann_key", ann_key);
@@ -148,8 +152,8 @@ struct UnannotateTraits : public UnpackedInstTraits<UnannotateTraits> {
     throw;
   }
 
-  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs,
-                                      ffi::ObjectRef block_or_loop_rv, ffi::String ann_key) {
+  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::Any block_or_loop_rv,
+                                      ffi::String ann_key) {
     PythonAPICall py("unannotate");
     py.Input("block_or_loop", block_or_loop_rv);
     py.Input("ann_key", ann_key);

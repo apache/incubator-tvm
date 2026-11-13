@@ -19,4 +19,3 @@
 # pylint: disable=wildcard-import, invalid-name
 
 from .transform import *
-from ...tirx.transform.transform import HoistedConditionals, HoistedLetBindings

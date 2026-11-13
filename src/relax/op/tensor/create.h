@@ -25,7 +25,7 @@
 #define TVM_RELAX_OP_TENSOR_CREATE_H_
 
 #include <tvm/ffi/container/variant.h>
-#include <tvm/relax/attrs/create.h>
+#include <tvm/relax/op/create.h>
 
 #include "../op_common.h"
 #include "tvm/relax/expr.h"
@@ -41,7 +41,7 @@ namespace relax {
  * If dtype is not given, it will by default use the dtype of fill_value.
  * \return The result tensor.
  */
-Expr full(ffi::Variant<Expr, ffi::Array<PrimExpr>> shape, Expr fill_value,
+Expr full(ffi::Variant<ffi::Array<PrimExpr>, Expr> shape, Expr fill_value,
           ffi::Optional<DLDataType> dtype);
 
 /*!

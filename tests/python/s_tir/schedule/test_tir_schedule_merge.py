@@ -19,21 +19,26 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable
 
 
-@Ts.prim_func
-def elementwise(A: T.Buffer((128, 128)), C: T.Buffer((128, 128)), D: T.Buffer((64, 64))) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128))
+@Ts.function
+def elementwise(
+    A: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
+    D: T.Tensor((64, 64), "float32"),
+) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128))
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -56,11 +61,13 @@ def elementwise(A: T.Buffer((128, 128)), C: T.Buffer((128, 128)), D: T.Buffer((6
             D[vi, vj] = B[vi, vj] + T.float32(2)
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_merged(
-    A: T.Buffer((128, 128)), C: T.Buffer((128, 128)), D: T.Buffer((64, 64))
+    A: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
+    D: T.Tensor((64, 64), "float32"),
 ) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128))
+    B = Ts.sblock_alloc_tensor((128, 128))
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -84,11 +91,13 @@ def elementwise_merged(
                 D[vi, vj] = B[vi, vj] + T.float32(2)
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_merged2(
-    A: T.Buffer((128, 128)), C: T.Buffer((128, 128)), D: T.Buffer((64, 64))
+    A: T.Tensor((128, 128), "float32"),
+    C: T.Tensor((128, 128), "float32"),
+    D: T.Tensor((64, 64), "float32"),
 ) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128))
+    B = Ts.sblock_alloc_tensor((128, 128))
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -135,10 +144,12 @@ def test_merge2():
 
 
 def test_merge_fail_not_only_child():
-    @Ts.prim_func
-    def elementwise_with_seq(A: T.Buffer((128, 128, 128)), C: T.Buffer((128, 128, 128))) -> None:
-        B = Ts.sblock_alloc_buffer((128, 128, 128))
-        D = Ts.sblock_alloc_buffer((128, 128, 128))
+    @Ts.function
+    def elementwise_with_seq(
+        A: T.Tensor((128, 128, 128), "float32"), C: T.Tensor((128, 128, 128), "float32")
+    ) -> None:
+        B = Ts.sblock_alloc_tensor((128, 128, 128))
+        D = Ts.sblock_alloc_tensor((128, 128, 128))
         for i, j in T.grid(128, 128):
             for k in T.serial(0, 128):
                 with Ts.sblock("D"):
@@ -164,11 +175,11 @@ def test_merge_fail_not_only_child():
 
 
 def test_merge_fail_not_start_with_zero():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_loops_not_start_with_zero(
-        A: T.Buffer((128, 128, 128)), C: T.Buffer((128, 128, 128))
+        A: T.Tensor((128, 128, 128), "float32"), C: T.Tensor((128, 128, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((128, 128, 128))
+        B = Ts.sblock_alloc_tensor((128, 128, 128))
         for i, j in T.grid(128, 128):
             for k in T.serial(1, 128):
                 with Ts.sblock("B"):
@@ -190,11 +201,11 @@ def test_merge_fail_not_start_with_zero():
 
 
 def test_merge_fail_not_same_extent():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_loops_not_same_extent(
-        A: T.Buffer((128, 128, 128)), C: T.Buffer((128, 128, 128))
+        A: T.Tensor((128, 128, 128), "float32"), C: T.Tensor((128, 128, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((64, 128, 128))
+        B = Ts.sblock_alloc_tensor((64, 128, 128))
         for i, j in T.grid(64, 128):
             for k in T.serial(0, 128):
                 with Ts.sblock("B"):
@@ -216,11 +227,11 @@ def test_merge_fail_not_same_extent():
 
 
 def test_merge_fail_not_same_level():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_not_same_level(
-        A: T.Buffer((128, 128, 128)), C: T.Buffer((128, 128, 128))
+        A: T.Tensor((128, 128, 128), "float32"), C: T.Tensor((128, 128, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((128, 128, 128))
+        B = Ts.sblock_alloc_tensor((128, 128, 128))
         for i, j in T.grid(128, 128):
             for k in T.serial(0, 128):
                 with Ts.sblock("B"):
@@ -242,11 +253,11 @@ def test_merge_fail_not_same_level():
 
 
 def test_merge_fail_with_different_scope():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_with_different_scope(
-        A: T.Buffer((128, 128, 128)), C: T.Buffer((128, 128, 128))
+        A: T.Tensor((128, 128, 128), "float32"), C: T.Tensor((128, 128, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((128, 128, 128))
+        B = Ts.sblock_alloc_tensor((128, 128, 128))
         with Ts.sblock("A"):
             for i, j in T.grid(128, 128):
                 for k in T.serial(0, 128):
@@ -269,4 +280,4 @@ def test_merge_fail_with_different_scope():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

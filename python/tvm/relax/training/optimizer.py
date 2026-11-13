@@ -24,6 +24,7 @@ import numpy as np  # type: ignore
 import tvm_ffi
 
 import tvm
+import tvm_tirx
 
 from ..block_builder import BlockBuilder
 from ..expr import Function, TupleGetItem, Var, const
@@ -90,7 +91,7 @@ class Optimizer:
         # Legalize and build mod
         lowered_mod = LegalizeOps()(mod)
         ex = build(lowered_mod, target="llvm")
-        vm = VirtualMachine(ex, tvm.cpu())
+        vm = VirtualMachine(ex, tvm_tirx.cpu())
 
         # Optimization process
         # param_tuple is a runtime tuple of parameters
@@ -149,8 +150,11 @@ class Optimizer:
                     f"Optimizers only support Tensor parameters, but parameter {x.name} has "
                     f"type {x.ty}"
                 )
-            data_type = tvm.DataType(x.ty.dtype.dtype)
-            if data_type.type_code not in (tvm.DataTypeCode.BFLOAT, tvm.DataTypeCode.FLOAT):
+            data_type = tvm_ffi.dtype(x.ty.dtype.dtype)
+            if data_type.type_code not in (
+                tvm_tirx.DataTypeCode.BFLOAT,
+                tvm_tirx.DataTypeCode.FLOAT,
+            ):
                 raise ValueError(
                     f"Optimizers only support Tensor parameters of floating point dtype, but dtype "
                     f"of {x.name} is {x.ty.dtype}"
@@ -297,7 +301,7 @@ class SGD(Optimizer):
         self._set_params_and_dtype(params)
         self.state = (
             # num_steps = 0
-            tvm.runtime.tensor(np.zeros((), "int64")),
+            tvm_tirx.runtime.tensor(np.zeros((), "int64")),
         )
         return self
 
@@ -440,10 +444,10 @@ class MomentumSGD(Optimizer):
         self._set_params_and_dtype(params)
         self.state = (
             # num_steps = 0
-            tvm.runtime.tensor(np.zeros((), "int64")),
+            tvm_tirx.runtime.tensor(np.zeros((), "int64")),
             # v_{param} is initialized to all zeros
             *(
-                tvm.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
+                tvm_tirx.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
                 for p in self.param_list
             ),
         )
@@ -613,17 +617,17 @@ class Adam(Optimizer):
         self._set_params_and_dtype(params)
         self.state = (
             # num_steps, beta_0_prod, beta_1_prod
-            tvm.runtime.tensor(np.zeros((), "int64")),
-            tvm.runtime.tensor(np.ones((), self.dtype)),
-            tvm.runtime.tensor(np.ones((), self.dtype)),
+            tvm_tirx.runtime.tensor(np.zeros((), "int64")),
+            tvm_tirx.runtime.tensor(np.ones((), self.dtype)),
+            tvm_tirx.runtime.tensor(np.ones((), self.dtype)),
             # first_momentum
             *(
-                tvm.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
+                tvm_tirx.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
                 for p in self.param_list
             ),
             # second_momentum
             *(
-                tvm.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
+                tvm_tirx.runtime.tensor(np.zeros(_get_shape_as_int_list(p), p.ty.dtype.dtype))
                 for p in self.param_list
             ),
         )

@@ -16,12 +16,13 @@
 # under the License.
 import pytest
 
-import tvm
-import tvm.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.relax import VDevice
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def test_conv1d_op_correctness():
@@ -48,7 +49,7 @@ def test_conv3d_op_correctness():
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_conv1d_infer_ty():
@@ -166,7 +167,7 @@ def test_conv1d_infer_ty_shape_symbolic():
         bb,
         relax.op.nn.conv1d(x0, w0, strides=2, padding=1, dilation=2),
         relax.TensorType(
-            (n, ko, tvm.tirx.floordiv(iw + 3, 2) + 1 - kw),
+            (n, ko, tvm_tirx.tirx.floordiv(iw + 3, 2) + 1 - kw),
             "float32",
         ),
     )
@@ -278,9 +279,9 @@ def test_conv1d_non_positive_group():
     x = relax.Var("x", R.Tensor((2, 128, 28), "float32"))
     w = relax.Var("w", R.Tensor((48, 16, 3), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d(x, w, groups=0)
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d(x, w, groups=-2)
 
 
@@ -354,11 +355,11 @@ def test_conv1d_stride_padding_dilation_int64():
 def test_conv1d_wrong_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28), "float32"))
     w = relax.Var("w", R.Tensor((4, 3, 3), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d(x, w, strides=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d(x, w, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d(x, w, dilation=(1, 2))
 
 
@@ -644,9 +645,9 @@ def test_conv1d_transpose_non_positive_group():
     x = relax.Var("x", R.Tensor((2, 128, 28), "float32"))
     w = relax.Var("w", R.Tensor((128, 16, 3), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d_transpose(x, w, groups=0)
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d_transpose(x, w, groups=-2)
 
 
@@ -708,11 +709,11 @@ def test_conv1d_transpose_stride_padding_dilation_int64():
 def test_conv1d_transpose_wrong_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28), "float32"))
     w = relax.Var("w", R.Tensor((3, 4, 3), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d_transpose(x, w, strides=(1, 2))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d_transpose(x, w, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv1d_transpose(x, w, dilation=(1, 2))
 
 
@@ -916,7 +917,12 @@ def test_conv2d_infer_ty_shape_symbolic():
         bb,
         relax.op.nn.conv2d(x0, w0, strides=(2, 2), padding=(1, 1), dilation=(2, 2)),
         relax.TensorType(
-            (n, ko, tvm.tirx.floordiv(ih + 3, 2) + 1 - kh, tvm.tirx.floordiv(iw + 3, 2) + 1 - kw),
+            (
+                n,
+                ko,
+                tvm_tirx.tirx.floordiv(ih + 3, 2) + 1 - kh,
+                tvm_tirx.tirx.floordiv(iw + 3, 2) + 1 - kw,
+            ),
             "float32",
         ),
     )
@@ -1028,9 +1034,9 @@ def test_conv2d_non_positive_group():
     x = relax.Var("x", R.Tensor((2, 128, 28, 28), "float32"))
     w = relax.Var("w", R.Tensor((48, 16, 3, 3), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d(x, w, groups=0)
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d(x, w, groups=-2)
 
 
@@ -1108,11 +1114,11 @@ def test_conv2d_stride_padding_dilation_int64():
 def test_conv2d_wrong_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28), "float32"))
     w = relax.Var("w", R.Tensor((4, 3, 3, 3), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d(x, w, strides=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d(x, w, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d(x, w, dilation=(1, 2, 3))
 
 
@@ -1419,9 +1425,9 @@ def test_conv2d_transpose_non_positive_group():
     x = relax.Var("x", R.Tensor((2, 128, 28, 28), "float32"))
     w = relax.Var("w", R.Tensor((128, 16, 3, 3), "float32"))
 
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, groups=0)
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, groups=-2)
 
 
@@ -1496,13 +1502,13 @@ def test_conv2d_transpose_stride_padding_dilation_int64():
 def test_conv2d_transpose_wrong_strides_padding_dilation_length():
     x = relax.Var("x", R.Tensor((2, 3, 28, 28), "float32"))
     w = relax.Var("w", R.Tensor((3, 4, 3, 3), "float32"))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, strides=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, output_padding=(1, 2, 3))
-    with pytest.raises(tvm.error.InternalError):
+    with pytest.raises(RuntimeError):
         relax.op.nn.conv2d_transpose(x, w, dilation=(1, 2, 3))
 
 
@@ -1785,9 +1791,9 @@ def test_conv3d_infer_ty_shape_symbolic():
             (
                 n,
                 ko,
-                tvm.tirx.floordiv(id + 3, 2) + 1 - kd,
-                tvm.tirx.floordiv(ih + 3, 2) + 1 - kh,
-                tvm.tirx.floordiv(iw + 3, 2) + 1 - kw,
+                tvm_tirx.tirx.floordiv(id + 3, 2) + 1 - kd,
+                tvm_tirx.tirx.floordiv(ih + 3, 2) + 1 - kh,
+                tvm_tirx.tirx.floordiv(iw + 3, 2) + 1 - kw,
             ),
             "float32",
         ),
@@ -1824,4 +1830,4 @@ def test_conv3d_infer_ty_shape_var():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

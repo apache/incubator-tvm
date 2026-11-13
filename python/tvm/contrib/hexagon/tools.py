@@ -27,10 +27,23 @@ import sys
 import tarfile
 
 import numpy
+import tvm_ffi
 from tvm_ffi import register_global_func
 
-import tvm
-import tvm.support.cc as cc
+import tvm_tirx
+import tvm_tirx.support.cc as cc
+from tvm_tirx.backend.hexagon.linker import (
+    HEXAGON_LINK_MAIN as HEXAGON_LINK_MAIN,
+)
+from tvm_tirx.backend.hexagon.linker import (
+    hexagon_link as hexagon_link,
+)
+from tvm_tirx.backend.hexagon.linker import (
+    link_shared as link_shared,
+)
+from tvm_tirx.backend.hexagon.linker import (
+    register_linker as register_linker,
+)
 
 # Linking Hexagon shared libraries.
 #
@@ -49,7 +62,6 @@ import tvm.support.cc as cc
 HEXAGON_TOOLCHAIN = os.environ.get("HEXAGON_TOOLCHAIN", default="")  # pylint: disable=invalid-name
 HEXAGON_SDK_ROOT = os.environ.get("HEXAGON_SDK_ROOT", default="")  # pylint: disable=invalid-name
 HEXAGON_SDK_DOCKER_IMAGE = os.environ.get("HEXAGON_SDK_DOCKER_IMAGE", default="")  # pylint: disable=invalid-name
-HEXAGON_LINK_MAIN = pathlib.Path(HEXAGON_TOOLCHAIN) / "bin" / "hexagon-link"  # pylint: disable=invalid-name
 HEXAGON_CLANG_PLUS = pathlib.Path(HEXAGON_TOOLCHAIN) / "bin" / "hexagon-clang++"  # pylint: disable=invalid-name
 HEXAGON_SDK_INCLUDE_DIRS = [  # pylint: disable=invalid-name
     pathlib.Path(HEXAGON_SDK_ROOT) / "incs",
@@ -57,17 +69,6 @@ HEXAGON_SDK_INCLUDE_DIRS = [  # pylint: disable=invalid-name
 ]
 
 HEXAGON_SIMULATOR_NAME = "simulator"
-
-
-def register_linker(f):
-    """Register a function that will return the path to the Hexagon linker."""
-    return register_global_func("tvm.contrib.hexagon.hexagon_link", f, True)
-
-
-@register_global_func("tvm.contrib.hexagon.hexagon_link")
-def hexagon_link() -> str:
-    """Return path to the Hexagon linker."""
-    return str(HEXAGON_LINK_MAIN)
 
 
 def hexagon_clang_plus() -> str:
@@ -106,79 +107,6 @@ def toolchain_version(toolchain=None) -> list[int]:
     raise RuntimeError("Cannot establish toolchain version")
 
 
-@register_global_func("tvm.contrib.hexagon.link_shared")
-def link_shared(so_name, objs, extra_args=None):
-    """Link shared library on Hexagon using the registered Hexagon linker.
-
-    Parameters
-    ----------
-    so_name : str
-        Name of the shared library file.
-    objs : list[str, tvm.ir.StringImm]
-    extra_args : dict (str->str) or Map<String,String>
-        Additional arguments:
-            'hex_arch' - Hexagon architecture, e.g. v68
-            'verbose'  - Print additional information if the key is present
-
-    Returns
-    -------
-    ret_val : int
-        This function returns 0 at the moment.
-    """
-
-    # The list of object files can be passed as built-in Python strings,
-    # or as tvm.ir.StringImm's.
-    def to_str(s):
-        if isinstance(s, tvm.ir.StringImm):
-            return s.value
-        assert isinstance(s, str), 'argument "' + str(s) + '" should be a string or StrImm'
-        return s
-
-    objs = [to_str(s) for s in objs]
-
-    if not extra_args:
-        extra_args = {}
-    hex_arch = extra_args.get("hex_arch") or "v68"
-    linker = tvm.get_global_func("tvm.contrib.hexagon.hexagon_link")()
-    if extra_args.get("verbose"):
-        print("tvm.contrib.hexagon.link_shared:")
-        print("  Using linker:", linker)
-        print("  Library name:", so_name)
-        print("  Object files:", objs)
-        print("  Architecture:", hex_arch)
-    if not os.access(linker, os.X_OK):
-        message = 'The linker "' + linker + '" does not exist or is not executable.'
-        if not os.environ.get("HEXAGON_TOOLCHAIN"):
-            message += (
-                " The environment variable HEXAGON_TOOLCHAIN is unset. Please export "
-                + "HEXAGON_TOOLCHAIN in your environment, so that ${HEXAGON_TOOLCHAIN}/bin/"
-                + "hexagon-link exists."
-            )
-        else:
-            message += (
-                " Please verify the value of the HEXAGON_LINKER environment variable "
-                + '(currently set to "'
-                + HEXAGON_TOOLCHAIN
-                + '").'
-            )
-        raise Exception(message)
-
-    libpath = os.path.join(HEXAGON_TOOLCHAIN, "target", "hexagon", "lib", hex_arch, "G0")
-    cc.create_shared(
-        so_name,
-        objs,
-        # pylint: disable=bad-whitespace
-        options=[
-            "-Bdynamic",
-            "-shared",
-            "-export-dynamic",
-            os.path.join(libpath, "pic", "libgcc.so"),
-        ],
-        cc=linker,
-    )
-    return 0
-
-
 def link_shared_macos(so_name, objs, extra_args=None):
     """Link Hexagon shared library using docker container with proper tooling.
 
@@ -186,7 +114,7 @@ def link_shared_macos(so_name, objs, extra_args=None):
     ----------
     so_name : str
         Name of the shared library file.
-    objs : list[str, tvm.ir.StringImm]
+    objs : list[str, tvm_tirx.ir.StringImm]
     extra_args : dict (str->str) or Map<String,String>
         Additional arguments:
             'hex_arch' - Hexagon architecture, e.g. v68
@@ -200,7 +128,7 @@ def link_shared_macos(so_name, objs, extra_args=None):
     # The list of object files can be passed as built-in Python strings,
     # or as tvm.ir.StringImm's.
     def to_str(s):
-        if isinstance(s, tvm.ir.StringImm):
+        if isinstance(s, tvm_tirx.ir.StringImm):
             return s.value
         assert isinstance(s, str), 'argument "' + str(s) + '" should be a string or StrImm'
         return s
@@ -245,7 +173,6 @@ if sys.platform == "darwin":
     register_global_func("tvm.contrib.hexagon.link_shared", f=link_shared_macos, override=True)
 else:  # Linux and Win32
     create_shared = cc.create_shared
-    register_global_func("tvm.contrib.hexagon.link_shared", f=link_shared, override=True)
 
 
 def create_aot_shared(so_name: str | pathlib.Path, files, hexagon_arch: str, options=None):
@@ -301,7 +228,7 @@ def create_aot_shared(so_name: str | pathlib.Path, files, hexagon_arch: str, opt
 
 
 def pack_imports(
-    module: tvm.runtime.Module,
+    module: tvm_ffi.Module,
     is_system_lib: bool,  # pylint: disable=unused-argument
     c_symbol_prefix: str,
     workspace_dir: str,
@@ -312,7 +239,7 @@ def pack_imports(
 
     Parameters
     ----------
-    module: tvm.runtime.Module
+    module: tvm_ffi.Module
         Module whose imported modules need to be serialized.
     is_system_lib: bool
         Flag whether the exported module will be used as a system library.
@@ -329,12 +256,12 @@ def pack_imports(
 
     path_bin = os.path.join(workspace_dir, "imports.bin")
     pack_to_bin_f_name = "runtime.ModulePackImportsToTensor"
-    fpack_to_bin = tvm.get_global_func(pack_to_bin_f_name)
+    fpack_to_bin = tvm_ffi.get_global_func(pack_to_bin_f_name)
     assert fpack_to_bin, f"Expecting {pack_to_bin_f_name} in registry"
 
     fpack_to_bin(module).numpy().tofile(path_bin)
 
-    mblob_symbol = c_symbol_prefix + tvm.get_global_func("runtime.ModuleImportsBlobName")()
+    mblob_symbol = c_symbol_prefix + tvm_ffi.get_global_func("runtime.ModuleImportsBlobName")()
 
     binary_size = os.path.getsize(path_bin)
     hexagon_toolchain = os.environ.get("HEXAGON_TOOLCHAIN")
@@ -418,7 +345,7 @@ def allocate_hexagon_array(dev, tensor_shape=None, dtype=None, data=None, mem_sc
 
     physical_shape = [numpy.prod(tensor_shape)]
 
-    arr = tvm.runtime.empty(physical_shape, dtype=dtype, device=dev, mem_scope=mem_scope)
+    arr = tvm_tirx.runtime.empty(physical_shape, dtype=dtype, device=dev, mem_scope=mem_scope)
 
     if data is not None:
         arr.copyfrom(data.reshape(physical_shape))

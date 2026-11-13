@@ -20,8 +20,10 @@
 import logging
 import math
 
-from tvm import s_tir, te, tirx, topi
-from tvm.ir import Call
+import tvm_tirx
+from tvm import s_tir, te, topi
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
@@ -53,7 +55,7 @@ def _nn_conv1d(bb: BlockBuilder, call: Call) -> Expr:
         data_layout=call.attrs.data_layout,
         kernel_layout=call.attrs.kernel_layout,
         out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
-        primfunc_name_hint="conv1d",
+        function_name_hint="conv1d",
     )
 
 
@@ -82,7 +84,7 @@ def _nn_conv2d(bb: BlockBuilder, call: Call) -> Expr:
         data_layout=call.attrs.data_layout,
         kernel_layout=call.attrs.kernel_layout,
         out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
-        primfunc_name_hint="conv2d",
+        function_name_hint="conv2d",
     )
 
 
@@ -111,7 +113,7 @@ def _nn_conv3d(bb: BlockBuilder, call: Call) -> Expr:
         data_layout=call.attrs.data_layout,
         kernel_layout=call.attrs.kernel_layout,
         out_dtype=call.attrs.out_dtype if call.attrs.out_dtype != "" else None,
-        primfunc_name_hint="conv3d",
+        function_name_hint="conv3d",
     )
 
 
@@ -145,7 +147,7 @@ def _nn_conv1d_transpose(bb: BlockBuilder, call: Call) -> Expr:
         )
 
     return bb.call_te(
-        te_conv1d_transpose, call.args[0], call.args[1], primfunc_name_hint="conv1d_transpose"
+        te_conv1d_transpose, call.args[0], call.args[1], function_name_hint="conv1d_transpose"
     )
 
 
@@ -179,7 +181,7 @@ def _nn_conv2d_transpose(bb: BlockBuilder, call: Call) -> Expr:
         )
 
     return bb.call_te(
-        te_conv2d_transpose, call.args[0], call.args[1], primfunc_name_hint="conv2d_transpose"
+        te_conv2d_transpose, call.args[0], call.args[1], function_name_hint="conv2d_transpose"
     )
 
 
@@ -217,7 +219,7 @@ def _nn_conv3d_transpose(bb: BlockBuilder, call: Call) -> Expr:
         )
 
     return bb.call_te(
-        te_conv3d_transpose, call.args[0], call.args[1], primfunc_name_hint="conv3d_transpose"
+        te_conv3d_transpose, call.args[0], call.args[1], function_name_hint="conv3d_transpose"
     )
 
 
@@ -246,7 +248,7 @@ def _nn_pad(bb: BlockBuilder, call: Call) -> Expr:
             pad_before=pad_before,
             pad_after=pad_after,
             pad_value=call.attrs.pad_value,
-            primfunc_name_hint="pad",
+            function_name_hint="pad",
         )
 
 
@@ -275,7 +277,7 @@ def _nn_max_pool1d(bb: BlockBuilder, call: Call) -> Expr:
         pool_type="max",
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
-        primfunc_name_hint="max_pool1d",
+        function_name_hint="max_pool1d",
     )
 
 
@@ -298,7 +300,7 @@ def _nn_max_pool2d(bb: BlockBuilder, call: Call) -> Expr:
         pool_type="max",
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
-        primfunc_name_hint="max_pool2d",
+        function_name_hint="max_pool2d",
     )
 
 
@@ -321,7 +323,7 @@ def _nn_max_pool3d(bb: BlockBuilder, call: Call) -> Expr:
         pool_type="max",
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
-        primfunc_name_hint="max_pool3d",
+        function_name_hint="max_pool3d",
     )
 
 
@@ -345,7 +347,7 @@ def _nn_avg_pool1d(bb: BlockBuilder, call: Call) -> Expr:
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
         count_include_pad=call.attrs.count_include_pad,
-        primfunc_name_hint="avg_pool1d",
+        function_name_hint="avg_pool1d",
     )
 
 
@@ -369,7 +371,7 @@ def _nn_avg_pool2d(bb: BlockBuilder, call: Call) -> Expr:
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
         count_include_pad=call.attrs.count_include_pad,
-        primfunc_name_hint="avg_pool2d",
+        function_name_hint="avg_pool2d",
     )
 
 
@@ -393,7 +395,7 @@ def _nn_avg_pool3d(bb: BlockBuilder, call: Call) -> Expr:
         ceil_mode=call.attrs.ceil_mode,
         layout=call.attrs.layout,
         count_include_pad=call.attrs.count_include_pad,
-        primfunc_name_hint="avg_pool3d",
+        function_name_hint="avg_pool3d",
     )
 
 
@@ -420,7 +422,7 @@ def _nn_adaptive_avg_pool1d(bb: BlockBuilder, call: Call) -> Expr:
         call.args[0],
         call.attrs.output_size,
         call.attrs.layout,
-        primfunc_name_hint="adaptive_avg_pool1d",
+        function_name_hint="adaptive_avg_pool1d",
     )
 
 
@@ -448,7 +450,7 @@ def _nn_adaptive_avg_pool2d(bb: BlockBuilder, call: Call) -> Expr:
         call.args[0],
         call.attrs.output_size,
         call.attrs.layout,
-        primfunc_name_hint="adaptive_avg_pool2d",
+        function_name_hint="adaptive_avg_pool2d",
     )
 
 
@@ -477,7 +479,7 @@ def _nn_adaptive_avg_pool3d(bb: BlockBuilder, call: Call) -> Expr:
         call.args[0],
         call.attrs.output_size,
         call.attrs.layout,
-        primfunc_name_hint="adaptive_avg_pool3d",
+        function_name_hint="adaptive_avg_pool3d",
     )
 
 
@@ -507,7 +509,7 @@ def _nn_gelu(bb: BlockBuilder, call: Call) -> Expr:
 
         return x * (tirx.const(0.5, dtype) + erf * tirx.const(0.5, dtype))
 
-    return bb.call_te(te_gelu, call.args[0], primfunc_name_hint="gelu")
+    return bb.call_te(te_gelu, call.args[0], function_name_hint="gelu")
 
 
 @register_legalize("relax.nn.gelu_tanh")
@@ -527,7 +529,7 @@ def _nn_gelu_tanh(bb: BlockBuilder, call: Call) -> Expr:
             )
         )
 
-    return bb.call_te(te_gelu_tanh, call.args[0], primfunc_name_hint="gelu_tanh")
+    return bb.call_te(te_gelu_tanh, call.args[0], function_name_hint="gelu_tanh")
 
 
 @register_legalize("relax.nn.selu")
@@ -545,7 +547,7 @@ def _nn_selu(bb: BlockBuilder, call: Call) -> Expr:
         )
         return scale * (positive_part + negative_part)
 
-    return bb.call_te(te_selu, call.args[0], primfunc_name_hint="selu")
+    return bb.call_te(te_selu, call.args[0], function_name_hint="selu")
 
 
 @register_legalize("relax.nn.silu")
@@ -553,7 +555,7 @@ def _nn_silu(bb: BlockBuilder, call: Call) -> Expr:
     def te_silu(x: te.Tensor):
         return topi.multiply(x, topi.sigmoid(x))
 
-    return bb.call_te(te_silu, call.args[0], primfunc_name_hint="silu")
+    return bb.call_te(te_silu, call.args[0], function_name_hint="silu")
 
 
 @register_legalize("relax.nn.softplus")
@@ -587,7 +589,7 @@ def _nn_cross_entropy_with_logits(bb: BlockBuilder, call: Call):
         te_cross_entropy_with_logits,
         call.args[0],
         call.args[1],
-        primfunc_name_hint="cross_entropy_with_logits",
+        function_name_hint="cross_entropy_with_logits",
     )
 
 
@@ -665,7 +667,7 @@ def _nn_dropout(bb: BlockBuilder, call: Call) -> Expr:
     return bb.call_te(
         lambda x: [topi.identity(x), topi.full_like(x, 1.0)],
         call.args[0],
-        primfunc_name_hint="dropout",
+        function_name_hint="dropout",
     )
 
 
@@ -674,7 +676,7 @@ def _te_attention(
     k: te.Tensor,
     v: te.Tensor,
     bias: te.Tensor,
-    scale: tirx.FloatImm,
+    scale: tvm_tirx.ir.FloatImm,
     causal_mask: str | None,
 ) -> te.Tensor:
     batch_size, seq_len, num_head, head_dim = q.shape
@@ -699,7 +701,7 @@ def _te_attention(
         s = topi.nn.softmax(p)
     else:
         if causal_mask == "TopLeft":
-            offset = tirx.IntImm("int32", 0)
+            offset = tvm_tirx.ir.IntImm("int32", 0)
         elif causal_mask == "BottomRight":
             offset = tirx.abs(seq_len - seq_len_kv).astype("int32")
         else:
@@ -728,7 +730,7 @@ def _nn_attention(bb: BlockBuilder, call: Call) -> Expr:
         None,
         call.attrs.scale,
         call.attrs.causal_mask,
-        primfunc_name_hint="attention",
+        function_name_hint="attention",
     )
 
 
@@ -745,7 +747,7 @@ def _nn_attention_bias(bb: BlockBuilder, call: Call) -> Expr:
         call.args[3],
         call.attrs.scale,
         call.attrs.causal_mask,
-        primfunc_name_hint="attention_bias",
+        function_name_hint="attention_bias",
     )
 
 

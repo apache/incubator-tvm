@@ -18,24 +18,24 @@
 
 from typing import Any
 
-import tvm
+import tvm_tirx
 from tvm import relax
 
 INPUT_SHAPE_TYPE = list[tuple[tuple[int, ...], str]]  # pylint: disable=invalid-name
 
 
 def _dtype_str(dtype) -> str:
-    if isinstance(dtype, tvm.ir.PrimType):
+    if isinstance(dtype, tvm_tirx.ir.PrimType):
         dtype = dtype.dtype
     return str(dtype)
 
 
-def get_func_name_from_gv(gv: tvm.ir.GlobalVar) -> str:  # pylint: disable=invalid-name
+def get_func_name_from_gv(gv: tvm_tirx.ir.GlobalVar) -> str:  # pylint: disable=invalid-name
     """Get function name from a global variable.
 
     Parameters
     ----------
-    gv : tvm.ir.GlobalVar
+    gv : tvm_tirx.ir.GlobalVar
         The given global variable.
 
     Returns
@@ -46,12 +46,12 @@ def get_func_name_from_gv(gv: tvm.ir.GlobalVar) -> str:  # pylint: disable=inval
     return gv.name_hint
 
 
-def dym_var_sample_str(sample: dict[str | tvm.ir.Call, int]) -> str:
+def dym_var_sample_str(sample: dict[str | tvm_tirx.ir.Call, int]) -> str:
     """Convert a variable value sample to a string.
 
     Parameters
     ----------
-    sample : Dict[Union[str, tvm.ir.Call], int]
+    sample : Dict[Union[str, tvm_tirx.ir.Call], int]
         Variable value sample, e.g., {n: 64, m: 128} or {"n": 64, "m": 128}
 
     Returns
@@ -90,7 +90,7 @@ def populuate_input_shape(
         if isinstance(input_info, relax.ShapeType):
             # scalar input
             value = input_info.values[0]
-            key = value.name if isinstance(value, tvm.ir.Var) else str(value)
+            key = value.name if isinstance(value, tvm_tirx.ir.Var) else str(value)
             results.append(((dym_var_sample[key],), "scalar"))
         else:
             if isinstance(input_info, relax.TensorType):
@@ -101,10 +101,10 @@ def populuate_input_shape(
             for dim in tensor_shape:
                 if isinstance(dim, int):
                     shape.append(dim)
-                elif isinstance(dim, tvm.tirx.IntImm):
+                elif isinstance(dim, tvm_tirx.ir.IntImm):
                     shape.append(dim.value)
                 else:
-                    key = dim.name if isinstance(dim, tvm.ir.Var) else str(dim)
+                    key = dim.name if isinstance(dim, tvm_tirx.ir.Var) else str(dim)
                     shape.append(dym_var_sample[key])
             results.append(((*shape,), _dtype_str(tensor_dtype)))
     return results

@@ -29,11 +29,11 @@
 #include "RPCArgs.h"
 
 // internal TVM header
-#include <../../../src/runtime/file_utils.h>
+#include <tvm/support/file_utils.h>
 
 #if defined(USE_CUSTOM_DSO_LOADER) && USE_CUSTOM_DSO_LOADER == 1
 // internal TVM header to achieve Library class
-#include <../../../3rdparty/tvm-ffi/src/ffi/extra/library_module.h>
+#include <../../../3rdparty/tvm-tirx/3rdparty/tvm-ffi/src/ffi/extra/library_module.h>
 #include <custom_dlfcn.h>
 #endif
 
@@ -63,7 +63,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                   })
       .def_packed("tvm.rpc.server.load_module", [](ffi::PackedArgs args, ffi::Any* rv) {
         auto name = args[0].cast<std::string>();
-        std::string fmt = GetFileFormat(name, "");
+        std::string fmt = support::GetFileFormat(name, "");
         NSString* base;
         if (fmt == "dylib") {
           // only load dylib from frameworks.

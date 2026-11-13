@@ -19,25 +19,27 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.testing import assert_allclose
-from tvm.testing.utils import check_numerical_grads
+from tvm.relax.testing.gradient import check_numerical_grads
+from tvm.testing import device_enabled
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.testing import assert_allclose
 
 
 def rand(dtype, *shape):
-    return tvm.runtime.tensor(np.random.rand(*shape).astype(dtype))
+    return tvm_tirx.runtime.tensor(np.random.rand(*shape).astype(dtype))
 
 
 def _legalize_and_build(mod, target):
     ex = tvm.compile(mod, target)
-    vm = relax.VirtualMachine(ex, tvm.device_from_target(target))
+    vm = relax.VirtualMachine(ex, tvm_tirx.device_from_target(target))
     return vm
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_manual_gradient():
     target = "llvm"
 
@@ -85,7 +87,7 @@ def test_manual_gradient():
         assert_allclose(i.numpy(), j, atol=1e-4)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_mlp_blockbuilder():
     target = "llvm"
     layers, in_size, out_size, hidden_size, batch_size = 3, 5, 5, 5, 4
@@ -126,7 +128,7 @@ def test_mlp_blockbuilder():
         shape = [int(l) for l in arg.ty.shape]
         if arg.ty.dtype == "int64":
             args.append(
-                tvm.runtime.tensor(np.random.randint(0, out_size, size=shape).astype(np.int64))
+                tvm_tirx.runtime.tensor(np.random.randint(0, out_size, size=shape).astype(np.int64))
             )
         else:  # float32
             args.append(rand("float32", *shape))
@@ -136,19 +138,19 @@ def test_mlp_blockbuilder():
     _, grad = vm_after["MLP_adjoint"](*args)
 
     def func(*inputs):
-        loss = vm_before["MLP"](args[0], *[tvm.runtime.tensor(i) for i in inputs], args[-1])
+        loss = vm_before["MLP"](args[0], *[tvm_tirx.runtime.tensor(i) for i in inputs], args[-1])
         return loss.numpy()
 
     check_numerical_grads(func, [i.numpy() for i in args[1:-1]], [i.numpy() for i in grad])
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_complex():
     target = "llvm"
     cst = relax.const(np.ones((6,)), dtype="float32")
     cst1 = relax.const(np.array(3), dtype="int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(x: R.Tensor((6,), "float32"), y: R.Tensor((6, 3, 4), "float32")):
@@ -193,17 +195,17 @@ def test_complex():
     _, grad = vm_after["main_adjoint"](*args)
 
     def func(*inputs):
-        loss = vm_before["main"](*[tvm.runtime.tensor(i) for i in inputs])
+        loss = vm_before["main"](*[tvm_tirx.runtime.tensor(i) for i in inputs])
         return loss.numpy()
 
     check_numerical_grads(func, [i.numpy() for i in args], [i.numpy() for i in grad])
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_matmul():
     target = "llvm"
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Before:
         @R.function
         def main(x: R.Tensor((3, 3), "float32"), y: R.Tensor((3, 3), "float32")):
@@ -232,11 +234,11 @@ def test_matmul():
     _, grad = vm_after["main_adjoint"](*args)
 
     def func(*inputs):
-        loss = vm_before["main"](*[tvm.runtime.tensor(i) for i in inputs])
+        loss = vm_before["main"](*[tvm_tirx.runtime.tensor(i) for i in inputs])
         return loss.numpy()
 
     check_numerical_grads(func, [i.numpy() for i in args], [i.numpy() for i in grad])
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

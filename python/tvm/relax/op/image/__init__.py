@@ -17,4 +17,10 @@
 # under the License.
 """Image operators."""
 
-from .image import affine_grid, grid_sample, resize2d, resize3d
+from .image import (
+    Resize2DAttrs,
+    affine_grid,
+    grid_sample,
+    resize2d,
+    resize3d,
+)

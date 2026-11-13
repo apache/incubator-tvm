@@ -18,10 +18,10 @@
 
 from collections.abc import Callable
 
+import tvm_ffi
 from tvm_ffi import register_object
 
-from tvm.ir import IRModule
-from tvm.runtime import Object
+from tvm_tirx.ir import IRModule
 
 from ..expr import Expr, Function, Var
 from . import _ffi as ffi
@@ -30,7 +30,7 @@ from .pattern import DFPattern
 
 
 @register_object("relax.dpl.PatternMatchingRewriter")
-class PatternMatchingRewriter(Object):
+class PatternMatchingRewriter(tvm_ffi.Object):
     """A pattern-matching rewriter for Relax"""
 
     @staticmethod

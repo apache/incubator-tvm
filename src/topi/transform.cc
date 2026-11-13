@@ -53,13 +53,14 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def_packed("topi.flip",
                   [](ffi::PackedArgs args, ffi::Any* rv) {
                     // pass empty seq_lengths tensor to reverse_sequence
-                    *rv = reverse_sequence(args[0].cast<te::Tensor>(), te::Tensor(),
+                    *rv = reverse_sequence(args[0].cast<te::Tensor>(), std::nullopt,
                                            args[1].cast<int>());
                   })
       .def_packed("topi.reverse_sequence",
                   [](ffi::PackedArgs args, ffi::Any* rv) {
                     int batch_axis = args.size() >= 4 ? args[3].cast<int>() : 0;
-                    *rv = reverse_sequence(args[0].cast<te::Tensor>(), args[1].cast<te::Tensor>(),
+                    *rv = reverse_sequence(args[0].cast<te::Tensor>(),
+                                           args[1].cast<ffi::Optional<te::Tensor>>(),
                                            args[2].cast<int>(), batch_axis);
                   })
       .def_packed("topi.reshape",

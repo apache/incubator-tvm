@@ -18,56 +18,61 @@
 tvm.support
 -----------
 .. automodule:: tvm.support
+   :members: libinfo, describe
+
+tvm_tirx.support
+----------------
+.. automodule:: tvm_tirx.support
    :members:
    :imported-members:
    :autosummary:
 
-tvm.support.cc
-~~~~~~~~~~~~~~
-.. automodule:: tvm.support.cc
+tvm_tirx.support.cc
+~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.cc
     :members:
 
-tvm.support.nvcc
-~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.nvcc
+tvm_tirx.support.nvcc
+~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.nvcc
     :members:
 
-tvm.support.rocm
-~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.rocm
+tvm_tirx.support.rocm
+~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.rocm
     :members:
 
-tvm.support.ndk
-~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.ndk
+tvm_tirx.support.ndk
+~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.ndk
     :members:
 
-tvm.support.xcode
-~~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.xcode
-    :members:
-
-tvm.support.clang
-~~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.clang
-    :members:
-
-tvm.support.emcc
-~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.emcc
-    :members:
-
-tvm.support.popen_pool
+tvm_tirx.support.xcode
 ~~~~~~~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.popen_pool
+.. automodule:: tvm_tirx.support.xcode
     :members:
 
-tvm.support.utils
-~~~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.utils
+tvm_tirx.support.clang
+~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.clang
     :members:
 
-tvm.support.tar
-~~~~~~~~~~~~~~~
-.. automodule:: tvm.support.tar
+tvm.contrib.emcc
+~~~~~~~~~~~~~~~~
+.. automodule:: tvm.contrib.emcc
+    :members:
+
+tvm_tirx.support.popen_pool
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.popen_pool
+    :members:
+
+tvm_tirx.support.utils
+~~~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.utils
+    :members:
+
+tvm_tirx.support.tar
+~~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.support.tar
     :members:

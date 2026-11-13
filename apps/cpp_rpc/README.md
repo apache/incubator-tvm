@@ -19,48 +19,48 @@
 This folder contains a simple recipe to make RPC server in c++.
 
 ## Usage (Non-Windows)
-- Configure the tvm CMake build with `config.cmake` ensuring that `USE_CPP_RPC` is set to `ON` in the config.
-- If cross compiling for Android, add the following options to the CMake config or specify them when invoking CMake:
-```
-  # Whether to build the C++ RPC server binary
-  set(USE_CPP_RPC ON)
-  # Path to the Android NDK CMake toolchain
-  set(CMAKE_TOOLCHAIN_FILE $ENV{ANDROID_NDK}/build/cmake/android.toolchain.cmake)
-  # The Android ABI and platform to target
-  set(ANDROID_ABI "arm64-v8a")
-  set(ANDROID_PLATFORM android-28)
-  ```
-- Similarly, if cross compiling for embedded Linux add the following options to CMake config:
-```
-  # Needed to ensure pthread is linked
-  set(OS Linux)
-  # Path to the desired C++ cross compiler
-  set(CMAKE_CXX_COMPILER /path/to/cross/compiler/executable)
-```
-- If you need to build cpp_rpc with OpenCL support, specify variable `USE_OPENCL` in the config:
-  ```
-  set(USE_OPENCL ON)
-  ```
-  In this case [OpenCL-wrapper](../../src/runtime/opencl/opencl_wrapper) or OpenCL installed to your system will be used.
-  When OpenCL-wrapper is used, it will dynamically load OpenCL library on the device.
-  If the device doesn't have OpenCL library on it, then you'll see in the runtime that OpenCL library cannot be opened.
 
-  If linking against a custom device OpenCL library is needed, in the config specify the path to the OpenCL SDK containing the include/CL headers and lib/ or lib64/libOpenCL.so:
-```
-  set(USE_OPENCL /path/to/opencl-sdk)
+Configure from the TVM repository root with `cmake -S . -B build -DTVM_USE_CPP_RPC=ON`.
+For a runtime-only build without LLVM or CUDA, also pass
+`-DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF`.
+For Android cross compilation, pass the toolchain and target options explicitly:
+
+```bash
+cmake -S . -B build -DTVM_USE_CPP_RPC=ON \
+  -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF \
+  -DCMAKE_TOOLCHAIN_FILE="$ANDROID_NDK/build/cmake/android.toolchain.cmake" \
+  -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28
 ```
 
-- From within the configured tvm build directory, compile `tvm_runtime` and the `tvm_rpc` server:
+For embedded Linux, configure with the cross compiler:
+
+```bash
+cmake -S . -B build -DTVM_USE_CPP_RPC=ON \
+  -DTVM_TIRX_USE_LLVM=OFF -DTVM_TIRX_USE_CUDA=OFF \
+  -DOS=Linux -DCMAKE_CXX_COMPILER=/path/to/cross/compiler/executable
 ```
-  cmake --build $TVM_ROOT/build --target tvm_runtime tvm_rpc -j$(nproc)
+
+For OpenCL support, add `-DTVM_TIRX_USE_OPENCL=ON`. The
+[OpenCL wrapper](../../3rdparty/tvm-tirx/src/runtime/opencl/opencl_wrapper) dynamically loads
+the device's OpenCL library when a system OpenCL SDK is unavailable. The device
+must provide an OpenCL library at runtime. To link against a custom OpenCL SDK,
+pass `-DTVM_TIRX_USE_OPENCL=/path/to/opencl-sdk`; that SDK should contain the
+`include/CL` headers and `lib/` or `lib64/libOpenCL.so`.
+
+Build the runtime and RPC server:
+
+```bash
+cmake --build build --target tvm_runtime tvm_rpc --parallel
 ```
-- Use `./tvm_rpc server` to start the RPC server
+
+Use `./build/tvm_rpc server` to start the RPC server.
 
 ## Usage (Windows)
-- Configure the tvm CMake build with `config.cmake` ensuring that `USE_CPP_RPC` is set to `ON` in the config.
+
+- Configure the TVM build with `cmake -S . -B build -DTVM_USE_CPP_RPC=ON`.
 - Install [LLVM pre-build binaries](https://releases.llvm.org/download.html), making sure to select the option to add it to the PATH.
 - Verify Python 3.6 or newer is installed and in the PATH.
-- Use `<tvm_output_dir>\tvm_rpc.exe` to start the RPC server
+- Use `<tvm_output_dir>\tvm_rpc.exe` to start the RPC server.
 
 ## How it works
 - The tvm runtime dll is linked along with this executable and when the RPC server starts it will load the tvm runtime library.

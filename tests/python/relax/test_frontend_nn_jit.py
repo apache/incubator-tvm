@@ -18,11 +18,11 @@
 import pytest
 import torch
 
-import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.frontend import nn
 from tvm.relax.frontend.nn import spec
+from tvm_tirx import tirx
 
 
 @pytest.mark.parametrize("debug", [True, False])
@@ -84,7 +84,7 @@ def test_jit_with_effect(debug):
     }
     mod = Layer()
 
-    with tvm.transform.PassContext(opt_level=3):
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
         model = mod.jit(spec=forward_spec, debug=debug)
 
     x0 = torch.rand((1, 10, 5), dtype=torch.float32)
@@ -205,4 +205,4 @@ def test_jit_tuple_input_with_int(debug):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

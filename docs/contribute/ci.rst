@@ -28,7 +28,7 @@ TVM uses a combination of Jenkins and GitHub Actions for continuous integration 
 - **Jenkins** runs Linux CI tests on
   `branches <https://ci.tlcpack.ai/job/tvm/>`_ and
   `pull requests <https://ci.tlcpack.ai/job/tvm/view/change-requests/>`_ through a
-  build configuration specified in `Jenkinsfile templates <https://github.com/apache/tvm/blob/main/ci/jenkins/templates/>`_.
+  build configuration specified in `Jenkins pipelines <https://github.com/apache/tvm/blob/main/ci/jenkins/generated/>`_.
   Jenkins is the primary CI step that is codified to block merging.
 - **GitHub Actions** runs `linting <https://github.com/apache/tvm/blob/main/.github/workflows/lint.yml>`_
   (via pre-commit hooks) on pushes and pull requests, as well as minimal

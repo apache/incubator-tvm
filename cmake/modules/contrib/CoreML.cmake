@@ -15,12 +15,13 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if(USE_COREML)
+if(TVM_USE_COREML)
   message(STATUS "Build with contrib.coreml")
   find_library(FOUNDATION_LIB Foundation)
   find_library(COREML_LIB Coreml)
-  tvm_file_glob(GLOB COREML_CONTRIB_SRC src/runtime/extra/contrib/coreml/*.mm)
+  file(GLOB COREML_CONTRIB_SRC CONFIGURE_DEPENDS src/runtime/extra/contrib/coreml/*.mm)
   add_library(tvm_coreml_objs OBJECT ${COREML_CONTRIB_SRC})
+  tvm_configure_target(tvm_coreml_objs)
   target_link_libraries(tvm_coreml_objs PRIVATE tvm_runtime_extra_defs)
   target_link_libraries(tvm_runtime_extra PRIVATE tvm_coreml_objs ${FOUNDATION_LIB} ${COREML_LIB})
-endif(USE_COREML)
+endif(TVM_USE_COREML)

@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_QDQ_H_
 #define TVM_RELAX_OP_TENSOR_QDQ_H_
 
-#include <tvm/relax/attrs/qdq.h>
+#include <tvm/relax/op/qdq.h>
 
 namespace tvm {
 namespace relax {

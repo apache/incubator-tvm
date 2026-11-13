@@ -17,15 +17,15 @@
 # pylint: disable=missing-docstring
 # ruff: noqa: E501
 
-import tvm
-import tvm.script
-import tvm.testing
-from tvm.ir.base import assert_structural_equal
+import tvm_tirx
+import tvm_tirx.script
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.backend import DispatchSampling
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 @I.ir_module
@@ -44,14 +44,14 @@ class MultiFromUniformModule:
 
 def test_dispatch_multinomial_from_uniform_generic():
     # fmt: off
-    batch = T.dynamic("batch")
-    vocab_size = T.dynamic("vocab_size")
-    out_batch = T.dynamic("out_batch")
+    batch = T.dynamic("batch", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
+    out_batch = T.dynamic("out_batch", "int64")
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
-        def get_sample_index(prob: T.Buffer((batch, vocab_size)), usample: T.Buffer((out_batch, 1)), sample_indices: T.Buffer((out_batch, 1), 'int64'), output_index: T.Buffer((out_batch, 1), 'int64')):
+        @Ts.function(private=True)
+        def get_sample_index(prob: T.Tensor((batch, vocab_size), "float32"), usample: T.Tensor((out_batch, 1), "float32"), sample_indices: T.Tensor((out_batch, 1), 'int64'), output_index: T.Tensor((out_batch, 1), 'int64')):
 
             # with Ts.sblock("root"):
             for ax0, ax1 in T.grid(out_batch, vocab_size):
@@ -69,51 +69,50 @@ def test_dispatch_multinomial_from_uniform_generic():
             cls = Expected
             with R.dataflow():
                 lv: R.Tensor((3, 5), dtype="float32") = R.cumsum(prob, axis=1, dtype="float32", exclusive=0)
-                gv = R.call_tir(cls.get_sample_index, (lv, uniform_sample, sample_indices), out_ty=R.Tensor((6, 1), dtype="int64"))
+                gv = R.call_tir(cls.get_sample_index, (lv, uniform_sample, sample_indices), ty_args=[R.Tensor((6, 1), dtype="int64")])
                 R.output(gv)
             return gv
     # fmt: on
 
-    with tvm.target.Target("llvm"):
-        mod = DispatchSampling()(MultiFromUniformModule)
+    mod = DispatchSampling(target=tvm_tirx.target.Target("llvm"))(MultiFromUniformModule)
 
     assert_structural_equal(mod, Expected)
 
 
 def test_dispatch_multinomial_from_uniform_gpu():
     # fmt: off
-    n = T.dynamic("n")
-    vocab_size = T.dynamic("vocab_size")
-    batch_size = T.dynamic("batch_size")
+    n = T.dynamic("n", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
+    batch_size = T.dynamic("batch_size", "int64")
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def parallel_sampling_from_prob(prob: T.Buffer((n, vocab_size)), uniform_samples: T.Buffer((batch_size, 1)), row_indices: T.Buffer((batch_size, 1), 'int64'), token_ids: T.Buffer((batch_size, 1), 'int64')):
+        @Ts.function
+        def parallel_sampling_from_prob(prob: T.Tensor((n, vocab_size), "float32"), uniform_samples: T.Tensor((batch_size, 1), "float32"), row_indices: T.Tensor((batch_size, 1), 'int64'), token_ids: T.Tensor((batch_size, 1), 'int64')):
             T.func_attr({"tirx.is_scheduled": True})
 
             # with Ts.sblock("root"):
-            aggregate = Ts.sblock_alloc_buffer((), scope="local")
-            sample_id_local = Ts.sblock_alloc_buffer((), "int64", scope="local")
-            step_iter = Ts.sblock_alloc_buffer((), "int32", scope="local")
-            for bx in T.thread_binding(batch_size, thread="blockIdx.x"):
+            aggregate = Ts.sblock_alloc_tensor((), scope="local")
+            sample_id_local = Ts.sblock_alloc_tensor((), "int64", scope="local")
+            step_iter = Ts.sblock_alloc_tensor((), "int32", scope="local")
+            for bx in T.parallel(batch_size, annotations={"thread_binding": "blockIdx.x"}):
                 row_idx: T.let[T.int64] = T.Cast("int64", row_indices[bx, 0])
-                for ty in T.thread_binding(T.int64(4), thread="threadIdx.y"):
-                    for tx in T.thread_binding(T.int64(32), thread="threadIdx.x"):
+                for ty in T.parallel(T.int64(4), annotations={"thread_binding": "threadIdx.y"}):
+                    for tx in T.parallel(T.int64(32), annotations={"thread_binding": "threadIdx.x"}):
                         u: T.let[T.float32] = uniform_samples[bx, 0]
                         aggregate[()] = T.Cast("float32", 0)
                         step_iter[()] = 0
-                        while T.tvm_thread_invariant((step_iter[()] == 0 or aggregate[()] < u - T.float32(9.9999999999999995e-07)) and T.Cast("int64", step_iter[()]) < T.Cast("int64", (vocab_size + T.int64(512) - T.int64(1)) // T.int64(512))):
+                        while T.gpu_thread_invariant((step_iter[()] == 0 or aggregate[()] < u - T.float32(9.9999999999999995e-07)) and T.Cast("int64", step_iter[()]) < T.Cast("int64", (vocab_size + T.int64(512) - T.int64(1)) // T.int64(512))):
                             with Ts.sblock(""):
                                 Ts.reads(step_iter[()], prob[row_idx, T.Cast("int64", step_iter[()]) * T.int64(512) + ty * T.int64(128) + tx * T.int64(4):T.Cast("int64", step_iter[()]) * T.int64(512) + ty * T.int64(128) + tx * T.int64(4) + T.int64(4)], aggregate[()])
                                 Ts.writes(sample_id_local[()], aggregate[()])
-                                prob_gt_threshold = Ts.sblock_alloc_buffer((T.int64(4),), scope="local")
-                                cumsum = Ts.sblock_alloc_buffer((T.int64(512),), scope="shared")
-                                greater_than_u = Ts.sblock_alloc_buffer((T.int64(4),), "bool", scope="local")
-                                mask = Ts.sblock_alloc_buffer((T.int64(4),), "bool", scope="local")
-                                valid = Ts.sblock_alloc_buffer((T.int64(4),), "bool", scope="local")
-                                indices = Ts.sblock_alloc_buffer((T.int64(4),), "int64", scope="local")
-                                step_aggregate = Ts.sblock_alloc_buffer((), scope="local")
+                                prob_gt_threshold = Ts.sblock_alloc_tensor((T.int64(4),), scope="local")
+                                cumsum = Ts.sblock_alloc_tensor((T.int64(512),), scope="shared")
+                                greater_than_u = Ts.sblock_alloc_tensor((T.int64(4),), "bool", scope="local")
+                                mask = Ts.sblock_alloc_tensor((T.int64(4),), "bool", scope="local")
+                                valid = Ts.sblock_alloc_tensor((T.int64(4),), "bool", scope="local")
+                                indices = Ts.sblock_alloc_tensor((T.int64(4),), "int64", scope="local")
+                                step_aggregate = Ts.sblock_alloc_tensor((), scope="local")
                                 for v in T.unroll(T.int64(4)):
                                     idx: T.let[T.int64] = T.Cast("int64", step_iter[()]) * T.int64(512) + ty * T.int64(128) + tx * T.int64(4) + v
                                     prob_local: T.let[T.float32] = T.if_then_else(idx < vocab_size, prob[row_idx, idx], T.Cast("float32", 0))
@@ -122,8 +121,8 @@ def test_dispatch_multinomial_from_uniform_gpu():
                                 with Ts.sblock(""):
                                     Ts.reads(prob_gt_threshold[T.int64(0):T.int64(4)])
                                     Ts.writes(step_aggregate[()])
-                                    local_sum = Ts.sblock_alloc_buffer((), scope="local")
-                                    shared_buf = Ts.sblock_alloc_buffer((T.int64(128),), scope="shared")
+                                    local_sum = Ts.sblock_alloc_tensor((), scope="local")
+                                    shared_buf = Ts.sblock_alloc_tensor((T.int64(128),), scope="shared")
                                     idx: T.let[T.int64] = ty * T.int64(32) + tx
                                     local_sum[()] = T.Cast("float32", 0)
                                     for i in T.unroll(T.int64(4)):
@@ -133,7 +132,7 @@ def test_dispatch_multinomial_from_uniform_gpu():
                                         if idx % T.shift_left(T.int64(1), i + T.int64(1)) == T.int64(0):
                                             shared_buf[idx] = shared_buf[idx] + shared_buf[idx + T.shift_left(T.int64(1), i)]
                                     step_aggregate[()] = shared_buf[0]
-                                if T.tvm_thread_invariant(aggregate[()] + step_aggregate[()] >= u - T.float32(9.9999999999999995e-07)):
+                                if T.gpu_thread_invariant(aggregate[()] + step_aggregate[()] >= u - T.float32(9.9999999999999995e-07)):
                                     for i in T.unroll(T.int64(1), T.int64(4)):
                                         prob_gt_threshold[i] = prob_gt_threshold[i] + prob_gt_threshold[i - T.int64(1)]
                                     for i in T.vectorized(T.int64(4)):
@@ -153,7 +152,7 @@ def test_dispatch_multinomial_from_uniform_gpu():
                                     with Ts.sblock(""):
                                         Ts.reads(greater_than_u[T.int64(0):T.int64(4)])
                                         Ts.writes(mask[T.int64(0):T.int64(4)])
-                                        shared_buf = Ts.sblock_alloc_buffer((T.int64(128),), "bool", scope="shared")
+                                        shared_buf = Ts.sblock_alloc_tensor((T.int64(128),), "bool", scope="shared")
                                         tx_idx: T.let[T.int64] = ty * T.int64(32) + tx
                                         shared_buf[tx_idx] = greater_than_u[T.int64(3)]
                                         mask[0] = T.if_then_else(tx_idx != T.int64(0), T.Cast("int8", greater_than_u[0]) != T.Cast("int8", shared_buf[tx_idx - T.int64(1)]), greater_than_u[0])
@@ -165,8 +164,8 @@ def test_dispatch_multinomial_from_uniform_gpu():
                                     with Ts.sblock(""):
                                         Ts.reads(mask[T.int64(0):T.int64(4)], indices[T.int64(0):T.int64(4)])
                                         Ts.writes(sample_id_local[()])
-                                        local_sum = Ts.sblock_alloc_buffer((), "int64", scope="local")
-                                        shared_buf = Ts.sblock_alloc_buffer((T.int64(128),), "int64", scope="shared")
+                                        local_sum = Ts.sblock_alloc_tensor((), "int64", scope="local")
+                                        shared_buf = Ts.sblock_alloc_tensor((T.int64(128),), "int64", scope="shared")
                                         idx: T.let[T.int64] = ty * T.int64(32) + tx
                                         local_sum[()] = T.Cast("int64", vocab_size - T.int64(1))
                                         for i in T.unroll(T.int64(4)):
@@ -186,16 +185,15 @@ def test_dispatch_multinomial_from_uniform_gpu():
         def foo(prob: R.Tensor((3, 5), dtype="float32"), uniform_sample: R.Tensor((6, 1), dtype="float32"), sample_indices: R.Tensor((6, 1), dtype="int64")) -> R.Tensor((6, 1), dtype="int64"):
             cls = Expected
             with R.dataflow():
-                gv = R.call_tir(cls.parallel_sampling_from_prob, (prob, uniform_sample, sample_indices), out_ty=R.Tensor((6, 1), dtype="int64"))
+                gv = R.call_tir(cls.parallel_sampling_from_prob, (prob, uniform_sample, sample_indices), ty_args=[R.Tensor((6, 1), dtype="int64")])
                 R.output(gv)
             return gv
     # fmt: on
 
-    with tvm.target.Target("cuda"):
-        mod = DispatchSampling()(MultiFromUniformModule)
+    mod = DispatchSampling(target=tvm_tirx.target.Target("cuda"))(MultiFromUniformModule)
 
     assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

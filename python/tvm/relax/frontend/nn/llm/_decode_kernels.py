@@ -31,9 +31,9 @@ Contents:
 import math
 from typing import Any
 
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 from ._kernel_common import (
     _get_kv_chunk_len,
@@ -65,17 +65,17 @@ def _attention_decode_cpu(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, slidi
     k_rope_pos_offset_elem_offset = T.dynamic("k_rope_pos_offset_elem_offset", "int32")
     q_rope_position_elem_offset = T.dynamic("q_rope_position_elem_offset", "int32")
     length_info_elem_offset = T.dynamic("length_info_elem_offset", "int32")
-    @Ts.prim_func
+    @Ts.function
     def batch_decode_paged_kv(
-        Q: T.Buffer((B, H_qo, D), qkv_dtype),
-        pages: T.Buffer((max_num_pages, 2, H_kv, page_size, D), qkv_dtype),
-        page_table_indptr: T.Buffer((B + 1,), 'int32', elem_offset=page_indptr_elem_offset),
-        page_table_values: T.Buffer((nnz_pages,), 'int32', elem_offset=page_values_elem_offset),
+        Q: T.Tensor((B, H_qo, D), qkv_dtype),
+        pages: T.Tensor((max_num_pages, 2, H_kv, page_size, D), qkv_dtype),
+        page_table_indptr: T.Tensor((B + 1,), 'int32', layout=T.TileLayout(T.S[(B + 1,)] + (page_indptr_elem_offset))),
+        page_table_values: T.Tensor((nnz_pages,), 'int32', layout=T.TileLayout(T.S[(nnz_pages,)] + (page_values_elem_offset))),
         length_info: _length_info_buffer(B, sliding_window, length_info_elem_offset),  # [b] when sliding window = False, or otherwise [3, b]
-        k_rope_pos_offset: T.Buffer((B,), 'int32', elem_offset=k_rope_pos_offset_elem_offset),
-        q_rope_position: T.Buffer((B,), 'int32', elem_offset=q_rope_position_elem_offset),
-        output: T.Buffer((B, H_qo, D), qkv_dtype),
-        lse: T.Buffer((B, H_qo), 'float32'),
+        k_rope_pos_offset: T.Tensor((B,), 'int32', layout=T.TileLayout(T.S[(B,)] + (k_rope_pos_offset_elem_offset))),
+        q_rope_position: T.Tensor((B,), 'int32', layout=T.TileLayout(T.S[(B,)] + (q_rope_position_elem_offset))),
+        output: T.Tensor((B, H_qo, D), qkv_dtype),
+        lse: T.Tensor((B, H_qo), 'float32'),
         rotary_mode: T.int32,
         rope_scale: T.float32,
         rope_theta: T.float32,
@@ -95,19 +95,19 @@ def _attention_decode_cpu(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, slidi
 
         for b in T.serial(B):
             with Ts.sblock("attn"):
-                O_local = Ts.sblock_alloc_buffer((D,), "float32")
-                Q_local = Ts.sblock_alloc_buffer((D,), "float32")
-                K_local = Ts.sblock_alloc_buffer((D,), "float32")
-                V_local = Ts.sblock_alloc_buffer((D,), "float32")
+                O_local = Ts.sblock_alloc_tensor((D,), "float32")
+                Q_local = Ts.sblock_alloc_tensor((D,), "float32")
+                K_local = Ts.sblock_alloc_tensor((D,), "float32")
+                V_local = Ts.sblock_alloc_tensor((D,), "float32")
 
-                kv_chunk_len = Ts.sblock_alloc_buffer((1,), "int32")
+                kv_chunk_len = Ts.sblock_alloc_tensor((1,), "int32")
 
-                m_val = Ts.sblock_alloc_buffer((1,), "float32")
-                new_m = Ts.sblock_alloc_buffer((1,), "float32")
-                d_val = Ts.sblock_alloc_buffer((1,), "float32")
-                S_val = Ts.sblock_alloc_buffer((1,), "float32")
-                scale_O = Ts.sblock_alloc_buffer((1,), "float32")
-                factor = Ts.sblock_alloc_buffer((1,), "float32")
+                m_val = Ts.sblock_alloc_tensor((1,), "float32")
+                new_m = Ts.sblock_alloc_tensor((1,), "float32")
+                d_val = Ts.sblock_alloc_tensor((1,), "float32")
+                S_val = Ts.sblock_alloc_tensor((1,), "float32")
+                scale_O = Ts.sblock_alloc_tensor((1,), "float32")
+                factor = Ts.sblock_alloc_tensor((1,), "float32")
 
                 cur_page_indptr_begin: T.let[T.int32] = page_table_indptr[b]
                 cur_page_indptr_end: T.let[T.int32] = page_table_indptr[b + 1]
@@ -206,23 +206,23 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
     B = T.dynamic("B", "int32")
     nnz_pages = T.dynamic("nnz_pages", "int32")
     max_num_pages = T.dynamic("max_num_pages", "int32")
-    pages_elem_offset = T.dynamic("pages_elem_offset")
+    pages_elem_offset = T.dynamic("pages_elem_offset", "int64")
     page_indptr_elem_offset = T.dynamic("page_indptr_elem_offset", "int32")
     page_values_elem_offset = T.dynamic("page_values_elem_offset", "int32")
     k_rope_pos_offset_elem_offset = T.dynamic("k_rope_pos_offset_elem_offset", "int32")
     q_rope_position_elem_offset = T.dynamic("q_rope_position_elem_offset", "int32")
     length_info_elem_offset = T.dynamic("length_info_elem_offset", "int32")
-    @Ts.prim_func
+    @Ts.function
     def batch_decode_paged_kv(
-        Q: T.Buffer((B, H_qo, D), qkv_dtype),
-        pages: T.Buffer((max_num_pages, 2, H_kv, page_size, D), qkv_dtype, elem_offset=pages_elem_offset),
-        page_table_indptr: T.Buffer((B + 1,), 'int32', elem_offset=page_indptr_elem_offset),
-        page_table_values: T.Buffer((nnz_pages,), 'int32', elem_offset=page_values_elem_offset),
+        Q: T.Tensor((B, H_qo, D), qkv_dtype),
+        pages: T.Tensor((max_num_pages, 2, H_kv, page_size, D), qkv_dtype, layout=T.TileLayout(T.S[(max_num_pages, 2, H_kv, page_size, D)] + (pages_elem_offset))),
+        page_table_indptr: T.Tensor((B + 1,), 'int32', layout=T.TileLayout(T.S[(B + 1,)] + (page_indptr_elem_offset))),
+        page_table_values: T.Tensor((nnz_pages,), 'int32', layout=T.TileLayout(T.S[(nnz_pages,)] + (page_values_elem_offset))),
         length_info: _length_info_buffer(B, sliding_window, length_info_elem_offset), # [b] when sliding window = False, or otherwise [3, b]
-        k_rope_pos_offset: T.Buffer((B,), 'int32', elem_offset=k_rope_pos_offset_elem_offset),
-        q_rope_position: T.Buffer((B,), 'int32', elem_offset=q_rope_position_elem_offset),
-        output: T.Buffer((B, H_qo, D), qkv_dtype),
-        lse: T.Buffer((B, H_qo), 'float32'),
+        k_rope_pos_offset: T.Tensor((B,), 'int32', layout=T.TileLayout(T.S[(B,)] + (k_rope_pos_offset_elem_offset))),
+        q_rope_position: T.Tensor((B,), 'int32', layout=T.TileLayout(T.S[(B,)] + (q_rope_position_elem_offset))),
+        output: T.Tensor((B, H_qo, D), qkv_dtype),
+        lse: T.Tensor((B, H_qo), 'float32'),
         rotary_mode: T.int32,
         rope_scale: T.float32,
         rope_theta: T.float32,
@@ -232,34 +232,34 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
 
           # pylint: disable=unused-variable
 
-        for bx in T.thread_binding(B, thread="blockIdx.x"):
-            for fused_by_bz in T.thread_binding(H_kv * gdz, thread="blockIdx.y"):
-                for ty in T.thread_binding(bdy, thread="threadIdx.y"):
-                    for tx in T.thread_binding(bdx, thread="threadIdx.x"):
-                        for tz in T.thread_binding(bdz, thread="threadIdx.z"):
+        for bx in T.parallel(B, annotations={"thread_binding": "blockIdx.x"}):
+            for fused_by_bz in T.parallel(H_kv * gdz, annotations={"thread_binding": "blockIdx.y"}):
+                for ty in T.parallel(bdy, annotations={"thread_binding": "threadIdx.y"}):
+                    for tx in T.parallel(bdx, annotations={"thread_binding": "threadIdx.x"}):
+                        for tz in T.parallel(bdz, annotations={"thread_binding": "threadIdx.z"}):
                             with Ts.sblock("attn"):
-                                Q_local = Ts.sblock_alloc_buffer((VEC_SIZE,), qkv_dtype, scope="local")
-                                kv_chunk_len = Ts.sblock_alloc_buffer((1,), "int32", scope="local")
-                                K_smem = Ts.sblock_alloc_buffer((bdz * bdy * tile_size_per_bdx, D), qkv_dtype, scope="shared")
-                                V_smem = Ts.sblock_alloc_buffer((bdz * bdy * tile_size_per_bdx, D), qkv_dtype, scope="shared")
-                                O_allreduce = Ts.sblock_alloc_buffer((bdz, bdy, D), "float32", scope="shared")
-                                md_allreduce = Ts.sblock_alloc_buffer((bdz, bdy, 2), "float32", scope="shared")
-                                S_reduce_local = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                t0 = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
+                                Q_local = Ts.sblock_alloc_tensor((VEC_SIZE,), qkv_dtype, scope="local")
+                                kv_chunk_len = Ts.sblock_alloc_tensor((1,), "int32", scope="local")
+                                K_smem = Ts.sblock_alloc_tensor((bdz * bdy * tile_size_per_bdx, D), qkv_dtype, scope="shared")
+                                V_smem = Ts.sblock_alloc_tensor((bdz * bdy * tile_size_per_bdx, D), qkv_dtype, scope="shared")
+                                O_allreduce = Ts.sblock_alloc_tensor((bdz, bdy, D), "float32", scope="shared")
+                                md_allreduce = Ts.sblock_alloc_tensor((bdz, bdy, 2), "float32", scope="shared")
+                                S_reduce_local = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                t0 = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
 
-                                S_local = Ts.sblock_alloc_buffer((bdy * tile_size_per_bdx), "float32", scope="local")
-                                QK_local = Ts.sblock_alloc_buffer((VEC_SIZE,), "float32", scope="local")
-                                V_local = Ts.sblock_alloc_buffer((VEC_SIZE,), qkv_dtype, scope="local")
-                                m_prev = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                d_prev = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                other_m = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                other_d = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                exp_mprev = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                exp_otherm = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                other_o = Ts.sblock_alloc_buffer((VEC_SIZE,), "float32", scope="local")
-                                st_m = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                st_d = Ts.sblock_alloc_buffer((1,), "float32", scope="local")
-                                O_local = Ts.sblock_alloc_buffer((VEC_SIZE,), "float32", scope="local")
+                                S_local = Ts.sblock_alloc_tensor((bdy * tile_size_per_bdx), "float32", scope="local")
+                                QK_local = Ts.sblock_alloc_tensor((VEC_SIZE,), "float32", scope="local")
+                                V_local = Ts.sblock_alloc_tensor((VEC_SIZE,), qkv_dtype, scope="local")
+                                m_prev = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                d_prev = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                other_m = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                other_d = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                exp_mprev = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                exp_otherm = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                other_o = Ts.sblock_alloc_tensor((VEC_SIZE,), "float32", scope="local")
+                                st_m = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                st_d = Ts.sblock_alloc_tensor((1,), "float32", scope="local")
+                                O_local = Ts.sblock_alloc_tensor((VEC_SIZE,), "float32", scope="local")
 
                                 by: T.let[T.int32] = fused_by_bz % H_kv
                                 bz: T.let[T.int32] = fused_by_bz // H_kv
@@ -310,13 +310,13 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
                                                 for vec in T.vectorized(VEC_SIZE):
                                                     K_smem[tile_start_s + j, tx * VEC_SIZE + vec] = 0.0
                                                     V_smem[tile_start_s + j, tx * VEC_SIZE + vec] = 0.0
-                                    T.tvm_storage_sync("shared")
+                                    T.gpu_storage_sync("shared")
                                     # compute QK
                                     m_prev[0] = st_m[0]
                                     for j in T.serial(bdy * tile_size_per_bdx):
                                         # compute S = Q * K * sm_scale
                                         for vec in T.vectorized(VEC_SIZE):
-                                            QK_local[vec] = T.cast(Q_local[vec], "float32") * T.cast(K_smem[tz * bdy * tile_size_per_bdx + j, tx * VEC_SIZE + vec], "float32") * sm_scale * math.log2(math.exp(1))
+                                            QK_local[vec] = T.cast(Q_local[vec], ty="float32") * T.cast(K_smem[tz * bdy * tile_size_per_bdx + j, tx * VEC_SIZE + vec], ty="float32") * sm_scale * math.log2(math.exp(1))
                                         S_reduce_local[0] = 0
                                         for vec in T.unroll(VEC_SIZE):
                                             S_reduce_local[0] += QK_local[vec]
@@ -324,12 +324,7 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
                                         with Ts.sblock("block_cross_thread"):
                                             Ts.reads(S_reduce_local[0])
                                             Ts.writes(t0[0])
-                                            T.attr(
-                                                T.comm_reducer(lambda x0, y0: x0 + y0, [T.float32(0)]),
-                                                "reduce_scope",
-                                                T.int32(0),
-                                            )
-                                            T.tvm_thread_allreduce(T.uint32(1), S_reduce_local[0], True, t0[0], tx, dtype="void")
+                                            T.gpu_thread_allreduce(T.Lambda([T.float32, T.float32], lambda x0, y0: (x0 + y0,)), (T.float32(0),), (S_reduce_local[0],), True, (t0[0],), (tx,))
 
                                         S_local[j] = -5e4
                                         if (iterator * bdz + tz) * bdy * tile_size_per_bdx + j < kv_chunk_len[0]:
@@ -352,7 +347,7 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
                                         for vec in T.vectorized(VEC_SIZE):
                                             V_local[vec] = V_smem[tz * bdy * tile_size_per_bdx + j, tx * VEC_SIZE + vec]
                                         for vec in T.vectorized(VEC_SIZE):
-                                            O_local[vec] += T.cast(V_local[vec], "float32") * S_local[j]
+                                            O_local[vec] += T.cast(V_local[vec], ty="float32") * S_local[j]
 
                                 if bdz > 1:
                                     # allreduce over bdz
@@ -360,7 +355,7 @@ def _attention_decode(num_kv_heads, num_qo_heads, head_dim, qkv_dtype, sliding_w
                                         O_allreduce[tz, ty, tx * VEC_SIZE + vec] = O_local[vec]
                                     md_allreduce[tz, ty, 0] = st_m[0]
                                     md_allreduce[tz, ty, 1] = st_d[0]
-                                    T.tvm_storage_sync("shared")
+                                    T.gpu_storage_sync("shared")
 
                                     st_m[0] = -5e4
                                     st_d[0] = 1.0
@@ -398,12 +393,12 @@ def _merge_state_inplace_cpu(v_dtype):
     N = T.dynamic("N", "int32")
     H = T.dynamic("H", "int32")
     D = T.dynamic("D", "int32")
-    @Ts.prim_func
+    @Ts.function
     def merge_state_inplace_cpu(
-        V: T.Buffer((N, H, D), v_dtype),
-        S: T.Buffer((N, H), 'float32'),
-        V_other: T.Buffer((N, H, D), v_dtype),
-        S_other: T.Buffer((N, H), 'float32'),
+        V: T.Tensor((N, H, D), v_dtype),
+        S: T.Tensor((N, H), 'float32'),
+        V_other: T.Tensor((N, H, D), v_dtype),
+        S_other: T.Tensor((N, H), 'float32'),
     ):
         T.func_attr({"tirx.is_scheduled": True})
 
@@ -443,19 +438,19 @@ def _merge_state_inplace(num_heads, head_dim, v_dtype, target: Target, global_sy
     N = T.dynamic("N", "int32")
     H = T.dynamic("H", "int32")
     D = T.dynamic("D", "int32")
-    @Ts.prim_func
+    @Ts.function
     def merge_state_inplace(
-        V: T.Buffer((N, H, D), v_dtype),
-        S: T.Buffer((N, H), 'float32'),
-        V_other: T.Buffer((N, H, D), v_dtype),
-        S_other: T.Buffer((N, H), 'float32'),
+        V: T.Tensor((N, H, D), v_dtype),
+        S: T.Tensor((N, H), 'float32'),
+        V_other: T.Tensor((N, H, D), v_dtype),
+        S_other: T.Tensor((N, H), 'float32'),
     ):
         T.func_attr({"tirx.is_scheduled": True})
 
-        for bx in T.thread_binding(N, thread="blockIdx.x"):
-            for by in T.thread_binding(gdy, thread="blockIdx.y"):
-                for ty in T.thread_binding(bdy, thread="threadIdx.y"):
-                    for tx in T.thread_binding(bdx, thread="threadIdx.x"):
+        for bx in T.parallel(N, annotations={"thread_binding": "blockIdx.x"}):
+            for by in T.parallel(gdy, annotations={"thread_binding": "blockIdx.y"}):
+                for ty in T.parallel(bdy, annotations={"thread_binding": "threadIdx.y"}):
+                    for tx in T.parallel(bdx, annotations={"thread_binding": "threadIdx.x"}):
                         with Ts.sblock("merge"):
                             s_val = _var("float32")
                             s_other_val = _var("float32")
@@ -463,8 +458,8 @@ def _merge_state_inplace(num_heads, head_dim, v_dtype, target: Target, global_sy
                             scale = _var("float32")
                             other_scale = _var("float32")
 
-                            v_vec = Ts.sblock_alloc_buffer((VEC_SIZE,), v_dtype, scope="local")
-                            v_other_vec = Ts.sblock_alloc_buffer((VEC_SIZE,), v_dtype, scope="local")
+                            v_vec = Ts.sblock_alloc_tensor((VEC_SIZE,), v_dtype, scope="local")
+                            v_other_vec = Ts.sblock_alloc_tensor((VEC_SIZE,), v_dtype, scope="local")
 
                             s_val[0] = S[bx, ty + by * bdy]
                             s_other_val[0] = S_other[bx, ty + by * bdy]
@@ -494,7 +489,7 @@ def _merge_state_inplace(num_heads, head_dim, v_dtype, target: Target, global_sy
                             # above, so none may overwrite it until all of them have read it.
                             # Without this barrier the threads only stay in step while bdx fits
                             # in one warp, and a head_dim above 128 makes bdx wider than that.
-                            T.tvm_storage_sync("shared")
+                            T.gpu_storage_sync("shared")
                             if tx == 0:
                                 S[bx, ty + by * bdy] = T.log2(s_val[0] + s_other_val[0]) + s_max[0]
 

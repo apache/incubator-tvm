@@ -23,7 +23,7 @@
 #include <tvm/tirx/function.h>
 namespace tvm {
 namespace s_tir {
-tirx::PrimFunc StmtSimplify(tirx::PrimFunc func, const sym::Analyzer& analyzer);
+tirx::Function StmtSimplify(tirx::Function func, const sym::Analyzer& analyzer);
 }  // namespace s_tir
 }  // namespace tvm
 #endif  // TVM_S_TIR_TRANSFORM_STMT_SIMPLIFY_H_

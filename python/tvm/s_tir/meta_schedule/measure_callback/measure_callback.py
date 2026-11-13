@@ -20,14 +20,14 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
 # isort: on
 
 from tvm_ffi import register_object
-
-from tvm.runtime import Object
 
 from .. import _ffi_api
 from ..builder import BuilderResult
@@ -39,7 +39,7 @@ if TYPE_CHECKING:
 
 
 @register_object("s_tir.meta_schedule.MeasureCallback")
-class MeasureCallback(Object):
+class MeasureCallback(tvm_ffi.Object):
     """Rules to apply after measure results is available."""
 
     CallbackListType = Union[list["MeasureCallback"], "MeasureCallback", Literal["default"]]

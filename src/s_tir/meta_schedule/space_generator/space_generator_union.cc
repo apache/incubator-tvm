@@ -25,19 +25,19 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The union of design space generators. */
-class SpaceGeneratorUnionNode : public SpaceGeneratorNode {
+class SpaceGeneratorUnionObj : public SpaceGeneratorObj {
  public:
   /*! \brief The array of design space generators unioned, could be recursive. */
   ffi::Array<SpaceGenerator> space_generators;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SpaceGeneratorUnionNode>().def_ro("space_generators",
-                                                      &SpaceGeneratorUnionNode::space_generators);
+    refl::ObjectDef<SpaceGeneratorUnionObj>().def_ro("space_generators",
+                                                     &SpaceGeneratorUnionObj::space_generators);
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final {
-    SpaceGeneratorNode::InitializeWithTuneContext(context);
+    SpaceGeneratorObj::InitializeWithTuneContext(context);
     for (const SpaceGenerator& space_generator : space_generators) {
       space_generator->InitializeWithTuneContext(context);
     }
@@ -55,7 +55,7 @@ class SpaceGeneratorUnionNode : public SpaceGeneratorNode {
   }
 
   SpaceGenerator Clone() const final {
-    ffi::ObjectPtr<SpaceGeneratorUnionNode> n = ffi::make_object<SpaceGeneratorUnionNode>(*this);
+    ffi::ObjectPtr<SpaceGeneratorUnionObj> n = ffi::make_object<SpaceGeneratorUnionObj>(*this);
     n->space_generators = ffi::Array<SpaceGenerator>();
     for (const SpaceGenerator& space_generator : this->space_generators) {
       n->space_generators.push_back(space_generator->Clone());
@@ -64,7 +64,7 @@ class SpaceGeneratorUnionNode : public SpaceGeneratorNode {
     return SpaceGenerator(n);
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.SpaceGeneratorUnion",
-                                    SpaceGeneratorUnionNode, SpaceGeneratorNode);
+                                    SpaceGeneratorUnionObj, SpaceGeneratorObj);
 };
 
 /*!
@@ -76,7 +76,7 @@ SpaceGenerator SpaceGenerator::SpaceGeneratorUnion(
     ffi::Array<SpaceGenerator> space_generators, ffi::Optional<ffi::Array<ScheduleRule>> sch_rules,
     ffi::Optional<ffi::Array<Postproc>> postprocs,
     ffi::Optional<ffi::Map<Mutator, FloatImm>> mutator_probs) {
-  ffi::ObjectPtr<SpaceGeneratorUnionNode> n = ffi::make_object<SpaceGeneratorUnionNode>();
+  ffi::ObjectPtr<SpaceGeneratorUnionObj> n = ffi::make_object<SpaceGeneratorUnionObj>();
   n->sch_rules = std::move(sch_rules);
   n->postprocs = std::move(postprocs);
   n->mutator_probs = std::move(mutator_probs);
@@ -84,7 +84,7 @@ SpaceGenerator SpaceGenerator::SpaceGeneratorUnion(
   return SpaceGenerator(n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { SpaceGeneratorUnionNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { SpaceGeneratorUnionObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

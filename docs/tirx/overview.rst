@@ -37,7 +37,7 @@ is built on top of the TVM compiler infrastructure.
 
    A TIRx kernel keeps orchestration — pipeline state, roles, synchronization,
    and backend intrinsics — in hardware-native source, while execution scope,
-   tensor layout, and tile primitive dispatch expose the recurring tile
+   tensor layout, and tile op dispatch expose the recurring tile
    structure to the compiler. Higher-level systems build on the same structure.
 
 Design Philosophy
@@ -58,15 +58,15 @@ kernel that frequently require expert control — pipeline structure,
 synchronization, role assignment, memory placement, and backend intrinsics — in
 hardware-native source code. At the same time, it exposes the recurring tile-level
 structure to the compiler through three constructs: *execution scope*, *tensor
-layout*, and *tile primitive dispatch*. Orchestration stays in hardware-native
+layout*, and *tile op dispatch*. Orchestration stays in hardware-native
 source code, while the recurring tile-level structure becomes visible to the
 compiler. Hardware-native control is powerful but costs engineering effort;
-exposing recurring operations as tile primitives relieves this, since authors
+exposing recurring operations as tile ops relieves this, since authors
 reuse a dispatched implementation instead of re-writing the same operation for
 each kernel and backend.
 
 The result is a DSL that can **grow with the hardware**. A new feature can first
-be used directly as a native intrinsic, and later become a reusable primitive
+be used directly as a native intrinsic, and later become a reusable tile op
 once the pattern stabilizes. This is the core design philosophy behind TIRx:
 keep the foundation small and explicit, and let the backend library evolve as
 new accelerator generations arrive.
@@ -76,9 +76,9 @@ new accelerator generations arrive.
 The Programming Model
 ---------------------
 
-A TIRx program reads as a structured native kernel: loops, branches, buffers,
+A TIRx program reads as a structured native kernel: loops, branches, tensors,
 synchronization, pipeline state, backend intrinsics, and hardware roles are
-written directly. Tile primitives appear exactly where a repeated hardware-level
+written directly. Tile ops appear exactly where a repeated hardware-level
 operation should become reusable and dispatchable.
 
 Authoring layers and IR
@@ -100,10 +100,10 @@ program, but enter the compiler at different levels:
      - Representation and lowering
    * - Core language
      - ``Tx.*``
-     - Creates TIRx statements, expressions, buffers, and control flow.
-   * - Tile primitives
-     - ``Tx.tile.*``
-     - Creates a ``TilePrimitiveCall`` that is replaced by a target-specific
+     - Creates TIRx statements, expressions, tensors, and control flow.
+   * - Tile ops
+     - ``Tx.cuda.tile.*`` / ``Tx.trn.tile.*``
+     - Creates an ordinary void ``Call`` that is replaced by its backend instruction
        implementation during tile dispatch.
    * - Backend operations
      - ``Tx.cuda.*`` and ``Tx.ptx.*``
@@ -117,7 +117,7 @@ convert the program to the separate ``tvm.tir`` object model.
 .. code-block:: text
 
    Tx.* ──────────────────────────────▶ TIRx statements and expressions ──────┐
-   Tx.tile.* ─▶ TilePrimitiveCall ─▶ target dispatch ─────────────────────────┤
+   backend.tile.* ─▶ Evaluate(Call) ─▶ instruction lowering ─────────────────────────┤
    Tx.cuda.* / Tx.ptx.* ─────────────▶ backend calls ─────────────────────────┤
                                                                                ▼
                                              layout and scope lowering ─▶ codegen
@@ -128,15 +128,15 @@ Execution scope
 ~~~~~~~~~~~~~~~~~
 
 Execution scope describes both the active participants and the logical scope of
-a primitive invocation. Control flow such as ``if wg_id == ...``,
+a tile op invocation. Control flow such as ``if wg_id == ...``,
 ``warp_id == ...``, or ``cbx == ...`` selects which hardware roles enter a
 region, while predicates such as ``Tx.cuda.elect_sync()`` further select the
 issuing lane within each active warp. To obtain one issuer for a wider scope,
 first select one warp and then use ``elect_sync`` inside it.
 
-The primitive namespace is also part of the scope. For example,
-``Tx.tile.wg.*`` denotes warpgroup-level primitives, while an unqualified
-``Tx.tile.*`` call defaults to thread-level invocation.
+Tile ops declare their execution scope explicitly. For example,
+``scope="warpgroup"`` selects warpgroup cooperation; ``scope="thread"``
+is the default on backend tensor instructions.
 
 Tensor layout
 ~~~~~~~~~~~~~~
@@ -145,10 +145,10 @@ Tensor layout, with a storage-first interface, describes how logical
 tensors map to physical resources. A tile may live in global memory, shared
 memory, per-thread local storage, tensor memory, or accelerator SRAM.
 Users declare where each tile lives and how its elements are spread across
-lanes, warps, and per-thread storage elements; tile primitive dispatch reads
-those declarations to choose an implementation. A layout is a storage
-description, not a loop-transformation utility: users may construct a tile's
-layout, but never use layouts to transform loops.
+lanes, warps, and per-thread storage elements; tile op lowering uses
+those declarations to validate operand mappings and generate addresses. A layout
+is a storage description, not a loop-transformation utility: users may construct
+a tile's layout, but never use layouts to transform loops.
 
 .. seealso::
 
@@ -156,31 +156,33 @@ layout, but never use layouts to transform loops.
    design rationale — is described in :doc:`layout`, which also has an
    interactive explorer.
 
-Tile primitive dispatch
-~~~~~~~~~~~~~~~~~~~~~~~~~
+Tile op dispatch
+~~~~~~~~~~~~~~~~
 
-Tile primitive dispatch selects an implementation according to the primitive,
-the current execution scope, the operand layouts, and the target backend. For
-example:
+Each backend registers lowering implementations for its tile ops. On CUDA,
+the caller selects an exact PTX instruction, including its qualifiers::
 
-- On CUDA, ``copy`` currently selects fixed-width or automatically vectorized
-  loads/stores, ``ldmatrix`` / ``stmatrix``, or a scalar fallback.  The
-  asynchronous ``copy_async`` primitive has separate ``ldgsts``, TMA,
-  distributed-shared-memory, and tensor-memory variants.
-- On CUDA, ``gemm`` currently selects an ``mma.m16n8k*`` implementation, while
-  ``gemm_async`` selects ``tcgen05``.  Trainium registers its own ``copy``,
-  ``gemm``, reduction, and elementwise implementations.
+   Tx.cuda.tile.apply(Tx.ptx["ld.global.v4.b32"], registers, global_words)
 
-Once a variant is selected, dispatch generates the loops and addressing to
-apply that instruction across the whole tile.
+Each instruction defines a canonical operand pattern. The caller prepares
+views with the required atom coordinates and repeat axes; lowering checks the
+operand shapes, physical layouts, and execution scope, then emits that same
+instruction for each repeat coordinate. The caller controls vector width,
+matrix shape, transpose mode, temporary storage, and synchronization.
+``Tx.cuda.tile.ewise`` repeats a caller-defined scalar function over registers.
+
+Trainium exposes named instruction ops such as ``load``, ``store``,
+``tensor_copy``, ``matmul``, and ``tensorreduce``. Their lowering checks the
+instruction's operand and layout requirements and generates the corresponding
+NKI calls.
 
 Putting it together
 ~~~~~~~~~~~~~~~~~~~~~
 
 Across a full kernel, orchestration stays in ordinary source code, and the
-recurring hardware operations appear as tile primitives. For the building blocks —
-TMA loads, ``tcgen05`` async MMA, reductions, and the rest — see the per-dispatch
-walkthroughs in :doc:`tile_primitives`.
+recurring hardware operations appear as tile ops. For the building blocks —
+TMA loads, ``tcgen05`` async MMA, Trainium reductions, and the rest — see the
+instruction walkthroughs in :doc:`tile_ops`.
 
 What TIRx Enables
 -----------------
@@ -194,7 +196,7 @@ A stable extension boundary for future hardware
 
 New hardware support is a staged process rather than a redesign of the DSL: a
 feature is first exposed as a backend intrinsic, then promoted into a tile
-primitive once the usage pattern repeats. Future hardware grows the backend
+op once the usage pattern repeats. Future hardware grows the backend
 library, not the core language.
 
 Megakernels and composable tile tasks
@@ -239,6 +241,6 @@ Next Steps
 - :doc:`install` — install TIRx and the kernel library.
 - :doc:`native_basics/cuda/first_kernel` — write and compile a first CUDA kernel.
 - :doc:`programming/index` — the complete programming guide.
-- :doc:`layout` and :doc:`tile_primitives` — reusable tensor and tile abstractions.
+- :doc:`layout` and :doc:`tile_ops` — reusable tensor and tile abstractions.
 - :doc:`arch/index` — compiler internals (lowering pipeline, passes, codegen).
 - :doc:`api/index` — authoring, IR, compiler, and extension API signatures.

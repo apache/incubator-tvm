@@ -15,10 +15,10 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=invalid-name,missing-docstring
-import tvm
+import tvm_tirx
+from tvm.relax import script as R
 from tvm.relax.frontend import nn
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm_tirx.script import ir as I
 
 
 def _iter_binding_names(mod):
@@ -76,11 +76,11 @@ def test_nn_export_to_relax():
             }
         }
     )
-    tvm.ir.assert_structural_equal(mod, ExpectedModule)
+    tvm_tirx.ir.assert_structural_equal(mod, ExpectedModule)
 
     for name, expected_name in zip(_iter_binding_names(mod), _iter_binding_names(ExpectedModule)):
         assert name == expected_name
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

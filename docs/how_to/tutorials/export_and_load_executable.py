@@ -38,7 +38,7 @@ using ``tvm.relax`` APIs.
 ######################################################################
 # Introduction
 # ------------
-# TVM builds Relax programs into ``tvm.runtime.Executable`` objects. These
+# TVM builds Relax programs into ``tvm_tirx.codegen.Executable`` objects. These
 # contain VM bytecode, compiled kernels, and constants. By exporting the
 # executable with :py:meth:`export_library`, you obtain a shared library (for
 # example ``.so`` on Linux) that can be shipped to another machine, uploaded
@@ -65,6 +65,7 @@ except ImportError:  # pragma: no cover
 import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend.torch import from_exported_program
 
@@ -115,7 +116,7 @@ if RUN_EXAMPLE:
 # executable. Passing ``workspace_dir`` keeps the intermediate packaging files,
 # which is useful to inspect what was produced.
 
-TARGET = tvm.target.Target("llvm")
+TARGET = tvm_tirx.target.Target("llvm")
 ARTIFACT_DIR = Path("relax_export_artifacts")
 ARTIFACT_DIR.mkdir(exist_ok=True)
 
@@ -159,16 +160,16 @@ if RUN_EXAMPLE:
 # runtime module directly.
 
 if RUN_EXAMPLE:
-    loaded_rt_mod = tvm.runtime.load_module(str(library_path))
-    dev = tvm.cpu(0)
+    loaded_rt_mod = tvm_tirx.runtime.load_module(str(library_path))
+    dev = tvm_tirx.cpu(0)
     vm = relax.VirtualMachine(loaded_rt_mod, dev)
 
     # Prepare input data
     input_tensor = torch.randn(1, 1, 28, 28, dtype=torch.float32)
-    vm_input = tvm.runtime.tensor(input_tensor.numpy(), dev)
+    vm_input = tvm_tirx.runtime.tensor(input_tensor.numpy(), dev)
 
     # Prepare parameters (allocate on target device)
-    vm_params = [tvm.runtime.tensor(p, dev) for p in params["main"]]
+    vm_params = [tvm_tirx.runtime.tensor(p, dev) for p in params["main"]]
 
     # Run inference: pass input data followed by all parameters
     tvm_output = vm["main"](vm_input, *vm_params)
@@ -353,7 +354,7 @@ if RUN_EXAMPLE:
 #
 #    # Step 4: Load and run on remote device
 #    lib = remote.load_module("mlp_arm.so")
-#    vm = relax.VirtualMachine(lib, remote.cpu())
+#    vm = rpc.virtual_machine(lib, remote.cpu())
 #    # ... prepare input and params, then run inference
 #
 # The key difference is using an ARM target triple during compilation and

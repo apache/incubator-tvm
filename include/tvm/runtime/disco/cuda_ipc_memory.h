@@ -21,7 +21,8 @@
 #define TVM_RUNTIME_DISCO_CUDA_IPC_MEMORY_H_
 
 #include <tvm/runtime/base.h>
-#include <tvm/runtime/memory/memory_manager.h>
+#include <tvm/runtime/extra_base.h>
+#include <tvm/runtime/tensor.h>
 
 #include <vector>
 
@@ -79,17 +80,22 @@ class CUDAIPCMemoryObj : public ffi::Object {
  */
 class CUDAIPCMemory : public ffi::ObjectRef {
  public:
-  /*! \brief Get the global singleton CUDAIPCMemory allocator. */
-  TVM_RUNTIME_DLL static memory::Allocator* GlobalAllocator();
+  /*! \brief Get the global singleton CUDAIPCMemory pool. */
+  TVM_RUNTIME_EXTRA_DLL static TensorMemoryPool* GlobalMemoryPool();
   /*!
    * \brief Given a local CUDA data pointer, return the CUDAIPCMemory object of the pointer.
    * \note The pointer's CUDAIPCMemory is expected to have been allocated
    * through global function "cuda_ipc.alloc_storage". Or otherwise this
    * function will raise exception.
    */
-  TVM_RUNTIME_DLL static CUDAIPCMemory GetIPCMemoryFromDevicePtr(void* ptr);
+  TVM_RUNTIME_EXTRA_DLL static CUDAIPCMemory GetIPCMemoryFromDevicePtr(void* ptr);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(CUDAIPCMemory, ffi::ObjectRef, CUDAIPCMemoryObj);
+  explicit CUDAIPCMemory(ffi::UnsafeInit tag, ffi::ObjectPtr<CUDAIPCMemoryObj> n)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(n);
+  }
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(CUDAIPCMemory, ffi::ObjectRef, CUDAIPCMemoryObj);
 };
 
 }  // namespace cuda_ipc

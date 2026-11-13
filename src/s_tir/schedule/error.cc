@@ -51,7 +51,6 @@ ffi::String ScheduleErrorContextObj::RenderReport(const ffi::String& primitive) 
   int n_locs = locs.size();
   std::string msg = DetailRenderTemplate();
   PrinterConfig cfg;
-  cfg->syntax_sugar = false;
   if (n_locs > 0) {
     for (int i = 0; i < n_locs; ++i) {
       std::string name = locs[i]->GetTypeKey() + '#' + std::to_string(i);

@@ -15,9 +15,9 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.ir
-------
-.. automodule:: tvm.ir
+tvm_tirx.ir
+-----------
+.. automodule:: tvm_tirx.ir
    :members:
    :imported-members:
    :exclude-members: Expr

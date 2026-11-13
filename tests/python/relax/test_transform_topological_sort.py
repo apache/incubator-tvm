@@ -17,9 +17,10 @@
 # ruff: noqa: F841
 
 import tvm
-import tvm.testing
-from tvm.script import ir as I
-from tvm.script import relax as R
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
 
 
 def test_depth_first_from_inputs():
@@ -59,7 +60,7 @@ def test_depth_first_from_inputs():
         order="depth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_input_with_constant():
@@ -110,7 +111,7 @@ def test_depth_first_from_input_with_constant():
         order="depth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_input_with_multiple_inputs():
@@ -151,7 +152,7 @@ def test_depth_first_from_input_with_multiple_inputs():
         order="depth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_break_ties_by_existing_order():
@@ -194,7 +195,7 @@ def test_depth_first_break_ties_by_existing_order():
         order="depth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_output():
@@ -237,7 +238,7 @@ def test_depth_first_from_output():
         order="depth-first",
         direction="from-outputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_output_tuple_with_binding():
@@ -280,7 +281,7 @@ def test_depth_first_from_output_tuple_with_binding():
         order="depth-first",
         direction="from-outputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_output_tuple_without_binding():
@@ -320,7 +321,7 @@ def test_depth_first_from_output_tuple_without_binding():
         order="depth-first",
         direction="from-outputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_output_with_unused_variables():
@@ -370,7 +371,7 @@ def test_depth_first_from_output_with_unused_variables():
         order="depth-first",
         direction="from-outputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_depth_first_from_input_with_unused_parameters():
@@ -409,7 +410,7 @@ def test_depth_first_from_input_with_unused_parameters():
         order="depth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_breadth_first():
@@ -443,7 +444,7 @@ def test_breadth_first():
         order="breadth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_breadth_first_break_ties_by_existing_order():
@@ -477,8 +478,8 @@ def test_breadth_first_break_ties_by_existing_order():
         order="breadth-first",
         direction="from-inputs",
     )(Before)
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

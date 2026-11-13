@@ -16,10 +16,11 @@
 # under the License.
 """A rule for GEMV and DecodeGEMV."""
 
-from tvm import s_tir, tirx
-from tvm.target import Target
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.target import Target
 
-from ..analysis import SBlockInfo, normalize_prim_func
+from ..analysis import SBlockInfo, normalize_function
 from ..analysis.gemv import is_gemv, normalize
 from ..base import get_extent, try_inline_contiguous_spatial
 from .base import CPUScheduleRule
@@ -30,14 +31,14 @@ class GEMV(CPUScheduleRule):
 
     def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-return-statements, no-else-return
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         _: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
-        if not isinstance(func, tirx.PrimFunc) or not self.is_target_available(target):
+        if not isinstance(func, tirx.Function) or not self.is_target_available(target):
             return None
         sch = s_tir.Schedule(func)
-        block_infos = normalize_prim_func(sch)
+        block_infos = normalize_function(sch)
         block_infos = try_inline_contiguous_spatial(sch, block_infos)
         if block_infos is None:
             return None
@@ -56,8 +57,8 @@ class GEMV(CPUScheduleRule):
             # or [S, R] = [S, R] * [R]
             return None
         block = block_info.block_rv
-        vector_input_buffers = is_gemv(sch, block_info)
-        if vector_input_buffers is None:
+        vector_input_tensors = is_gemv(sch, block_info)
+        if vector_input_tensors is None:
             return None
 
         # Step 1. Normalize the block, merge spatial and reduction iters
@@ -67,7 +68,7 @@ class GEMV(CPUScheduleRule):
         if is_inner_reduction is None:
             return None
         elif is_inner_reduction:
-            return self.sch_inner_reduction(sch, target, block, vector_input_buffers, epilogue)
+            return self.sch_inner_reduction(sch, target, block, vector_input_tensors, epilogue)
         else:
             # sch_outer reduction
             return None
@@ -77,7 +78,7 @@ class GEMV(CPUScheduleRule):
         sch: s_tir.Schedule,
         target: Target,
         block: s_tir.schedule.SBlockRV,
-        vector_input_buffers: list[tirx.Buffer],
+        vector_input_tensors: list[tirx.Var],
         epilogue_info: SBlockInfo | None,
     ):
         """Schedule the inner reduction block."""
@@ -121,8 +122,8 @@ class GEMV(CPUScheduleRule):
             sch.parallel(s_outer)  # Parallelize along the s-axis (major computation loop)
 
             # Apply loop unrolling for better CPU performance
-            sch.annotate(r_outer, "pragma_auto_unroll_max_step", unroll_factor)
-            sch.annotate(r_outer, "pragma_unroll_explicit", 1)
+            sch.annotate(r_outer, "tirx.auto_unroll_max_step", unroll_factor)
+            sch.annotate(r_outer, "tirx.unroll_explicit", 1)
             return sch
 
         return apply(

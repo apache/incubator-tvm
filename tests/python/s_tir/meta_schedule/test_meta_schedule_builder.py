@@ -22,31 +22,32 @@ import sys
 import time
 
 import pytest
+import tvm_ffi
 from tvm_ffi import register_global_func
 
-import tvm.testing
-from tvm import script
-from tvm.runtime import Module
+import tvm
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.builder import (
     BuilderInput,
     BuilderResult,
     LocalBuilder,
     PyBuilder,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx import script
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 # pylint: disable=invalid-name,no-member,line-too-long,too-many-nested-blocks,missing-docstring
 
 
 @script.ir_module
 class MatmulModule:
-    @Ts.prim_func
+    @Ts.function
     def matmul(
-        A: T.Buffer((1024, 1024), "float32"),
-        B: T.Buffer((1024, 1024), "float32"),
-        C: T.Buffer((1024, 1024), "float32"),
+        A: T.Tensor((1024, 1024), "float32"),
+        B: T.Tensor((1024, 1024), "float32"),
+        C: T.Tensor((1024, 1024), "float32"),
     ) -> None:  # pylint: disable=no-self-argument
         T.func_attr({"global_symbol": "matmul", "tirx.noalias": True})
 
@@ -60,15 +61,15 @@ class MatmulModule:
 
 @script.ir_module
 class MatmulReluModule:
-    @Ts.prim_func
+    @Ts.function
     def matmul_relu(  # pylint: disable=no-self-argument
-        A: T.Buffer((1024, 1024), "float32"),
-        B: T.Buffer((1024, 1024), "float32"),
-        D: T.Buffer((1024, 1024), "float32"),
+        A: T.Tensor((1024, 1024), "float32"),
+        B: T.Tensor((1024, 1024), "float32"),
+        D: T.Tensor((1024, 1024), "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "matmul_relu", "tirx.noalias": True})
 
-        C = Ts.sblock_alloc_buffer((1024, 1024), "float32")
+        C = Ts.sblock_alloc_tensor((1024, 1024), "float32")
         for i, j, k in T.grid(1024, 1024, 1024):
             with Ts.sblock("matmul"):
                 vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -83,9 +84,11 @@ class MatmulReluModule:
 
 @script.ir_module
 class BatchMatmulModule:
-    @Ts.prim_func
+    @Ts.function
     def batch_matmul(  # pylint: disable=no-self-argument
-        A: T.Buffer([16, 128, 128]), B: T.Buffer([16, 128, 128]), C: T.Buffer([16, 128, 128])
+        A: T.Tensor([16, 128, 128], "float32"),
+        B: T.Tensor([16, 128, 128], "float32"),
+        C: T.Tensor([16, 128, 128], "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "batch_matmul", "tirx.noalias": True})
 
@@ -167,7 +170,7 @@ def test_meta_schedule_error_handle_build_func():
 
     def initializer():
         @register_global_func("meta_schedule.builder.test_build")
-        def test_build(mod: Module, target: Target, _) -> None:  # pylint: disable=unused-variable
+        def test_build(mod: tvm_ffi.Module, target: Target, _) -> None:  # pylint: disable=unused-variable
             raise ValueError("Builder intended Test Error (build func).")
 
     builder = LocalBuilder(f_build="meta_schedule.builder.test_build", initializer=initializer)
@@ -187,7 +190,7 @@ def test_meta_schedule_error_handle_export_func():
 
     def initializer():
         @register_global_func("meta_schedule.builder.test_export")
-        def test_build(mod: Module) -> str:  # pylint: disable=unused-variable
+        def test_build(mod: tvm_ffi.Module) -> str:  # pylint: disable=unused-variable
             raise ValueError("Builder intended Test Error (export func).")
 
     builder = LocalBuilder(f_export="meta_schedule.builder.test_export", initializer=initializer)
@@ -232,4 +235,4 @@ def test_meta_schedule_missing_build_func():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

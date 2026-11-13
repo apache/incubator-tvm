@@ -28,7 +28,6 @@ from .auto_inline import AutoInline, InlineConstantScalars
 from .cross_thread_reduction import CrossThreadReduction
 from .multi_level_tiling import (
     MultiLevelTiling,
-    MultiLevelTilingTensorCore,
     MultiLevelTilingWideVector,
     MultiLevelTilingWithIntrin,
     ReuseType,

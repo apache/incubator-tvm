@@ -37,11 +37,11 @@ Function FunctionBindSymbolicVars(
     return func;
   }
 
-  ffi::Array<tirx::Var> old_symbolic_vars = DefinedSymbolicVars(func);
+  ffi::Array<tvm::Var> old_symbolic_vars = DefinedSymbolicVars(func);
 
   // Map from string to the variable(s) with that name.
-  std::unordered_map<std::string, ffi::Array<tirx::Var>> string_lookup;
-  std::unordered_set<const tirx::VarNode*> symbolic_var_set;
+  std::unordered_map<std::string, ffi::Array<tvm::Var>> string_lookup;
+  std::unordered_set<const tvm::VarObj*> symbolic_var_set;
   for (const auto& var : old_symbolic_vars) {
     string_lookup[var->name].push_back(var);
     symbolic_var_set.insert(var.get());
@@ -76,7 +76,7 @@ Function FunctionBindSymbolicVars(
       var_remap.Set(var, replacement);
     } else {
       TVM_FFI_THROW(InternalError)
-          << "Expected symbolic variable to be a tirx::Var or a string name, "
+          << "Expected symbolic variable to be a tvm::Var or a string name, "
           << "but " << key << " was of type " << key.GetTypeKey();
     }
   }
@@ -104,7 +104,7 @@ IRModule ModuleBindSymbolicVars(
       // Collect bindings that are used by this function.
       auto func_binding_map = [&]() -> ffi::Map<ffi::Variant<PrimVar, ffi::String>, PrimExpr> {
         std::unordered_set<std::string> var_names;
-        std::unordered_set<const tirx::VarNode*> vars;
+        std::unordered_set<const tvm::VarObj*> vars;
         for (const auto& var : DefinedSymbolicVars(func)) {
           var_names.insert(var->name);
           vars.insert(var.get());
@@ -119,7 +119,7 @@ IRModule ModuleBindSymbolicVars(
             used_by_function = vars.count(var.value().get());
           } else {
             TVM_FFI_THROW(InternalError)
-                << "Expected symbolic variable to be a tirx::Var "
+                << "Expected symbolic variable to be a tvm::Var "
                 << "or a string name, but " << key << " was of type " << key.GetTypeKey();
           }
           if (used_by_function) {
@@ -177,7 +177,7 @@ Pass BindSymbolicVars(ffi::Map<ffi::Variant<PrimVar, ffi::String>, PrimExpr> bin
     return mod;
   };
 
-  return tvm::transform::CreateModulePass(pass_func, 1, "relax.BindSymbolicVars", {});
+  return tvm::transform::CreateModulePass(pass_func, 1, "relax.BindSymbolicVars");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

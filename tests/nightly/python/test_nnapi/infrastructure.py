@@ -19,13 +19,14 @@
 import numpy as np
 
 import tvm
-import tvm.script.relax as R
+import tvm_tirx
+import tvm_tirx.script.relax as R
 from tvm.relax.backend.contrib.nnapi import partition_for_nnapi
-from tvm.support import ndk, utils
+from tvm_tirx.support import ndk, utils
 
 
 # pylint: disable=import-outside-toplevel,missing-function-docstring
-def reshape_matmul(mod: tvm.IRModule):
+def reshape_matmul(mod: tvm_tirx.IRModule):
     from tvm.relax import Expr
     from tvm.relax.dpl import DFPattern, rewrite_call
     from tvm.relax.dpl.pattern import is_op, wildcard
@@ -48,7 +49,7 @@ def reshape_matmul(mod: tvm.IRModule):
     return mod
 
 
-def decompose_clip(mod: tvm.IRModule) -> tvm.IRModule:
+def decompose_clip(mod: tvm_tirx.IRModule) -> tvm_tirx.IRModule:
     from tvm.relax import Expr
     from tvm.relax.dpl import DFPattern, rewrite_call
     from tvm.relax.dpl.pattern import is_op, wildcard
@@ -73,8 +74,8 @@ def decompose_clip(mod: tvm.IRModule) -> tvm.IRModule:
 
 
 def _build(mod, enable_nnapi):
-    if isinstance(mod, tvm.ir.Call):
-        mod = tvm.IRModule.from_expr(mod)
+    if isinstance(mod, tvm_tirx.ir.Call):
+        mod = tvm_tirx.IRModule.from_expr(mod)
 
     if enable_nnapi:
         mod = tvm.relax.transform.FoldConstant()(mod)
@@ -100,9 +101,9 @@ def _run(remote, tracker, ex, inputs):
     try:
         # Execute the model on the remote.
         remote_ex = remote.load_module(so_name)
-        vm = tvm.relax.VirtualMachine(remote_ex, device=dev)
+        vm = tvm.rpc.virtual_machine(remote_ex, dev)
 
-        inputs = [x.copyto(dev) for x in inputs]
+        inputs = [dev.tensor(x) for x in inputs]
 
         vm.set_input("main", *inputs)
         vm.invoke_stateful("main")

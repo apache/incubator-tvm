@@ -25,7 +25,7 @@
 #include <tvm/ffi/extra/c_env_api.h>
 #include <tvm/ffi/function.h>
 
-#include "../../../../backend/rocm/runtime/rocm_common.h"
+#include "../../rocm_utils.h"
 
 namespace tvm {
 namespace contrib {

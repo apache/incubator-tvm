@@ -18,20 +18,22 @@
 # ruff: noqa: F841
 
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.testing import env
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.testing import env
 
 
-@Ts.prim_func
-def main(p0: T.Buffer((), "int32"), T_stack: T.Buffer((T.int64(3),), "int32")):
+@Ts.function
+def main(p0: T.Tensor((), "int32"), T_stack: T.Tensor((T.int64(3),), "int32")):
     T.func_attr({"tirx.noalias": True})
     # with Ts.sblock("root"):
-    compile_engine_const = Ts.sblock_alloc_buffer((), "int32")
-    compile_engine_const_1 = Ts.sblock_alloc_buffer((), "int32")
+    compile_engine_const = Ts.sblock_alloc_tensor((), "int32")
+    compile_engine_const_1 = Ts.sblock_alloc_tensor((), "int32")
     with Ts.sblock("compile_engine_const"):
         vi = Ts.axis.spatial(1, T.int64(0))
         Ts.reads()
@@ -56,11 +58,11 @@ def main(p0: T.Buffer((), "int32"), T_stack: T.Buffer((T.int64(3),), "int32")):
 
 @pytest.mark.gpu
 @pytest.mark.skipif(not env.has_cuda(), reason="need cuda")
-def test_normalize_primfunc_with_scalar():
+def test_normalize_function_with_scalar():
     sch = tvm.s_tir.Schedule(main)
-    f_normalize_prim_func = tvm.get_global_func("s_tir.schedule.NormalizePrimFunc")
-    assert f_normalize_prim_func(sch)
+    f_normalize_function = tvm_ffi.get_global_func("s_tir.schedule.NormalizeFunction")
+    assert f_normalize_function(sch)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

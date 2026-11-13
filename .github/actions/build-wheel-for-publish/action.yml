@@ -15,9 +15,9 @@
 # specific language governing permissions and limitations
 # under the License.
 
-name: Build TVM Wheel
+name: Build TIRx Wheel
 description: >
-  Build and test the LLVM-enabled TVM wheel for a given OS/architecture
+  Build and test the standalone LLVM-enabled apache-tvm-tirx wheel for a given OS/architecture
   combination using cibuildwheel.
 
 inputs:
@@ -28,7 +28,7 @@ inputs:
     description: "cibuildwheel build selector (e.g., cp310-manylinux_x86_64)"
     required: true
   cmake_defines:
-    description: "Feature CMake defines that vary by wheel (e.g. -DUSE_METAL=ON on macOS)"
+    description: "Feature CMake defines that vary by wheel (e.g. -DTVM_TIRX_USE_METAL=ON on macOS)"
     required: false
     default: ""
   include_cuda_runtime:
@@ -59,7 +59,7 @@ runs:
       id: llvm-cache
       with:
         path: ${{ runner.os == 'Windows' && 'C:/opt/llvm' || '/opt/llvm' }}
-        key: tvm-wheel-llvm-${{ env.LLVM_VERSION }}-${{ runner.os }}-${{ inputs.arch }}-v6
+        key: tirx-wheel-llvm-${{ env.LLVM_VERSION }}-${{ runner.os }}-${{ inputs.arch }}-v6
 
     # ---- Install LLVM via conda (cache miss only) ----
     - name: Setup conda
@@ -107,10 +107,10 @@ runs:
       run: echo "TVM_CUDA_EXTRA_LIB=$(cygpath -m "$(pwd)")/build-wheel-cuda/lib/tvm_runtime_cuda.dll" >> "$GITHUB_ENV"
 
     # ---- Build and test wheels ----
-    - name: Build and test wheels
+    - name: Build and test TIRx core wheel
       uses: pypa/cibuildwheel@294735312765b09d24a2fbec22660ce817587d55  # v4.1.0
       with:
-        package-dir: .
+        package-dir: 3rdparty/tvm-tirx
         output-dir: wheelhouse
       env:
         CIBW_BUILD: ${{ inputs.build }}
@@ -122,24 +122,24 @@ runs:
         # which build without a container.
         CIBW_CONTAINER_ENGINE: "docker; create_args: --volume /opt/llvm:/opt/llvm:ro"
         # Each per-OS block carries the toolchain location (conda LLVM prefix +
-        # llvm-config path), the universal static-link policy (USE_LLVM --link-static
+        # llvm-config path), the universal static-link policy (TVM_TIRX_USE_LLVM --link-static
         # and ZLIB_USE_STATIC_LIBS), and the CUDA sidecar. Feature defines that vary by
-        # wheel (e.g. USE_METAL on macOS) come from the matrix via inputs.cmake_defines.
+        # wheel (e.g. TVM_TIRX_USE_METAL on macOS) come from the matrix via inputs.cmake_defines.
         # One explicit block per build platform (macOS / Linux / Windows); cibuildwheel
         # env overrides replace rather than merge, so there is no shared base block.
         CIBW_ENVIRONMENT_MACOS: >-
           CMAKE_PREFIX_PATH="/opt/llvm"
-          CMAKE_ARGS="-DUSE_LLVM='/opt/llvm/bin/llvm-config --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=/opt/llvm ${{ inputs.cmake_defines }}"
+          CMAKE_ARGS="-DTVM_TIRX_USE_LLVM='/opt/llvm/bin/llvm-config --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=/opt/llvm ${{ inputs.cmake_defines }}"
         CIBW_ENVIRONMENT_LINUX: >-
           CMAKE_PREFIX_PATH="/opt/llvm"
           LIBRARY_PATH="/opt/llvm/lib"
-          CMAKE_ARGS="-DUSE_LLVM='/opt/llvm/bin/llvm-config --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=/opt/llvm ${{ inputs.cmake_defines }} -DTVM_PACKAGE_EXTRA_LIBS=/project/build-wheel-cuda/lib/libtvm_runtime_cuda.so"
+          CMAKE_ARGS="-DTVM_TIRX_USE_LLVM='/opt/llvm/bin/llvm-config --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=/opt/llvm ${{ inputs.cmake_defines }} -DTVM_TIRX_PACKAGE_EXTRA_LIBS=/project/build-wheel-cuda/lib/libtvm_runtime_cuda.so"
         CIBW_ENVIRONMENT_WINDOWS: >-
           CMAKE_PREFIX_PATH="C:/opt/llvm/Library"
           PATH="C:/opt/llvm/Library/bin;$PATH"
-          CMAKE_ARGS="-DUSE_LLVM='C:/opt/llvm/Library/bin/llvm-config.exe --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=C:/opt/llvm/Library ${{ inputs.cmake_defines }} -DTVM_PACKAGE_EXTRA_LIBS=${{ env.TVM_CUDA_EXTRA_LIB }}"
+          CMAKE_ARGS="-DTVM_TIRX_USE_LLVM='C:/opt/llvm/Library/bin/llvm-config.exe --link-static' -DZLIB_USE_STATIC_LIBS=ON -DCMAKE_PREFIX_PATH=C:/opt/llvm/Library ${{ inputs.cmake_defines }} -DTVM_TIRX_PACKAGE_EXTRA_LIBS=${{ env.TVM_CUDA_EXTRA_LIB }}"
         # Turns the wheel-specific assertions in
-        # tests/python/all-platform-minimal-test/test_validate_runtime_library.py
+        # 3rdparty/tvm-tirx/tests/python/runtime/test_validate_wheel_library.py
         # ON (they skip unless these are set). Every published wheel is LLVM-enabled,
         # so TVM_WHEEL_EXPECT_LLVM is always "1"; the CUDA runtime is only bundled on
         # the CUDA wheels, so TVM_WHEEL_EXPECT_CUDA_RUNTIME is "0" for CPU wheels.

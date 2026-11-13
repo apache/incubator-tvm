@@ -16,15 +16,15 @@
 # under the License.
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script.parser import relax as R
+from tvm_tirx.script.parser import relax as R
 
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
 def test_redistribute_R_to_S():
@@ -32,10 +32,11 @@ def test_redistribute_R_to_S():
     mesh = R.device_mesh((4,), list(range(4)))
     x = relax.Var("x", R.DTensor((3, 4), "float32", device_mesh=mesh, placement="R"))
 
-    # The context-free rule sees this input and reports its own type error.
+    # Distributed placement requires the contextual builder inference rule.
     distributed_abs = relax.op.abs(x)
-    with pytest.raises(TypeError):
-        tvm.ir.reinfer_type(distributed_abs)
+    tvm_tirx.ir.assert_structural_equal(
+        tvm_tirx.ir.reinfer_type(distributed_abs), tvm_tirx.ir.Type.missing()
+    )
     _check_inference(bb, distributed_abs, x.ty)
 
     _check_inference(
@@ -61,4 +62,4 @@ def test_redistribute_R_to_S():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

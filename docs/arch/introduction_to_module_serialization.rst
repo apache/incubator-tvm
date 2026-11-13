@@ -27,7 +27,7 @@ serialization format standard and implementation details.
 Serialization
 *************
 
-The entrance API is ``export_library`` of ``tvm.runtime.Module``.
+The entrance API is ``export_library`` of ``tvm_tirx.codegen.Executable``.
 Inside this function, we will do the following steps:
 
 1. Collect all DSO modules (LLVM modules and C modules)
@@ -38,7 +38,7 @@ Inside this function, we will do the following steps:
    OpenCL or anything else. We don't restrict the module type here.
    Once we have imported modules, we will create one file named ``devc.o`` / ``dev.cc``
    (so that we could embed the binary blob data of import modules into one dynamic shared library),
-   then call function ``_PackImportsToLLVM`` or ``_PackImportsToC`` to do module serialization.
+   then call function ``PackImportsToObjectFile`` or ``PackImportsToC`` to do module serialization.
 
 4. Finally, we call ``fcompile`` which invokes ``_cc.create_shared`` to get
    dynamic shared library.
@@ -46,17 +46,20 @@ Inside this function, we will do the following steps:
 .. note::
     1. For C source modules, we will compile them and link them together with the DSO module.
 
-    2. Use ``_PackImportsToLLVM`` or ``_PackImportsToC`` depends on whether we enable LLVM in TVM.
+    2. Use ``PackImportsToObjectFile`` or ``PackImportsToC`` depends on whether we enable LLVM in TVM.
        They achieve the same goal in fact.
 
 ***************************************************
 Under the Hood of Serialization and Format Standard
 ***************************************************
 
-As said before, we will do the serialization work in the ``_PackImportsToLLVM`` or ``_PackImportsToC``.
-They both call ``SerializeModule`` to serialize the runtime module. In ``SerializeModule``
-function, we firstly construct one helper class ``ModuleSerializer``. It will take ``module`` to do some
-initialization work, like marking module index. Then we could use its ``SerializeModule`` to serialize module.
+As said before, we will do the serialization work in the ``PackImportsToObjectFile`` or ``PackImportsToC``.
+Both use private compiler serialization helpers in ``src/codegen/module_export.cc``.
+``PackImportsToBytes`` calls ``SerializeModuleToBytes``, which constructs a
+``ModuleSerializer`` to index the module graph and serialize its import tree.
+The object-file path invokes the existing ``codegen.codegen_blob`` LLVM emitter
+and writes its temporary module to the requested output path. The C fallback
+returns source text for the caller to compile.
 
 For better understanding, let us dig the implementation of this class a little deeper.
 

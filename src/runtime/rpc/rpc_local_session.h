@@ -29,7 +29,9 @@
 
 #include <functional>
 #include <string>
+#include <unordered_map>
 #include <utility>
+#include <vector>
 
 #include "rpc_session.h"
 
@@ -42,6 +44,7 @@ namespace runtime {
  */
 class LocalSession : public RPCSession {
  public:
+  ~LocalSession() override { ReleaseStreams(); }
   // function overrides
   PackedFuncHandle GetFunction(const std::string& name) override;
 
@@ -54,7 +57,18 @@ class LocalSession : public RPCSession {
 
   void FreeHandle(void* handle) override;
 
-  DeviceAPI* GetDeviceAPI(Device dev, bool allow_missing = false) override;
+  void SetDevice(Device dev) override;
+  ffi::Any GetAttr(Device dev, const ffi::String& name) override;
+  void* AllocTensor(Device dev, ffi::ShapeView shape, DLDataType dtype,
+                    ffi::Optional<MemoryScope> mem_scope) override;
+  void FreeTensor(Device dev, void* handle) override;
+  void CopyDataFromTo(DLTensor* from, DLTensor* to, TVMStreamHandle stream) override;
+  TVMStreamHandle CreateStream(Device dev) override;
+  void FreeStream(Device dev, TVMStreamHandle stream) override;
+  void StreamSync(Device dev, TVMStreamHandle stream) override;
+  void SetStream(Device dev, TVMStreamHandle stream) override;
+  TVMStreamHandle GetCurrentStream(Device dev) override;
+  void Shutdown() override;
 
   bool IsLocalSession() const override { return true; }
 
@@ -65,6 +79,12 @@ class LocalSession : public RPCSession {
    * \param encode_return The encoding function.
    */
   void EncodeReturn(ffi::Any rv, const FEncodeReturn& encode_return);
+
+ private:
+  // A backend may reuse a data handle (including nullptr for an empty tensor).
+  // Retain each allocation separately and match its device when releasing it.
+  std::unordered_map<void*, std::vector<ffi::Tensor>> allocations_;
+  std::mutex allocation_mutex_;
 };
 
 }  // namespace runtime

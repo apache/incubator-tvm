@@ -27,10 +27,13 @@ from typing import Any, Optional, Union
 import numpy  # pylint: disable=unused-import
 import torch
 import torch.nn.functional as F
+import tvm_ffi
 
 import tvm
-from tvm import relax, runtime
-from tvm.ir import IRModule, Op
+import tvm_tirx
+from tvm import relax
+from tvm_tirx import runtime
+from tvm_tirx.ir import IRModule, Op
 
 
 class RelaxToPyFuncConverter:
@@ -395,7 +398,7 @@ class RelaxExpressionConverter:
             return self._convert_var(expr, args)
         elif isinstance(expr, relax.Call):
             return self._convert_call(expr, args)
-        elif isinstance(expr, tvm.ir.GenericConst):
+        elif isinstance(expr, tvm_tirx.ir.GenericConst):
             return self._convert_constant(expr)
         elif isinstance(expr, relax.SeqExpr):
             return self._convert_seq_expr(expr, args)
@@ -403,7 +406,7 @@ class RelaxExpressionConverter:
             return self._convert_tuple(expr, args)
         elif isinstance(expr, relax.TupleGetItem):
             return self._convert_tuple_get_item(expr, args)
-        elif isinstance(expr, relax.If):
+        elif isinstance(expr, relax.IfExpr):
             return self._convert_if(expr, args)
         elif isinstance(expr, relax.ShapeExpr):
             return self._convert_shape_expr(expr)
@@ -621,9 +624,8 @@ class RelaxExpressionConverter:
                     if global_var.name_hint == func_name and hasattr(func, "body"):
                         try:
                             # Compile the TIR function
-                            target = tvm.target.Target("llvm")
-                            with tvm.target.Target(target):
-                                tir_function = tvm.compile(func, target=target)
+                            target = tvm_tirx.target.Target("llvm")
+                            tir_function = tvm.compile(func, target=target)
                             break
                         except (RuntimeError, ValueError, TypeError) as compile_e:
                             print(
@@ -633,7 +635,7 @@ class RelaxExpressionConverter:
 
             # If not found in current module, try global registry
             if tir_function is None:
-                tir_function = tvm.get_global_func(func_name)
+                tir_function = tvm_ffi.get_global_func(func_name)
 
             if tir_function is None:
                 if len(converted_args) >= 2:
@@ -648,7 +650,7 @@ class RelaxExpressionConverter:
                 try:
                     if isinstance(arg, torch.Tensor):
                         # Convert PyTorch tensor to TVM NDArray via DLPack
-                        tvm_arg = runtime.from_dlpack(torch.to_dlpack(arg))
+                        tvm_arg = tvm_ffi.from_dlpack(torch.to_dlpack(arg))
                         tvm_args.append(tvm_arg)
                     else:
                         tvm_args.append(arg)
@@ -743,7 +745,7 @@ class RelaxExpressionConverter:
 
         try:
             # Get the packed function from TVM
-            packed_function = tvm.get_global_func(func_name)
+            packed_function = tvm_ffi.get_global_func(func_name)
             if packed_function is None:
                 return converted_args[0] if converted_args else torch.tensor([])
 
@@ -752,7 +754,7 @@ class RelaxExpressionConverter:
             for arg in converted_args:
                 if isinstance(arg, torch.Tensor):
                     # Convert PyTorch tensor to TVM NDArray via DLPack
-                    tvm_arg = runtime.from_dlpack(torch.to_dlpack(arg))
+                    tvm_arg = tvm_ffi.from_dlpack(torch.to_dlpack(arg))
                     tvm_args.append(tvm_arg)
                 else:
                     tvm_args.append(arg)
@@ -778,7 +780,7 @@ class RelaxExpressionConverter:
             # Fallback: return the first argument
             return converted_args[0] if converted_args else torch.tensor([])
 
-    def _convert_constant(self, const: tvm.ir.GenericConst) -> Any:
+    def _convert_constant(self, const: tvm_tirx.ir.GenericConst) -> Any:
         """Convert a Relax constant to Python equivalent."""
         if hasattr(const, "value"):
             data = const.value
@@ -825,7 +827,7 @@ class RelaxExpressionConverter:
         else:
             return self._create_fallback_tensor()
 
-    def _convert_if(self, if_expr: relax.If, args: list[Any]) -> Any:
+    def _convert_if(self, if_expr: relax.IfExpr, args: list[Any]) -> Any:
         """Convert a Relax if expression to Python equivalent."""
         condition = self.convert_expr(if_expr.cond, args)
         true_branch = self.convert_expr(if_expr.true_branch, args)
@@ -1043,7 +1045,7 @@ class RelaxExpressionConverter:
                 )
             else:
                 shape = (int(shape_arg),)
-        elif isinstance(shape_arg, tvm.ir.GenericConst):
+        elif isinstance(shape_arg, tvm_tirx.ir.GenericConst):
             # Constant tensor case
             shape_data = shape_arg.value.numpy()
             shape = tuple(int(v) for v in shape_data)

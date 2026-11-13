@@ -39,7 +39,7 @@ class DataflowBlockExtractor : public ExprMutator {
  public:
   explicit DataflowBlockExtractor(size_t min_size) : ExprMutator(), min_size_(min_size) {}
 
-  Expr VisitExpr_(const SeqExprNode* seq) override {
+  Expr VisitExpr_(const SeqExprObj* seq) override {
     ffi::Array<BindingBlock> new_blocks;
     Expr new_body = VisitExpr(seq->body);
     bool changed = !new_body.same_as(seq->body);
@@ -115,8 +115,8 @@ class DataflowBlockExtractor : public ExprMutator {
       for (const auto& binding : binding_block->bindings) {
         Expr value = GetBoundValue(binding);
         // dataflow values: not an if node and not an impure call
-        bool is_dataflow = (!value.as<IfNode>()) &&
-                           (!(value.as<CallNode>() && IsImpureCall(value.as_or_throw<Call>())));
+        bool is_dataflow = (!value.as<IfExprObj>()) &&
+                           (!(value.as<CallObj>() && IsImpureCall(value.as_or_throw<Call>())));
         if (is_dataflow) {
           // extend the streak
           dataflow_bindings.push_back(binding);
@@ -154,7 +154,7 @@ Pass ConvertToDataflow(int min_size) {
   auto pass_func = [=](Function f, IRModule m, PassContext pc) {
     return ConvertToDataflow(f, min_size).as_or_throw<Function>();
   };
-  auto pass = CreateFunctionPass(pass_func, 0, "ConvertToDataflow", {});
+  auto pass = CreateFunctionPass(pass_func, 0, "ConvertToDataflow");
   // Canonicalize bindings is included afterwards in order to transform any
   // normal vars in DF blocks that are not used outside the DF block into
   // dataflow vars. This allows us to avoid reimplementing that functionality.

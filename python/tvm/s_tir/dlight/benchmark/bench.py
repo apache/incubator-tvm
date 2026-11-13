@@ -19,14 +19,15 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Optional
 
-import tvm
+import tvm_tirx
 from tvm import relax
-from tvm.ir import IRModule
+from tvm.runtime import time_evaluator
 from tvm.s_tir.meta_schedule.runner import EvaluatorConfig
 from tvm.s_tir.meta_schedule.testing.tune_utils import generate_input_data
-from tvm.tirx import PrimFunc
+from tvm_tirx.ir import IRModule
+from tvm_tirx.tirx import Function
 
-from .extract import extract_all_func_info_from_relax, extract_func_info_from_prim_func
+from .extract import extract_all_func_info_from_relax, extract_func_info_from_function
 from .utils import (
     default_dym_var_sample_func,
     dym_var_sample_str,
@@ -40,27 +41,27 @@ if TYPE_CHECKING:
 
 
 def benchmark(
-    mod_or_func: PrimFunc | IRModule,
+    mod_or_func: Function | IRModule,
     *,
     dym_var_sample: dict[str, int],
     args: list[relax.TensorType | tuple[tuple[int | str, ...], str]] | None,
-    target: str | tvm.target.Target | None = None,
+    target: str | tvm_tirx.target.Target | None = None,
     func_name: str | None = None,
     evaluator_config: Optional["EvaluatorConfig"] = None,
     rpc_config: Optional["RPCConfig"] = None,
 ) -> tuple[list[tuple[tuple[int, ...], str]], float, float]:
-    """Benchmark a PrimFunc or IRModule with dynamic input shapes.
+    """Benchmark a Function or IRModule with dynamic input shapes.
 
     Parameters
     ----------
-    mod_or_func : Union[PrimFunc, IRModule]
-        The PrimFunc or IRModule to be benchmarked.
+    mod_or_func : Union[Function, IRModule]
+        The Function or IRModule to be benchmarked.
     dym_var_sample : Optional[Dict[str, int]]
         The dynamic shape variable sample, e.g., {"n": 64, "m": 128}.
     args : Optional[List[Union[relax.TensorType, Tuple[Tuple[Union[int, str], ...], str]]]]
         The input tensor information, including shape and dtype. If none, will use
-        the input information from the PrimFunc or IRModule.
-    target : Optional[Union[str, tvm.target.Target]]
+        the input information from the Function or IRModule.
+    target : Optional[Union[str, tvm_tirx.target.Target]]
         The target to be benchmarked on, if none, will get the target from context.
     func_name : Optional[str]
         The name of the function to be benchmarked, will use "main" by default.
@@ -81,7 +82,7 @@ def benchmark(
         The standard deviation of the benchmarking results.
     """
     # produce IRModule and function name
-    if isinstance(mod_or_func, PrimFunc):
+    if isinstance(mod_or_func, Function):
         func_name = "main" if func_name is None else func_name
         mod = IRModule.from_expr(mod_or_func.with_attr("global_symbol", func_name))
     else:
@@ -91,22 +92,24 @@ def benchmark(
         func_name = func_name.name_hint
     # produce input shapes
     if args is None:
-        args, _ = extract_func_info_from_prim_func(mod[func_name])
+        args, _ = extract_func_info_from_function(mod[func_name])
     # produce target & device
-    target = tvm.target.Target.current() if target is None else tvm.target.Target(target)
+    target = (
+        mod[func_name].attrs.get("target") if target is None else tvm_tirx.target.Target(target)
+    )
     if target is None:
         raise ValueError("Target is not specified")
     if target.kind.name == "llvm":
-        dev = tvm.cpu()
+        dev = tvm_tirx.cpu()
     elif target.kind.name == "cuda":
-        dev = tvm.cuda()
+        dev = tvm_tirx.cuda()
     else:
         raise ValueError(f"Unsupported device type from {target.kind.name}")
     # populate input shapes
     input_infos = populuate_input_shape(args, dym_var_sample)
     # generate input tensors, including scalars
     # scalars are appended to the end of the list due to parsing order
-    input_tensors: list[tvm.runtime.Tensor | int] = []
+    input_tensors: list[tvm_tirx.runtime.Tensor | int] = []
     scalar_input_tensors: list[int] = []
     for input_shape, input_dtype in input_infos:
         if input_dtype == "scalar":
@@ -116,35 +119,40 @@ def benchmark(
         else:
             # normal case like [1, n, 128], generate random tensor
             input_tensors.append(
-                tvm.runtime.tensor(generate_input_data(list(input_shape), input_dtype), device=dev)
+                tvm_tirx.runtime.tensor(
+                    generate_input_data(list(input_shape), input_dtype), device=dev
+                )
             )
     # append scalar input tensors for rotary embedding
     input_tensors.extend(scalar_input_tensors)
     # build locally
-    rt_mod = tvm.tirx.build(mod, target=target)
+    rt_mod = tvm_tirx.tirx.compile(mod, target=target).mod
     # set up evaluator config
     evaluator_config = EvaluatorConfig._normalized(  # pylint: disable=protected-access
         evaluator_config
     )
     # run benchmark
     if rpc_config is None:
-        profile_result = rt_mod.time_evaluator(
+        profile_result = time_evaluator(
+            rt_mod,
             func_name,
-            dev=dev,
+            device=dev,
             number=evaluator_config.number,
             repeat=evaluator_config.repeat,
             min_repeat_ms=evaluator_config.min_repeat_ms,
             f_preproc=(
-                "cache_flush_cpu_non_first_arg" if evaluator_config.enable_cpu_cache_flush else ""
+                "runtime.CacheFlushCPUArguments" if evaluator_config.enable_cpu_cache_flush else ""
             ),
         )(*input_tensors)
     else:
-        from tvm.testing import rpc_run  # pylint: disable=import-outside-toplevel
+        from tvm.s_tir.testing.runner import rpc_run  # pylint: disable=import-outside-toplevel
 
         _, profile_result = rpc_run(
             rt_mod,
             device_type=dev._DEVICE_TYPE_TO_NAME[dev.dlpack_device_type()],
-            args=[w.numpy() if isinstance(w, tvm.runtime.Tensor) else w for w in input_tensors],
+            args=[
+                w.numpy() if isinstance(w, tvm_tirx.runtime.Tensor) else w for w in input_tensors
+            ],
             rpc_config=rpc_config,
             evaluator_config=evaluator_config,
         )
@@ -152,46 +160,46 @@ def benchmark(
     return input_infos, profile_result.median, profile_result.std
 
 
-def benchmark_prim_func(
-    mod_or_func: PrimFunc | IRModule,
+def benchmark_function(
+    mod_or_func: Function | IRModule,
     *,
     dym_var_sample_func: Callable[[dict[str, str]], dict[str, int]] = default_dym_var_sample_func,
     args: list[relax.TensorType | tuple[tuple[int | str, ...], str]] | None = None,
     dym_var_dict: dict[str, str] | None = None,
     sample_number: int = 5,
-    target: str | tvm.target.Target | None = None,
+    target: str | tvm_tirx.target.Target | None = None,
     weight: int | None = 1,
     relax_func_name: str | None = None,
-    prim_func_name: str | None = None,
+    function_name: str | None = None,
     evaluator_config: Optional["EvaluatorConfig"] = None,
     rpc_config: Optional["RPCConfig"] = None,
     sort_by: str | None = None,
     desc: bool | None = True,
 ):
-    """Benchmark a PrimFunc or IRModule with dynamic input shapes and show results.
+    """Benchmark a Function or IRModule with dynamic input shapes and show results.
 
     Parameters
     ----------
-    mod_or_func : Union[PrimFunc, IRModule]
-        The PrimFunc or IRModule to be benchmarked.
+    mod_or_func : Union[Function, IRModule]
+        The Function or IRModule to be benchmarked.
     dym_var_sample_func : Callable[[Dict[str, str]], Dict[str, int]]
         The function to sample dynamic shape variables.
     dym_var_dict : Optional[Dict[str, str]]
         Dynamic shape variable dictionary, e.g., {"n": "int32", "m": "int32"}. If none, will use
-        the input information from the PrimFunc or IRModule.
+        the input information from the Function or IRModule.
     args : Optional[List[Union[relax.TensorType, Tuple[Tuple[Union[int, str], ...], str]]]]
         The input tensor information, including shape and dtype. If none, will use
-        the input information from the PrimFunc or IRModule.
+        the input information from the Function or IRModule.
     sample_number : int
         The number of times to sample dynamic shape variables.
-    target: Optional[Union[str, tvm.target.Target]]
+    target: Optional[Union[str, tvm_tirx.target.Target]]
         The target to be benchmarked on, if none, will get the target from context.
     weight : Optional[int]
-        The weight of this PrimFunc.
+        The weight of this Function.
     relax_func_name : Optional[str]
         The name of the relax function.
-    prim_func_name : Optional[str]
-        The name of the PrimFunc.
+    function_name : Optional[str]
+        The name of the Function.
     evaluator_config : Optional["EvaluatorConfig"]
         The evaluator configuration to use.
         If none, will use default evaluator configuration.
@@ -205,7 +213,7 @@ def benchmark_prim_func(
     """
     results = []
     if dym_var_dict is None or args is None:
-        args, dym_var_dict = extract_func_info_from_prim_func(mod_or_func)
+        args, dym_var_dict = extract_func_info_from_function(mod_or_func)
     for _ in range(sample_number):
         dym_var_sample = dym_var_sample_func(dym_var_dict)
         _, median, std = benchmark(
@@ -223,8 +231,8 @@ def benchmark_prim_func(
         }
         if relax_func_name is not None:
             row["RelaxFunc"] = relax_func_name
-        if prim_func_name is not None:
-            row["PrimFunc"] = prim_func_name
+        if function_name is not None:
+            row["Function"] = function_name
         weight = 1 if weight is None else weight
         row["Weight"] = weight
         row["WxTime(ms)"] = weight * median * 1e3
@@ -233,14 +241,14 @@ def benchmark_prim_func(
 
 
 def benchmark_relax_func(
-    mod: tvm.ir.IRModule,
-    relax_func: tvm.ir.GlobalVar | str,
+    mod: tvm_tirx.ir.IRModule,
+    relax_func: tvm_tirx.ir.GlobalVar | str,
     sample_number: int = 2,
     dym_var_sample_func: Callable[
         [dict[str, str]],
         dict[str, int],
     ] = default_dym_var_sample_func,
-    target: str | dict | tvm.target.Target = None,
+    target: str | dict | tvm_tirx.target.Target = None,
     evaluator_config: Optional["EvaluatorConfig"] = None,
     rpc_config: Optional["RPCConfig"] = None,
 ) -> None:
@@ -248,17 +256,17 @@ def benchmark_relax_func(
 
     Parameters
     ----------
-    mod : tvm.ir.IRModule
+    mod : tvm_tirx.ir.IRModule
         The IRModule to be benchmarked.
-    relax_func : Union[tvm.ir.GlobalVar, str]
+    relax_func : Union[tvm_tirx.ir.GlobalVar, str]
         The relax function to be benchmarked.
     sample_number : int
         The number of times to sample dynamic shape variables.
     dym_var_sample_func : Callable[[Dict[str, str]], Dict[str, int]]
         The function to sample dynamic shape variables.
-    target : Union[str, tvm.target.Target]
+    target : Union[str, tvm_tirx.target.Target]
         The target to be benchmarked on.
-    dev : tvm.runtime.Device
+    dev : tvm_tirx.runtime.Device
         The device to be benchmarked on.
     evaluator_config : Optional["EvaluatorConfig"]
         The evaluator configuration to use.
@@ -276,7 +284,7 @@ def benchmark_relax_func(
             if get_func_name_from_gv(gv) == relax_func:
                 relax_func = gv
                 break
-        if not isinstance(relax_func, tvm.ir.GlobalVar):
+        if not isinstance(relax_func, tvm_tirx.ir.GlobalVar):
             raise ValueError(
                 f"Cannot find relax function with name {relax_func}, "
                 + f"candidates are: {[get_func_name_from_gv(gv) for gv in relax_funcs]}"
@@ -298,7 +306,7 @@ def benchmark_relax_func(
                 )
                 bench_results.append(
                     {
-                        f"PrimFuncs in {get_func_name_from_gv(relax_func)}": get_func_name_from_gv(
+                        f"Functions in {get_func_name_from_gv(relax_func)}": get_func_name_from_gv(
                             functor
                         ),
                         f"InputInfo({dym_var_sample_str(dym_var_sample)})": ", ".join(

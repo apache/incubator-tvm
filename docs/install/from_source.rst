@@ -69,7 +69,7 @@ one may simply use:
     # create the conda environment with build dependency
     conda create -n tvm-build-venv -c conda-forge \
         "llvmdev>=15" \
-        "cmake>=3.24" \
+        "cmake>=3.26" \
         git \
         python=3.11
     # enter the build environment
@@ -92,6 +92,11 @@ You can also choose to clone the source repo from GitHub.
 
     git clone --recursive https://github.com/apache/tvm tvm
 
+TVM pins the standalone `Apache TIRx <https://github.com/apache/tvm-tirx>`_
+compiler and core runtime in ``3rdparty/tvm-tirx``. Recursive submodule
+initialization also checks out its FFI dependency. After updating TVM, run
+``git submodule update --init --recursive`` to restore the pinned versions.
+
 .. note::
     It's important to use the ``--recursive`` flag when cloning the TVM repository, which will
     automatically clone the submodules. If you forget to use this flag, you can manually clone the submodules
@@ -99,40 +104,32 @@ You can also choose to clone the source repo from GitHub.
 
 Step 3. Configure and Build
 ---------------------------
-Create a build directory and run CMake to configure the build. The following example shows how to build
+Configure the build from the repository root with explicit CMake options. Enable
+GPU SDKs and vendor libraries as needed:
 
 .. code:: bash
 
     cd tvm
-    rm -rf build && mkdir build && cd build
-    # Specify the build configuration via CMake options
-    cp ../cmake/config.cmake .
+    cmake -S . -B build \
+        -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+        -DTVM_TIRX_USE_LLVM="llvm-config --ignore-libllvm --link-static" \
+        -DTVM_HIDE_PRIVATE_SYMBOLS=ON \
+        -DTVM_TIRX_USE_CUDA=OFF \
+        -DTVM_TIRX_USE_METAL=OFF \
+        -DTVM_TIRX_USE_VULKAN=OFF \
+        -DTVM_TIRX_USE_OPENCL=OFF \
+        -DTVM_USE_CUBLAS=OFF \
+        -DTVM_USE_CUDNN=OFF \
+        -DTVM_USE_CUTLASS=OFF
 
-We want to specifically tweak the following flags by appending them to the end of the configuration file:
-
-.. code:: bash
-
-    # controls default compilation flags (Candidates: Release, Debug, RelWithDebInfo)
-    echo "set(CMAKE_BUILD_TYPE RelWithDebInfo)" >> config.cmake
-
-    # LLVM is a must dependency for compiler end
-    echo "set(USE_LLVM \"llvm-config --ignore-libllvm --link-static\")" >> config.cmake
-    echo "set(HIDE_PRIVATE_SYMBOLS ON)" >> config.cmake
-
-    # GPU SDKs, turn on if needed
-    echo "set(USE_CUDA   OFF)" >> config.cmake
-    echo "set(USE_METAL  OFF)" >> config.cmake
-    echo "set(USE_VULKAN OFF)" >> config.cmake
-    echo "set(USE_OPENCL OFF)" >> config.cmake
-
-    # cuBLAS, cuDNN, cutlass support, turn on if needed
-    echo "set(USE_CUBLAS OFF)" >> config.cmake
-    echo "set(USE_CUDNN  OFF)" >> config.cmake
-    echo "set(USE_CUTLASS OFF)" >> config.cmake
+CMake stores these values in ``build/CMakeCache.txt``. To change an option,
+rerun the configure command with its new ``-D`` value. Parent TVM features use
+``TVM_USE_*``; core features retain ``TVM_TIRX_USE_*`` and FFI options retain
+``TVM_FFI_*``. CMake also supports local ``CMakeUserPresets.json`` presets.
 
 
 .. note::
-    ``HIDE_PRIVATE_SYMBOLS`` is a configuration option that enables the ``-fvisibility=hidden`` flag.
+    ``TVM_HIDE_PRIVATE_SYMBOLS`` is a configuration option that enables the ``-fvisibility=hidden`` flag.
     This flag helps prevent potential symbol conflicts between TVM and PyTorch. These conflicts arise due to
     the frameworks shipping LLVMs of different versions.
 
@@ -142,23 +139,23 @@ We want to specifically tweak the following flags by appending them to the end o
     - ``RelWithDebInfo`` sets ``-O2 -g -DNDEBUG`` (recommended)
     - ``Release`` sets ``-O3 -DNDEBUG``
 
-Once ``config.cmake`` is edited accordingly, kick off build with the commands below:
+After configuration succeeds, build with:
 
 .. code-block:: bash
 
-    cmake .. && cmake --build . --parallel $(nproc)
+    cmake --build build --parallel $(nproc)
 
 .. note::
     ``nproc`` may not be available on all systems, please replace it with the number of cores on your system
 
-A success build should produce ``libtvm`` and ``libtvm_runtime`` under ``build/`` directory.
+A successful build produces the compiler and runtime libraries under ``build/lib/``.
 
 Apache TVM relies on the tvm-ffi package to support its python bindings.
 Therefore, after we finish the build, we need to install the tvm-ffi package.
 
 .. code-block:: bash
 
-    cd 3rdparty/tvm-ffi; pip install .; cd ..
+    pip install ./3rdparty/tvm-tirx/3rdparty/tvm-ffi
 
 
 Leaving the build environment ``tvm-build-venv``, there are two ways to install the successful build into your environment:
@@ -168,8 +165,9 @@ Leaving the build environment ``tvm-build-venv``, there are two ways to install 
 .. code-block:: bash
 
     export TVM_HOME=/path-to-tvm
-    pip install --target=$TVM_HOME/python $TVM_HOME/3rdparty/tvm-ffi
-    export PYTHONPATH=$TVM_HOME/python:$PYTHONPATH
+    pip install --target=$TVM_HOME/python $TVM_HOME/3rdparty/tvm-tirx/3rdparty/tvm-ffi
+    export PYTHONPATH=$TVM_HOME/3rdparty/tvm-tirx/python:$TVM_HOME/python:$PYTHONPATH
+    export TVM_TIRX_LIBRARY_PATH=$TVM_HOME/build/lib
 
 - Install via pip local project
 
@@ -177,8 +175,9 @@ Leaving the build environment ``tvm-build-venv``, there are two ways to install 
 
     conda activate your-own-env
     conda install python # make sure python is installed
-    export TVM_LIBRARY_PATH=/path-to-tvm/build
-    pip install -e /path-to-tvm
+    pip install "scikit-build-core>=0.11" "setuptools-scm>=8"
+    pip install /path-to-tvm/3rdparty/tvm-tirx
+    pip install --no-build-isolation /path-to-tvm
 
 Step 4. Validate Installation
 -----------------------------
@@ -200,22 +199,16 @@ Therefore, it is highly recommended to validate Apache TVM installation before u
     >>> python -c "import tvm; print(tvm.base._LOADED_LIBS['tvm_runtime'])"
     <CDLL '/some-path/lib/python3.11/site-packages/tvm/libtvm_runtime.dylib', handle 95ada510 at 0x1030e4e50>
 
-**Step 3. Reflect TVM build option.** Sometimes when downstream application fails, it could likely be some mistakes with a wrong TVM commit, or wrong build flags. To find it out, the following commands will be helpful:
+**Step 3. Inspect the build configuration.** For a local source build, inspect
+the CMake cache to check which options were configured:
 
 .. code-block:: bash
 
-    >>> python -c "import tvm; print('\n'.join(f'{k}: {v}' for k, v in tvm.support.libinfo().items()))"
-    ... # Omitted less relevant options
-    GIT_COMMIT_HASH: 4f6289590252a1cf45a4dc37bce55a25043b8338
-    HIDE_PRIVATE_SYMBOLS: ON
-    USE_LLVM: llvm-config --link-static
-    LLVM_VERSION: 15.0.7
-    USE_VULKAN: OFF
-    USE_CUDA: OFF
-    CUDA_VERSION: NOT-FOUND
-    USE_OPENCL: OFF
-    USE_METAL: ON
-    USE_ROCM: OFF
+    cmake -LA -N build
+
+The output includes parent ``TVM_USE_*`` options and the core's
+``TVM_TIRX_USE_*`` options. Keep ``build/CMakeCache.txt`` when reporting a
+configuration problem.
 
 
 **Step 4. Check device detection.** Sometimes it could be helpful to understand if TVM could detect your device at all with the following commands:
@@ -266,7 +259,7 @@ If you're building TVM on Windows, note these platform-specific considerations:
 Path Conventions
 ~~~~~~~~~~~~~~~~
 - Use forward slashes (``/``) in Python/CMake paths, not Windows backslashes
-- Example: ``python cmake/config.cmake`` not ``python cmake\\config.cmake``
+- Example: ``-DCMAKE_TOOLCHAIN_FILE=C:/toolchains/windows.cmake``.
 
 Advanced Build Configuration
 ----------------------------
@@ -277,7 +270,7 @@ On supported platforms, the `Ccache compiler wrapper <https://ccache.dev/>`_ may
 reducing TVM's build time, especially when building with `cutlass <https://github.com/NVIDIA/cutlass>`_.
 There are several ways to enable CCache in TVM builds:
 
-    - Leave ``USE_CCACHE=AUTO`` in ``build/config.cmake``. CCache will be used if it is found.
+    - Configure with ``-DTVM_USE_CCACHE=AUTO`` (the default). CCache will be used if it is found.
 
     - Ccache's Masquerade mode. This is typically enabled during the Ccache installation process.
       To have TVM use Ccache in masquerade, simply specify the appropriate C/C++ compiler
@@ -319,7 +312,7 @@ For CUDA support on Windows:
 
    set CUDA_PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v11.8
    set PATH=%CUDA_PATH%\bin;%PATH%
-   cmake .. -DUSE_CUDA=ON
+   cmake .. -DTVM_TIRX_USE_CUDA=ON
 
 CMake & Compiler Setup
 ......................
@@ -332,7 +325,7 @@ Building ROCm support
 
 Currently, ROCm is supported only on linux, so all the instructions are written with linux in mind.
 
-- Set ``set(USE_ROCM ON)``, set ROCM_PATH to the correct path.
+- Configure with ``-DTVM_TIRX_USE_ROCM=ON`` or set it to the ROCm SDK path.
 - You need to first install HIP runtime from ROCm. Make sure the installation system has ROCm installed in it.
 - Install LLVM (>= 15), and LLD, make sure ``ld.lld`` is available via command line.
 
@@ -353,4 +346,4 @@ tests in TVM. The easiest way to install GTest is from source.
     make
     sudo make install
 
-After installing GTest, the C++ tests can be built and started with ``./tests/scripts/task_cpp_unittest.sh``, or built via CMake with ``-DUSE_GTEST=ON`` and then running ``./build/cpptest``.
+After installing GTest, the C++ tests can be built and started with ``./tests/scripts/task_cpp_unittest.sh``, or built via CMake with ``-DTVM_USE_GTEST=ON`` and then running ``./build/cpptest``.

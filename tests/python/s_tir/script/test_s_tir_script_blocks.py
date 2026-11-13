@@ -21,16 +21,21 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import s_tir, tirx
-from tvm.ir import Range
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import s_tir
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import assert_structural_equal_ignore_global_symbol
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.ir import Range, TensorRegion, TensorRegionType
+from tvm_tirx.script import tirx as T
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
+) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("update"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -39,9 +44,11 @@ def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 1
             C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vj, vk]
 
 
-@Ts.prim_func
+@Ts.function
 def matmul_original(
-    A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
 ) -> None:
     for i, j in T.grid(32, 32):
         with Ts.sblock("init"):
@@ -59,9 +66,11 @@ def matmul_original(
                     )
 
 
-@Ts.prim_func
+@Ts.function
 def elementwise_with_root(
-    A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
 ) -> None:
     with Ts.sblock():
         for i, j in T.grid(128, 128):
@@ -74,9 +83,11 @@ def elementwise_with_root(
                 C[vi, vj] = B[vi, vj] + T.float32(1)
 
 
-@Ts.prim_func
+@Ts.function
 def func_with_part_access_region(
-    A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
 ) -> None:
     with Ts.sblock():
         for i, j in T.grid(128, 128):
@@ -94,83 +105,115 @@ def func_with_part_access_region(
 
 def test_complete_matmul():
     func = matmul
-    A, B, C = [x for x in func.params if tvm.tirx.is_buffer_var(x)]
+    A, B, C = [x for x in func.params if tvm_tirx.tirx.is_tensor_var(x)]
 
-    block = func.body.block.body.body.body.body.block
+    block = func.body[0].block.body[0].body[0].body[0].body[0].block
     assert isinstance(block, tvm.s_tir.SBlock)
     vi, vj, vk = [x.var for x in block.iter_vars]
-    access_A = tvm.tirx.BufferRegion(
-        A, [Range.from_min_extent(vi, 1), Range.from_min_extent(vk, 1)]
+    access_A = TensorRegion(
+        A, [Range.from_min_extent(vi, 1), Range.from_min_extent(vk, 1)], ty=TensorRegionType()
     )
-    access_B = tvm.tirx.BufferRegion(
-        B, [Range.from_min_extent(vj, 1), Range.from_min_extent(vk, 1)]
+    access_B = TensorRegion(
+        B, [Range.from_min_extent(vj, 1), Range.from_min_extent(vk, 1)], ty=TensorRegionType()
     )
-    access_C = tvm.tirx.BufferRegion(
-        C, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)]
+    access_C = TensorRegion(
+        C, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)], ty=TensorRegionType()
     )
-    tvm.ir.assert_structural_equal(block.reads, [access_A, access_B])
-    tvm.ir.assert_structural_equal(block.writes, [access_C])
+    tvm_tirx.ir.assert_structural_equal(block.reads, [access_A, access_B])
+    tvm_tirx.ir.assert_structural_equal(block.writes, [access_C])
 
 
 def test_complete_matmul_original():
     func = matmul_original
-    A, B, C = [x for x in func.params if tvm.tirx.is_buffer_var(x)]
+    A, B, C = [x for x in func.params if tvm_tirx.tirx.is_tensor_var(x)]
 
-    block1 = func.body.block.body.body.body[0].block
+    block1 = func.body[0].block.body[0].body[0].body[0].block
     assert isinstance(block1, tvm.s_tir.SBlock)
     vi, vj = [x.var for x in block1.iter_vars]
-    access_C = tvm.tirx.BufferRegion(
-        C, [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vj * 4, 4)]
+    access_C = TensorRegion(
+        C,
+        [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vj * 4, 4)],
+        ty=TensorRegionType(),
     )
-    tvm.ir.assert_structural_equal(block1.reads, [])
-    tvm.ir.assert_structural_equal(block1.writes, [access_C])
+    tvm_tirx.ir.assert_structural_equal(block1.reads, [])
+    tvm_tirx.ir.assert_structural_equal(block1.writes, [access_C])
 
-    block2 = func.body.block.body.body.body[1].body.block
+    block2 = func.body[0].block.body[0].body[0].body[1].body[0].block
     assert isinstance(block2, tvm.s_tir.SBlock)
     vi, vj, vk = [x.var for x in block2.iter_vars]
-    access_A = tvm.tirx.BufferRegion(
-        A, [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vk * 4, 4)]
+    access_A = TensorRegion(
+        A,
+        [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vk * 4, 4)],
+        ty=TensorRegionType(),
     )
-    access_B = tvm.tirx.BufferRegion(
-        B, [Range.from_min_extent(vj * 4, 4), Range.from_min_extent(vk * 4, 4)]
+    access_B = TensorRegion(
+        B,
+        [Range.from_min_extent(vj * 4, 4), Range.from_min_extent(vk * 4, 4)],
+        ty=TensorRegionType(),
     )
-    access_C = tvm.tirx.BufferRegion(
-        C, [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vj * 4, 4)]
+    access_C = TensorRegion(
+        C,
+        [Range.from_min_extent(vi * 4, 4), Range.from_min_extent(vj * 4, 4)],
+        ty=TensorRegionType(),
     )
-    tvm.ir.assert_structural_equal(block2.reads, [access_C, access_A, access_B])
-    tvm.ir.assert_structural_equal(block2.writes, [access_C])
+    tvm_tirx.ir.assert_structural_equal(block2.reads, [access_C, access_A, access_B])
+    tvm_tirx.ir.assert_structural_equal(block2.writes, [access_C])
 
 
 def _check_elementwise(func):
-    A, B, C = [x for x in func.params if tvm.tirx.is_buffer_var(x)]
+    A, B, C = [x for x in func.params if tvm_tirx.tirx.is_tensor_var(x)]
 
-    root_block = func.body.block
+    root_block = func.body[0].block
     assert len(root_block.reads) == 0
     assert len(root_block.writes) == 0
 
-    block1 = func.body.block.body[0].body.body.block
+    block1 = func.body[0].block.body[0].body[0].body[0].block
     assert isinstance(block1, tvm.s_tir.SBlock)
     vi, vj = [x.var for x in block1.iter_vars]
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         block1.reads,
-        [tvm.tirx.BufferRegion(A, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)])],
+        [
+            TensorRegion(
+                A,
+                [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)],
+                ty=TensorRegionType(),
+            )
+        ],
     )
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         block1.writes,
-        [tvm.tirx.BufferRegion(B, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)])],
+        [
+            TensorRegion(
+                B,
+                [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)],
+                ty=TensorRegionType(),
+            )
+        ],
     )
 
-    block2 = func.body.block.body[1].body.body.block
+    block2 = func.body[0].block.body[1].body[0].body[0].block
     assert isinstance(block2, tvm.s_tir.SBlock)
     vi, vj = [x.var for x in block2.iter_vars]
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         block2.reads,
-        [tvm.tirx.BufferRegion(B, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)])],
+        [
+            TensorRegion(
+                B,
+                [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)],
+                ty=TensorRegionType(),
+            )
+        ],
     )
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         block2.writes,
-        [tvm.tirx.BufferRegion(C, [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)])],
+        [
+            TensorRegion(
+                C,
+                [Range.from_min_extent(vi, 1), Range.from_min_extent(vj, 1)],
+                ty=TensorRegionType(),
+            )
+        ],
     )
 
 
@@ -182,11 +225,11 @@ def test_complete_part_region():
     _check_elementwise(func_with_part_access_region)
 
 
-@Ts.prim_func
-def func_with_bufferslice_indices(
-    data_buf: T.Buffer((16, 16), "float32"), index_buf: T.Buffer((1,), "int32")
+@Ts.function
+def func_with_tensorslice_indices(
+    data_buf: T.Tensor((16, 16), "float32"), index_buf: T.Tensor((1,), "int32")
 ) -> None:
-    out_buf = Ts.sblock_alloc_buffer((16, 16), "float32")
+    out_buf = Ts.sblock_alloc_tensor((16, 16), "float32")
 
     for i, j in T.grid(16, 16):
         with Ts.sblock():
@@ -194,15 +237,15 @@ def func_with_bufferslice_indices(
             out_buf[vi, vj] = data_buf[vi, index_buf[0]]
 
 
-@Ts.prim_func
-def expected_bufferslice_indices(
-    data_buf: T.Buffer([16, 16], elem_offset=0, align=64, offset_factor=1),
-    index_buf: T.Buffer([1], dtype="int32", elem_offset=0, align=64, offset_factor=1),
+@Ts.function
+def expected_tensorslice_indices(
+    data_buf: T.Tensor([16, 16], "float32", align=64),
+    index_buf: T.Tensor([1], dtype="int32", align=64),
 ) -> None:
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        out_buf = Ts.sblock_alloc_buffer([16, 16], elem_offset=0, align=64, offset_factor=1)
+        out_buf = Ts.sblock_alloc_tensor([16, 16], align=64)
         for i0, i1 in T.grid(16, 16):
             with Ts.sblock():
                 vi, vj = Ts.axis.remap("SS", [i0, i1])
@@ -211,11 +254,11 @@ def expected_bufferslice_indices(
                 out_buf[vi, vj] = data_buf[vi, index_buf[0]]
 
 
-@Ts.prim_func
-def func_with_recursive_bufferslice_indices(
-    data_buf: T.Buffer((16, 16), "float32"), index_buf: T.Buffer((1,), "int32")
+@Ts.function
+def func_with_recursive_tensorslice_indices(
+    data_buf: T.Tensor((16, 16), "float32"), index_buf: T.Tensor((1,), "int32")
 ) -> None:
-    out_buf = Ts.sblock_alloc_buffer((16, 16), "float32")
+    out_buf = Ts.sblock_alloc_tensor((16, 16), "float32")
 
     for i, j in T.grid(16, 16):
         with Ts.sblock():
@@ -223,15 +266,15 @@ def func_with_recursive_bufferslice_indices(
             out_buf[vi, vj] = data_buf[index_buf[index_buf[0]], index_buf[0]]
 
 
-@Ts.prim_func
-def expected_recursive_bufferslice_indices(
-    data_buf: T.Buffer([16, 16], elem_offset=0, align=64, offset_factor=1),
-    index_buf: T.Buffer([1], dtype="int32", elem_offset=0, align=64, offset_factor=1),
+@Ts.function
+def expected_recursive_tensorslice_indices(
+    data_buf: T.Tensor([16, 16], "float32", align=64),
+    index_buf: T.Tensor([1], dtype="int32", align=64),
 ) -> None:
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        out_buf = Ts.sblock_alloc_buffer([16, 16], elem_offset=0, align=64, offset_factor=1)
+        out_buf = Ts.sblock_alloc_tensor([16, 16], align=64)
         for i0, i1 in T.grid(16, 16):
             with Ts.sblock():
                 vi, vj = Ts.axis.remap("SS", [i0, i1])
@@ -245,42 +288,42 @@ def expected_recursive_bufferslice_indices(
                 out_buf[vi, vj] = data_buf[index_buf[index_buf[0]], index_buf[0]]
 
 
-def test_complete_buffer_indices():
-    new_func = tvm.script.from_source(
-        func_with_bufferslice_indices.script(),
-        extra_vars={"I": tvm.script.ir, "T": tvm.script.tirx, "Ts": tvm.script.s_tir},
+def test_complete_tensor_indices():
+    new_func = tvm_tirx.script.from_source(
+        func_with_tensorslice_indices.script(),
+        extra_vars={"I": tvm_tirx.script.ir, "T": tvm_tirx.script.tirx, "Ts": tvm.s_tir.script},
     ).with_attr("global_symbol", "main")
-    tvm.ir.assert_structural_equal(
-        new_func, expected_bufferslice_indices.with_attr("global_symbol", "main")
+    tvm_tirx.ir.assert_structural_equal(
+        new_func, expected_tensorslice_indices.with_attr("global_symbol", "main")
     )
-    new_func = tvm.script.from_source(
-        func_with_recursive_bufferslice_indices.script(),
-        extra_vars={"I": tvm.script.ir, "T": tvm.script.tirx, "Ts": tvm.script.s_tir},
+    new_func = tvm_tirx.script.from_source(
+        func_with_recursive_tensorslice_indices.script(),
+        extra_vars={"I": tvm_tirx.script.ir, "T": tvm_tirx.script.tirx, "Ts": tvm.s_tir.script},
     ).with_attr("global_symbol", "main")
-    tvm.ir.assert_structural_equal(
-        new_func, expected_recursive_bufferslice_indices.with_attr("global_symbol", "main")
+    tvm_tirx.ir.assert_structural_equal(
+        new_func, expected_recursive_tensorslice_indices.with_attr("global_symbol", "main")
     )
 
 
-@Ts.prim_func
-def match_buffer_func(A: T.Buffer((16, 16))) -> None:
+@Ts.function
+def match_tensor_func(A: T.Tensor((16, 16), "float32")) -> None:
     for i in range(0, 16):
         with Ts.sblock():
-            A0 = Ts.match_buffer(A[i, 0:16], (16))
+            A0 = Ts.match_tensor(A[i, 0:16], (16))
             with Ts.sblock():
                 for j in range(0, 16):
                     with Ts.sblock():
-                        A1 = Ts.match_buffer(A0[j], ())
+                        A1 = Ts.match_tensor(A0[j], ())
                         A1[()] = 1.0
 
 
-@Ts.prim_func
-def expected_match_buffer_func(A: T.Buffer((16, 16))) -> None:
+@Ts.function
+def expected_match_tensor_func(A: T.Tensor((16, 16), "float32")) -> None:
     for i in range(0, 16):
         with Ts.sblock():
             Ts.reads([])
             Ts.writes(A[i, 0:16])
-            A0 = Ts.match_buffer(A[i, 0:16], (16))
+            A0 = Ts.match_tensor(A[i, 0:16], (16))
             with Ts.sblock():
                 Ts.reads([])
                 Ts.writes(A0[0:16])
@@ -288,84 +331,86 @@ def expected_match_buffer_func(A: T.Buffer((16, 16))) -> None:
                     with Ts.sblock():
                         Ts.reads([])
                         Ts.writes(A0[j])
-                        A1 = Ts.match_buffer(A0[j], ())
+                        A1 = Ts.match_tensor(A0[j], ())
                         A1[()] = 1.0
 
 
-def test_complete_match_buffer():
-    tvm.ir.assert_structural_equal(
-        match_buffer_func.with_attr("global_symbol", "main"),
-        expected_match_buffer_func.with_attr("global_symbol", "main"),
+def test_complete_match_tensor():
+    tvm_tirx.ir.assert_structural_equal(
+        match_tensor_func.with_attr("global_symbol", "main"),
+        expected_match_tensor_func.with_attr("global_symbol", "main"),
     )
 
 
-@Ts.prim_func
-def alloc_buffer_func(
-    A: T.Buffer([2, 2], dtype="float32"), B: T.Buffer([2, 2], dtype="float32")
+@Ts.function
+def alloc_tensor_func(
+    A: T.Tensor([2, 2], dtype="float32"), B: T.Tensor([2, 2], dtype="float32")
 ) -> None:
-    C = Ts.sblock_alloc_buffer([2, 2], dtype="float32")
+    C = Ts.sblock_alloc_tensor([2, 2], dtype="float32")
     A[(0, 0)] = T.float32(2)
     C[(0, 0)] = A[(0, 0)] + B[(0, 0)]
     B[(0, 0)] = C[(0, 0)]
 
 
-@Ts.prim_func
-def expect_alloc_buffer_func(
-    A: T.Buffer([2, 2], dtype="float32", elem_offset=0, align=64, offset_factor=1),
-    B: T.Buffer([2, 2], dtype="float32", elem_offset=0, align=64, offset_factor=1),
+@Ts.function
+def expect_alloc_tensor_func(
+    A: T.Tensor([2, 2], dtype="float32", align=64),
+    B: T.Tensor([2, 2], dtype="float32", align=64),
 ) -> None:
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        C = Ts.sblock_alloc_buffer(
-            [2, 2], dtype="float32", elem_offset=0, align=64, offset_factor=1
+        C = Ts.sblock_alloc_tensor(
+            [2, 2],
+            dtype="float32",
+            align=64,
         )
         A[(0, 0)] = T.float32(2)
         C[(0, 0)] = A[(0, 0)] + B[(0, 0)]
         B[(0, 0)] = C[(0, 0)]
 
 
-def test_complete_alloc_buffer():
-    rt_func = tvm.script.from_source(
-        alloc_buffer_func.script(),
-        extra_vars={"I": tvm.script.ir, "T": tvm.script.tirx, "Ts": tvm.script.s_tir},
+def test_complete_alloc_tensor():
+    rt_func = tvm_tirx.script.from_source(
+        alloc_tensor_func.script(),
+        extra_vars={"I": tvm_tirx.script.ir, "T": tvm_tirx.script.tirx, "Ts": tvm.s_tir.script},
     ).with_attr("global_symbol", "main")
-    tvm.ir.assert_structural_equal(
-        rt_func, expect_alloc_buffer_func.with_attr("global_symbol", "main")
+    tvm_tirx.ir.assert_structural_equal(
+        rt_func, expect_alloc_tensor_func.with_attr("global_symbol", "main")
     )
 
 
-@Ts.prim_func
-def alloc_zero_dim_buffer(
-    A: T.Buffer([], dtype="float32"), B: T.Buffer([], dtype="float32")
+@Ts.function
+def alloc_zero_dim_tensor(
+    A: T.Tensor([], dtype="float32"), B: T.Tensor([], dtype="float32")
 ) -> None:
     # body
     # tirx.with block("root")
-    C = Ts.sblock_alloc_buffer([], dtype="float32")
+    C = Ts.sblock_alloc_tensor([], dtype="float32")
     A[()] = T.float32(2)
     C[()] = A[()] + B[()]
     B[()] = C[()]
 
 
-@Ts.prim_func
-def alloc_zero_dim_buffer_block(A: T.Buffer((), "float32"), B: T.Buffer((), "float32")) -> None:
+@Ts.function
+def alloc_zero_dim_tensor_block(A: T.Tensor((), "float32"), B: T.Tensor((), "float32")) -> None:
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        C = Ts.sblock_alloc_buffer((), "float32")
+        C = Ts.sblock_alloc_tensor((), "float32")
         A[()] = T.float32(2)
         C[()] = A[()] + B[()]
         B[()] = C[()]
 
 
-def _check_alloc_zero_dim_buffer(f):
+def _check_alloc_zero_dim_tensor(f):
     dtype = "float32"
-    ctx = tvm.cpu()
+    ctx = tvm_tirx.cpu()
 
     np_data = np.zeros(shape=()).astype(dtype)
     np_out = np.zeros(shape=()).astype(dtype)
-    tvm_data = tvm.runtime.tensor(np_data, ctx)
-    tvm_out = tvm.runtime.tensor(np_out, ctx)
+    tvm_data = tvm_tirx.runtime.tensor(np_data, ctx)
+    tvm_out = tvm_tirx.runtime.tensor(np_out, ctx)
 
     # np func exection
     np_inter = np.array(1)
@@ -375,128 +420,54 @@ def _check_alloc_zero_dim_buffer(f):
 
     # tvm func execution
     f(tvm_data, tvm_out)
-    tvm.testing.assert_allclose(tvm_out.numpy(), np_out, rtol=1e-5)
+    tvm_tirx.testing.assert_allclose(tvm_out.numpy(), np_out, rtol=1e-5)
 
 
-def test_alloc_zero_dim_buffer_round_trip():
-    func = alloc_zero_dim_buffer
-    func_with_block = alloc_zero_dim_buffer_block
-    rt_func = tvm.script.from_source(
-        func.script(), extra_vars={"I": tvm.script.ir, "T": tvm.script.tirx, "Ts": tvm.script.s_tir}
+def test_alloc_zero_dim_tensor_round_trip():
+    func = alloc_zero_dim_tensor
+    func_with_block = alloc_zero_dim_tensor_block
+    rt_func = tvm_tirx.script.from_source(
+        func.script(),
+        extra_vars={"I": tvm_tirx.script.ir, "T": tvm_tirx.script.tirx, "Ts": tvm.s_tir.script},
     )
-    rt_func_with_block = tvm.script.from_source(
+    rt_func_with_block = tvm_tirx.script.from_source(
         func_with_block.script(),
-        extra_vars={"I": tvm.script.ir, "T": tvm.script.tirx, "Ts": tvm.script.s_tir},
+        extra_vars={"I": tvm_tirx.script.ir, "T": tvm_tirx.script.tirx, "Ts": tvm.s_tir.script},
     )
     rt_mod = tvm.compile(rt_func, "llvm")
     rt_mod_with_block = tvm.compile(rt_func_with_block, "llvm")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         func.with_attr("global_symbol", "main"), func_with_block.with_attr("global_symbol", "main")
     )
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         rt_func.with_attr("global_symbol", "main"),
         rt_func_with_block.with_attr("global_symbol", "main"),
     )
-    _check_alloc_zero_dim_buffer(rt_mod)
-    _check_alloc_zero_dim_buffer(rt_mod_with_block)
-
-
-try:
-
-    @Ts.prim_func
-    def slice_op_test(
-        A: T.Buffer((10,), "float32"), B: T.Buffer((10,), "float32"), C: T.Buffer((10,), "uint32")
-    ):
-        B[0:5] = A[0:5] + B[0:5]
-        B[0:5] = A[0:5] - B[0:5]
-        B[0:5] = A[0:5] * B[0:5]
-        B[0:5] = A[0:5] / B[0:5]
-        C[0:5] = C[0:5] % T.broadcast(T.uint32(5), 5)
-        B[0:5] = -B[0:5]
-        C[0:5] = C[0:5] >> 4
-        C[0:5] = C[0:5] << 4
-        C[0:5] = C[0:5] << C[0:5]
-        C[0:5] = C[0:5] >> C[0:5]
-        T.evaluate(A[0:5] > B[0:5])
-        T.evaluate(A[0:5] > 5)
-        T.evaluate(A[0:5] >= B[0:5])
-        T.evaluate(A[0:5] >= 5)
-        T.evaluate(A[0:5] < B[0:5])
-        T.evaluate(A[0:5] < 5)
-        T.evaluate(A[0:5] <= B[0:5])
-        T.evaluate(A[0:5] <= 5)
-        T.evaluate(A[0:5] == B[0:5])
-        T.evaluate(A[0:5] == 5)
-        T.evaluate(A[0:5] != B[0:5])
-        T.evaluate(A[0:5] != 5)
-        T.evaluate((A[0:5] > 0) and (B[0:5] > 0))
-        T.evaluate((A[0:5] > 0) or (B[0:5] > 0))
-        T.evaluate((A[0:5] < 0) and (1 > 0))
-        T.evaluate((A[0:5] > 0) or (1 > 0))
-
-    @Ts.prim_func
-    def slice_op_test_ref(
-        A: T.Buffer((10,), "float32"), B: T.Buffer((10,), "float32"), C: T.Buffer((10,), "uint32")
-    ):
-        B[0:5] = A[0:5] + B[0:5]
-        B[0:5] = A[0:5] - B[0:5]
-        B[0:5] = A[0:5] * B[0:5]
-        B[0:5] = A[0:5] / B[0:5]
-        C[0:5] = C[0:5] % T.Broadcast(T.uint32(5), 5)
-        B[0:5] = B[0:5] * T.Broadcast(T.float32(-1), 5)
-        C[0:5] = T.shift_right(C[0:5], T.Broadcast(T.uint32(4), 5))
-        C[0:5] = T.shift_left(C[0:5], T.Broadcast(T.uint32(4), 5))
-        C[0:5] = T.shift_left(C[0:5], C[0:5])
-        C[0:5] = T.shift_right(C[0:5], C[0:5])
-        T.evaluate(A[0:5] > B[0:5])
-        T.evaluate(A[0:5] > T.Broadcast(T.float32(5), 5))
-        T.evaluate(A[0:5] >= B[0:5])
-        T.evaluate(A[0:5] >= T.Broadcast(T.float32(5), 5))
-        T.evaluate(A[0:5] < B[0:5])
-        T.evaluate(A[0:5] < T.Broadcast(T.float32(5), 5))
-        T.evaluate(A[0:5] <= B[0:5])
-        T.evaluate(A[0:5] <= T.Broadcast(T.float32(5), 5))
-        T.evaluate(A[0:5] == B[0:5])
-        T.evaluate(A[0:5] == T.Broadcast(T.float32(5), 5))
-        T.evaluate(A[0:5] != B[0:5])
-        T.evaluate(A[0:5] != T.Broadcast(T.float32(5), 5))
-        T.bitwise_and(A[0:5] > T.Broadcast(T.float32(0), 5), B[0:5] > T.Broadcast(T.float32(0), 5))
-        T.bitwise_or(A[0:5] > T.Broadcast(T.float32(0), 5), B[0:5] > T.Broadcast(T.float32(0), 5))
-        T.bitwise_and(A[0:5] < T.Broadcast(T.float32(0), 5), T.Broadcast(T.bool(1), 5))
-        T.bitwise_or(A[0:5] > T.Broadcast(T.float32(0), 5), T.Broadcast(T.bool(1), 5))
-except TypeError:
-    slice_op_test = None
-    slice_op_test_ref = None
-
-
-def test_slice_op():
-    if slice_op_test is None:
-        pytest.skip("slice arithmetic on BufferRegion is not defined")
-    tvm.ir.assert_structural_equal(
-        slice_op_test.with_attr("global_symbol", "main"),
-        slice_op_test_ref.with_attr("global_symbol", "main"),
-    )
+    _check_alloc_zero_dim_tensor(rt_mod)
+    _check_alloc_zero_dim_tensor(rt_mod_with_block)
 
 
 def test_different_dtype_assignment_to_var():
-    @Ts.prim_func
+    @Ts.function
     def test_case():
-        a = Ts.sblock_alloc_buffer((10, 10), dtype="int8")
+        a = Ts.sblock_alloc_tensor((10, 10), dtype="int8")
 
-    @Ts.prim_func
+    @Ts.function
     def func_ref():
-        a = Ts.sblock_alloc_buffer([10, 10], dtype="int8")
+        a = Ts.sblock_alloc_tensor([10, 10], dtype="int8")
         T.evaluate(0)
 
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         test_case.with_attr("global_symbol", "main"), func_ref.with_attr("global_symbol", "main")
     )
 
 
 def roundtrip_matmul():
-    @Ts.prim_func
+    @Ts.function
     def roundtrip_matmul(
-        A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+        A: T.Tensor([128, 128], "float32"),
+        B: T.Tensor([128, 128], "float32"),
+        C: T.Tensor([128, 128], "float32"),
     ) -> None:
         for i, j, k in T.grid(128, 128, 128):
             with Ts.sblock("update"):
@@ -509,9 +480,11 @@ def roundtrip_matmul():
 
 
 def roundtrip_matmul_original():
-    @Ts.prim_func
+    @Ts.function
     def roundtrip_matmul_original(
-        A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+        A: T.Tensor([128, 128], "float32"),
+        B: T.Tensor([128, 128], "float32"),
+        C: T.Tensor([128, 128], "float32"),
     ) -> None:
         for i, j in T.grid(128, 128):
             with Ts.sblock("init"):
@@ -527,11 +500,11 @@ def roundtrip_matmul_original():
 
 
 def element_wise():
-    @Ts.prim_func
+    @Ts.function
     def element_wise(
-        A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")
+        A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((128, 128), "float32")
+        B = Ts.sblock_alloc_tensor((128, 128), "float32")
 
         for i, j in T.grid(128, 128):
             with Ts.sblock("B"):
@@ -546,8 +519,8 @@ def element_wise():
 
 
 def predicate():
-    @Ts.prim_func
-    def predicate(B: T.Buffer((16, 16), "float32"), C: T.Buffer((16, 16), "float32")) -> None:
+    @Ts.function
+    def predicate(B: T.Tensor((16, 16), "float32"), C: T.Tensor((16, 16), "float32")) -> None:
         for i, jo, ji in T.grid(16, 4, 5):
             with Ts.sblock("update"):
                 vi = Ts.axis.S(16, i)
@@ -559,144 +532,144 @@ def predicate():
 
 
 def test_module_define():
-    func1 = tvm.ir.IRModule({"matmul": roundtrip_matmul()})["matmul"]
-    func2 = tvm.ir.IRModule({"element_wise": element_wise()})["element_wise"]
-    func3 = tvm.ir.IRModule({"predicate": predicate()})["predicate"]
-    mod1 = tvm.ir.IRModule({"func1": func1, "func2": func2, "func3": func3})
-    mod2 = tvm.ir.IRModule(
+    func1 = tvm_tirx.ir.IRModule({"matmul": roundtrip_matmul()})["matmul"]
+    func2 = tvm_tirx.ir.IRModule({"element_wise": element_wise()})["element_wise"]
+    func3 = tvm_tirx.ir.IRModule({"predicate": predicate()})["predicate"]
+    mod1 = tvm_tirx.ir.IRModule({"func1": func1, "func2": func2, "func3": func3})
+    mod2 = tvm_tirx.ir.IRModule(
         {"func1": roundtrip_matmul(), "func2": element_wise(), "func3": predicate()}
     )
-    tvm.ir.assert_structural_equal(mod1, mod2)
+    tvm_tirx.ir.assert_structural_equal(mod1, mod2)
 
 
 def test_matmul_original():
     func = roundtrip_matmul_original()
-    rt_func = tvm.script.from_source(
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    assert isinstance(rt_func.body.block, s_tir.SBlock)
-    assert isinstance(rt_func.body.block.body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body.body, tirx.stmt.SeqStmt)
-    assert isinstance(rt_func.body.block.body.body.body[0].block, s_tir.SBlock)
-    assert isinstance(rt_func.body.block.body.body.body[1], tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body.body[1].body.block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body, tvm_tirx.ir.SeqStmt)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[0].block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[1], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[1].body[0].block, s_tir.SBlock)
 
 
 def test_element_wise():
     func = element_wise()
-    rt_func = tvm.script.from_source(
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    assert isinstance(rt_func.body.block, s_tir.SBlock)
-    assert isinstance(rt_func.body.block.body, tirx.stmt.SeqStmt)
-    assert isinstance(rt_func.body.block.body[0], tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body[0].body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body[0].body.body.block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body, tvm_tirx.ir.SeqStmt)
+    assert isinstance(rt_func.body[0].block.body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[0].block, s_tir.SBlock)
 
-    assert isinstance(rt_func.body.block.body[1], tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body[1].body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body[1].body.body.block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body[1], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[1].body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[1].body[0].body[0].block, s_tir.SBlock)
 
 
 def test_predicate():
     func = predicate()
-    rt_func = tvm.script.from_source(
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    assert isinstance(rt_func.body.block, s_tir.SBlock)
-    assert isinstance(rt_func.body.block.body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body.body, tirx.stmt.For)
-    assert isinstance(rt_func.body.block.body.body.body.body.block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(rt_func.body[0].block.body[0].body[0].body[0].body[0].block, s_tir.SBlock)
 
 
-def match_buffer_region():
-    @Ts.prim_func
-    def match_buffer_region(
-        A: T.Buffer((16, 16, 16), "float32"), B: T.Buffer(1, "float32")
+def match_tensor_region():
+    @Ts.function
+    def match_tensor_region(
+        A: T.Tensor((16, 16, 16), "float32"), B: T.Tensor(1, "float32")
     ) -> None:
         for i, j in T.grid(16, 4):
             with Ts.sblock():
                 vi, vj = Ts.axis.remap("SS", [i, j])
-                C = Ts.match_buffer(A[0:16, vi, vj * 4 : vj * 4 + 4], (16, 1, 4))
+                C = Ts.match_tensor(A[0:16, vi, vj * 4 : vj * 4 + 4], (16, 1, 4))
                 for ii in range(4):
                     with Ts.sblock():
                         vii = Ts.axis.S(4, ii)
-                        D = Ts.match_buffer(C[vii * 4 : vii * 4 + 4, 0, 0:4], (4, 1, 4))
+                        D = Ts.match_tensor(C[vii * 4 : vii * 4 + 4, 0, 0:4], (4, 1, 4))
                         for i, j in T.grid(4, 4):
                             B[0] += D[i, 0, j]
 
-    return match_buffer_region
+    return match_tensor_region
 
 
-def test_match_buffer_region():
-    func = match_buffer_region()
-    rt_func = tvm.script.from_source(
+def test_match_tensor_region():
+    func = match_tensor_region()
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    assert isinstance(rt_func.body, s_tir.SBlockRealize)
-    root = rt_func.body.block
+    assert isinstance(rt_func.body[0], s_tir.SBlockRealize)
+    root = rt_func.body[0].block
 
-    assert isinstance(root.body, tirx.stmt.For)
-    assert isinstance(root.body.body, tirx.stmt.For)
-    assert isinstance(root.body.body.body, s_tir.SBlockRealize)
-    outer_block = root.body.body.body.block
-    assert len(outer_block.match_buffers) == 1
-    buffer_C = outer_block.match_buffers[0].buffer
-    tvm.ir.assert_structural_equal(buffer_C.shape, [T.int32(16), T.int32(1), T.int32(4)])
+    assert isinstance(root.body[0], tvm_tirx.ir.For)
+    assert isinstance(root.body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(root.body[0].body[0].body[0], s_tir.SBlockRealize)
+    outer_block = root.body[0].body[0].body[0].block
+    assert len(outer_block.match_tensors) == 1
+    tensor_C = outer_block.match_tensors[0].tensor
+    tvm_tirx.ir.assert_structural_equal(tensor_C.shape, [T.int32(16), T.int32(1), T.int32(4)])
 
-    assert isinstance(outer_block.body, tirx.stmt.For)
-    assert isinstance(outer_block.body.body, s_tir.SBlockRealize)
-    inner_block = outer_block.body.body.block
-    assert len(inner_block.match_buffers) == 1
-    buffer_D = inner_block.match_buffers[0].buffer
-    tvm.ir.assert_structural_equal(buffer_D.shape, [T.int32(4), T.int32(1), T.int32(4)])
+    assert isinstance(outer_block.body[0], tvm_tirx.ir.For)
+    assert isinstance(outer_block.body[0].body[0], s_tir.SBlockRealize)
+    inner_block = outer_block.body[0].body[0].block
+    assert len(inner_block.match_tensors) == 1
+    tensor_D = inner_block.match_tensors[0].tensor
+    tvm_tirx.ir.assert_structural_equal(tensor_D.shape, [T.int32(4), T.int32(1), T.int32(4)])
 
 
 def block_elements():
-    @Ts.prim_func
-    def block_elements(A: T.Buffer((16, 16), "float32"), B: T.Buffer((1, 1), "float32")) -> None:
+    @Ts.function
+    def block_elements(A: T.Tensor((16, 16), "float32"), B: T.Tensor((1, 1), "float32")) -> None:
         with Ts.sblock("update"):
             vi = Ts.axis.S(1, 0)
             Ts.where(True)
             Ts.reads(A[0:16, 0:16])
             Ts.writes(B[0, 0])
             Ts.sblock_attr({"attr_key": "attr_value"})
-            C = Ts.sblock_alloc_buffer((4, 4), dtype="float32")
-            D = Ts.match_buffer(A[0:4, 0], (4, 1))
+            C = Ts.sblock_alloc_tensor((4, 4), dtype="float32")
+            D = Ts.match_tensor(A[0:4, 0], (4, 1))
             with Ts.init():
                 B[0, 0] = T.float32(0)
             B[0, 0] = A[0, 0] + B[0, 0] + C[1, 1] + D[2, 0]
@@ -706,30 +679,30 @@ def block_elements():
 
 def test_block_elements():
     func = block_elements()
-    rt_func = tvm.script.from_source(
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    assert isinstance(rt_func.body.block, s_tir.SBlock)
-    assert isinstance(rt_func.body.block.body, s_tir.SBlockRealize)
-    assert isinstance(rt_func.body.block.body.block, s_tir.SBlock)
-    block = rt_func.body.block.body.block
-    assert isinstance(block.body, tirx.stmt.BufferStore)
-    assert isinstance(block.init, tirx.stmt.BufferStore)
+    assert isinstance(rt_func.body[0].block, s_tir.SBlock)
+    assert isinstance(rt_func.body[0].block.body[0], s_tir.SBlockRealize)
+    assert isinstance(rt_func.body[0].block.body[0].block, s_tir.SBlock)
+    block = rt_func.body[0].block.body[0].block
+    assert isinstance(block.body[0], tvm_tirx.ir.TensorStore)
+    assert isinstance(block.init[0], tvm_tirx.ir.TensorStore)
     assert len(block.annotations) == 1
     assert block.annotations["attr_key"] == "attr_value"
 
 
 def opaque_block():
-    @Ts.prim_func
-    def opaque_block(A: T.Buffer((16, 16), "float32"), B: T.Buffer((16, 16), "float32")) -> None:
+    @Ts.function
+    def opaque_block(A: T.Tensor((16, 16), "float32"), B: T.Tensor((16, 16), "float32")) -> None:
         for i in range(16):
             for j in range(16):
                 with Ts.sblock():
@@ -747,33 +720,33 @@ def opaque_block():
 
 def test_opaque_block():
     func = opaque_block()
-    rt_func = tvm.script.from_source(
+    rt_func = tvm_tirx.script.from_source(
         func.script(),
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(func, rt_func)
+    tvm_tirx.ir.assert_structural_equal(func, rt_func)
 
-    root_block = rt_func.body.block
+    root_block = rt_func.body[0].block
     assert isinstance(root_block, s_tir.SBlock)
-    assert isinstance(root_block.body, tirx.stmt.For)
-    assert isinstance(root_block.body.body[0], tirx.stmt.For)
-    assert isinstance(root_block.body.body[0].body, s_tir.SBlockRealize)
-    assert isinstance(root_block.body.body[0].body.block, s_tir.SBlock)
-    assert len(root_block.body.body[0].body.block.iter_vars) == 0
-    assert isinstance(root_block.body.body[1], s_tir.SBlockRealize)
-    assert isinstance(root_block.body.body[1].block, s_tir.SBlock)
-    assert len(root_block.body.body[1].block.iter_vars) == 0
+    assert isinstance(root_block.body[0], tvm_tirx.ir.For)
+    assert isinstance(root_block.body[0].body[0], tvm_tirx.ir.For)
+    assert isinstance(root_block.body[0].body[0].body[0], s_tir.SBlockRealize)
+    assert isinstance(root_block.body[0].body[0].body[0].block, s_tir.SBlock)
+    assert len(root_block.body[0].body[0].body[0].block.iter_vars) == 0
+    assert isinstance(root_block.body[0].body[1], s_tir.SBlockRealize)
+    assert isinstance(root_block.body[0].body[1].block, s_tir.SBlock)
+    assert len(root_block.body[0].body[1].block.iter_vars) == 0
 
 
 def rank0():
-    @Ts.prim_func
-    def rank0(A: T.Buffer((), "float32")) -> None:
-        B = Ts.sblock_alloc_buffer((), "float32")
+    @Ts.function
+    def rank0(A: T.Tensor((), "float32")) -> None:
+        B = Ts.sblock_alloc_tensor((), "float32")
         A[()] = 2
         B[()] = A[()]
 
@@ -781,9 +754,9 @@ def rank0():
 
 
 def rank0_block():
-    @Ts.prim_func
-    def rank0_block(A: T.Buffer((), "float32")) -> None:
-        B = Ts.sblock_alloc_buffer((), "float32")
+    @Ts.function
+    def rank0_block(A: T.Tensor((), "float32")) -> None:
+        B = Ts.sblock_alloc_tensor((), "float32")
         B[()] = A[()]
 
         with Ts.sblock("update"):
@@ -796,8 +769,8 @@ def rank0_block():
 
 
 def nontrivial_range_axis():
-    @Ts.prim_func
-    def nontrivial_range_axis(A: T.Buffer(10, "float32")) -> None:
+    @Ts.function
+    def nontrivial_range_axis(A: T.Tensor(10, "float32")) -> None:
         for i in range(10):
             with Ts.sblock("block"):
                 vi = Ts.axis.spatial((1, 11), i + 1)
@@ -807,7 +780,7 @@ def nontrivial_range_axis():
 
 
 def func_root_attr():
-    @Ts.prim_func
+    @Ts.function
     def func_root_attr():
         with Ts.sblock("root"):
             Ts.sblock_attr({"a": "0"})
@@ -817,8 +790,8 @@ def func_root_attr():
 
 
 def func_trivial_root_block():
-    @Ts.prim_func
-    def func(A: T.Buffer(1, "int32")):
+    @Ts.function
+    def func(A: T.Tensor(1, "int32")):
         with Ts.sblock("root"):
             A[0] = 0
 
@@ -826,8 +799,8 @@ def func_trivial_root_block():
 
 
 def func_nested_root_block():
-    @Ts.prim_func
-    def func(A: T.Buffer(1, "int32")):
+    @Ts.function
+    def func(A: T.Tensor(1, "int32")):
         with Ts.sblock("root"):
             with Ts.sblock("block"):
                 A[0] = 0
@@ -836,12 +809,12 @@ def func_nested_root_block():
 
 
 def int64_support():
-    @Ts.prim_func
+    @Ts.function
     def elementwise_shape_int64(
-        A: T.Buffer((T.int64(128), T.int64(128)), dtype="float32"),
-        C: T.Buffer((T.int64(128), T.int64(128)), dtype="float32"),
+        A: T.Tensor((T.int64(128), T.int64(128)), dtype="float32"),
+        C: T.Tensor((T.int64(128), T.int64(128)), dtype="float32"),
     ) -> None:
-        B = Ts.sblock_alloc_buffer((T.int64(128), T.int64(128)), dtype="float32")
+        B = Ts.sblock_alloc_tensor((T.int64(128), T.int64(128)), dtype="float32")
 
         for i, j in T.grid(128, 128):
             with Ts.sblock("B"):
@@ -856,14 +829,14 @@ def int64_support():
 
 
 def func_attr_with_list():
-    @Ts.prim_func
+    @Ts.function
     def func(
-        A: T.Buffer((128, 128), "float32"),
-        B: T.Buffer((128, 128), "float32"),
-        D: T.Buffer((128, 128), "float32"),
+        A: T.Tensor((128, 128), "float32"),
+        B: T.Tensor((128, 128), "float32"),
+        D: T.Tensor((128, 128), "float32"),
     ) -> None:
-        T.func_attr({"global_symbol": "main", "tirx.noalias": True, "layout_free_buffers": [1]})
-        C = Ts.sblock_alloc_buffer([128, 128], dtype="float32")
+        T.func_attr({"global_symbol": "main", "tirx.noalias": True, "layout_free_tensors": [1]})
+        C = Ts.sblock_alloc_tensor([128, 128], dtype="float32")
         for i0, i1, i2 in T.grid(128, 128, 128):
             with Ts.sblock("C"):
                 x, y, k = Ts.axis.remap("SSR", [i0, i1, i2])
@@ -879,9 +852,11 @@ def func_attr_with_list():
     return func
 
 
-@Ts.prim_func
+@Ts.function
 def transformed_matmul_no_syntax_sugar(
-    A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
 ) -> None:
     for i0, i1, i2_outer, i2_inner_outer, i2_inner_inner in T.grid(128, 128, 4, 8, 4):
         with Ts.sblock("update"):
@@ -895,9 +870,11 @@ def transformed_matmul_no_syntax_sugar(
             C[vi, vj] = C[vi, vj] + (A[vi, vk] * B[vj, vk])
 
 
-@Ts.prim_func
+@Ts.function
 def transformed_matmul_syntax_sugar(
-    A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
 ) -> None:
     for i0, i1, i2_outer, i2_inner_outer, i2_inner_inner in T.grid(128, 128, 4, 8, 4):
         with Ts.sblock("update"):
@@ -917,17 +894,17 @@ def test_reads_writes_syntax_sugar():
     )
 
 
-def test_match_buffer_region_has_implicit_shape_dtype():
-    @Ts.prim_func
-    def explicit_shape_dtype(A: T.Buffer((16, 64), "int32")):
+def test_match_tensor_region_has_implicit_shape_dtype():
+    @Ts.function
+    def explicit_shape_dtype(A: T.Tensor((16, 64), "int32")):
         with Ts.sblock():
-            B = Ts.match_buffer(A[8:16, 32:64], shape=(8, 32), dtype="int32")
+            B = Ts.match_tensor(A[8:16, 32:64], shape=(8, 32), dtype="int32")
             T.evaluate(0)
 
-    @Ts.prim_func
-    def implicit_shape_dtype(A: T.Buffer((16, 64), "int32")):
+    @Ts.function
+    def implicit_shape_dtype(A: T.Tensor((16, 64), "int32")):
         with Ts.sblock():
-            B = Ts.match_buffer(A[8:16, 32:64])
+            B = Ts.match_tensor(A[8:16, 32:64])
             T.evaluate(0)
 
     assert_structural_equal_ignore_global_symbol(explicit_shape_dtype, implicit_shape_dtype)
@@ -950,30 +927,30 @@ def test_match_buffer_region_has_implicit_shape_dtype():
 )
 def test_roundtrip_blocks(ir_generator):
     original = ir_generator()
-    after_roundtrip = tvm.script.from_source(
+    after_roundtrip = tvm_tirx.script.from_source(
         original.script(show_meta=True),
         check_well_formed=False,
         extra_vars={
-            "I": tvm.script.ir,
-            "T": tvm.script.tirx,
-            "Ts": tvm.script.s_tir,
-            "R": tvm.script.relax,
+            "I": tvm_tirx.script.ir,
+            "T": tvm_tirx.script.tirx,
+            "Ts": tvm.s_tir.script,
+            "R": tvm.relax.script,
         },
     )
-    tvm.ir.assert_structural_equal(original, after_roundtrip, map_free_vars=True)
+    tvm_tirx.ir.assert_structural_equal(original, after_roundtrip, map_free_vars=True)
 
 
 # Import-time construction also checks the annotated S-TIR API.
-@Ts.prim_func
+@Ts.function
 def element_wise_storage_align(
-    A: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
-    C: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
+    A: T.Tensor([128, 128], "float32", align=64),
+    C: T.Tensor([128, 128], "float32", align=64),
 ) -> None:
     # body
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        B = Ts.sblock_alloc_buffer([128, 128], elem_offset=0, align=64, offset_factor=1)
+        B = Ts.sblock_alloc_tensor([128, 128], align=64)
         for i0 in T.serial(0, 128):
             for ax1 in T.serial(0, 128):
                 with Ts.sblock("B"):
@@ -981,7 +958,7 @@ def element_wise_storage_align(
                     vj = Ts.axis.S(128, ax1)
                     Ts.reads([A[vi, vj]])
                     Ts.writes([B[vi, vj]])
-                    Ts.sblock_attr({"buffer_dim_align": [[0, 0, 128, 127]]})
+                    Ts.sblock_attr({"tensor_dim_align": [[0, 0, 128, 127]]})
                     B[vi, vj] = A[vi, vj] * T.float32(2)
             for i1 in T.serial(0, 128):
                 with Ts.sblock("C"):
@@ -992,12 +969,12 @@ def element_wise_storage_align(
 
 
 # Import-time construction also checks the annotated S-TIR API.
-@Ts.prim_func
+@Ts.function
 def loop_split(
-    A: T.Buffer([128, 128], dtype="float32"), B: T.Buffer([128], dtype="float32")
+    A: T.Tensor([128, 128], dtype="float32"), B: T.Tensor([128], dtype="float32")
 ) -> None:
     for i, ko in T.grid(128, 4):
-        for ki in T.thread_binding(0, 32, thread="threadIdx.x"):
+        for ki in T.parallel(0, 32, annotations={"thread_binding": "threadIdx.x"}):
             with Ts.sblock("B"):
                 vi = Ts.axis.S(128, i)
                 vk = Ts.axis.R(128, ko * 32 + ki)
@@ -1009,12 +986,12 @@ def loop_split(
 
 
 # Import-time construction also checks the annotated S-TIR API.
-@Ts.prim_func
+@Ts.function
 def different_access_indices(
-    A: T.Buffer([128, 128, 128], dtype="float32"), B: T.Buffer([128, 128], dtype="float32")
+    A: T.Tensor([128, 128, 128], dtype="float32"), B: T.Tensor([128, 128], dtype="float32")
 ) -> None:
     for i, j in T.grid(128, 128):
-        for k in T.thread_binding(0, 128, thread="threadIdx.x"):
+        for k in T.parallel(0, 128, annotations={"thread_binding": "threadIdx.x"}):
             with Ts.sblock("B"):
                 vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
                 Ts.reads([B[vi, vj], A[vi, vj, vk]])
@@ -1029,9 +1006,9 @@ def different_access_indices(
                     ]
                 )
                 with Ts.init():
-                    B[vj, vi] = T.exp(B[vj, vi], dtype="float32")
+                    B[vj, vi] = T.exp(B[vj, vi])
                 B[vi, vj] = B[vi, vj] + A[vi, vj, vk]
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

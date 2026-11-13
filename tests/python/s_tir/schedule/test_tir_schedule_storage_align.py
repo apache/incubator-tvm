@@ -19,29 +19,30 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,line-too-long,redefined-outer-name
 
-@Ts.prim_func
+@Ts.function
 def element_wise(
-    A: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
-    C: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
+    A: T.Tensor([128, 128], "float32",  align=64),
+    C: T.Tensor([128, 128], "float32",  align=64),
 ) -> None:
 
     # body
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        B = Ts.sblock_alloc_buffer([128, 128], elem_offset=0, align=64, offset_factor=1)
+        B = Ts.sblock_alloc_tensor([128, 128],  align=64)
         for i0 in T.serial(0, 128):
             for ax1 in T.serial(0, 128):
                 with Ts.sblock("B"):
@@ -56,24 +57,24 @@ def element_wise(
                     Ts.writes([C[vi_1, vj_1]])
                     C[vi_1, vj_1] = B[vi_1, vj_1] + T.float32(1)
 
-@Ts.prim_func
+@Ts.function
 def element_wise_storage_align(
-    A: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
-    C: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
+    A: T.Tensor([128, 128], "float32",  align=64),
+    C: T.Tensor([128, 128], "float32",  align=64),
 ) -> None:
 
     # body
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        B = Ts.sblock_alloc_buffer([128, 128], elem_offset=0, align=64, offset_factor=1)
+        B = Ts.sblock_alloc_tensor([128, 128],  align=64)
         for i0 in T.serial(0, 128):
             for ax1 in T.serial(0, 128):
                 with Ts.sblock("B"):
                     vi, vj = Ts.axis.remap("SS", [i0, ax1])
                     Ts.reads([A[vi, vj]])
                     Ts.writes([B[vi, vj]])
-                    Ts.sblock_attr({"buffer_dim_align": [[0, 0, 128, 127]]})
+                    Ts.sblock_attr({"tensor_dim_align": [[0, 0, 128, 127]]})
                     B[vi, vj] = A[vi, vj] * T.float32(2)
             for i1 in T.serial(0, 128):
                 with Ts.sblock("C"):
@@ -82,21 +83,21 @@ def element_wise_storage_align(
                     Ts.writes([C[vi_1, vj_1]])
                     C[vi_1, vj_1] = B[vi_1, vj_1] + T.float32(1)
 
-@Ts.prim_func
+@Ts.function
 def element_wise_invalid_annotation(
-    A: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
-    C: T.Buffer([128, 128], elem_offset=0, align=64, offset_factor=1),
+    A: T.Tensor([128, 128], "float32",  align=64),
+    C: T.Tensor([128, 128], "float32",  align=64),
 ) -> None:
 
     # body
     with Ts.sblock("root"):
         Ts.reads([])
         Ts.writes([])
-        B = Ts.sblock_alloc_buffer([128, 128], elem_offset=0, align=64, offset_factor=1)
+        B = Ts.sblock_alloc_tensor([128, 128],  align=64)
         for i0 in T.serial(0, 128):
             for ax1 in T.serial(0, 128):
                 with Ts.sblock("B"):
-                    Ts.sblock_attr({"buffer_dim_align": [0]})
+                    Ts.sblock_attr({"tensor_dim_align": [0]})
                     vi, vj = Ts.axis.remap("SS", [i0, ax1])
                     Ts.reads([A[vi, vj]])
                     Ts.writes([B[vi, vj]])
@@ -108,7 +109,14 @@ def element_wise_invalid_annotation(
                     Ts.writes([C[vi_1, vj_1]])
                     C[vi_1, vj_1] = B[vi_1, vj_1] + T.float32(1)
 
-use_block_name = tvm.testing.parameter(by_dict={"block_obj": False, "block_name": True})
+
+@pytest.fixture(
+    params=[pytest.param(False, id="block_obj"), pytest.param(True, id="block_name")],
+    scope="session",
+)
+def use_block_name(request):
+    return request.param
+
 
 def test_storage_align(use_block_name):
     func = element_wise
@@ -141,14 +149,14 @@ def test_storage_align_invalid_factor2():
     with pytest.raises(tvm.s_tir.ScheduleError):
         s.storage_align(B, 0, axis=0, factor=-1, offset=127)
 
-def test_storage_align_invalid_buffer():
+def test_storage_align_invalid_tensor():
     func = element_wise
     s = tvm.s_tir.Schedule(func, debug_mask='all')
     C = s.get_sblock("C")
     with pytest.raises(tvm.s_tir.ScheduleError):
         s.storage_align(C, 0, axis=0, factor=128, offset=127)
 
-def test_storage_align_invalid_buffer_index():
+def test_storage_align_invalid_tensor_index():
     func = element_wise
     s = tvm.s_tir.Schedule(func, debug_mask='all')
     B = s.get_sblock("B")
@@ -170,4 +178,4 @@ def test_storage_align_invalid_annotation():
         s.storage_align(B, 0, axis=2, factor=128, offset=127)
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

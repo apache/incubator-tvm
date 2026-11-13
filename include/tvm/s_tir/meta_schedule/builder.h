@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_BUILDER_H_
 #define TVM_S_TIR_META_SCHEDULE_BUILDER_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/container/map.h>
 #include <tvm/ffi/function.h>
@@ -35,29 +36,32 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The builder's input, containing an IRModule and the target. */
-class BuilderInputNode : public ffi::Object {
+class BuilderInputObj : public ffi::Object {
  public:
+  explicit BuilderInputObj(ffi::UnsafeInit tag) : target(tag) {}
+
+  explicit BuilderInputObj(Target target) : target(std::move(target)) {}
   /*! \brief The IRModule to be built. */
   IRModule mod;
   /*! \brief The target to be built for. */
   Target target;
   /*! \brief Parameters for Relax build module. */
-  ffi::Optional<ffi::Map<ffi::String, runtime::Tensor>> params;
+  ffi::Optional<ffi::Map<ffi::String, ffi::Tensor>> params;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BuilderInputNode>()
-        .def_ro("mod", &BuilderInputNode::mod)
-        .def_ro("target", &BuilderInputNode::target)
-        .def_ro("params", &BuilderInputNode::params);
+    refl::ObjectDef<BuilderInputObj>()
+        .def_ro("mod", &BuilderInputObj::mod)
+        .def_ro("target", &BuilderInputObj::target)
+        .def_ro("params", &BuilderInputObj::params);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.BuilderInput", BuilderInputNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.BuilderInput", BuilderInputObj,
                                     ffi::Object);
 };
 
 /*!
- * \brief Managed reference to BuilderInputNode
- * \sa BuilderInputNode
+ * \brief Managed reference to BuilderInputObj
+ * \sa BuilderInputObj
  */
 class BuilderInput : public ffi::ObjectRef {
  public:
@@ -69,12 +73,12 @@ class BuilderInput : public ffi::ObjectRef {
    */
   TVM_DLL explicit BuilderInput(
       IRModule mod, Target target,
-      ffi::Optional<ffi::Map<ffi::String, runtime::Tensor>> params = std::nullopt);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BuilderInput, ffi::ObjectRef, BuilderInputNode);
+      ffi::Optional<ffi::Map<ffi::String, ffi::Tensor>> params = std::nullopt);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BuilderInput, ffi::ObjectRef, BuilderInputObj);
 };
 
 /*! \brief The builder's output, containing the artifact path or error message if any. */
-class BuilderResultNode : public ffi::Object {
+class BuilderResultObj : public ffi::Object {
  public:
   /*! \brief The path to the built artifact. */
   ffi::Optional<ffi::String> artifact_path;
@@ -83,17 +87,17 @@ class BuilderResultNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<BuilderResultNode>()
-        .def_ro("artifact_path", &BuilderResultNode::artifact_path)
-        .def_ro("error_msg", &BuilderResultNode::error_msg);
+    refl::ObjectDef<BuilderResultObj>()
+        .def_ro("artifact_path", &BuilderResultObj::artifact_path)
+        .def_ro("error_msg", &BuilderResultObj::error_msg);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.BuilderResult", BuilderResultNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.BuilderResult", BuilderResultObj,
                                     ffi::Object);
 };
 
 /*!
- * \brief Managed reference to BuilderResultNode
- * \sa BuilderResultNode
+ * \brief Managed reference to BuilderResultObj
+ * \sa BuilderResultObj
  */
 class BuilderResult : public ffi::ObjectRef {
  public:
@@ -104,14 +108,14 @@ class BuilderResult : public ffi::ObjectRef {
    */
   TVM_DLL explicit BuilderResult(ffi::Optional<ffi::String> artifact_path,
                                  ffi::Optional<ffi::String> error_msg);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BuilderResult, ffi::ObjectRef, BuilderResultNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(BuilderResult, ffi::ObjectRef, BuilderResultObj);
 };
 
 /*! \brief The abstract builder interface. */
-class BuilderNode : public ffi::Object {
+class BuilderObj : public ffi::Object {
  public:
   /*! \brief Default destructor */
-  virtual ~BuilderNode() = default;
+  virtual ~BuilderObj() = default;
   /*!
    * \brief Generate the build results from build inputs.
    * \param build_inputs The inputs to be built.
@@ -126,20 +130,20 @@ class BuilderNode : public ffi::Object {
   using FBuild = ffi::TypedFunction<ffi::Array<BuilderResult>(const ffi::Array<BuilderInput>&)>;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Builder", BuilderNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.Builder", BuilderObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to BuilderNode
- * \sa BuilderNode
+ * \brief Managed reference to BuilderObj
+ * \sa BuilderObj
  */
 class Builder : public ffi::ObjectRef {
  public:
   /*!
-   * \brief Constructor from ffi::ObjectPtr<BuilderNode>.
+   * \brief Constructor from ffi::ObjectPtr<BuilderObj>.
    * \param data The object pointer.
    */
-  explicit Builder(ffi::ObjectPtr<BuilderNode> data) : ffi::ObjectRef(data) {
+  explicit Builder(ffi::ObjectPtr<BuilderObj> data) : ffi::ObjectRef(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   /*!
@@ -147,26 +151,26 @@ class Builder : public ffi::ObjectRef {
    * \param f_build The packed function to the `Build` function..
    * \return The Builder created.
    */
-  static Builder PyBuilder(BuilderNode::FBuild f_build);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Builder, ffi::ObjectRef, BuilderNode);
+  static Builder PyBuilder(BuilderObj::FBuild f_build);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Builder, ffi::ObjectRef, BuilderObj);
 };
 
 /*! \brief An abstract builder with customized build method on the python-side. */
-class PyBuilderNode : public BuilderNode {
+class PyBuilderObj : public BuilderObj {
  public:
   /*! \brief The packed function to the `Build` function. */
   FBuild f_build;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyBuilderNode>().def_ro("f_build", &PyBuilderNode::f_build);
+    refl::ObjectDef<PyBuilderObj>().def_ro("f_build", &PyBuilderObj::f_build);
   }
 
   ffi::Array<BuilderResult> Build(const ffi::Array<BuilderInput>& build_inputs) final {
     TVM_FFI_ICHECK(f_build != nullptr) << "PyBuilder's Build method not implemented!";
     return f_build(build_inputs);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyBuilder", PyBuilderNode, BuilderNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyBuilder", PyBuilderObj, BuilderObj);
 };
 
 }  // namespace meta_schedule

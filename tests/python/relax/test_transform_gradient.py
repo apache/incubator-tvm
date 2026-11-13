@@ -18,14 +18,14 @@
 import numpy as np
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
-from tvm.script import s_tir as Ts
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 def test_simple():
@@ -1073,11 +1073,11 @@ def test_function_copy():
     old_bindings_len = len(old_bindings)
     new_bindings = After["main_adjoint"].body.blocks[0].bindings[:old_bindings_len]
     assert_structural_equal(old_bindings, new_bindings, True)
-    relax.analysis.well_formed(After)
+    relax.analysis.check_well_formed(After)
 
 
 def test_tir_copy():
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -1097,7 +1097,7 @@ def test_tir_copy():
             return gv
 
     After = relax.transform.Gradient("main")(Before)
-    relax.analysis.well_formed(After)
+    relax.analysis.check_well_formed(After)
 
 
 def test_report_error():
@@ -1107,7 +1107,7 @@ def test_report_error():
         def main(x: R.Tensor((3, 3), "float32")):
             with R.dataflow():
                 lv1 = R.sum(x)
-                gv = R.tuple(lv1, lv1)
+                gv = (lv1, lv1)
                 R.output(gv)
             return gv
 
@@ -1209,10 +1209,10 @@ def test_report_error():
                 R.output(gv)
             return gv
 
-        @Ts.prim_func
+        @Ts.function
         def sum(
-            rxplaceholder: T.Buffer((T.int64(3), T.int64(3)), "float32"),
-            rxplaceholder_red: T.Buffer((), "float32"),
+            rxplaceholder: T.Tensor((T.int64(3), T.int64(3)), "float32"),
+            rxplaceholder_red: T.Tensor((), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             for k0, k1 in T.grid(T.int64(3), T.int64(3)):
@@ -1330,4 +1330,4 @@ def test_mlp_script():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_TYPE_H_
 #define TVM_RELAX_TYPE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/attrs.h>
@@ -39,7 +40,7 @@ namespace tvm {
 namespace relax {
 
 using Expr = tvm::Expr;
-using ExprNode = tvm::ExprNode;
+using ExprObj = tvm::ExprObj;
 
 class BlockBuilder;
 
@@ -47,28 +48,28 @@ class BlockBuilder;
 static constexpr int kUnknownNDim = -1;
 
 using tvm::AnyType;
-using tvm::AnyTypeNode;
+using tvm::AnyTypeObj;
 using tvm::TupleType;
-using tvm::TupleTypeNode;
+using tvm::TupleTypeObj;
 
 // Compatibility aliases for existing C++ callers.  New code should use AnyType.
-using ObjectTypeNode = AnyTypeNode;
+using ObjectTypeObj = AnyTypeObj;
 using ObjectType = AnyType;
 
-class PackedFuncTypeNode : public TypeNode {
+class PackedFuncTypeObj : public TypeObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PackedFuncTypeNode>();
+    refl::ObjectDef<PackedFuncTypeObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.PackedFuncType", PackedFuncTypeNode, TypeNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.PackedFuncType", PackedFuncTypeObj, TypeObj);
 };
 
 class PackedFuncType : public Type {
  public:
-  TVM_DLL PackedFuncType(Span span = Span());
+  TVM_DLL PackedFuncType(Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PackedFuncType, Type, PackedFuncTypeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(PackedFuncType, Type, PackedFuncTypeObj);
 };
 
 /*!
@@ -99,7 +100,7 @@ class PackedFuncType : public Type {
 /*!
  * \brief Type of shape value.
  */
-class ShapeTypeNode : public TypeNode {
+class ShapeTypeObj : public TypeObj {
  public:
   /*! \brief optionally stores the symbolic value patterns of the shape */
   ffi::Optional<ffi::Array<PrimExpr>> values;
@@ -114,39 +115,39 @@ class ShapeTypeNode : public TypeNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ShapeTypeNode>()
-        .def_ro("values", &ShapeTypeNode::values)
-        .def_ro("ndim", &ShapeTypeNode::ndim);
+    refl::ObjectDef<ShapeTypeObj>()
+        .def_ro("values", &ShapeTypeObj::values)
+        .def_ro("ndim", &ShapeTypeObj::ndim);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.ShapeType", ShapeTypeNode, TypeNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.ShapeType", ShapeTypeObj, TypeObj);
 };
 
 /*!
- * \brief Managed reference to ShapeTypeNode.
- * \sa ShapeTypeNode
+ * \brief Managed reference to ShapeTypeObj.
+ * \sa ShapeTypeObj
  */
 class ShapeType : public Type {
  public:
   /*!
    * \brief Construction with known symbolic shape patterns
    * \param values The symbolic shape values
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    */
-  TVM_DLL ShapeType(ffi::Array<PrimExpr> values, Span span = Span());
+  TVM_DLL ShapeType(ffi::Array<PrimExpr> values, Location loc = UnknownLoc());
   /*!
    * \brief Construction with known unknown symbolic shape patterns.
    * \param ndim Number of dimensions -- can be kUnknownNDim
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    */
-  TVM_DLL ShapeType(int ndim, Span span = Span());
+  TVM_DLL ShapeType(int ndim, Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ShapeType, Type, ShapeTypeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ShapeType, Type, ShapeTypeObj);
 };
 
 /*!
  * \brief Type of Tensor.
  */
-class TensorTypeNode : public TypeNode {
+class TensorTypeObj : public TypeObj {
  public:
   /*!
    * \brief optionally store the shape expression of the tensor.
@@ -175,8 +176,8 @@ class TensorTypeNode : public TypeNode {
   ffi::Optional<ffi::Array<PrimExpr>> GetShape() const {
     if (!shape.has_value()) return {};
     const Expr& shape_expr = this->shape.value();
-    if (shape_expr->ty.IsMissing()) return {};
-    if (const auto* shape_ty = shape_expr->ty.as<ShapeTypeNode>()) {
+    if (shape_expr->ty.as<MissingType>().has_value()) return {};
+    if (const auto* shape_ty = shape_expr->ty.as<ShapeTypeObj>()) {
       return shape_ty->values;
     }
     return {};
@@ -184,22 +185,22 @@ class TensorTypeNode : public TypeNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TensorTypeNode>()
-        .def_ro("shape", &TensorTypeNode::shape)
-        .def_ro("dtype", &TensorTypeNode::dtype)
-        .def_ro("vdevice", &TensorTypeNode::vdevice)
-        .def_ro("ndim", &TensorTypeNode::ndim);
+    refl::ObjectDef<TensorTypeObj>()
+        .def_ro("shape", &TensorTypeObj::shape)
+        .def_ro("dtype", &TensorTypeObj::dtype)
+        .def_ro("vdevice", &TensorTypeObj::vdevice)
+        .def_ro("ndim", &TensorTypeObj::ndim);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.TensorType", TensorTypeNode, TypeNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.TensorType", TensorTypeObj, TypeObj);
 };
 
 /*!
- * \brief Managed reference to TensorTypeNode.
- * \sa TensorTypeNode
+ * \brief Managed reference to TensorTypeObj.
+ * \sa TensorTypeObj
  */
 class TensorType : public Type {
  public:
-  explicit TensorType(ffi::ObjectPtr<TensorTypeNode> data) : Type(ffi::UnsafeInit{}) {
+  explicit TensorType(ffi::ObjectPtr<TensorTypeObj> data) : Type(ffi::UnsafeInit{}) {
     TVM_FFI_ICHECK(data != nullptr);
     data_ = std::move(data);
   }
@@ -209,24 +210,24 @@ class TensorType : public Type {
    * \param shape The shape of the tensor.
    * \param dtype The data type of tensor's elements.
    * \param vdevice The virtual device.
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    *
    * \note shape must already be normalized.
    */
   TVM_DLL TensorType(Expr shape, ffi::Optional<tvm::PrimType> dtype = std::nullopt,
-                     ffi::Optional<VDevice> vdevice = std::nullopt, Span span = Span());
+                     ffi::Optional<VDevice> vdevice = std::nullopt, Location loc = UnknownLoc());
 
   /*!
    * \brief Construction with an unknown shape expression.
    * \param dtype The data type of tensor's elements.
    * \param ndim The number of dimensions
    * \param vdevice The virtual device.
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    */
   TVM_DLL TensorType(ffi::Optional<tvm::PrimType> dtype, int ndim,
-                     ffi::Optional<VDevice> vdevice = std::nullopt, Span span = Span());
+                     ffi::Optional<VDevice> vdevice = std::nullopt, Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorType, Type, TensorTypeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorType, Type, TensorTypeObj);
 };
 
 /*!
@@ -243,7 +244,7 @@ using TypeDeriveFunc = TypedEnvFunc<Type(const Call& call, const BlockBuilder& c
  * This data structure contains enough information for us to do best-effort
  * type deduction.
  */
-class FuncTypeNode : public TypeNode {
+class FuncTypeObj : public TypeObj {
  public:
   /*!
    * \brief The parameter type of the function.
@@ -276,22 +277,22 @@ class FuncTypeNode : public TypeNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<FuncTypeNode>()
-        .def_ro("params", &FuncTypeNode::params, refl::AttachFieldFlag::SEqHashDefPattern())
-        .def_ro("ret", &FuncTypeNode::ret)
-        .def_ro("derive_func", &FuncTypeNode::derive_func)
-        .def_ro("purity", &FuncTypeNode::purity);
+    refl::ObjectDef<FuncTypeObj>()
+        .def_ro("params", &FuncTypeObj::params, refl::AttachFieldFlag::SEqHashDefPattern())
+        .def_ro("ret", &FuncTypeObj::ret)
+        .def_ro("derive_func", &FuncTypeObj::derive_func)
+        .def_ro("purity", &FuncTypeObj::purity);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.FuncType", FuncTypeNode, TypeNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.FuncType", FuncTypeObj, TypeObj);
 };
 
 /*!
- * \brief Managed reference to FuncTypeNode.
- * \sa FuncTypeNode
+ * \brief Managed reference to FuncTypeObj.
+ * \sa FuncTypeObj
  */
 class FuncType : public Type {
  public:
-  explicit FuncType(ffi::ObjectPtr<FuncTypeNode> data) : Type(ffi::UnsafeInit{}) {
+  explicit FuncType(ffi::ObjectPtr<FuncTypeObj> data) : Type(ffi::UnsafeInit{}) {
     TVM_FFI_ICHECK(data != nullptr);
     data_ = std::move(data);
   }
@@ -300,12 +301,13 @@ class FuncType : public Type {
    * \param params The type of function parameters.
    * \param ret The return value type.
    * \param purity The purity of the function (true by default).
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    *
    * \note If the ret contains canonical tvm::Var values, they must be deducible from
    * params. If you are unsure, you can always erase ret to static.
    */
-  TVM_DLL FuncType(ffi::Array<Type> params, Type ret, bool purity = true, Span span = Span());
+  TVM_DLL FuncType(ffi::Array<Type> params, Type ret, bool purity = true,
+                   Location loc = UnknownLoc());
 
   /*!
    * \brief Constructing an opaque function type using derive_func.
@@ -313,13 +315,13 @@ class FuncType : public Type {
    * \param derive_func Derivation function.
    * \param purity The purity of the function
    *   (false by default: most external functions are not pure).
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    *
    * \return The FuncType for opaque packedfunc.
    * \note Defaults to an derive func that always return AnyType if not specified.
    */
   TVM_DLL static FuncType OpaqueFunc(TypeDeriveFunc derive_func, bool purity = false,
-                                     Span span = Span());
+                                     Location loc = UnknownLoc());
 
   /*!
    * \brief Construct an opaque function using from return type.
@@ -327,14 +329,15 @@ class FuncType : public Type {
    * \param ret The type of the return value.
    * \param purity The purity of the function
    *   (false by default: most external functions are not pure).
-   * \param span The span of the AST.
+   * \param loc The loc of the AST.
    *
    * \return The FuncType for opaque packedfunc.
    * \note Defaults to an derive func that always return AnyType if not specified.
    */
-  TVM_DLL static FuncType OpaqueFunc(Type ret = AnyType(), bool purity = false, Span span = Span());
+  TVM_DLL static FuncType OpaqueFunc(Type ret = AnyType(), bool purity = false,
+                                     Location loc = UnknownLoc());
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FuncType, Type, FuncTypeNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(FuncType, Type, FuncTypeObj);
 };
 
 /*!
@@ -366,7 +369,7 @@ inline ffi::Optional<T> MatchType(const Expr& expr) {
  */
 template <typename T>
 inline const T* GetTypeAs(const Expr& expr) {
-  TVM_FFI_ICHECK(!expr->ty.IsMissing())
+  TVM_FFI_ICHECK(!expr->ty.as<MissingType>().has_value())
       << "The type is not populated, check if you have normalized the expr";
   return expr->ty.as<T>();
 }
@@ -378,7 +381,7 @@ inline const T* GetTypeAs(const Expr& expr) {
  * \return underlying Relax type.
  */
 inline Type GetType(const Expr& expr) {
-  TVM_FFI_ICHECK(!expr->ty.IsMissing())
+  TVM_FFI_ICHECK(!expr->ty.as<MissingType>().has_value())
       << "The type is not populated, check if you have normalized the expr";
   return expr->ty;
 }
@@ -390,7 +393,7 @@ inline Type GetType(const Expr& expr) {
  * \return Whether the expr has void type.
  */
 inline bool HasVoidType(const Expr& expr) {
-  auto* ptr = expr->ty.as<TupleTypeNode>();
+  auto* ptr = expr->ty.as<TupleTypeObj>();
   return ptr != nullptr && ptr->fields.size() == 0;
 }
 

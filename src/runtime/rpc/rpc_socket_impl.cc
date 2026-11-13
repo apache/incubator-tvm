@@ -23,6 +23,7 @@
  */
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/runtime/extra_base.h>
 #include <tvm/support/io.h>
 #include <tvm/support/serializer.h>
 
@@ -115,8 +116,8 @@ ffi::Module RPCClientConnect(std::string url, int port, std::string key, bool en
   return CreateRPCSessionModule(CreateClientSession(endpt));
 }
 
-// TVM_RUNTIME_DLL needed for MSVC
-TVM_RUNTIME_DLL void RPCServerLoop(int sockfd) {
+// TVM_RUNTIME_EXTRA_DLL needed for MSVC
+TVM_RUNTIME_EXTRA_DLL void RPCServerLoop(int sockfd) {
   support::TCPSocket sock(static_cast<support::TCPSocket::SockType>(sockfd));
   RPCEndpoint::Create(std::make_unique<SockChannel>(sock), "SockServerLoop", "")->ServerLoop();
 }

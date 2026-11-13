@@ -21,21 +21,22 @@ import tempfile
 
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm import get_global_func
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
+from tvm.relax import script as R
 from tvm.runtime import disco as di
 from tvm.runtime.vm import VirtualMachine
 from tvm.s_tir import dlight as dl
-from tvm.script import relax as R
 
 if di is None:
     pytest.skip("disco runtime is not available", allow_module_level=True)
 
 _all_session_kinds = [di.ThreadedSession, di.ProcessSession]
-_compiled_ccl = get_global_func("runtime.disco.compiled_ccl", allow_missing=True)
+_compiled_ccl = tvm_ffi.get_global_func("runtime.disco.compiled_ccl", allow_missing=True)
 if _compiled_ccl is None:
     pytest.skip("Disco CCL is not enabled in this TVM build", allow_module_level=True)
 _ccl = [_compiled_ccl()]
@@ -43,10 +44,10 @@ _ccl = [_compiled_ccl()]
 
 def create_device_target(ccl):
     if ccl == "nccl":
-        dev = tvm.cuda(0)
+        dev = tvm_tirx.cuda(0)
     else:
-        dev = tvm.rocm(0)
-    target = tvm.target.Target.from_device(dev)
+        dev = tvm_tirx.rocm(0)
+    target = tvm_tirx.target.Target.from_device(dev)
     return (dev, target)
 
 
@@ -59,7 +60,7 @@ def _run_with_ccl_session(session_kind, ccl, devices, func, *, num_groups=1):
         finally:
             sess.shutdown()
 
-    return tvm.testing.run_with_gpu_lock(run_and_check)
+    return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.parametrize("session_kind", _all_session_kinds)
@@ -464,7 +465,7 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
     devices = [0, 1]
 
     # pylint: disable=invalid-name
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class MLP:  # pylint: disable=too-few-public-methods
         @R.function
         def main(
@@ -480,7 +481,7 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
                 R.output(lv2)
             return lv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ShardedMLP:  # pylint: disable=too-few-public-methods
         @R.function
         def main(
@@ -502,16 +503,16 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
     dev, target = create_device_target(ccl)
 
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            )(mod)
-            return tvm.compile(mod, target=target)
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        )(mod)
+        return tvm.compile(mod, target=target)
 
     # pylint: disable=invalid-name
     X = np.random.randn(128, 128).astype("float32")
@@ -526,9 +527,9 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
 
         def run_test(sess):
             Y_expected = VirtualMachine(expected_ex, device=dev)["main"](
-                tvm.runtime.tensor(X, device=dev),
-                tvm.runtime.tensor(W1, device=dev),
-                tvm.runtime.tensor(W2, device=dev),
+                tvm_tirx.runtime.tensor(X, device=dev),
+                tvm_tirx.runtime.tensor(W1, device=dev),
+                tvm_tirx.runtime.tensor(W2, device=dev),
             ).numpy()
 
             mod = sess.load_vm_module(path)
@@ -542,11 +543,11 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
             d_W2.debug_copy_from(0, W2[:64, :])
             d_W2.debug_copy_from(1, W2[64:, :])
             d_Y = mod["main"](d_X, d_W1, d_W2)
-            Y_result = tvm.runtime.empty((128, 128), "float32", device=dev)
+            Y_result = tvm_tirx.runtime.empty((128, 128), "float32", device=dev)
             sess.copy_from_worker_0(Y_result, d_Y)
             sess.sync_worker_0()
             Y_result = Y_result.numpy()
-            tvm.testing.assert_allclose(Y_result, Y_expected, rtol=1e-4, atol=1e-4)
+            tvm_tirx.testing.assert_allclose(Y_result, Y_expected, rtol=1e-4, atol=1e-4)
 
         _run_with_ccl_session(session_kind, ccl, devices, run_test)
     # pylint: enable=invalid-name
@@ -558,7 +559,7 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
     devices = [0, 1]
 
     # pylint: disable=invalid-name
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Attention:  # pylint: disable=too-few-public-methods
         @R.function
         def main(  # pylint: disable=too-many-locals
@@ -598,7 +599,7 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
                 R.output(lv16)
             return lv16
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ShardedAttention:  # pylint: disable=too-few-public-methods
         @R.function
         def main(  # pylint: disable=too-many-locals
@@ -644,16 +645,16 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
     dev, target = create_device_target(ccl)
 
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            )(mod)
-            return tvm.compile(mod, target=target)
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        )(mod)
+        return tvm.compile(mod, target=target)
 
     # pylint: disable=invalid-name
     X = np.random.randn(1, 10, 128).astype("float32")
@@ -670,11 +671,11 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
 
         def run_test(sess):
             Y_expected = VirtualMachine(expected_ex, device=dev)["main"](
-                tvm.runtime.tensor(X, device=dev),
-                tvm.runtime.tensor(Wq, device=dev),
-                tvm.runtime.tensor(Wk, device=dev),
-                tvm.runtime.tensor(Wv, device=dev),
-                tvm.runtime.tensor(Wo, device=dev),
+                tvm_tirx.runtime.tensor(X, device=dev),
+                tvm_tirx.runtime.tensor(Wq, device=dev),
+                tvm_tirx.runtime.tensor(Wk, device=dev),
+                tvm_tirx.runtime.tensor(Wv, device=dev),
+                tvm_tirx.runtime.tensor(Wo, device=dev),
             ).numpy()
 
             mod = sess.load_vm_module(path)
@@ -694,15 +695,15 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
             d_Wo.debug_copy_from(0, Wo[:256, :])
             d_Wo.debug_copy_from(1, Wo[256:, :])
             d_Y = mod["main"](d_X, d_Wq, d_Wk, d_Wv, d_Wo)
-            Y_result = tvm.runtime.empty((1, 10, 128), "float32", device=dev)
+            Y_result = tvm_tirx.runtime.empty((1, 10, 128), "float32", device=dev)
             sess.copy_from_worker_0(Y_result, d_Y)
             sess.sync_worker_0()
             Y_result = Y_result.numpy()
-            tvm.testing.assert_allclose(Y_result, Y_expected, rtol=1e-3, atol=1e-3)
+            tvm_tirx.testing.assert_allclose(Y_result, Y_expected, rtol=1e-3, atol=1e-3)
 
         _run_with_ccl_session(session_kind, ccl, devices, run_test)
     # pylint: enable=invalid-name
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

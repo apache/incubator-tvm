@@ -38,7 +38,7 @@ RPCSession::PackedFuncHandle LocalSession::GetFunction(const std::string& name) 
   if (auto fp = tvm::ffi::Function::GetGlobal(name)) {
     // return raw handle because the remote need to explicitly manage it.
     Any ret = *fp;
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(ret));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(ret));
     return ret_any.v_obj;
   } else {
     return nullptr;
@@ -54,11 +54,11 @@ void LocalSession::EncodeReturn(ffi::Any rv, const FEncodeReturn& encode_return)
   if (rv == nullptr) {
     packed_args[1] = rv;
     encode_return(ffi::PackedArgs(packed_args, 2));
-  } else if (rv.as<Tensor>()) {
+  } else if (rv.as<ffi::TensorObj>()) {
     // We follow a special protocol to return Tensor to client side
     // The first pack value is the Tensor handle as DLTensor
     // The second pack value is a customized deleter that deletes the Tensor.
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
     void* opaque_handle = ret_any.v_obj;
     packed_args[1] = TVMFFITensorGetDLTensorPtr(opaque_handle);
     packed_args[2] = opaque_handle;
@@ -75,7 +75,7 @@ void LocalSession::EncodeReturn(ffi::Any rv, const FEncodeReturn& encode_return)
     packed_args[1] = (*opt_str).data();
     encode_return(ffi::PackedArgs(packed_args, 2));
   } else if (rv.as<ffi::ObjectRef>()) {
-    TVMFFIAny ret_any = ffi::details::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
+    TVMFFIAny ret_any = ffi::detail::AnyUnsafe::MoveAnyToTVMFFIAny(std::move(rv));
     void* opaque_handle = ret_any.v_obj;
     packed_args[1] = opaque_handle;
     encode_return(ffi::PackedArgs(packed_args, 2));
@@ -116,10 +116,10 @@ void LocalSession::CopyToRemote(void* from_bytes, DLTensor* to, uint64_t nbytes)
   from.strides = nullptr;
   from.byte_offset = 0;
   Device dev_to = to->device;
-  this->GetDeviceAPI(dev_to)->CopyDataFromTo(&from, to, nullptr);
+  this->CopyDataFromTo(&from, to, nullptr);
   // Copy can happen asynchrously
   // synchronize to make sure that copy is completed
-  this->GetDeviceAPI(dev_to)->StreamSync(dev_to, nullptr);
+  this->StreamSync(dev_to, nullptr);
 }
 
 void LocalSession::CopyFromRemote(DLTensor* from, void* to_bytes, uint64_t nbytes) {
@@ -134,19 +134,78 @@ void LocalSession::CopyFromRemote(DLTensor* from, void* to_bytes, uint64_t nbyte
   to.byte_offset = 0;
 
   Device dev_from = from->device;
-  this->GetDeviceAPI(dev_from)->CopyDataFromTo(from, &to, nullptr);
+  this->CopyDataFromTo(from, &to, nullptr);
   // Copy can happen asynchrously
   // synchronize to make sure that copy is completed
-  this->GetDeviceAPI(dev_from)->StreamSync(dev_from, nullptr);
+  this->StreamSync(dev_from, nullptr);
 }
 
 void LocalSession::FreeHandle(void* handle) {
   // NOTE: the type code is no longer need during free handle.
-  ffi::details::ObjectUnsafe::DecRefObjectHandle(handle);
+  ffi::detail::ObjectUnsafe::DecRefObjectHandle(handle);
 }
 
-DeviceAPI* LocalSession::GetDeviceAPI(Device dev, bool allow_missing) {
-  return DeviceAPI::Get(dev, allow_missing);
+void LocalSession::SetDevice(Device dev) { DeviceAPI::Get(dev)->SetDevice(dev); }
+
+ffi::Any LocalSession::GetAttr(Device dev, const ffi::String& name) {
+  auto* api = DeviceAPI::Get(dev, name == "exist");
+  if (api == nullptr) return false;
+  return api->GetAttr(dev, name);
+}
+
+void* LocalSession::AllocTensor(Device dev, ffi::ShapeView shape, DLDataType dtype,
+                                ffi::Optional<MemoryScope> mem_scope) {
+  EnsureOpen();
+  ffi::Tensor tensor = DeviceAPI::Get(dev)->Empty(shape, dtype, dev, mem_scope);
+  void* handle = tensor.data_ptr();
+  std::lock_guard<std::mutex> lock(allocation_mutex_);
+  EnsureOpen();
+  allocations_[handle].push_back(std::move(tensor));
+  return handle;
+}
+
+void LocalSession::FreeTensor(Device dev, void* handle) {
+  std::lock_guard<std::mutex> lock(allocation_mutex_);
+  auto it = allocations_.find(handle);
+  TVM_FFI_CHECK(it != allocations_.end(), ValueError) << "Unknown remote allocation";
+  auto& owners = it->second;
+  auto owner = std::find_if(owners.begin(), owners.end(), [dev](const ffi::Tensor& tensor) {
+    return tensor.device().device_type == dev.device_type &&
+           tensor.device().device_id == dev.device_id;
+  });
+  TVM_FFI_CHECK(owner != owners.end(), ValueError) << "Remote allocation belongs to another device";
+  owners.erase(owner);
+  if (owners.empty()) allocations_.erase(it);
+}
+
+void LocalSession::CopyDataFromTo(DLTensor* from, DLTensor* to, TVMStreamHandle stream) {
+  Device dev = from->device.device_type == kDLCPU ? to->device : from->device;
+  DeviceAPI::Get(dev)->CopyDataFromTo(from, to, stream);
+}
+
+TVMStreamHandle LocalSession::CreateStream(Device dev) {
+  return DeviceAPI::Get(dev)->CreateStream(dev);
+}
+
+void LocalSession::FreeStream(Device dev, TVMStreamHandle stream) {
+  DeviceAPI::Get(dev)->FreeStream(dev, stream);
+}
+
+void LocalSession::StreamSync(Device dev, TVMStreamHandle stream) {
+  DeviceAPI::Get(dev)->StreamSync(dev, stream);
+}
+
+void LocalSession::SetStream(Device dev, TVMStreamHandle stream) {
+  DeviceAPI::Get(dev)->SetStream(dev, stream);
+}
+
+TVMStreamHandle LocalSession::GetCurrentStream(Device dev) {
+  return DeviceAPI::Get(dev)->GetCurrentStream(dev);
+}
+
+void LocalSession::Shutdown() {
+  std::lock_guard<std::mutex> lock(allocation_mutex_);
+  allocations_.clear();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

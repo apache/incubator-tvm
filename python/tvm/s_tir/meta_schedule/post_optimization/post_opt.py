@@ -18,7 +18,7 @@
 
 import numpy as np  # type: ignore
 
-from tvm.target import Target
+from tvm_tirx.target import Target
 
 from .droplet import Droplet
 from .utils import clean_file, get_time, read_cfg_file, write_file

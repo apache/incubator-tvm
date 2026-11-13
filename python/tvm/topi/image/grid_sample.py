@@ -17,7 +17,8 @@
 # pylint: disable=invalid-name
 """affine_grid and grid_sample operator"""
 
-from tvm import te, tirx
+from tvm import te
+from tvm_tirx import tirx
 
 
 def affine_grid(data, target_shape, align_corners=True):

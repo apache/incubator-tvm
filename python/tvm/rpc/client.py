@@ -27,8 +27,9 @@ import time
 import tvm_ffi
 from tvm_ffi import DLDeviceType
 
-import tvm.runtime
-from tvm.support import utils
+import tvm
+import tvm_tirx.runtime
+from tvm_tirx.support import utils
 
 from . import _ffi_api, base, server
 
@@ -42,7 +43,6 @@ class RPCSession:
     # pylint: disable=invalid-name
     def __init__(self, sess):
         self._sess = sess
-        self._tbl_index = _ffi_api.SessTableIndex(sess)
         self._remote_funcs = {}
 
     def system_lib(self):
@@ -50,12 +50,12 @@ class RPCSession:
 
         Returns
         -------
-        module : runtime.Module
+        module : tvm_ffi.Module
             The system-wide library module.
 
         See Also
         --------
-        tvm.runtime.system_lib
+        tvm_ffi.system_lib
         """
         return self.get_function("ffi.SystemLib")()
 
@@ -85,14 +85,14 @@ class RPCSession:
 
         Returns
         -------
-        dev: Device
-            The corresponding encoded remote device.
+        dev: RemoteDevice
+            The session-owned device.
         """
-        dev = tvm.runtime.device(dev_type, dev_id)
-        encode = (self._tbl_index + 1) * base.RPC_SESS_MASK
-        dev = tvm.runtime.device(dev.dlpack_device_type() + encode, dev.index)
-        dev._rpc_sess = self
-        return dev
+        return _ffi_api.RemoteDevice(self._sess, tvm_ffi.device(dev_type, dev_id))
+
+    def close(self):
+        """Close this session; existing remote values reject further operations."""
+        self._sess.get_function("CloseRPCConnection")()
 
     def upload(self, data, target=None):
         """Upload file to remote runtime temp folder
@@ -201,9 +201,11 @@ class RPCSession:
         --------
         .. code-block:: python
 
+            from tvm_tirx.codegen import Executable
+
             mod = build_module_with_cross_compilation()
             # export the module as tar because a local linker is not available
-            mod.export_library("lib.tar")
+            Executable(mod).export_library("lib.tar")
             remote.upload("lib.tar")
             # invoke the linker on the remote to link the module as a library
             # note that the library can only run on the same env as the remote
@@ -545,7 +547,7 @@ def connect(
             raise TypeError("Expect the session constructor to be a list or tuple")
         sess = _ffi_api.Connect(url, port, key, enable_logging, *session_constructor_args)
     except NameError:
-        raise RuntimeError("Please compile with USE_RPC=1")
+        raise RuntimeError("Please compile with TVM_USE_RPC=1")
     return RPCSession(sess)
 
 

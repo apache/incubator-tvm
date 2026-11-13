@@ -15,72 +15,48 @@
 # specific language governing permissions and limitations
 # under the License.
 
-# Helpers for configuring library targets.
-
-# Hide symbols from static archives linked into a shared library. This prevents
-# downstream libraries from accidentally binding to private archive symbols such
-# as those from libstdc++_nonshared.a.
-function(tvm_hide_static_linked_lib_symbols target_name)
-  if(HIDE_PRIVATE_SYMBOLS
-     AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android|FreeBSD|NetBSD|OpenBSD"
-     AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"
-  )
-    target_link_options(${target_name} PRIVATE "-Wl,--exclude-libs,ALL")
+# Apply parent compilation policy to the targets that compile, including objects.
+# KEEP_SYMBOLS preserves the unannotated public APIs of bundled third-party DSOs.
+function(tvm_configure_target target)
+  set_target_properties(${target} PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_STANDARD 20
+    CXX_STANDARD_REQUIRED ON
+    CXX_EXTENSIONS OFF
+    CUDA_STANDARD 20
+    CUDA_STANDARD_REQUIRED ON)
+  target_include_directories(${target} PRIVATE "${PROJECT_SOURCE_DIR}/include")
+  target_compile_definitions(${target} PRIVATE TVM_VERSION="${TVM_VERSION}")
+  if(TVM_LOG_BEFORE_THROW)
+    target_compile_definitions(${target} PRIVATE TVM_LOG_BEFORE_THROW=1)
   endif()
+  if(MSVC)
+    target_compile_definitions(${target} PRIVATE WIN32_LEAN_AND_MEAN _CRT_SECURE_NO_WARNINGS
+      _SCL_SECURE_NO_WARNINGS _ENABLE_EXTENDED_ALIGNED_STORAGE NOMINMAX)
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CXX>:/bigobj;/permissive-;/EHsc>)
+    if(TVM_USE_MSVC_MT)
+      set_property(TARGET ${target} PROPERTY MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+    endif()
+  else()
+    target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:C,CXX>:-Wall>)
+    if(TVM_HIDE_PRIVATE_SYMBOLS AND NOT ARGV1 STREQUAL "KEEP_SYMBOLS")
+      set_target_properties(${target} PROPERTIES CXX_VISIBILITY_PRESET hidden C_VISIBILITY_PRESET hidden)
+      target_compile_options(${target} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=-fvisibility=hidden>)
+    endif()
+  endif()
+  target_link_options(${target} PRIVATE ${TVM_LINKER_FLAGS})
 endfunction()
 
-#######################################################
-# tvm_configure_target_library(target_name [RUNTIME_MODULE])
-#
-# Configure a TVM library target. The target always gets a relative rpath
-# ($ORIGIN / @loader_path) so that sibling shared libraries in the same
-# directory resolve each other regardless of the install location (e.g. inside a
-# Python wheel).
-#
-# For shared libraries and runtime modules, hide symbols that come from linked
-# static archives so downstream libraries cannot accidentally bind to private
-# archive symbols such as those from libstdc++_nonshared.a.
-#
-# With the RUNTIME_MODULE option -- used for the optional runtime backend
-# libraries (tvm_runtime_cuda, tvm_runtime_vulkan, ...) -- the target is also
-# emitted into the build "lib" directory and installed; when building the Python
-# module it is additionally installed into the package "lib" directory. Targets
-# that manage their own output directory / install rules (tvm_compiler,
-# tvm_runtime, ...) omit the option and take only the rpath.
-#
-# No-op if the target does not exist.
-function(tvm_configure_target_library target_name)
-  if(NOT TARGET ${target_name})
-    return()
-  endif()
-  cmake_parse_arguments(ARG "RUNTIME_MODULE" "" "" ${ARGN})
-
+# Keep parent shared libraries relocatable and hide linked archive internals.
+function(tvm_configure_target_library target)
   if(APPLE)
-    set_target_properties(${target_name} PROPERTIES
-      BUILD_RPATH "@loader_path"
-      INSTALL_RPATH "@loader_path"
-    )
+    set_target_properties(${target} PROPERTIES BUILD_RPATH "@loader_path" INSTALL_RPATH "@loader_path")
   elseif(UNIX)
-    set_target_properties(${target_name} PROPERTIES
-      BUILD_RPATH "\$ORIGIN"
-      INSTALL_RPATH "\$ORIGIN"
-    )
+    set_target_properties(${target} PROPERTIES BUILD_RPATH "$ORIGIN" INSTALL_RPATH "$ORIGIN")
   endif()
-
-  get_target_property(TVM_TARGET_TYPE ${target_name} TYPE)
-  if(TVM_TARGET_TYPE STREQUAL "SHARED_LIBRARY" OR TVM_TARGET_TYPE STREQUAL "MODULE_LIBRARY")
-    tvm_hide_static_linked_lib_symbols(${target_name})
-  endif()
-
-  if(ARG_RUNTIME_MODULE)
-    set_target_properties(${target_name} PROPERTIES
-      LIBRARY_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-      RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-      ARCHIVE_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/lib"
-    )
-    install(TARGETS ${target_name} DESTINATION lib${LIB_SUFFIX})
-    if(TVM_BUILD_PYTHON_MODULE)
-      install(TARGETS ${target_name} DESTINATION "lib")
-    endif()
+  if(TVM_HIDE_PRIVATE_SYMBOLS
+     AND CMAKE_SYSTEM_NAME MATCHES "Linux|Android|FreeBSD|NetBSD|OpenBSD"
+     AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang")
+    target_link_options(${target} PRIVATE "LINKER:--exclude-libs,ALL")
   endif()
 endfunction()

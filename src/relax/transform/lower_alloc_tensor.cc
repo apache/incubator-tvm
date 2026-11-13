@@ -24,6 +24,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
+#include <tvm/tirx/op/memory.h>
 
 #include "utils.h"
 
@@ -37,7 +38,7 @@ class Mutator : public ExprMutator {
   explicit Mutator(IRModule mod) : ctx_mod_(mod) {}
 
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const CallNode* op) override {
+  Expr VisitExpr_(const CallObj* op) override {
     static const Op alloc_tensor_op = Op::Get("relax.builtin.alloc_tensor");
     static const Op mem_alloc_storage_op = Op::Get("relax.memory.alloc_storage");
     static const Op mem_alloc_tensor_op = Op::Get("relax.memory.alloc_tensor");
@@ -54,12 +55,12 @@ class Mutator : public ExprMutator {
       StringImm storage_scope = op->args[3].as_or_throw<StringImm>();
 
       auto shape = [&]() -> ffi::Array<PrimExpr> {
-        if (auto ptr = shape_arg.as<ShapeExprNode>()) {
+        if (auto ptr = shape_arg.as<ShapeExprObj>()) {
           return ptr->values;
         }
 
         auto ty = GetType(shape_arg);
-        if (auto ptr = ty.as<ShapeTypeNode>()) {
+        if (auto ptr = ty.as<ShapeTypeObj>()) {
           if (ptr->values) {
             return ptr->values.value();
           }
@@ -86,15 +87,15 @@ class Mutator : public ExprMutator {
       ShapeExpr size({nbytes});
 
       int64_t vdevice_index = -1;
-      if (const auto* int_imm = op->args[2].as<IntImmNode>()) {
+      if (const auto* int_imm = op->args[2].as<IntImmObj>()) {
         vdevice_index = int_imm->value.as<int>().value();
       }
       ffi::Optional<VDevice> vdevice = GetGlobalVDevice(ctx_mod_, vdevice_index);
 
       if (vdevice.has_value()) {
-        std::string dev_kind = vdevice.value()->target->kind->name;
+        std::string dev_kind = vdevice.value()->target.value()->kind->name;
         PrimExpr dev_size = IntImm::Int64(1);
-        if (vdevice.value()->memory_scope != "global") {
+        if (vdevice.value()->memory_scope != runtime::MemoryScope::Global()) {
           auto device_size_handler =
               tvm::ffi::Function::GetGlobal(std::string("DeviceGetMemSize.") + dev_kind);
           if (device_size_handler.has_value()) {
@@ -105,10 +106,11 @@ class Mutator : public ExprMutator {
           auto device_scope_handler =
               tvm::ffi::Function::GetGlobal(std::string("DeviceScopeCompatibility.") + dev_kind);
           if (device_scope_handler.has_value()) {
-            ffi::String dev_scope =
-                (*device_scope_handler)(vdevice.value()->target, vdevice.value()->memory_scope)
-                    .cast<ffi::String>();
-            storage_scope = StringImm(dev_scope);
+            runtime::MemoryScope dev_scope =
+                (*device_scope_handler)(vdevice.value()->target.value(),
+                                        vdevice.value()->memory_scope)
+                    .cast<runtime::MemoryScope>();
+            storage_scope = StringImm(dev_scope.name());
           }
         }
       }
@@ -119,8 +121,8 @@ class Mutator : public ExprMutator {
           Type::Missing(), mem_alloc_storage_op,
           {size, runtime_device_index, storage_scope, DataTypeImm((DLDataType{kDLUInt, 8, 1}))});
       storage = builder_->Emit(storage, "storage");
-      Expr tensor = Call::Unchecked(Type::Missing(), mem_alloc_tensor_op,
-                                    {storage, offset, shape_arg, dtype, op->args[2]});
+      Expr tensor = Call(Type::Missing(), mem_alloc_tensor_op,
+                         {storage, offset, shape_arg, dtype, op->args[2]});
       return tensor;
     } else {
       return ExprMutator::VisitExpr_(op);
@@ -143,7 +145,7 @@ Pass LowerAllocTensor() {
   auto pass_func = [=](Function func, IRModule m, PassContext pc) {
     return relax::LowerAllocTensor(m, std::move(func)).as_or_throw<Function>();
   };
-  return CreateFunctionPass(pass_func, /*opt_level=*/0, "LowerAllocTensor", {});
+  return CreateFunctionPass(pass_func, /*opt_level=*/0, "LowerAllocTensor");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

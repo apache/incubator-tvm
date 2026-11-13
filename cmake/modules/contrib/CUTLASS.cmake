@@ -15,9 +15,8 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if(USE_CUDA AND USE_CUTLASS)
-  tvm_file_glob(GLOB CUTLASS_CONTRIB_SRC
-    src/relax/backend/contrib/cutlass/*.cc
+if(TVM_TIRX_USE_CUDA AND TVM_USE_CUTLASS)
+  file(GLOB CUTLASS_CONTRIB_SRC CONFIGURE_DEPENDS src/relax/backend/contrib/cutlass/*.cc
   )
   list(APPEND COMPILER_SRCS ${CUTLASS_CONTRIB_SRC})
 
@@ -26,15 +25,18 @@ if(USE_CUDA AND USE_CUTLASS)
 
   ### Build cutlass runtime objects for fpA_intB_gemm using its cutlass submodule
   add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/cutlass_fpA_intB_gemm)
+  tvm_configure_target(fpA_intB_gemm KEEP_SYMBOLS)
+  tvm_configure_target(fpA_intB_gemm_tvm)
   target_include_directories(fpA_intB_gemm PRIVATE
     ${PROJECT_SOURCE_DIR}/3rdparty/cutlass_fpA_intB_gemm
     ${PROJECT_SOURCE_DIR}/3rdparty/cutlass_fpA_intB_gemm/cutlass/include
   )
-  target_link_libraries(fpA_intB_gemm_tvm PRIVATE tvm_ffi_header)
+  target_link_libraries(fpA_intB_gemm_tvm PRIVATE tvm_runtime_extra_defs)
 
   set(CUTLASS_FPA_INTB_RUNTIME_SRCS "")
   list(APPEND CUTLASS_FPA_INTB_RUNTIME_SRCS src/runtime/extra/contrib/cutlass/weight_preprocess.cc)
   add_library(fpA_intB_cutlass_objs OBJECT ${CUTLASS_FPA_INTB_RUNTIME_SRCS})
+  tvm_configure_target(fpA_intB_cutlass_objs)
   target_link_libraries(fpA_intB_cutlass_objs PRIVATE tvm_runtime_extra_defs)
   target_include_directories(fpA_intB_cutlass_objs PRIVATE
     ${PROJECT_SOURCE_DIR}/3rdparty/cutlass_fpA_intB_gemm
@@ -44,6 +46,7 @@ if(USE_CUDA AND USE_CUTLASS)
 
   ### Build cutlass runtime objects for flash attention
   add_subdirectory(${PROJECT_SOURCE_DIR}/3rdparty/libflash_attn)
+  tvm_configure_target(flash_attn KEEP_SYMBOLS)
   target_include_directories(flash_attn PRIVATE
     ${PROJECT_SOURCE_DIR}/3rdparty/libflash_attn
     ${PROJECT_SOURCE_DIR}/3rdparty/libflash_attn/cutlass/include
@@ -66,6 +69,7 @@ if(USE_CUDA AND USE_CUTLASS)
   endif()
   if(TVM_CUTLASS_RUNTIME_SRCS)
     add_library(tvm_cutlass_objs OBJECT ${TVM_CUTLASS_RUNTIME_SRCS})
+    tvm_configure_target(tvm_cutlass_objs)
     target_compile_options(tvm_cutlass_objs PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:-lineinfo --expt-relaxed-constexpr>)
     target_include_directories(tvm_cutlass_objs PRIVATE
       ${CUTLASS_DIR}/include

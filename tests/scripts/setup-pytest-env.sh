@@ -27,7 +27,8 @@ fi
 set -ux
 
 export TVM_PATH=`pwd`
-export PYTHONPATH="${TVM_PATH}/python"
+export PYTHONPATH="${TVM_PATH}/3rdparty/tvm-tirx/python:${TVM_PATH}/python"
+export TVM_TIRX_LIBRARY_PATH="${TVM_PATH}/build/lib"
 
 export TVM_PYTEST_RESULT_DIR="${TVM_PATH}/build/pytest-results"
 mkdir -p "${TVM_PYTEST_RESULT_DIR}"
@@ -39,7 +40,7 @@ function cleanup() {
     set +x
     if [ "${#pytest_errors[@]}" -gt 0 ]; then
         echo "These pytest invocations failed, the results can be found in the Jenkins 'Tests' tab or by scrolling up through the raw logs here."
-        python3 ci/scripts/jenkins/pytest_wrapper.py "${pytest_errors[@]}"
+        printf '%s\n' "${pytest_errors[@]}"
         exit 1
     fi
     set -x

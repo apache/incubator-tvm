@@ -17,8 +17,8 @@
 # pylint: disable=invalid-name
 """searchsorted operator"""
 
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx.script import ir_builder as T
 
 from . import te, utils
 from .math import cast
@@ -38,13 +38,13 @@ def binary_search(sequence_offset, search_range, sorted_sequence, value, right, 
     Note that we index N-D Buffer by 1-D linearlized indices.
 
     """
-    lo_buf = T.decl_buffer([1], out_dtype, scope="local")
-    hi_buf = T.decl_buffer([1], out_dtype, scope="local")
+    lo_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], out_dtype, scope="local")]))
+    hi_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], out_dtype, scope="local")]))
     lo = lo_buf
     hi = hi_buf
 
-    T.buffer_store(lo, cast(0, out_dtype), T.buffer_indices(lo, 0))
-    T.buffer_store(hi, cast(search_range, out_dtype), T.buffer_indices(hi, 0))
+    T.tensor_store(lo, T.tensor_indices(lo, 0), cast(0, out_dtype))
+    T.tensor_store(hi, T.tensor_indices(hi, 0), cast(search_range, out_dtype))
 
     # Reference: pytorch/aten/src/ATen/native/cuda/Bucketization.cu
     def condition(current_val, target_val):
@@ -52,21 +52,21 @@ def binary_search(sequence_offset, search_range, sorted_sequence, value, right, 
             return current_val <= target_val
         return current_val < target_val
 
-    with T.while_(lo[T.buffer_indices(lo, 0)] < hi[T.buffer_indices(hi, 0)]):
-        mid = lo[T.buffer_indices(lo, 0)] + (
-            hi[T.buffer_indices(hi, 0)] - lo[T.buffer_indices(lo, 0)] >> 1
+    with T.while_(lo[T.tensor_indices(lo, 0)] < hi[T.tensor_indices(hi, 0)]):
+        mid = lo[T.tensor_indices(lo, 0)] + (
+            hi[T.tensor_indices(hi, 0)] - lo[T.tensor_indices(lo, 0)] >> 1
         )
         with T.if_(
             condition(
-                sorted_sequence[T.buffer_indices(sorted_sequence, sequence_offset + mid)], value
+                sorted_sequence[T.tensor_indices(sorted_sequence, sequence_offset + mid)], value
             )
         ):
             with T.then_():
-                T.buffer_store(lo, mid + 1, T.buffer_indices(lo, 0))
+                T.tensor_store(lo, T.tensor_indices(lo, 0), mid + 1)
             with T.else_():
-                T.buffer_store(hi, mid, T.buffer_indices(hi, 0))
+                T.tensor_store(hi, T.tensor_indices(hi, 0), mid)
 
-    return lo[T.buffer_indices(lo, 0)]
+    return lo[T.tensor_indices(lo, 0)]
 
 
 def searchsorted(sorted_sequence, values, right=False, out_dtype="int64"):
@@ -115,17 +115,17 @@ def searchsorted(sorted_sequence, values, right=False, out_dtype="int64"):
                     sequence_id = i // values_shape[-1]
                     sequence_offset = sequence_id * search_range
 
-                T.buffer_store(
+                T.tensor_store(
                     indices,
+                    T.tensor_indices(indices, i),
                     binary_search(
                         sequence_offset,
                         search_range,
                         sorted_sequence,
-                        values[T.buffer_indices(values, i)],
+                        values[T.tensor_indices(values, i)],
                         right,
                         out_dtype,
                     ),
-                    T.buffer_indices(indices, i),
                 )
 
             return ib.get()

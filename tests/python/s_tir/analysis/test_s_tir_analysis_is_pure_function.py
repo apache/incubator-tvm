@@ -17,10 +17,10 @@
 
 import pytest
 
-import tvm.testing
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.analysis import assert_pure_function, is_pure_function
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 
 class CheckPureFunction:
@@ -41,40 +41,40 @@ class CheckImpureFunction:
 
 
 class TestNoOp(CheckPureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func():
         pass
 
 
 class TestReturnValue(CheckPureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func() -> T.int32:
         return 42
 
 
 class TestComputeValueAndReturn(CheckPureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func(N: T.int32, M: T.int32) -> T.int32:
         return N * M
 
 
-class TestReadBufferArgument(CheckPureFunction):
-    @Ts.prim_func
-    def func(A: T.Buffer(16, "float32")) -> T.float32:
+class TestReadTensorArgument(CheckPureFunction):
+    @Ts.function
+    def func(A: T.Tensor(16, "float32")) -> T.float32:
         return A[0]
 
 
-class TestWriteToBufferArgument(CheckImpureFunction):
-    @Ts.prim_func
-    def func(A: T.Buffer(16, "float32"), B: T.Buffer(16, "float32")):
+class TestWriteToTensorArgument(CheckImpureFunction):
+    @Ts.function
+    def func(A: T.Tensor(16, "float32"), B: T.Tensor(16, "float32")):
         for i in range(16):
             B[i] = A[i]
 
 
 class TestWriteToInternalAllocation(CheckPureFunction):
-    @Ts.prim_func
-    def func(A: T.Buffer([16, 16], "float32")) -> T.float32:
-        Sum = T.decl_buffer([], "float32")
+    @Ts.function
+    def func(A: T.Tensor([16, 16], "float32")) -> T.float32:
+        Sum = T.alloc_tensor(ty_args=[T.Tensor([], "float32")])
         Sum[()] = 0.0
         for i, j in T.grid(16, 16):
             Sum[()] = Sum[()] + A[i, j]
@@ -83,22 +83,22 @@ class TestWriteToInternalAllocation(CheckPureFunction):
 
 
 class TestCallPureBuiltin(CheckPureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func(x: T.float32) -> T.float32:
         return T.cos(x)
 
 
 class TestCallPureExtern(CheckPureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func():
-        T.call_pure_extern("some_pure_extern_func_name", dtype="void")
+        T.call_pure_extern("some_pure_extern_func_name", ty="void")
 
 
 class TestCallImpureExtern(CheckImpureFunction):
-    @Ts.prim_func
+    @Ts.function
     def func():
-        T.call_extern("some_impure_extern_func_name", dtype="void")
+        T.call_extern("some_impure_extern_func_name", ty="void")
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

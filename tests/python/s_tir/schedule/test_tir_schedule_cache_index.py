@@ -21,31 +21,34 @@ import sys
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import verify_trace_roundtrip
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable
 
 ########## Function before schedule ##########
 
 
-@Ts.prim_func
-def resize(A: T.Buffer((1, 3, 40, 40)), B: T.Buffer((1, 3, 80, 80))) -> None:
+@Ts.function
+def resize(A: T.Tensor((1, 3, 40, 40), "float32"), B: T.Tensor((1, 3, 80, 80), "float32")) -> None:
     for i0, i1, i2, i3 in T.grid(1, 3, 80, 80):
         with Ts.sblock("A"):
             n, c, vi, vj = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
             B[n, c, vi, vj] = A[n, c, vi // 4 + vj // 4, vj // 2]
 
 
-@Ts.prim_func
+@Ts.function
 def resize_cache_index(
-    A: T.Buffer((1, 3, 40, 40), "float32"), B: T.Buffer((1, 3, 80, 80), "float32")
+    A: T.Tensor((1, 3, 40, 40), "float32"), B: T.Tensor((1, 3, 80, 80), "float32")
 ) -> None:
-    index_var_0 = Ts.sblock_alloc_buffer([80, 80], dtype="int32", strides=[1])
-    index_var_1 = Ts.sblock_alloc_buffer([80], dtype="int32", strides=[1])
+    index_var_0 = Ts.sblock_alloc_tensor(
+        [80, 80], dtype="int32", layout=T.TileLayout(T.S[[80, 80] : [80, 1]])
+    )
+    index_var_1 = Ts.sblock_alloc_tensor([80], dtype="int32", layout=T.TileLayout(T.S[[80] : [1]]))
     for ax0, ax1 in T.grid(80, 80):
         with Ts.sblock("index_0"):
             v0, v1 = Ts.axis.remap("SS", [ax0, ax1])
@@ -66,9 +69,9 @@ def resize_cache_index(
             B[n, c, vi, vj] = A[n, c, index_var_0[vi, vj], index_var_1[vj]]
 
 
-@Ts.prim_func
+@Ts.function
 def bilinear_resize(
-    x: T.Buffer((1, 3, 40, 40), "float16"), resize: T.Buffer((1, 3, 80, 80), "float16")
+    x: T.Tensor((1, 3, 40, 40), "float16"), resize: T.Tensor((1, 3, 80, 80), "float16")
 ):
     for i0, i1, i2, i3 in T.grid(1, 3, 80, 80):
         with Ts.sblock("resize"):
@@ -91,7 +94,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i2_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     ),
                                     39,
@@ -106,7 +108,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i3_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     ),
                                     39,
@@ -127,7 +128,6 @@ def bilinear_resize(
                                     T.floor(
                                         (T.Cast("float32", i3_1) + T.float32(0.5)) * T.float32(0.5)
                                         - T.float32(0.5),
-                                        dtype="float32",
                                     ),
                                 ),
                             )
@@ -146,7 +146,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i2_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     ),
                                     39,
@@ -161,7 +160,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i3_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     )
                                     + 1,
@@ -181,7 +179,6 @@ def bilinear_resize(
                                 T.floor(
                                     (T.Cast("float32", i3_1) + T.float32(0.5)) * T.float32(0.5)
                                     - T.float32(0.5),
-                                    dtype="float32",
                                 ),
                             ),
                         )
@@ -199,7 +196,6 @@ def bilinear_resize(
                                 T.floor(
                                     (T.Cast("float32", i2_1) + T.float32(0.5)) * T.float32(0.5)
                                     - T.float32(0.5),
-                                    dtype="float32",
                                 ),
                             ),
                         )
@@ -219,7 +215,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i2_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     )
                                     + 1,
@@ -235,7 +230,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i3_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     ),
                                     39,
@@ -256,7 +250,6 @@ def bilinear_resize(
                                     T.floor(
                                         (T.Cast("float32", i3_1) + T.float32(0.5)) * T.float32(0.5)
                                         - T.float32(0.5),
-                                        dtype="float32",
                                     ),
                                 ),
                             )
@@ -275,7 +268,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i2_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     )
                                     + 1,
@@ -291,7 +283,6 @@ def bilinear_resize(
                                             (T.Cast("float32", i3_1) + T.float32(0.5))
                                             * T.float32(0.5)
                                             - T.float32(0.5),
-                                            dtype="float32",
                                         ),
                                     )
                                     + 1,
@@ -311,7 +302,6 @@ def bilinear_resize(
                                 T.floor(
                                     (T.Cast("float32", i3_1) + T.float32(0.5)) * T.float32(0.5)
                                     - T.float32(0.5),
-                                    dtype="float32",
                                 ),
                             ),
                         )
@@ -327,7 +317,6 @@ def bilinear_resize(
                             T.floor(
                                 (T.Cast("float32", i2_1) + T.float32(0.5)) * T.float32(0.5)
                                 - T.float32(0.5),
-                                dtype="float32",
                             ),
                         ),
                     )
@@ -335,13 +324,15 @@ def bilinear_resize(
             )
 
 
-@Ts.prim_func
+@Ts.function
 def cached_bilinear_resize(
-    x: T.Buffer((1, 3, 40, 40), "float16"), resize: T.Buffer((1, 3, 80, 80), "float16")
+    x: T.Tensor((1, 3, 40, 40), "float16"), resize: T.Tensor((1, 3, 80, 80), "float16")
 ):
-    index_var_0 = Ts.sblock_alloc_buffer([80], dtype="float32", strides=[1])
-    index_var_1 = Ts.sblock_alloc_buffer([80], dtype="int32", strides=[1])
-    index_var_2 = Ts.sblock_alloc_buffer([80], dtype="int32", strides=[1])
+    index_var_0 = Ts.sblock_alloc_tensor(
+        [80], dtype="float32", layout=T.TileLayout(T.S[[80] : [1]])
+    )
+    index_var_1 = Ts.sblock_alloc_tensor([80], dtype="int32", layout=T.TileLayout(T.S[[80] : [1]]))
+    index_var_2 = Ts.sblock_alloc_tensor([80], dtype="int32", layout=T.TileLayout(T.S[[80] : [1]]))
     for ax0 in T.serial(80):
         with Ts.sblock("index_0"):
             v0 = Ts.axis.spatial(80, ax0)
@@ -357,7 +348,6 @@ def cached_bilinear_resize(
                         T.floor(
                             (T.Cast("float32", v0) + T.float32(0.5)) * T.float32(0.5)
                             - T.float32(0.5),
-                            dtype="float32",
                         ),
                     ),
                 )
@@ -371,7 +361,6 @@ def cached_bilinear_resize(
                 "int32",
                 T.floor(
                     (T.Cast("float32", v0) + T.float32(0.5)) * T.float32(0.5) - T.float32(0.5),
-                    dtype="float32",
                 ),
             )
     for ax0 in T.serial(80):
@@ -383,7 +372,6 @@ def cached_bilinear_resize(
                 "int32",
                 T.floor(
                     (T.Cast("float32", v0) + T.float32(0.5)) * T.float32(0.5) - T.float32(0.5),
-                    dtype="float32",
                 ),
             )
     for i0, i1, i2, i3 in T.grid(1, 3, 80, 80):
@@ -457,7 +445,7 @@ def test_basic_cache_index():
     sch = tvm.s_tir.Schedule(resize, debug_mask="all")
     block = sch.get_sblock("A")
     sch.cache_index(block, "global")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         resize_cache_index, sch.mod["main"].with_attr("global_symbol", "resize_cache_index")
     )
     verify_trace_roundtrip(sch=sch, mod=resize)
@@ -467,11 +455,11 @@ def test_resize_bilinear_cache_index():
     sch = tvm.s_tir.Schedule(bilinear_resize, debug_mask="all")
     block = sch.get_sblock("resize")
     sch.cache_index(block, "global", 4)
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         sch.mod["main"], cached_bilinear_resize.with_attr("global_symbol", "bilinear_resize")
     )
     verify_trace_roundtrip(sch=sch, mod=bilinear_resize)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

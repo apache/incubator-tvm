@@ -22,14 +22,17 @@ from collections.abc import Callable
 import tvm_ffi
 
 import tvm
-import tvm.runtime
-from tvm.ir import Call, StringImm
-from tvm.runtime import Object, ObjectConvertible
+import tvm_tirx
+import tvm_tirx.runtime
+from tvm_tirx.ir import Attrs, Call, Op
+from tvm_tirx.ir._expose_api import _make_op_api
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+from tvm_tirx.runtime import DataTypeCode
 
 from ..expr import Expr, ExternFunc, GlobalVar, Var
-from ..type import TensorType, Type
+from ..type import Type
 from ..utils import convert_to_expr
-from . import _ffi_api
 
 py_print = print  # pylint: disable=invalid-name
 
@@ -59,10 +62,10 @@ def register_gradient(
     result : callable
         The registered gradient, or a decorator if fgradient is not supplied.
     """
-    return tvm.ir.register_op_attr(op_name, "FPrimalGradient", fgradient, override)
+    return tvm_tirx.ir.register_op_attr(op_name, "FPrimalGradient", fgradient, override)
 
 
-def null_value() -> Call:
+def null_value(*, ty=None, loc: Location = UNKNOWN_LOC) -> Call:
     """Create a call node that represents a null value object.
 
     Returns
@@ -70,7 +73,7 @@ def null_value() -> Call:
     ret: Call
         The created call node.
     """
-    return _ffi_api.null_value()  # type: ignore
+    return Call("relax.null_value", [], loc=loc, ty=ty)  # type: ignore
 
 
 def _wrap_inline_arg_tuple(args) -> Expr:
@@ -84,7 +87,7 @@ def _wrap_inline_arg_tuple(args) -> Expr:
 
     """
     if isinstance(args, tuple | list):
-        return tvm.relax.Tuple([convert_to_expr(a) for a in args])
+        return tvm_tirx.ir.Tuple([convert_to_expr(arg) for arg in args])
     elif (
         isinstance(args, Expr)
         and not isinstance(args, tvm.relax.Tuple)
@@ -95,230 +98,225 @@ def _wrap_inline_arg_tuple(args) -> Expr:
         return args
 
 
+def _wrap_tir_arg_tuple(func, args) -> Expr:
+    """Bind native scalar literals without changing explicit IR arguments."""
+    if not isinstance(args, tuple | list):
+        return _wrap_inline_arg_tuple(args)
+    signature = getattr(func, "ty", None)
+    arg_types = signature.arg_types if isinstance(signature, tvm_tirx.ir.FuncType) else ()
+    values = []
+    for i, value in enumerate(args):
+        ty = arg_types[i] if i < len(arg_types) else None
+        if isinstance(ty, tvm_tirx.ir.PrimType) and ty.dtype.lanes == 1:
+            if type(value) in (int, bool) and ty.matches_code(
+                DataTypeCode.INT, DataTypeCode.UINT, DataTypeCode.BOOL
+            ):
+                value = tvm_tirx.ir.IntImm(ty, value)
+            elif type(value) is float and ty.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT):
+                value = tvm_tirx.ir.FloatImm(ty, value)
+        values.append(convert_to_expr(value))
+    return tvm_tirx.ir.Tuple(values)
+
+
+_call_tir = _make_op_api(Op.get("relax.call_tir"), __name__)
+
+
 def call_tir(
-    gvar: GlobalVar,
-    args: Expr,
-    out_ty: TensorType | list[TensorType],
+    func, args, *, ty_args, attrs=None, ty=None, loc: Location = UNKNOWN_LOC, **kwargs
 ) -> Call:
+    """Call a destination-passing TIR function and allocate its output tensors.
+
+    ``func`` is the function's GlobalVar and ``args`` contains its ordered inputs.
+    ``ty_args`` contains one output type: a TensorType or a TupleType of tensor
+    results. Omitted ``ty`` uses the registered result inference; explicit types
+    and locs are forwarded unchanged.
     """
-    Call a tirx.prim_func and return the output.
+    return _call_tir(
+        func,
+        _wrap_tir_arg_tuple(func, args),
+        ty_args=ty_args,
+        attrs=attrs,
+        ty=ty,
+        loc=loc,
+        **kwargs,
+    )
+
+
+def call_tir_packed(gvar: GlobalVar, args: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Call:
+    """Call a TIRx Function through its native packed-call contract.
+
+    Every native parameter is supplied explicitly, in order.  Unlike
+    :py:func:`call_tir`, this operator does not allocate destination tensors or
+    interpret destination parameters as results.  It performs no implicit
+    copies, casts, layout conversions, device transfers, or redistribution.
+
+    The result follows the native declared return type: a supported scalar
+    keeps its exact primitive type, void becomes the empty tuple, and a pointer
+    becomes an ``Any`` carrying an opaque pointer.  A pointer result does not
+    imply tensor ownership or a lifetime guarantee.  Native tensor, nonempty
+    tuple, callable, vector, and other unsupported return types are rejected.
+    There is no ``out_ty`` argument.
 
     Parameters
     ----------
     gvar : GlobalVar
-        The GlobalVar referring to a tirx PrimFunc.
+        The GlobalVar referring to a TIRx Function with its native
+        ``tvm_tirx.ir.FuncType`` signature.
 
     args : Expr
-        The ordered tensor and primitive input arguments.  These correspond
-        positionally to the leading parameters of the PrimFunc.
+        The ordered arguments, supplied as an inline Relax tuple, a Python
+        tuple or list, or a single expression.  Tensor parameters accept
+        compatible Relax tensors, with dtype, rank, and known shapes checked
+        against the native signature.  Remaining supported native tensor
+        constraints are checked by the packed ABI at runtime.  Specialized
+        global storage scopes require matching ``VDevice.memory_scope``;
+        non-default layouts, allocated-address contracts, unsupported storage
+        scopes, and unlowered distributed tensors are rejected.
 
-    out_ty : Union[TensorType, List[TensorType]]
-        The type information of the call_tir output.
-        It should be a single or a list of TensorType. Each one denotes the
-        type information of a returned tensor.
+        Scalar parameters require the exact primitive dtype: scalar bool,
+        signed or unsigned integers up to 64 bits, or float16/32/64.  These
+        same scalar types are supported as direct results.  The existing packed
+        integer carrier is signed 64-bit: ``uint64`` values must be in
+        ``[0, 2**63 - 1]``; larger unsigned values are not representable.
+
+        Pointer parameters accept ``Any`` or a handle-compatible object,
+        including a runtime tensor.  A tensor passed to a pointer parameter
+        supplies its DLTensor header handle, not its data pointer.  This erased
+        carrier does not prove pointee type, address space, ownership, or
+        lifetime compatibility.  Known scalar values cannot serve as pointer
+        arguments.  The runtime carrier must satisfy the existing packed ABI's
+        null, opaque-pointer, DLTensor-pointer, or object-handle check.
+
+    The call is effectful and may mutate its arguments. For a call known to
+    have no observable effects, use an explicit ``call_pure_packed`` wrapper
+    around the ``relax.call_tir_packed`` operator. Purity is never inferred
+    from the native signature or packed ABI.
 
     Returns
     -------
-    ret: Call
-        A call node for the call_tir operator.
+    ret : Call
+        A call whose result type is derived from the native declared return
+        during Relax type inference.
+
+    Examples
+    --------
+    A native ``(int64, int64) -> int64`` function returns its scalar directly::
+
+        result = relax.call_tir_packed(add_scalar, (a, b))
+
+    A caller that knows the scalar function has no effects may assert purity::
+
+        result = relax.call_pure_packed(
+            tvm_tirx.ir.Op.get("relax.call_tir_packed"), add_scalar, (a, b)
+        )
+
+    A native copy function with a void return writes to a caller-owned tensor::
+
+        relax.call_tir_packed(copy, (source, destination))
     """
-    args = _wrap_inline_arg_tuple(args)
+    args = _wrap_tir_arg_tuple(gvar, args)
+    return Call("relax.call_tir_packed", [gvar, args], loc=loc, ty=ty)
 
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
 
-    return _ffi_api.call_tir(gvar, args, out_ty)  # type: ignore
+@tvm_ffi.register_object("relax.attrs.CallTIRWithGradAttrs")
+class CallTIRWithGradAttrs(Attrs):
+    """Attributes used in call_tir_with_grad operator"""
+
+
+_call_tir_with_grad = _make_op_api(Op.get("relax.call_tir_with_grad"), __name__)
 
 
 def call_tir_with_grad(
-    gvar: GlobalVar,
-    args: Expr,
-    out_ty: TensorType | list[TensorType],
-    te_grad_name: str,
-    te_grad_kwargs: dict[str, Object] | None = None,
+    func, args, *, ty_args, attrs=None, ty=None, loc: Location = UNKNOWN_LOC, **kwargs
 ) -> Call:
+    """Call a TIR function with a registered TE gradient rule.
+
+    ``ty_args`` contains the single output type, including a TupleType for
+    multiple results. The ``te_grad_name`` and optional ``te_grad_kwargs``
+    attribute keywords select the rule used by the Gradient pass. Attributes
+    may instead be supplied through ``attrs``.
     """
-    Call a tirx.prim_func and return the output. This intrinsic will bind a te gradient function
-    (refered by te_grad_name) to the call_tir_with_grad node. The te gradient function will be
-    called by the Gradient pass.
-
-    Parameters
-    ----------
-    gvar : GlobalVar
-        The GlobalVar referring to a tirx PrimFunc.
-
-    args : Expr
-        The ordered tensor and primitive input arguments.  These correspond
-        positionally to the leading parameters of the PrimFunc.
-
-    out_ty : Union[TensorType, List[TensorType]]
-        The type information of the call_tir_with_grad output.
-        It should be a single or a list of TensorType. Each one denotes the
-        type information of a returned tensor.
-
-    te_grad_name : str
-        The registered name of the te gradient function associated with the call_tir_with_grad
-        node. Must be provided as a keyword argument.
-
-    te_grad_kwargs : Dict[str, Object], optional
-        The keyword arguments passed to the te gradient function.
-        Optionally provided as a keyword argument. Default: {}.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_tir_with_grad operator.
-    """
-    args = _wrap_inline_arg_tuple(args)
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    if te_grad_kwargs is None:
-        te_grad_kwargs = {}
-
-    return _ffi_api.call_tir_with_grad(  # type: ignore
-        gvar, args, out_ty, te_grad_name, te_grad_kwargs
+    if attrs is None and kwargs.get("te_grad_kwargs") is None:
+        kwargs["te_grad_kwargs"] = {}
+    return _call_tir_with_grad(
+        func,
+        _wrap_tir_arg_tuple(func, args),
+        ty_args=ty_args,
+        attrs=attrs,
+        ty=ty,
+        loc=loc,
+        **kwargs,
     )
+
+
+@tvm_ffi.register_object("relax.attrs.CallTIRInplaceAttrs")
+class CallTIRInplaceAttrs(Attrs):
+    """Attributes used in call_tir_inplace operator"""
+
+
+_call_tir_inplace = _make_op_api(Op.get("relax.call_tir_inplace"), __name__)
 
 
 def call_tir_inplace(
-    gvar: GlobalVar,
-    args: Expr,
-    inplace_indices: int | list[int],
-    out_ty: TensorType | list[TensorType],
+    func, args, *, ty_args, attrs=None, ty=None, loc: Location = UNKNOWN_LOC, **kwargs
 ) -> Call:
+    """Call a TIR function whose selected outputs alias its input tensors.
+
+    ``ty_args`` contains one output type. In the ``inplace_indices`` attribute,
+    entry ``i >= 0`` makes the corresponding output alias input ``i``; ``-1``
+    allocates a fresh output. At least one output must alias an input.
+
+    Although classified as pure, this operation mutates the selected inputs.
+    Only use it after proving there are no live uses or aliases that could
+    observe those mutations. Direct construction is intended for testing;
+    optimization passes normally establish these preconditions.
     """
-    Call a TIR PrimFunc and return the result, doing the specified computations in-place
-    (based on the `inplace_indices` argument; outputs will alias the inputs
-    selected by in-place indices).
-
-    Warning: This operator is considered pure by the type system but actually mutates
-    the arguments specified by `inplace_indices`. This operator should not be used directly,
-    but rather should be inserted by passes that have checked whether it is safe to perform
-    operations in-place (i.e., none of the arguments specified as an output is aliased or is
-    live after calling call_tir_inplace).
-
-    Direct calls to this operator should be done for testing purposes only.
-
-    Parameters
-    ----------
-    gvar : GlobalVar
-        The GlobalVar referring to a TIR PrimFunc.
-
-    args : Expr
-        The ordered tensor and primitive input arguments.  These correspond
-        positionally to the leading parameters of the PrimFunc.
-
-    inplace_indices : Union[int, List[int]]
-        Specify which arguments should be used for in-place computations.
-        If `inplace_indices` is a single integer, it will be made into a singleton list.
-        Suppose `inplace_indices[i] = j`, where `j >= 0`. Then the `i`th output
-        will be an alias of `args[j]`.
-        If `inplace_indices[i] = -1`, then the `i`th output will be a freshly allocated tensor.
-        At least one member of `inplace_indices` must not be -1.
-
-    out_ty : Union[TensorType, List[TensorType]]
-        The type information of the call_tir_inplace output.
-        It should be a single `TensorType` or a list of `TensorType`.
-        Each one denotes the type information of a returned tensor.
-        If a list of `TensorType` is given, the result will be a tuple of `TensorType`.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_tir operator.
-    """
-    args = _wrap_inline_arg_tuple(args)
-
-    if not isinstance(inplace_indices, list):
-        inplace_indices = [inplace_indices]
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    return _ffi_api.call_tir_inplace(  # type: ignore
-        gvar,
-        args,
-        inplace_indices,
-        out_ty,
+    # Keep the existing scalar-index convenience at the Python boundary.
+    if isinstance(kwargs.get("inplace_indices"), int):
+        kwargs["inplace_indices"] = [kwargs["inplace_indices"]]
+    return _call_tir_inplace(
+        func,
+        _wrap_tir_arg_tuple(func, args),
+        ty_args=ty_args,
+        attrs=attrs,
+        ty=ty,
+        loc=loc,
+        **kwargs,
     )
 
 
+_call_dps_packed = _make_op_api(Op.get("relax.call_dps_packed"), __name__)
+
+
 def call_dps_packed(
-    func: str | Expr,
-    args: Expr,
-    out_ty: TensorType | list[TensorType],
+    func, args, *, ty_args, attrs=None, ty=None, loc: Location = UNKNOWN_LOC, **kwargs
 ) -> Call:
-    """
-    Call a destination-passing-style packed function and return the output.
+    """Call a destination-passing packed function and allocate its outputs.
 
-    Note: The called function is assumed to be _pure_ (other than modifying the designated
-    output arguments). If the function _does_ result in other side effects, then the compiler
-    may end up removing, reordering, or repeating those effects--no guarantees can be made.
+    Python string callees become ExternFunc; explicit Expr callees retain
+    their identity. ``ty_args`` contains one output type, including a TupleType
+    for multiple results.
 
-    Parameters
-    ----------
-    func : Union[str, Expr]
-        The destination-passing-style function, can be ExternFunc.
-
-    args : Expr
-        The input arguments.
-
-    out_ty : Union[TensorType, List[TensorType]]
-        The type information of the call_dps_packed output.
-        It should be a single or a list of TensorType. Each one denotes the
-        type information of a returned tensor.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_dps_packed operator.
+    The function must be pure apart from writing its designated outputs.
+    Other effects may be removed, reordered or repeated by the compiler.
     """
     if isinstance(func, str):
         func = ExternFunc(func)
-
     args = _wrap_inline_arg_tuple(args)
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    return _ffi_api.call_dps_packed(func, args, out_ty)  # type: ignore
+    return _call_dps_packed(func, args, ty_args=ty_args, attrs=attrs, ty=ty, loc=loc, **kwargs)
 
 
 def call_py_func(
-    func_name: str,
-    args: Expr,
-    out_ty: TensorType | list[TensorType],
+    func_name: str | Expr, args: Expr, *, ty_args, ty=None, loc: Location = UNKNOWN_LOC
 ) -> Call:
+    """Call a Python function using canonical operands and one output type argument.
+
+    ``func_name`` names a function in the IRModule's ``pyfuncs`` attribute.
+    ``args`` accepts an Expr or a Python tuple through shared Expr conversion.
+    ``ty_args`` contains exactly one result type, including a TupleType for
+    tuple-valued results. Omitted ``ty`` uses the registered result inference.
     """
-    Call a Python function and return the output.
-
-    Parameters
-    ----------
-    func_name : str
-        The name of the Python function to call. This should correspond to a function
-        in the IRModule's pyfuncs attribute.
-
-    args : Expr
-        The input arguments.
-
-    out_ty : Union[TensorType, List[TensorType]]
-        The type information of the call_py_func output.
-        It should be a single or a list of TensorType. Each one denotes the
-        type information of a returned tensor.
-
-    Returns
-    -------
-    ret: Call
-        A call node for the call_py_func operator.
-    """
-    args = _wrap_inline_arg_tuple(args)
-
-    if not isinstance(out_ty, list):
-        out_ty = [out_ty]
-
-    return _ffi_api.call_py_func(func_name, args, out_ty)  # type: ignore
+    return Call("relax.call_py_func", [func_name, args], ty_args=ty_args, loc=loc, ty=ty)
 
 
 def call_builtin_with_ctx(
@@ -326,6 +324,8 @@ def call_builtin_with_ctx(
     args: Expr,
     *,
     ty_args: Type | list[Type] | None = None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Call:
     """Call a builtin function func.
 
@@ -353,24 +353,28 @@ def call_builtin_with_ctx(
     if ty_args is not None and not isinstance(ty_args, list | tuple):
         ty_args = [ty_args]
 
-    return _ffi_api.call_builtin_with_ctx(  # type: ignore
-        func,
-        args,
-        ty_args,  # type: ignore
+    if ty_args is not None:
+        ty_args = [
+            value() if callable(value) and not isinstance(value, Type) else value
+            for value in ty_args
+        ]
+    return Call(
+        "relax.call_builtin_with_ctx",
+        [func, args],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
     )
 
 
-def make_closure(
-    func: Expr,
-    args: Expr,
-) -> Object:
+def make_closure(func: Expr, args: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> tvm_ffi.Object:
     """
     Create a closure with free variables and return the closure.
 
     Parameters
     ----------
     func : Expr
-        The closure, can be ExternFunc or PrimFunc.
+        The closure, can be ExternFunc or Function.
 
     args : Expr
         The input arguments.
@@ -378,19 +382,17 @@ def make_closure(
 
     Returns
     -------
-    ret: Object
+    ret: tvm_ffi.Object
         The VMClosure.
     """
 
     args = _wrap_inline_arg_tuple(args)
 
-    return _ffi_api.make_closure(func, args)  # type: ignore
+    return Call("relax.make_closure", [func, args], loc=loc, ty=ty)  # type: ignore
 
 
 def invoke_closure(
-    closure: Expr,
-    args: Expr,
-    ty_args: list[Type] | Type,
+    closure: Expr, args: Expr, ty_args: list[Type] | Type, *, ty=None, loc: Location = UNKNOWN_LOC
 ) -> Call:
     """
     Invoke a closure.
@@ -404,7 +406,7 @@ def invoke_closure(
         The input arguments.
 
     type_args: Union[List[Type], Type]
-        The type information arguments of the CallNode
+        The type information arguments of the CallObj
 
     Returns
     -------
@@ -416,16 +418,22 @@ def invoke_closure(
     if not isinstance(ty_args, list | tuple):
         ty_args = [ty_args]
 
-    return _ffi_api.invoke_closure(closure, args, ty_args)  # type: ignore
+    return Call(
+        "relax.invoke_closure",
+        [closure, args],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def render_object(val: tvm.Object) -> str:
+def render_object(val: tvm_ffi.Object) -> str:
     """
     Given a TVM Object, renders it in string form. Used for Relax printing and assertions.
 
     Parameters
     ----------
-    val: tvm.Object
+    val: tvm_ffi.Object
         An object to render
 
     Returns
@@ -433,7 +441,7 @@ def render_object(val: tvm.Object) -> str:
     ret: str
         A string representing the value, ideally human-readable
     """
-    if isinstance(val, tvm.runtime.Tensor):
+    if isinstance(val, tvm_tirx.runtime.Tensor):
         return str(val)
     if isinstance(val, tvm_ffi.Array):
         fields = ", ".join([render_object(val[i]) for i in range(len(val))])
@@ -441,8 +449,8 @@ def render_object(val: tvm.Object) -> str:
     return str(val)
 
 
-@tvm.register_global_func("relax.run.shape_to_tensor")
-def relax_shape_to_tensor(shape_tuple: tvm_ffi.Shape) -> tvm.runtime.Tensor:
+@tvm_ffi.register_global_func("relax.run.shape_to_tensor")
+def relax_shape_to_tensor(shape_tuple: tvm_ffi.Shape) -> tvm_tirx.runtime.Tensor:
     """
     Takes a Shape and convert it to Tensor.
 
@@ -451,26 +459,26 @@ def relax_shape_to_tensor(shape_tuple: tvm_ffi.Shape) -> tvm.runtime.Tensor:
     shape_tuple: tvm_ffi.Shape
         Shape tuple that we want to convert to Tensor at runtime
     """
-    return tvm.runtime.tensor([int(v) for v in shape_tuple])
+    return tvm_tirx.runtime.tensor([int(v) for v in shape_tuple])
 
 
-@tvm.register_global_func("relax.run.print")
-def relax_print(format_str: str, *format_args: tvm.Object) -> None:
+@tvm_ffi.register_global_func("relax.run.print")
+def relax_print(format_str: str, *format_args: tvm_ffi.Object) -> None:
     """
     Takes a list of values to print, formats with the given format string.
     If the format string is empty, simply prints.
 
     Call from TVM script like this:
-    `relax.print(value1, value2, ..., valueN, format=format_str)`
+    `relax.print(format_str, value1, value2, ..., valueN)`
     or
-    `relax.print(value1, value2, ..., valueN) # format_str defaults to ""`
+    `relax.print("", value1, value2, ..., valueN)`
 
     Parameters
     ----------
     format_str: str
-        The last argument is a Python-style format string for printing the value
+        The first argument is a Python-style format string for printing the values
 
-    format_args: List[Object]
+    format_args: List[tvm_ffi.Object]
         The values to print.
     """
     val_strs = map(render_object, format_args)
@@ -480,50 +488,35 @@ def relax_print(format_str: str, *format_args: tvm.Object) -> None:
         py_print(format_str.format(*val_strs))
 
 
-def print(*values: list[Expr], format: str | Expr = "") -> Expr:
-    """Print op to print the values
-
-    Parameters
-    ----------
-    values : List[Expr]
-        The values to print.
-
-    format: Union[str, Expr]
-        The format string or StringImm.
-
-    Returns
-    -------
-    result : Expr
-        A relax Call, which will print the value during runtime.
-    """
-    if isinstance(format, str):
-        format = StringImm(format)
-
-    return _ffi_api.print(values, format)  # type: ignore # pylint: disable=no-member
+def print(format: str | Expr, *values: Expr, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
+    """Print values using the canonical leading format-string operand."""
+    return Call("relax.print", [format, *values], loc=loc, ty=ty)
 
 
-@tvm.register_global_func("relax.run.assert_op")
-def relax_assert_op(condition: tvm.Object, format_str: str, *format_args: tvm.Object) -> None:
+@tvm_ffi.register_global_func("relax.run.assert_op")
+def relax_assert_op(
+    condition: tvm_ffi.Object, format_str: str, *format_args: tvm_ffi.Object
+) -> None:
     """
     A variadic function. The first value serves as the assertion condition:
     If the condition is true, then the operator does nothing.
     If the condition is false, then the operator raises an assertion error.
 
-    Arguments after the first value serve as format arguments for the error message;
-    the last argument must be a format string for the error message (empty by default).
+    The second argument is the format string for the error message, followed by
+    its format arguments.
     If the format string is the empty string, then the error message will simply include
     a comma-separated list of the format arguments.
     The condition argument is not included in the format string.
 
     Parameters
     ----------
-    condition: tvm.Object
+    condition: tvm_ffi.Object
         The assertion condition. Must be a boolean scalar.
 
     format_str: str
-        The last argument is a Python-style format string for printing the value
+        A Python-style format string for the error message.
 
-    format_args: List[tvm.Object]
+    format_args: List[tvm_ffi.Object]
         Values used for formatting the string.
     """
     if not isinstance(format_str, str):
@@ -533,7 +526,7 @@ def relax_assert_op(condition: tvm.Object, format_str: str, *format_args: tvm.Ob
 
     if isinstance(condition, bool | int):
         val = condition
-    elif isinstance(condition, tvm.runtime.Tensor):
+    elif isinstance(condition, tvm_tirx.runtime.Tensor):
         # may happen if the original program had unknown shape or dtype for the tensor's type
         dtype = condition.dtype
         if dtype != "bool":
@@ -564,8 +557,10 @@ def relax_assert_op(condition: tvm.Object, format_str: str, *format_args: tvm.Ob
 
 def assert_op(
     condition: Expr,
-    format_args: Expr | list[Expr] | None = None,
     format: str | Expr = "",
+    *values: Expr,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """
     Create a call to Relax's assert_op operation (`assert` is reserved in Python,
@@ -576,32 +571,23 @@ def assert_op(
     condition: Expr
         The assertion condition.
 
-    format_args: Optional[Union[Expr, List[Expr]]]
-        Format arguments for the error message if the condition fails.
-
     format: Union[str, Expr]
-        The format string or StringImm for the error message.
+        The format string or StringImm for the error message. If empty, the
+        values are rendered as a comma-separated list.
+
+    values: Expr
+        Values used to format the error message if the condition fails.
+        A tuple-valued expression is one value unless explicitly expanded.
 
     Returns
     -------
     result : Expr
         A Call to the Relax assert operation.
     """
-    if not isinstance(condition, Expr):
-        condition = tvm.relax.prim_value(condition)
-
-    if format_args is None:
-        format_args = []
-    elif isinstance(format_args, Expr):
-        format_args = [format_args]
-
-    if isinstance(format, str):
-        format = StringImm(format)
-
-    return _ffi_api.assert_op(condition, format_args, format)  # type: ignore
+    return Call("relax.assert_op", [condition, format, *values], loc=loc, ty=ty)
 
 
-def shape_of(expr: Expr) -> Expr:
+def shape_of(expr: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Get shape of a tensor.
 
     Parameters
@@ -614,10 +600,10 @@ def shape_of(expr: Expr) -> Expr:
     result : Expr
         A relax Call, which gets the shape of the input
     """
-    return _ffi_api.shape_of(expr)  # type: ignore # pylint: disable=no-member
+    return Call("relax.shape_of", [expr], loc=loc, ty=ty)  # type: ignore # pylint: disable=no-member
 
 
-def size(expr: Expr) -> Expr:
+def size(expr: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Get the total number of elements in a tensor.
 
     Parameters
@@ -630,10 +616,10 @@ def size(expr: Expr) -> Expr:
     result : Expr
         A scalar tensor of dtype int64 containing the total number of elements.
     """
-    return _ffi_api.size(expr)  # type: ignore # pylint: disable=no-member
+    return Call("relax.size", [expr], loc=loc, ty=ty)  # type: ignore # pylint: disable=no-member
 
 
-def tensor_to_shape(expr: Expr) -> Expr:
+def tensor_to_shape(expr: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Convert tensor to shape expr.
     Parameters
     ----------
@@ -644,10 +630,10 @@ def tensor_to_shape(expr: Expr) -> Expr:
     result : Expr
         A relax Call, which transforms the tensor values to the shape
     """
-    return _ffi_api.tensor_to_shape(expr)  # type: ignore # pylint: disable=no-member
+    return Call("relax.tensor_to_shape", [expr], loc=loc, ty=ty)  # type: ignore # pylint: disable=no-member
 
 
-def shape_to_tensor(expr: Expr) -> Expr:
+def shape_to_tensor(expr: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Convert shape to tensor expr.
     Parameters
     ----------
@@ -658,14 +644,21 @@ def shape_to_tensor(expr: Expr) -> Expr:
     result : Expr
         A relax Call, which transforms the shape values to the tensor
     """
-    return _ffi_api.shape_to_tensor(expr)  # type: ignore # pylint: disable=no-member
+    return Call("relax.shape_to_tensor", [expr], loc=loc, ty=ty)  # type: ignore # pylint: disable=no-member
+
+
+@tvm_ffi.register_object("relax.attrs.CallInplacePackedAttrs")
+class CallInplacePackedAttrs(Attrs):
+    """Attributes used in call_inplace_packed operator"""
 
 
 def call_inplace_packed(
     func: str | ExternFunc | GlobalVar,
     *args: Expr,
-    inplace_indices: int | list[int],
-    ty_args: Type | list[Type],
+    inplace_indices: int | list[int] | None = None,
+    ty_args: Type | list[Type] | None = None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """
     Construct a call to a packed function that consumes some of its arguments "in-place"
@@ -710,27 +703,33 @@ def call_inplace_packed(
       A Relax call, corresponding to
       `call_pure_packed(ExternFunc(func), args, DictAttrs(kwargs), ty_args)`
     """
-    if isinstance(func, ExternFunc):
-        func = func.global_symbol
-
-    op = ExternFunc(func)
+    op = ExternFunc(func) if isinstance(func, str) else func
     args = tuple(convert_to_expr(a) for a in args)
     if ty_args is None:
-        raise ValueError("R.call_pure_packed is required to have type_args")
+        ty_args = []
     if isinstance(ty_args, tuple):  # type: ignore
         ty_args = list(ty_args)
     elif not isinstance(ty_args, list):
         ty_args = [ty_args]
-    if not isinstance(inplace_indices, list):
+    if inplace_indices is not None and not isinstance(inplace_indices, list):
         inplace_indices = [inplace_indices]
 
-    return _ffi_api.call_inplace_packed(op, args, inplace_indices, ty_args)  # type: ignore # pylint: disable=no-member
+    return Call(
+        "relax.call_inplace_packed",
+        [op, *args],
+        attrs=_make_attrs("relax.attrs.CallInplacePackedAttrs", inplace_indices=inplace_indices),
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore # pylint: disable=no-member
 
 
 def call_pure_packed(
-    func: str | ExternFunc | GlobalVar,
+    func: str | ExternFunc | GlobalVar | Op,
     *args: Expr,
-    ty_args: Type | list[Type],
+    ty_args: Type | list[Type] | None = None,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ) -> Expr:
     """
     Construct a call to a packed function that should be treated as pure,
@@ -746,14 +745,17 @@ def call_pure_packed(
 
     Parameters
     ----------
-    func : Union[str, ExternFunc]
+    func : Union[str, ExternFunc, Op]
       The name (global symbol) for a PackedFunc or an ExternFunc node.
+      The explicit ``relax.call_tir_packed`` Op is also accepted; its native
+      callee and argument tuple follow as arguments to this wrapper.
 
     args: Expr
       The arguments for the PackedFunc.
 
     ty_args: Union[Type, List[Type]]
         The list of type information arguments (giving the type information for the returned value).
+        Omit this for the native bridge, whose result follows the native signature.
 
     Returns
     -------
@@ -761,34 +763,32 @@ def call_pure_packed(
       A Relax call, corresponding to
       `call_pure_packed(ExternFunc(func), args, DictAttrs(kwargs), ty_args)`
     """
-    if isinstance(func, ExternFunc):
-        func = func.global_symbol
-
-    op = ExternFunc(func)
+    op = ExternFunc(func) if isinstance(func, str) else func
     args = tuple(convert_to_expr(a) for a in args)
 
     if ty_args is None:
-        raise ValueError("R.call_pure_packed is required to have type_args")
+        ty_args = []
 
     if isinstance(ty_args, tuple):  # type: ignore
         ty_args = list(ty_args)
     elif not isinstance(ty_args, list):
         ty_args = [ty_args]
 
-    ty_args = [
-        (ty() if callable(ty) else ty.asobject() if isinstance(ty, ObjectConvertible) else ty)
-        for ty in ty_args
-    ]
+    ty_args = [ty() if callable(ty) and not isinstance(ty, Type) else ty for ty in ty_args]
 
     # note: if we need attributes, we can also take them here
 
-    return _ffi_api.call_pure_packed(op, args, None, ty_args)  # type: ignore # pylint: disable=no-member
+    return Call(
+        "relax.call_pure_packed",
+        [op, *args],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore # pylint: disable=no-member
 
 
 def invoke_pure_closure(
-    closure: Expr,
-    args: Expr,
-    ty_args: list[Type] | Type,
+    closure: Expr, args: Expr, ty_args: list[Type] | Type, *, ty=None, loc: Location = UNKNOWN_LOC
 ) -> Call:
     """
     Invoke a closure and indicate to the compiler that it is pure.
@@ -808,7 +808,7 @@ def invoke_pure_closure(
         The input arguments.
 
     type_args: Union[List[Type], Type]
-        The type information arguments of the CallNode
+        The type information arguments of the CallObj
 
     Returns
     -------
@@ -820,10 +820,21 @@ def invoke_pure_closure(
     if not isinstance(ty_args, list | tuple):
         ty_args = [ty_args]
 
-    return _ffi_api.invoke_pure_closure(closure, args, ty_args)  # type: ignore
+    return Call(
+        "relax.invoke_pure_closure",
+        [closure, args],
+        ty_args=ty_args,
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def to_vdevice(data, dst_vdevice) -> Expr:
+@tvm_ffi.register_object("relax.attrs.ToVDeviceAttrs")
+class ToVDeviceAttrs(Attrs):
+    """Attributes used in to_vdevice operator"""
+
+
+def to_vdevice(data, dst_vdevice, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Copy data to the destination device. This
     operator helps data transferring between difference devices for
     heterogeneous execution.
@@ -841,27 +852,28 @@ def to_vdevice(data, dst_vdevice) -> Expr:
     result : Expr
         The copied result.
     """
-    return _ffi_api.to_vdevice(data, dst_vdevice)  # type: ignore
+    return Call(
+        "relax.to_vdevice",
+        [data],
+        attrs=_make_attrs("relax.attrs.ToVDeviceAttrs", dst_vdevice=dst_vdevice),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def hint_on_device(data, dst_vdevice, memory_scope="global") -> Expr:
-    """It provides a hint specifying the device on which the input data should be executed.
-    This hint is utilized by RealizeVDevice to propagate the virtual device."
+@tvm_ffi.register_object("relax.attrs.HintOnDeviceAttrs")
+class HintOnDeviceAttrs(Attrs):
+    """Attributes used in hint_on_device operator"""
 
-    Parameters
-    ----------
-    data : Expr
-        The tensor to be copied.
 
-    dst_device : Device
-        The destination device where the data is supposed to be executed.
-
-    memory_scope: String
-       Memory scope of buffer on target device.
-
-    Returns
-    -------
-    result : Expr
-        The result.
-    """
-    return _ffi_api.hint_on_device(data, dst_vdevice, memory_scope)  # type: ignore
+def hint_on_device(
+    data, device_type, index=0, memory_scope="global", *, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
+    """Hint the device type, index and memory scope for executing ``data``."""
+    attrs = _make_attrs(
+        "relax.attrs.HintOnDeviceAttrs",
+        device_type=device_type,
+        index=index,
+        memory_scope=memory_scope,
+    )
+    return Call("relax.hint_on_device", [data], attrs=attrs, loc=loc, ty=ty)

@@ -18,11 +18,10 @@
 
 from collections.abc import Callable
 
-import tvm
+import tvm_tirx
 from tvm import te
-from tvm.ir import Call, GenericConst
-from tvm.runtime import DataTypeCode
-from tvm.tirx import FloatImm, IntImm
+from tvm_tirx.ir import Call, FloatImm, GenericConst, IntImm
+from tvm_tirx.runtime import DataTypeCode
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
@@ -41,7 +40,7 @@ LegalizeFunc = Callable[[BlockBuilder, Call], Expr]
 
 
 def _is_relax_expr(expr: object) -> bool:
-    return isinstance(expr, Expr) and not tvm.ir.is_prim_expr(expr)
+    return isinstance(expr, Expr) and not tvm_tirx.ir.is_prim_expr(expr)
 
 
 def _try_convert_to_scalar_const(
@@ -70,7 +69,7 @@ def _try_convert_to_scalar_const(
     """
     if (
         isinstance(expr, GenericConst)
-        and isinstance(expr.value, tvm.runtime.Tensor)
+        and isinstance(expr.value, tvm_tirx.runtime.Tensor)
         and expr.ty.ndim == 0
     ):
         # get the value of the scalar constant
@@ -81,23 +80,23 @@ def _try_convert_to_scalar_const(
             return value
         # preserve the data type of the constant
         if dtype.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT):
-            return tvm.tirx.FloatImm(dtype_str, value)
+            return tvm_tirx.ir.FloatImm(dtype_str, value)
         elif dtype.matches_code(DataTypeCode.INT, DataTypeCode.UINT, DataTypeCode.BOOL):
-            return tvm.tirx.IntImm(dtype_str, value)
+            return tvm_tirx.ir.IntImm(dtype_str, value)
     return expr
 
 
-def _call_topi_without_attr(te_func: TEFunc, primfunc_name: str | None = None) -> LegalizeFunc:
+def _call_topi_without_attr(te_func: TEFunc, function_name: str | None = None) -> LegalizeFunc:
     """A common wrapper util for the ops who has no attributes and whose
     legalization is simply passing its arguments to some TE function.
 
     Parameters
     ----------
     te_func : TEFunc
-        The input TE function which is to be converted to PrimFunc.
+        The input TE function which is to be converted to Function.
 
-    primfunc_name : Optional[str]
-        The name of the generated PrimFunc.
+    function_name : Optional[str]
+        The name of the generated Function.
         If it is not specified, the name of `te_func` will be used by default.
 
     Returns
@@ -105,9 +104,9 @@ def _call_topi_without_attr(te_func: TEFunc, primfunc_name: str | None = None) -
     func : LegalizeFunc
         The legalization wrapper function, which wraps the input TE function.
     """
-    if primfunc_name is None:
-        primfunc_name = te_func.__name__
-    return lambda bb, call: bb.call_te(te_func, *call.args, primfunc_name_hint=primfunc_name)
+    if function_name is None:
+        function_name = te_func.__name__
+    return lambda bb, call: bb.call_te(te_func, *call.args, function_name_hint=function_name)
 
 
 ##################### Decorators #####################
@@ -126,4 +125,4 @@ def register_legalize(op_name: str, legal_func: LegalizeFunc = None):
     legal_func: function (bb: BlockBuilder, call: Call) -> new_expr: Expr
         The function for transforming an expr to another expr.
     """
-    return tvm.ir.register_op_attr(op_name, _LEGALIZE_ATTR_NAME, legal_func)
+    return tvm_tirx.ir.register_op_attr(op_name, _LEGALIZE_ATTR_NAME, legal_func)

@@ -23,6 +23,7 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/disco/builtin.h>
 #include <tvm/runtime/vm/tensor_cache_support.h>
+#include <tvm/support/file_utils.h>
 
 #include <functional>
 #include <numeric>
@@ -30,7 +31,6 @@
 #include <unordered_map>
 #include <vector>
 
-#include "../../file_utils.h"
 #include "./utils.h"
 
 namespace tvm {
@@ -107,23 +107,24 @@ class ShardLoaderObj : public ffi::Object {
   static ffi::ObjectRef Create(const std::string& path_to_metadata, const std::string& metadata,
                                std::string shard_info, ffi::Optional<ffi::Module> mod);
   /*! \brief Load the i-th parameter */
-  Tensor Load(int weight_index) const;
+  ffi::Tensor Load(int weight_index) const;
 
-  Tensor LoadParamOnWorker0(int weight_index) const;
+  ffi::Tensor LoadParamOnWorker0(int weight_index) const;
 
   /*! \brief Load all the parameters */
-  ffi::Array<Tensor> LoadAll() const;
+  ffi::Array<ffi::Tensor> LoadAll() const;
 
-  Tensor ApplyShardFunc(const ShardInfo::ShardFunc& shard_func, const Tensor& param) const;
+  ffi::Tensor ApplyShardFunc(const ShardInfo::ShardFunc& shard_func,
+                             const ffi::Tensor& param) const;
 
   /*! \brief Load all the pre-sharded parameters */
-  ffi::Array<Tensor> LoadAllPresharded() const;
+  ffi::Array<ffi::Tensor> LoadAllPresharded() const;
 
   /*! \brief Load the i-th parameter from presharded binaries */
-  Tensor LoadPresharded(int weight_index) const;
+  ffi::Tensor LoadPresharded(int weight_index) const;
 
   /*! \brief Slice the given tensor at a specific dimension */
-  Tensor Shard(Tensor source, int dim, int num_slices) const;
+  ffi::Tensor Shard(ffi::Tensor source, int dim, int num_slices) const;
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("runtime.disco.ShardLoader", ShardLoaderObj, ffi::Object);
 
  public:
@@ -157,7 +158,7 @@ class ShardLoaderObj : public ffi::Object {
    *
    * \returns The full tensor at the specified index
    */
-  Tensor LoadDirect(int weight_index) const;
+  ffi::Tensor LoadDirect(int weight_index) const;
 };
 
 ffi::ObjectRef ShardLoaderObj::Create(const std::string& path_to_metadata,
@@ -196,15 +197,17 @@ ffi::ObjectRef ShardLoaderObj::Create(const std::string& path_to_metadata,
   return ffi::ObjectRef(std::move(n));
 }
 
-Tensor ShardLoaderObj::ApplyShardFunc(const ShardInfo::ShardFunc& shard_func,
-                                      const Tensor& param) const {
-  Device device = param->device;
-  Tensor o = Tensor::Empty(shard_func.output_info.shape, shard_func.output_info.dtype, device);
+ffi::Tensor ShardLoaderObj::ApplyShardFunc(const ShardInfo::ShardFunc& shard_func,
+                                           const ffi::Tensor& param) const {
+  TVM_FFI_ICHECK(param.defined());
+  Device device = param.device();
+  ffi::Tensor o =
+      tvm::runtime::Empty(shard_func.output_info.shape, shard_func.output_info.dtype, device);
   ffi::Function f = this->shard_funcs_.at(shard_func.name);
   int n = static_cast<int>(shard_func.params.size());
   std::vector<ffi::AnyView> packed_args(n + 2);
-  const DLTensor* w_in = param.operator->();
-  const DLTensor* w_out = o.operator->();
+  const DLTensor* w_in = param.GetDLTensorPtr();
+  const DLTensor* w_out = o.GetDLTensorPtr();
   packed_args[0] = const_cast<DLTensor*>(w_in);
   for (int i = 0; i < n; ++i) {
     packed_args[i + 1] = shard_func.params[i];
@@ -224,7 +227,7 @@ std::string GetSiblingPath(const std::string& path, const std::string& filename)
   return "";
 }
 
-Tensor ShardLoaderObj::LoadParamOnWorker0(int weight_index) const {
+ffi::Tensor ShardLoaderObj::LoadParamOnWorker0(int weight_index) const {
   DiscoWorker* worker = DiscoWorker::ThreadLocal();
   int worker_id = worker->worker_id;
   Device device = worker->default_device;
@@ -237,16 +240,16 @@ Tensor ShardLoaderObj::LoadParamOnWorker0(int weight_index) const {
     if (file != current_file_) {
       current_file_ = file;
       std::string file_name = GetSiblingPath(this->metadata_.path, file->data_path);
-      LoadBinaryFromFile(file_name, &this->current_file_stream_);
+      this->current_file_stream_ = support::ReadBytesFromFile(file_name);
     }
     return param->Load(device, &this->current_file_stream_);
   };
 
   if (worker_id == 0) {
-    Tensor w = load();
+    ffi::Tensor w = load();
     return w;
   } else {
-    Tensor w = Tensor::Empty(param->shape, param->dtype, device);
+    ffi::Tensor w = tvm::runtime::Empty(param->shape, param->dtype, device);
     return w;
   }
 }
@@ -273,7 +276,7 @@ std::tuple<int, int> ParseParamShardingInfo(const ParamRecord* param) {
   return {num_shards, worker_id};
 }
 
-Tensor ShardLoaderObj::LoadDirect(int weight_index) const {
+ffi::Tensor ShardLoaderObj::LoadDirect(int weight_index) const {
   const ParamInfo& param_info = param_info_.at(weight_index);
   const ParamRecord* param = param_info.param;
   const FileRecord* file = param_info.file;
@@ -284,12 +287,12 @@ Tensor ShardLoaderObj::LoadDirect(int weight_index) const {
   if (file != current_file_) {
     current_file_ = file;
     std::string file_name = GetSiblingPath(this->metadata_.path, file->data_path);
-    LoadBinaryFromFile(file_name, &this->current_file_stream_);
+    this->current_file_stream_ = support::ReadBytesFromFile(file_name);
   }
   return param->Load(device, &this->current_file_stream_);
 }
 
-Tensor ShardLoaderObj::Load(int weight_index) const {
+ffi::Tensor ShardLoaderObj::Load(int weight_index) const {
   DiscoWorker* worker = DiscoWorker::ThreadLocal();
   int worker_id = worker->worker_id;
   int num_shards = worker->num_workers;
@@ -305,9 +308,10 @@ Tensor ShardLoaderObj::Load(int weight_index) const {
         << "The first dimension of the "
         << "output shape must be equal to the "
         << "number of shards, but got: " << shape << " and num_shards = " << num_shards;
-    Tensor recv = Tensor::Empty(ffi::Shape(shape.begin() + 1, shape.end()), dtype, device);
+    ffi::Tensor recv =
+        tvm::runtime::Empty(ffi::Shape(shape.begin() + 1, shape.end()), dtype, device);
     if (worker_id == 0) {
-      Tensor w = LoadDirect(weight_index);
+      ffi::Tensor w = LoadDirect(weight_index);
       for (const ShardInfo::ShardFunc& shard_func : param_info.shard_info.funcs) {
         w = this->ApplyShardFunc(shard_func, w);
       }
@@ -318,20 +322,20 @@ Tensor ShardLoaderObj::Load(int weight_index) const {
     return recv;
   } else {
     if (worker_id == 0) {
-      Tensor w = LoadDirect(weight_index);
+      ffi::Tensor w = LoadDirect(weight_index);
       BroadcastFromWorker0(w, /*in_group=*/false, w);
       return w;
     } else {
-      Tensor w = Tensor::Empty(param->shape, param->dtype, device);
+      ffi::Tensor w = tvm::runtime::Empty(param->shape, param->dtype, device);
       BroadcastFromWorker0(w, /*in_group=*/false, w);
       return w;
     }
   }
 }
 
-ffi::Array<Tensor> ShardLoaderObj::LoadAll() const {
+ffi::Array<ffi::Tensor> ShardLoaderObj::LoadAll() const {
   int n = static_cast<int>(param_info_.size());
-  ffi::Array<Tensor> shards;
+  ffi::Array<ffi::Tensor> shards;
   shards.reserve(n);
   for (int i = 0; i < n; ++i) {
     std::string param_name = "param_" + std::to_string(i);
@@ -342,7 +346,7 @@ ffi::Array<Tensor> ShardLoaderObj::LoadAll() const {
   return shards;
 }
 
-Tensor ShardLoaderObj::LoadPresharded(int weight_index) const {
+ffi::Tensor ShardLoaderObj::LoadPresharded(int weight_index) const {
   DiscoWorker* worker = DiscoWorker::ThreadLocal();
   int worker_id = worker->worker_id;
   int num_shards = worker->num_workers;
@@ -368,13 +372,13 @@ Tensor ShardLoaderObj::LoadPresharded(int weight_index) const {
   return LoadDirect(index);
 }
 
-ffi::Array<Tensor> ShardLoaderObj::LoadAllPresharded() const {
+ffi::Array<ffi::Tensor> ShardLoaderObj::LoadAllPresharded() const {
   DiscoWorker* worker = DiscoWorker::ThreadLocal();
   size_t worker_id = static_cast<size_t>(worker->worker_id);
   size_t num_workers = static_cast<size_t>(worker->num_workers);
   size_t num_params = param_info_.size() / num_workers;
 
-  ffi::Array<Tensor> params;
+  ffi::Array<ffi::Tensor> params;
   params.reserve(num_params);
   for (size_t i_param = 0; i_param < num_params; ++i_param) {
     std::string param_name = static_cast<const std::stringstream&>(

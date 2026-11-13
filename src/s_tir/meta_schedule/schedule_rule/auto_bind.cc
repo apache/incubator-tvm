@@ -28,9 +28,9 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class AutoBindNode : public ScheduleRuleNode {
+class AutoBindObj : public ScheduleRuleObj {
  public:
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   void InitializeWithTuneContext(const TuneContext& context) final {
     TVM_FFI_CHECK(context->target.has_value(), ValueError) << "target is not defined";
     ffi::Optional<int64_t> max_threads_per_block =
@@ -40,14 +40,14 @@ class AutoBindNode : public ScheduleRuleNode {
     this->max_threads_per_block_ = max_threads_per_block.value();
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch,
                                     const s_tir::SBlockRV& block_rv) final;
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<AutoBindNode> n = ffi::make_object<AutoBindNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<AutoBindObj> n = ffi::make_object<AutoBindObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
  public:
@@ -60,13 +60,13 @@ class AutoBindNode : public ScheduleRuleNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AutoBindNode>();
+    refl::ObjectDef<AutoBindObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AutoBind", AutoBindNode, ScheduleRuleNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AutoBind", AutoBindObj, ScheduleRuleObj);
 };
 
-ffi::Array<s_tir::Schedule> AutoBindNode::Apply(const s_tir::Schedule& sch,
-                                                const s_tir::SBlockRV& block_rv) {
+ffi::Array<s_tir::Schedule> AutoBindObj::Apply(const s_tir::Schedule& sch,
+                                               const s_tir::SBlockRV& block_rv) {
   TVM_FFI_ICHECK_NE(this->max_threads_per_block_, -1);
   auto get_factor = MakeFactorSampler(sch, this->thread_extents_);
   BindBlockThreadIdx(sch, block_rv, max_threadblocks_, max_threads_per_block_, get_factor);
@@ -75,14 +75,14 @@ ffi::Array<s_tir::Schedule> AutoBindNode::Apply(const s_tir::Schedule& sch,
 
 ScheduleRule ScheduleRule::AutoBind(int max_threadblocks, ffi::Array<int64_t> thread_extents,
                                     int max_threads_per_block) {
-  ffi::ObjectPtr<AutoBindNode> n = ffi::make_object<AutoBindNode>();
+  ffi::ObjectPtr<AutoBindObj> n = ffi::make_object<AutoBindObj>();
   n->max_threadblocks_ = max_threadblocks;
   n->max_threads_per_block_ = max_threads_per_block;
   n->thread_extents_ = std::move(thread_extents);
-  return ScheduleRule(n);
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { AutoBindNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { AutoBindObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

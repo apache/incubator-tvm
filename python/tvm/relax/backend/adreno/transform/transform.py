@@ -17,33 +17,33 @@
 # pylint: disable=invalid-name
 """Adreno Relax transformation passes."""
 
-import tvm.ir
-from tvm.target import Target
+import tvm_tirx.ir
+from tvm_tirx.target import Target
 
 from . import _ffi_api
 
 
-def AnnotateCustomMemoryScope(target: Target | None = None) -> tvm.ir.transform.Pass:
+def AnnotateCustomMemoryScope(target: Target | None = None) -> tvm_tirx.ir.transform.Pass:
     """Allocate the memory scope information. This is Adreno specific pass to annotate
     The memory scope information and realize the same with RealizeVDevice pass followed by
-    updating the Prim Function var_buffer mapping using SpecializePrimFuncBasedOnCallSite.
+    updating the Functiontion var_buffer mapping using SpecializeFunctionBasedOnCallSite.
 
     Returns
     -------
-    ret: tvm.ir.transform.Pass
+    ret: tvm_tirx.ir.transform.Pass
         The registered pass for allocating workspace.
     """
     return _ffi_api.AnnotateCustomMemoryScope(target)  # type: ignore
 
 
-def FoldVDeviceScopeChange() -> tvm.ir.transform.Pass:
+def FoldVDeviceScopeChange() -> tvm_tirx.ir.transform.Pass:
     """This pass is a texture specific pass that can optimize unnecessary to_device copies.
     Like texture_scope -> ToVDevice -> global scope. In this case the producer can directly
     store into global scope avoiding unnecessary device copy.
 
     Returns
     -------
-    ret: tvm.ir.transform.Pass
+    ret: tvm_tirx.ir.transform.Pass
         The registered pass for allocating workspace.
     """
     return _ffi_api.FoldVDeviceScopeChange()  # type: ignore

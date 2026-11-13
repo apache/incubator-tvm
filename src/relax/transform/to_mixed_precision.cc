@@ -24,7 +24,7 @@
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/relax/expr_functor.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/relax/transform.h>
 
 #include <array>
@@ -40,13 +40,13 @@
 namespace tvm {
 namespace relax {
 
-int GetMixedPrecisionInfo(const CallNode* call_node) {
-  const OpNode* op_node = call_node->op.as<OpNode>();
+int GetMixedPrecisionInfo(const CallObj* call_node) {
+  const OpObj* op_node = call_node->op.as<OpObj>();
   if (op_node == nullptr) {
     return -1;
   }
   Op op = ffi::GetRef<Op>(op_node);
-  auto attr_map = Op::GetAttrMap<TMixedPrecisionPolicy>("TMixedPrecisionPolicy");
+  auto attr_map = Op::GetAttrMap(tvm::relax::op_attr::kMixedPrecisionPolicy);
   return attr_map.count(op) ? attr_map[op] : MixedPrecisionPolicyKind::kNever;
 }
 
@@ -151,9 +151,9 @@ class DTypeDecisionCollector : public ExprVisitor {
     TVM_FFI_ICHECK(args.size() == to.size()) << "Invalid target dtypes";
     for (size_t i = 0; i < args.size(); ++i) {
       auto fvisitleaf = [&](const Expr& expr, NType to) {
-        if (const auto* var = expr.as<VarNode>()) {
+        if (const auto* var = expr.as<VarObj>()) {
           UpdateVarDTypeMap(ffi::GetRef<Var>(var), to);
-        } else if (expr->IsInstance<GenericConstNode>()) {
+        } else if (expr->IsInstance<GenericConstObj>()) {
           // GenericConst can be casted anyway, so we don't need to do anything here
           return;
         } else {
@@ -178,7 +178,7 @@ class DTypeDecisionCollector : public ExprVisitor {
     RequireArgsToType(std::move(arg_arr), std::move(to_arr));
   }
 
-  void VisitVars_(const VarNode* op) {
+  void VisitVars_(const VarObj* op) {
     Var var = ffi::GetRef<Var>(op);
     if (IsNestedTensor(var)) {
       // require the var to be fp32 (its original dtype)
@@ -188,9 +188,9 @@ class DTypeDecisionCollector : public ExprVisitor {
     ExprVisitor::VisitExpr_(op);
   }
 
-  void VisitExpr_(const VarNode* op) final { VisitVars_(op); }
+  void VisitExpr_(const VarObj* op) final { VisitVars_(op); }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call_node) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call_node) final {
     auto policy = GetMixedPrecisionInfo(call_node);
     if (policy == -1) {
       ExprVisitor::VisitBinding_(binding, call_node);
@@ -207,19 +207,19 @@ class DTypeDecisionCollector : public ExprVisitor {
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleNode* tuple_node) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleObj* tuple_node) final {
     // require input fields to be the type of the lhs field respectively
     NType lhs_type = GetTrackedDType(binding->var);
     RequireArgsToType(tuple_node->fields, lhs_type.NestedArray());
   }
 
-  void VisitBinding_(const VarBindingNode* binding,
-                     const TupleGetItemNode* tuple_get_item_node) final {
+  void VisitBinding_(const VarBindingObj* binding,
+                     const TupleGetItemObj* tuple_get_item_node) final {
     // require the i-th field rhs tuple to be the type of the lhs
     NType lhs_type = GetTrackedDType(binding->var);
     std::vector<NType> require_rhs;
-    const TupleTypeNode* ty = tuple_get_item_node->tuple->ty.as<TupleTypeNode>();
-    TVM_FFI_ICHECK(ty != nullptr) << "TupleGetItemNode must have TupleType";
+    const TupleTypeObj* ty = tuple_get_item_node->tuple->ty.as<TupleTypeObj>();
+    TVM_FFI_ICHECK(ty != nullptr) << "TupleGetItemObj must have TupleType";
     for (size_t i = 0; i < ty->fields.size(); ++i) {
       if (i == static_cast<size_t>(tuple_get_item_node->index)) {
         require_rhs.push_back(lhs_type);
@@ -231,33 +231,33 @@ class DTypeDecisionCollector : public ExprVisitor {
   }
 
   // override the following methods to visit in backward order
-  void VisitExpr_(const SeqExprNode* op) final {
-    this->VisitSpan(op->span);
+  void VisitExpr_(const SeqExprObj* op) final {
+    this->VisitLoc(op->loc);
     this->VisitExpr(op->body);
     for (auto it = op->blocks.rbegin(); it != op->blocks.rend(); it++) {
       this->VisitBindingBlock(*it);
     }
 
-    if (auto* ty = op->ty.as<TypeNode>()) {
+    if (auto* ty = op->ty.as<TypeObj>()) {
       this->VisitExprDepTypeField(ffi::GetRef<Type>(ty));
     }
   }
 
-  void VisitBindingBlock_(const BindingBlockNode* block) { return; }
+  void VisitBindingBlock_(const BindingBlockObj* block) { return; }
 
-  void VisitBindingBlock_(const DataflowBlockNode* block) {
+  void VisitBindingBlock_(const DataflowBlockObj* block) {
     for (auto it = block->bindings.rbegin(); it != block->bindings.rend(); it++) {
       this->VisitBinding(*it);
     }
   }
 
-  void VisitExpr_(const IfNode* op) final {
-    this->VisitSpan(op->span);
+  void VisitExpr_(const IfExprObj* op) final {
+    this->VisitLoc(op->loc);
     this->VisitExpr(op->true_branch);
     this->VisitExpr(op->false_branch);
     this->VisitExpr(op->cond);
 
-    if (auto* ty = op->ty.as<TypeNode>()) {
+    if (auto* ty = op->ty.as<TypeObj>()) {
       this->VisitExprDepTypeField(ffi::GetRef<Type>(ty));
     }
   }
@@ -285,14 +285,14 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     } else {
       if (fp16_input_names_.count(var->name)) {
         auto ty = GetType(var);
-        if (auto tensor_ty = ty.as<TensorTypeNode>()) {
-          VDevice vdev = VDevice();
+        if (auto tensor_ty = ty.as<TensorTypeObj>()) {
+          ffi::Optional<VDevice> vdev;
           if (tensor_ty->vdevice.has_value()) {
             vdev = tensor_ty->vdevice.value();
           }
-          TensorType fp16_ty(tensor_ty->shape.value(), PrimType::Float(16), vdev, tensor_ty->span);
-          Var fp16_var(var->name, fp16_ty, var->span);
-          var_remap_[var] = fp16_var;
+          TensorType fp16_ty(tensor_ty->shape.value(), PrimType::Float(16), vdev, tensor_ty->loc);
+          Var fp16_var(var->name, fp16_ty, var->loc);
+          var_remap_.insert_or_assign(var, fp16_var);
           return fp16_var;
         }
       }
@@ -309,7 +309,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
   // Note that this function only accepts expr with nested tensor type
   Expr RewriteExpr(const Expr& expr, const NType& to) {
     auto fvisitleaf = [&](const Expr& expr, std::array<NType, 1> to) -> Expr {
-      const auto* tensor = GetTypeAs<TensorTypeNode>(expr);
+      const auto* tensor = GetTypeAs<TensorTypeObj>(expr);
       TVM_FFI_ICHECK(tensor != nullptr) << "Only support rewriting tensor expr";
       // We only rewrite the expr if the dtype is not the same as the given dtype
       if (NTypeEqual()(to[0], NTypeFrom(expr))) return expr;
@@ -348,44 +348,45 @@ class ToMixedPrecisionRewriter : public ExprMutator {
 
   bool AllFP16Castable(const ffi::Array<Expr>& args) {
     auto is_fp16 = [](Type ty) {
-      if (auto tensor_ty = ty.as<TensorTypeNode>();
+      if (auto tensor_ty = ty.as<TensorTypeObj>();
           tensor_ty && tensor_ty->dtype == PrimType::Float(16)) {
         return true;
       }
       return false;
     };
 
-    auto is_in_fp16_range = [this](const GenericConstNode* constant) {
-      const auto& data = constant->value.cast<runtime::Tensor>();
-      if (data->dtype.lanes > 1) {
+    auto is_in_fp16_range = [this](const GenericConstObj* constant) {
+      const auto& data = constant->value.cast<ffi::Tensor>();
+      TVM_FFI_ICHECK(data.defined());
+      if (data.dtype().lanes > 1) {
         // Skip vectorized types for now.
         return false;
       }
 
-      if (data.DataType() == DLDataType{kDLFloat, 16, 1}) {
+      if (data.dtype() == DLDataType{kDLFloat, 16, 1}) {
         return true;
       }
 
-      auto shape = data.Shape();
+      auto shape = data.shape();
       size_t size_1d = 1;
       for (size_t i = 0; i < shape.size(); ++i) {
         size_1d *= shape[i];
       }
-      auto elem_bytes = data->dtype.bits / 8;
+      auto elem_bytes = data.dtype().bits / 8;
       std::vector<uint8_t> bytes(size_1d * elem_bytes);
-      data.CopyToBytes(bytes.data(), bytes.size());
+      tvm::runtime::CopyToBytes(data, bytes.data(), bytes.size());
 
-      if (data.DataType() == DLDataType{kDLFloat, 32, 1}) {
+      if (data.dtype() == DLDataType{kDLFloat, 32, 1}) {
         return CheckInFP16Range<float>(bytes, size_1d);
-      } else if (data.DataType() == DLDataType{kDLFloat, 64, 1}) {
+      } else if (data.dtype() == DLDataType{kDLFloat, 64, 1}) {
         return CheckInFP16Range<double>(bytes, size_1d);
-      } else if (data.DataType() == DLDataType{kDLInt, 8, 1}) {
+      } else if (data.dtype() == DLDataType{kDLInt, 8, 1}) {
         return CheckInFP16Range<std::int8_t>(bytes, size_1d);
-      } else if (data.DataType() == DLDataType{kDLInt, 16, 1}) {
+      } else if (data.dtype() == DLDataType{kDLInt, 16, 1}) {
         return CheckInFP16Range<std::int16_t>(bytes, size_1d);
-      } else if (data.DataType() == DLDataType{kDLInt, 32, 1}) {
+      } else if (data.dtype() == DLDataType{kDLInt, 32, 1}) {
         return CheckInFP16Range<std::int32_t>(bytes, size_1d);
-      } else if (data.DataType() == DLDataType{kDLInt, 64, 1}) {
+      } else if (data.dtype() == DLDataType{kDLInt, 64, 1}) {
         return CheckInFP16Range<std::int64_t>(bytes, size_1d);
       }
       return false;
@@ -393,8 +394,8 @@ class ToMixedPrecisionRewriter : public ExprMutator {
 
     for (const Expr& arg : args) {
       auto ty = GetType(arg);
-      auto constant = arg.as<GenericConstNode>();
-      auto tuple = arg.as<TupleNode>();
+      auto constant = arg.as<GenericConstObj>();
+      auto tuple = arg.as<TupleObj>();
 
       if (!IsNestedTensor(arg) || is_fp16(ty) || (constant && is_in_fp16_range(constant)) ||
           (tuple && AllFP16Castable(tuple->fields))) {
@@ -424,7 +425,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     // If cur_var is not rewritten, we don't need to emit a new var
     if (!rewrite.same_as(cur_var)) {
       // Emit a new var, and update the var remap
-      var_remap_[var] = builder_->Emit(rewrite);
+      var_remap_.insert_or_assign(var, builder_->Emit(rewrite));
     }
   }
 
@@ -432,12 +433,15 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     // We rewrite the remapped var to the original dtype
     auto it = var_remap_.find(var);
     if (it != var_remap_.end()) {
-      return RewriteExpr(it->second, NTypeFrom(var));
+      if (IsNestedTensor(var)) {
+        return RewriteExpr(it->second, NTypeFrom(var));
+      }
+      return it->second;
     }
     return var;
   }
 
-  Expr VisitExpr_(const VarNode* op) final {
+  Expr VisitExpr_(const VarObj* op) final {
     if (!builder_->CurrentBlockIsDataFlow()) {
       return ExprMutator::VisitExpr_(op);
     }
@@ -452,7 +456,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     CastIfFp16Only(binding->var);
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const CallNode* call_node) final {
+  void VisitBinding_(const VarBindingObj* binding, const CallObj* call_node) final {
     if (!builder_->CurrentBlockIsDataFlow()) {
       ExprMutator::VisitBinding_(binding, call_node);
       return;
@@ -464,7 +468,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
       return;
     }
     // var = Call(op)
-    const auto* op_node = call_node->op.as<OpNode>();
+    const auto* op_node = call_node->op.as<OpObj>();
     TVM_FFI_ICHECK(op_node != nullptr);
     Op op = ffi::GetRef<Op>(op_node);
     if (wrap_param_op.same_as(op)) {
@@ -483,7 +487,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
 
     if (policy == kAlways) {
       opt_new_dtype = fp16_;
-      auto attr_map = Op::GetAttrMap<FInferMixedPrecision>("FInferMixedPrecision");
+      auto attr_map = Op::GetAttrMap(tvm::relax::op_attr::kInferMixedPrecision);
       TVM_FFI_ICHECK(attr_map.count(op));
       new_call = attr_map[op](new_call, output_dtype_);
     } else if (policy == kFollow) {
@@ -516,10 +520,10 @@ class ToMixedPrecisionRewriter : public ExprMutator {
 
       new_value = builder_->Normalize(Call(new_call));
 
-      if (!binding->var->IsInstance<DataflowVarNode>()) {
+      if (!binding->var->IsInstance<DataflowVarObj>()) {
         // Non-Dataflow var: store the tensors to the original dtype
         new_value = RewriteExpr(new_value, NTypeFrom(binding->var));
-      } else if (policy == kAlways && binding->var->IsInstance<DataflowVarNode>()) {
+      } else if (policy == kAlways && binding->var->IsInstance<DataflowVarObj>()) {
         // kAlways: store the tensors to fp16
         // But non-dataflow vars will be stored to the original dtype anyway (see above)
         new_value = RewriteExpr(new_value, NTypeFrom(new_value, new_dtype));
@@ -529,16 +533,16 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     ReEmitBinding(binding, builder_->Normalize(new_value));
   }
 
-  void VisitBinding_(const VarBindingNode* binding, const TupleNode* tuple_node) final {
+  void VisitBinding_(const VarBindingObj* binding, const TupleObj* tuple_node) final {
     if (!builder_->CurrentBlockIsDataFlow()) {
       ExprMutator::VisitBinding_(binding, tuple_node);
       return;
     }
-    ffi::ObjectPtr<TupleNode> new_tuple = ffi::make_object<TupleNode>(*tuple_node);
+    ffi::ObjectPtr<TupleObj> new_tuple = ffi::make_object<TupleObj>(*tuple_node);
     new_tuple->fields = RemapArgs(tuple_node->fields);
     new_tuple->ty = Type::Missing();
     Expr new_value = builder_->Normalize(Tuple(new_tuple));
-    if (!binding->var->IsInstance<DataflowVarNode>()) {
+    if (!binding->var->IsInstance<DataflowVarObj>()) {
       // Global var: store the tensors to the original dtype
       NType to = NTypeFrom(binding->var);
       new_value = RewriteExpr(new_value, to);
@@ -546,19 +550,19 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     ReEmitBinding(binding, builder_->Normalize(new_value));
   }
 
-  void VisitBinding_(const VarBindingNode* binding,
-                     const TupleGetItemNode* tuple_get_item_node) final {
+  void VisitBinding_(const VarBindingObj* binding,
+                     const TupleGetItemObj* tuple_get_item_node) final {
     if (!builder_->CurrentBlockIsDataFlow()) {
       // We don't need to rewrite the tuple_get_item in dataflow block
       ExprMutator::VisitBinding_(binding, tuple_get_item_node);
       return;
     }
-    ffi::ObjectPtr<TupleGetItemNode> new_tuple_get_item =
-        ffi::make_object<TupleGetItemNode>(*tuple_get_item_node);
+    ffi::ObjectPtr<TupleGetItemObj> new_tuple_get_item =
+        ffi::make_object<TupleGetItemObj>(*tuple_get_item_node);
     new_tuple_get_item->tuple = RemapArgs({tuple_get_item_node->tuple})[0];
     new_tuple_get_item->ty = Type::Missing();
     Expr new_value = TupleGetItem(new_tuple_get_item);
-    if (!binding->var->IsInstance<DataflowVarNode>()) {
+    if (!binding->var->IsInstance<DataflowVarObj>()) {
       // Global var: store the tensors to the original dtype
       NType to = NTypeFrom(binding->var);
       new_value = RewriteExpr(new_value, to);
@@ -566,7 +570,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     ReEmitBinding(binding, builder_->Normalize(new_value));
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) {
     builder_->BeginDataflowBlock();
     // prepare local versions of params here, if they are fp16 expected only
     for (auto param : params_) {
@@ -585,7 +589,7 @@ class ToMixedPrecisionRewriter : public ExprMutator {
     return builder_->EndBlock();
   }
 
-  Expr VisitExpr_(const FunctionNode* op) final {
+  Expr VisitExpr_(const FunctionObj* op) final {
     params_ = op->params;
     return ExprMutator::VisitExpr_(op);
   }
@@ -619,7 +623,7 @@ Pass ToMixedPrecision(DLDataType out_dtype,
   auto pass_func = [=](Function f, IRModule m, PassContext pc) {
     return ToMixedPrecision(f, out_dtype, fp16_input_names).as_or_throw<Function>();
   };
-  return CreateFunctionPass(pass_func, 0, "ToMixedPrecision", {});
+  return CreateFunctionPass(pass_func, 0, "ToMixedPrecision");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

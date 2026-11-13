@@ -21,8 +21,6 @@
 
 #include <tvm/ffi/reflection/registry.h>
 
-#include "../../support/utils.h"
-
 namespace tvm {
 namespace relax {
 namespace backend {
@@ -52,7 +50,7 @@ ffi::Array<FusionPattern> GetPatternsWithPrefix(const ffi::String& prefix) {
   auto* table = GetRegistryTable();
   ffi::Array<FusionPattern> result;
   for (auto it = table->rbegin(); it != table->rend(); ++it) {
-    if (support::StartsWith((*it)->name, prefix.data())) {
+    if ((*it)->name.starts_with(prefix.data())) {
       result.push_back(*it);
     }
   }

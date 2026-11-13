@@ -19,10 +19,11 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.frontend.nn import Module, Tensor, spec
-from tvm.script import relax as R
 
 
 def test_tensor_from_numpy():
@@ -75,7 +76,7 @@ def test_tensor_op_binary_tensor_tensor():
         debug=True,
     )
 
-    tvm.ir.assert_structural_equal(irmodule["test"], test)
+    tvm_tirx.ir.assert_structural_equal(irmodule["test"], test)
 
 
 def test_tensor_op_binary_tensor_scalar():
@@ -109,7 +110,7 @@ def test_tensor_op_binary_tensor_scalar():
     m = Model()
     irmodule, _ = m.export_tvm(spec={"test": {"x": spec.Tensor([1, 10], "float32")}}, debug=True)
 
-    tvm.ir.assert_structural_equal(irmodule["test"], test)
+    tvm_tirx.ir.assert_structural_equal(irmodule["test"], test)
 
 
 def test_tensor_op_datatype():
@@ -132,7 +133,7 @@ def test_tensor_op_datatype():
     m = Model()
     irmodule, _ = m.export_tvm(spec={"test": {"x": spec.Tensor([1, 10], "float32")}}, debug=True)
 
-    tvm.ir.assert_structural_equal(irmodule["test"], test)
+    tvm_tirx.ir.assert_structural_equal(irmodule["test"], test)
 
 
 def test_tensor_op_manipulate():
@@ -159,8 +160,8 @@ def test_tensor_op_manipulate():
     m = Model()
     irmodule, _ = m.export_tvm(spec={"test": {"x": spec.Tensor([2, 1, 10], "float32")}}, debug=True)
 
-    tvm.ir.assert_structural_equal(irmodule["test"], test)
+    tvm_tirx.ir.assert_structural_equal(irmodule["test"], test)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

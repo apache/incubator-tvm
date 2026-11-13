@@ -19,17 +19,16 @@
 
 /*!
  * \file remove_store_undef.cc
- * \brief Remove stores of tirx::builtin::undef
+ * \brief Remove stores of tirx::undef_op
  */
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/ir/prim/builtin.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/s_tir/analysis.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/tirx/analysis.h>
-#include <tvm/tirx/builtin.h>
-#include <tvm/tirx/op.h>
+#include <tvm/tirx/op/memory.h>
 #include <tvm/tirx/stmt.h>
 
 namespace tvm {
@@ -37,8 +36,8 @@ namespace s_tir {
 using namespace tvm::tirx;
 
 struct UndefInfo {
-  std::unordered_set<const BufferStoreNode*> undef_stores;
-  std::unordered_set<const VarNode*> undef_bind_vars;
+  std::unordered_set<const TensorStoreObj*> undef_stores;
+  std::unordered_set<const VarObj*> undef_bind_vars;
 };
 
 class StoreUndefLocator : public StmtExprVisitor {
@@ -53,7 +52,7 @@ class StoreUndefLocator : public StmtExprVisitor {
   StoreUndefLocator() = default;
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const BufferStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     // Check the value for undef.
     bool stash_undef = false;
     std::swap(has_undef_, stash_undef);
@@ -62,12 +61,12 @@ class StoreUndefLocator : public StmtExprVisitor {
     if (stash_undef) {
       auto value = op->value.as<PrimExpr>();
       TVM_FFI_ICHECK(value && SideEffect(value.value()) <= CallEffectKind::kReadState)
-          << "Error: T.undef() used in BufferStore expressions "
+          << "Error: T.undef() used in TensorStore expressions "
           << "must not have other side effects";
       undef_stores_.insert(op);
     }
 
-    // Check indices for undef.  Undef in buffer indices is always an
+    // Check indices for undef.  Undef in tensor indices is always an
     // error (there is no valid lowering).  With flat Bind, we must
     // check indices eagerly because the Bind node is a sibling rather
     // than an ancestor and may be removed before post-validation.
@@ -77,23 +76,23 @@ class StoreUndefLocator : public StmtExprVisitor {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(idx));
     }
     std::swap(has_undef_, idx_undef);
-    TVM_FFI_ICHECK(!idx_undef) << "Error: T.undef() may not be used in buffer indices";
+    TVM_FFI_ICHECK(!idx_undef) << "Error: T.undef() may not be used in tensor indices";
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
-    // Check indices for undef.  Undef in buffer indices is always an error.
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
+    // Check indices for undef.  Undef in tensor indices is always an error.
     bool idx_undef = false;
     std::swap(has_undef_, idx_undef);
     for (const auto& idx : op->indices) {
       TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(idx));
     }
     std::swap(has_undef_, idx_undef);
-    TVM_FFI_ICHECK(!idx_undef) << "Error: T.undef() may not be used in buffer indices";
+    TVM_FFI_ICHECK(!idx_undef) << "Error: T.undef() may not be used in tensor indices";
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const BindNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const BindObj* op) final {
     bool stash_undef = false;
     std::swap(has_undef_, stash_undef);
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(StmtExprVisitor::Visit(op->value));
@@ -108,15 +107,15 @@ class StoreUndefLocator : public StmtExprVisitor {
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const VarNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
     if (var_bindings_with_undef_.count(op)) {
       has_undef_ = true;
     }
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
-    if (op->op.same_as(tirx::builtin::undef())) {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
+    if (op->op.same_as(tirx::undef_op())) {
       has_undef_ = true;
     }
     return StmtExprVisitor::Visit_(op);
@@ -124,12 +123,12 @@ class StoreUndefLocator : public StmtExprVisitor {
 
   bool has_undef_{false};
 
-  std::unordered_set<const VarNode*> var_bindings_with_undef_;
-  std::unordered_set<const BufferStoreNode*> undef_stores_;
+  std::unordered_set<const VarObj*> var_bindings_with_undef_;
+  std::unordered_set<const TensorStoreObj*> undef_stores_;
 };
 
-// Remove BufferStores whose value depends on T.undef, and also
-// remove Bind nodes whose value contains undef.  Undef in buffer
+// Remove TensorStores whose value depends on T.undef, and also
+// remove Bind nodes whose value contains undef.  Undef in tensor
 // indices is already caught eagerly in the locator phase.
 class StoreUndefRemover : public StmtExprMutator {
  public:
@@ -150,7 +149,7 @@ class StoreUndefRemover : public StmtExprMutator {
       : stores_to_remove_(info.undef_stores), bind_vars_to_remove_(info.undef_bind_vars) {}
 
  private:
-  UnchangedOr<Stmt> Mutate_(const BufferStoreNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const TensorStoreObj* op, InplaceMode inplace_mode) final {
     if (stores_to_remove_.count(op)) {
       return Evaluate(0);
     } else {
@@ -158,7 +157,7 @@ class StoreUndefRemover : public StmtExprMutator {
     }
   }
 
-  UnchangedOr<Stmt> Mutate_(const BindNode* op, InplaceMode inplace_mode) final {
+  UnchangedOr<Stmt> Mutate_(const BindObj* op, InplaceMode inplace_mode) final {
     if (bind_vars_to_remove_.count(op->var.get())) {
       return Evaluate(0);
     } else {
@@ -166,11 +165,11 @@ class StoreUndefRemover : public StmtExprMutator {
     }
   }
 
-  const std::unordered_set<const BufferStoreNode*>& stores_to_remove_;
-  const std::unordered_set<const VarNode*>& bind_vars_to_remove_;
+  const std::unordered_set<const TensorStoreObj*>& stores_to_remove_;
+  const std::unordered_set<const VarObj*>& bind_vars_to_remove_;
 };
 
-// Check that no tirx::builtin::undef() remains in the IR.
+// Check that no tirx::undef_op() remains in the IR.
 class ContainsUndefChecker : public StmtExprVisitor {
  public:
   using StmtExprVisitor::Visit_;
@@ -181,8 +180,8 @@ class ContainsUndefChecker : public StmtExprVisitor {
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* op) final {
-    if (op->op.same_as(tirx::builtin::undef())) {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* op) final {
+    if (op->op.same_as(tirx::undef_op())) {
       contains_undef = true;
     }
     return StmtExprVisitor::Visit_(op);
@@ -193,26 +192,28 @@ class ContainsUndefChecker : public StmtExprVisitor {
 
 namespace transform {
 Pass RemoveStoreUndefInternal() {
-  auto pass_func = [](PrimFunc f, IRModule m, tvm::transform::PassContext ctx) {
+  auto pass_func = [](Function f, IRModule m, tvm::transform::PassContext ctx) {
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
     n->body = StoreUndefRemover::Apply(std::move(n->body));
     return f;
   };
-  return CreatePrimFuncPass(pass_func, 0, "s_tir.RemoveStoreUndefInternal", {});
+  return CreateFunctionPass(pass_func, 0, "s_tir.RemoveStoreUndefInternal");
 }
 
 Pass ValidateAllUndefRemoved() {
-  auto pass_func = [](PrimFunc f, IRModule m, tvm::transform::PassContext ctx) {
+  auto pass_func = [](Function f, IRModule m, tvm::transform::PassContext ctx) {
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     bool contains_undef = ContainsUndefChecker::Check(f->body);
     TVM_FFI_ICHECK(!contains_undef)
-        << "Expected removal of BufferStore containing tirx::builtin::undef() "
-        << "to remove all instances of tirx::builtin::undef().  "
+        << "Expected removal of TensorStore containing tirx::undef_op() "
+        << "to remove all instances of tirx::undef_op().  "
         << "Instead, result was"
         << "\n"
         << f;
     return f;
   };
-  return CreatePrimFuncPass(pass_func, 0, "s_tir.ValidateAllUndefRemoved", {});
+  return CreateFunctionPass(pass_func, 0, "s_tir.ValidateAllUndefRemoved");
 }
 
 Pass RemoveStoreUndef() {

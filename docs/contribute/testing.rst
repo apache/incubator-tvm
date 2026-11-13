@@ -45,11 +45,8 @@ In order for a test to be run, all of the following must be true.
   through target parametrization, must be compatible with the
   expression passed to pytest's `-m` argument.
 
-- For parametrized tests using the `target` fixture, the target must
-  appear in the environment variable `TVM_TEST_TARGETS`.
-
 - For parametrized tests using the `target` fixture, the build
-  configuration in `config.cmake` must enable the corresponding
+  configuration passed to CMake must enable the corresponding
   runtime.
 
 Unit-Test File Contents
@@ -61,10 +58,10 @@ The recommended way to run a test on multiple targets is to parametrize
 over ``target`` with ``@pytest.mark.parametrize``.  Tag each GPU target
 with ``pytest.mark.gpu`` so the CI routes it to a GPU node, skip a target
 that cannot run on the current machine with
-:py:func:`tvm.testing.device_enabled`, and obtain its device with
-``tvm.device_from_target(target)``.  The function is run once per target, the
+:py:func:`tvm_tirx.testing.device_enabled`, and obtain its device with
+``tvm_tirx.device_from_target(target)``.  The function is run once per target, the
 success/failure of each is reported separately, and a target whose device
-is disabled in ``config.cmake`` or absent from the machine is reported as
+is disabled in the CMake configuration or absent from the machine is reported as
 skipped.
 
 .. code-block:: python
@@ -74,9 +71,9 @@ skipped.
         ["llvm", pytest.param("cuda", marks=pytest.mark.gpu)],
     )
     def test_function(target):
-        if not tvm.testing.device_enabled(target):
+        if not tvm_tirx.testing.device_enabled(target):
             pytest.skip(f"{target} not enabled")
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         # Test code goes here
 
 For a test that only applies to a single target, omit the parametrization
@@ -87,7 +84,7 @@ for a GPU target):
 
     @pytest.mark.gpu
     @pytest.mark.skipif(
-        not tvm.testing.device_enabled("cuda"), reason="cuda not enabled"
+        not tvm_tirx.testing.device_enabled("cuda"), reason="cuda not enabled"
     )
     def test_function():
         target = "cuda"
@@ -111,9 +108,9 @@ as above:
         pytest.param("cuda", gpu_implementation_large_batch, marks=pytest.mark.gpu),
     ])
     def test_function(target, impl):
-        if not tvm.testing.device_enabled(target):
+        if not tvm_tirx.testing.device_enabled(target):
             pytest.skip(f"{target} not enabled")
-        dev = tvm.device_from_target(target)
+        dev = tvm_tirx.device_from_target(target)
         # Test code goes here
 
 
@@ -127,17 +124,17 @@ marks are as follows.
   which tests pytest will execute.  Apply it to any test that needs a
   GPU so that the CI runs it only on GPU nodes.
 
-- ``@pytest.mark.skipif(not tvm.testing.env.has_X(), reason=...)`` -
+- ``@pytest.mark.skipif(not tvm_tirx.testing.env.has_X(), reason=...)`` -
   Skips a test when a required runtime or hardware feature is not
-  available.  The :py:mod:`tvm.testing.env` module exposes one memoized
+  available.  The :py:mod:`tvm_tirx.testing.env` module exposes one memoized
   probe per capability (e.g. ``has_cuda()``, ``has_rocm()``,
   ``has_vulkan()``, ``has_gpu()``, ``has_llvm()``), each of which
-  returns ``False`` when the runtime is disabled in ``config.cmake`` or
+  returns ``False`` when the runtime is disabled in the CMake configuration or
   no compatible device is present.  Pair it with ``@pytest.mark.gpu``
   for tests that use the GPU::
 
       @pytest.mark.gpu
-      @pytest.mark.skipif(not tvm.testing.env.has_cuda(), reason="need cuda")
+      @pytest.mark.skipif(not tvm_tirx.testing.env.has_cuda(), reason="need cuda")
       def test_cuda_vectorize_add():
           # Test code goes here
 
@@ -146,9 +143,14 @@ marks are as follows.
   not installed.  Use this instead of a ``skipif`` for package
   dependencies.
 
+Parent library integrations and RPC setup are checked separately with
+:py:mod:`tvm.testing.env`; local device probes do not imply that an optional
+parent integration is available. Parent tests that need target selection use
+:py:func:`tvm.testing.device_enabled`.
+
 Tests that execute on a local GPU must put the complete live-device
 lifetime in a small callback passed to
-:py:func:`tvm.testing.run_with_gpu_lock`.  Target construction and
+:py:func:`tvm_tirx.testing.run_with_gpu_lock`.  Target construction and
 compilation remain outside so that pytest-xdist workers can compile in
 parallel.  Device creation, allocation, execution, synchronization,
 host conversion, result checks, and child-process teardown remain inside
@@ -157,7 +159,7 @@ the callback so no device-backed object outlives the lock.
 .. code-block:: python
 
     @pytest.mark.gpu
-    @pytest.mark.skipif(not tvm.testing.env.has_cuda(), reason="need cuda")
+    @pytest.mark.skipif(not tvm_tirx.testing.env.has_cuda(), reason="need cuda")
     def test_cuda_add_one():
         target = tvm.target.Target("cuda -arch=sm_90")
         executable = tvm.compile(make_add_one_module(), target)
@@ -169,9 +171,9 @@ the callback so no device-backed object outlives the lock.
             device_output = tvm.runtime.empty(host_input.shape, "float32", dev)
             executable(device_input, device_output)
             dev.sync()
-            tvm.testing.assert_allclose(device_output.numpy(), host_input + 1)
+            tvm_tirx.testing.assert_allclose(device_output.numpy(), host_input + 1)
 
-        tvm.testing.run_with_gpu_lock(run_and_check)
+        tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 The wrapper uses the existing :py:class:`tvm_ffi.utils.FileLock` with a
 persistent machine-local path.  A process exit releases the kernel lock;
@@ -185,27 +187,6 @@ persistent lock file that every contender can write, or enforce exclusivity
 through the runner.  A per-user lock path cannot protect a GPU shared across
 users because each user would lock a different file.
 
-There also exists a ``tvm.testing.enabled_targets()`` that returns
-all targets that are enabled and runnable on the current machine,
-based on the environment variable ``TVM_TEST_TARGETS``, the build
-configuration, and the physical hardware present.  Some legacy tests
-explicitly loop over the targets returned from ``enabled_targets()``,
-but this style should not be used for new tests.  The pytest output
-for this style silently skips runtimes that are disabled in
-``config.cmake``, or do not have a device on which they can run.  In
-addition, the test halts on the first target to fail, which is
-ambiguous as to whether the error occurs on a particular target, or on
-every target.
-
-.. code-block:: python
-
-    # Old style, do not use.
-    def test_function():
-        for target, dev in tvm.testing.enabled_targets():
-            # Test code goes here
-
-
-
 Running Locally
 ~~~~~~~~~~~~~~~
 
@@ -213,14 +194,10 @@ To run the Python unit tests locally, use the command ``pytest`` in
 the ``${TVM_HOME}`` directory.
 
 - Environment variables
-    - ``TVM_TEST_TARGETS`` should be a semicolon-separated list of
-      targets to run. If unset, will default to the targets defined in
-      ``tvm.testing.DEFAULT_TEST_TARGETS``.
-
-      Note: If ``TVM_TEST_TARGETS`` does not contain any targets that
-      are both enabled, and have an accessible device of that type,
-      then the tests will fall back to running on the ``llvm`` target
-      only.
+    - Parent TVM tests may select targets with ``TVM_TEST_TARGETS``, a
+      semicolon-separated list of target strings or JSON target dictionaries.
+      ``tvm.testing.device_enabled`` applies this selection; TIRX device probes
+      do not read it and report only actual local availability.
 
     - ``TVM_LIBRARY_PATH`` should be a path to the ``libtvm.so``
       library. This can be used, for example, to run tests using a
@@ -241,11 +218,6 @@ the ``${TVM_HOME}`` directory.
       to run only tests that do not use a GPU, by passing ``not gpu``
       as the marker expression to ``-m``.
 
-      Note: This filtering takes place after the selection of targets
-      based on the ``TVM_TEST_TARGETS`` environment variable.  Even if
-      ``-m gpu`` is specified, if ``TVM_TEST_TARGETS`` does not
-      contain GPU targets, no GPU tests will be run.
-
 Running in a Local Docker Container
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
@@ -254,22 +226,28 @@ Running in a Local Docker Container
 The ``docker/bash.sh`` script can be used to run unit tests inside the
 same docker image as is used by the CI.  The first argument should
 specify which docker image to run (e.g. ``docker/bash.sh ci_gpu``).
-Allowed image names are defined in ``ci/jenkins/data.py`` in the TVM source directory,
+Allowed image names are defined in ``ci/jenkins/docker-images.ini`` in the TVM source directory,
 and map to images at `tlcpack`_.
 
 If no additional arguments are given, the docker image will be loaded
-with an interactive bash session.  If a script is passed as an
-optional argument (e.g. ``docker/bash.sh ci_gpu tests/scripts/task_python_unittest.sh``), then that script will be
-executed inside the docker image.
+with an interactive bash session. Additional arguments run a command inside
+the container. First build the platform wheels as described in
+:ref:`pr-testing`, then source the installation helper before running tests:
 
-Note: The docker images contain all system dependencies, but do not
-include the ``build/config.cmake`` configuration file for those
-systems.  The TVM source directory is used as the home directory of
-the docker image, and so this will default to using the same
-config/build directories as the local config.  One solution is to
-maintain separate ``build_local`` and ``build_docker`` directories,
-and make a symlink from ``build`` to the appropriate folder when
-entering/exiting docker.
+.. code-block:: bash
+
+    docker/bash.sh ci_gpu bash -euo pipefail -c '
+        source tests/scripts/test_task_install_dist_wheels.sh
+        tests/scripts/task_python_unittest_gpuonly.sh
+    '
+
+The helper installs the wheels from ``dist/`` into ``.local/python`` and sets
+``PYTHONPATH`` for subsequent commands in the same shell. In an interactive
+container, source the helper before invoking pytest or a test script.
+
+The checkout is shared with the container. Native builds use ``build/`` and
+wheel artifacts use ``dist/``; clean these directories and rebuild when
+switching platform configurations.
 
 Running in CI
 ~~~~~~~~~~~~~
@@ -288,22 +266,23 @@ in which stages.
 
 - Compile-time configuration
 
-  The docker image does not have the ``config.cmake`` file built into
-  it, so this is the first step in each of the ``BUILD`` tasks.  This
-  is done using the ``tests/scripts/task_config_build_*.sh`` scripts.
-  Which script is used depends on the build being tested, and is
-  specified in the Jenkinsfile.
+  The Jenkinsfile sources ``tests/scripts/task_install_build_dependencies.sh``
+  once to clean ``dist/`` and install build prerequisites. It then invokes
+  ``tests/scripts/task_build_<platform>.sh``, which sets the full platform CMake
+  options and builds FFI, TIRx, and TVM wheels in that order. All three wheel
+  builds use the root CMake source and the same ``build/`` directory, with
+  package-specific install components. Enabled C++ tests run from that same
+  native build.
 
-  Each ``BUILD`` task concludes by packing a library for use in later
-  tests.
+  The three wheels in ``dist/`` are transferred to the test nodes.
 
 - Which tests run
 
   The ``Unit Test`` stage of the Jenkinsfile determines how ``pytest``
-  is called.  Each task starts by unpacking a
-  compiled library that was previous compiled in the ``BUILD`` stage,
-  then runs a test script
-  (e.g. ``tests/scripts/task_python_unittest.sh``).  These scripts set
+  is called. Each consumer downloads the wheels from the ``BUILD`` stage
+  and sources ``tests/scripts/test_task_install_dist_wheels.sh`` before
+  running a test script (e.g. ``tests/scripts/task_python_unittest.sh``).
+  These scripts set
   the files/folders and command-line options that are passed to
   ``pytest``.
 

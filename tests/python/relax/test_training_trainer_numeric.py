@@ -18,13 +18,15 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.training import SetupTrainer, Trainer
 from tvm.relax.training.loss import MSELoss
 from tvm.relax.training.optimizer import SGD, Adam
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm.testing import device_enabled
+from tvm_tirx.script import ir as I
 
 
 def _get_backbone():
@@ -53,10 +55,10 @@ def _make_dataset():
     return [[np.ones((1, 10)).astype(np.float32), np.array([[0, 0, 1, 0, 0]], np.float32)]] * N
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_execute():
     target = "llvm"
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     backbone = _get_backbone()
     pred_ty = relax.TensorType((1, 5), "float32")
 
@@ -79,10 +81,10 @@ def test_execute():
     trainer.update(dataset[0][0], dataset[0][1])
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_execute_numeric():
     target = "llvm"
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     backbone = _get_backbone()
     pred_ty = relax.TensorType((1, 5), "float32")
 
@@ -103,17 +105,17 @@ def test_execute_numeric():
     for _ in range(2):
         for input, label in dataset:
             loss = trainer.update(input, label)
-    tvm.testing.assert_allclose(loss.numpy(), 3.1974423e-14)
+    tvm_tirx.testing.assert_allclose(loss.numpy(), 3.1974423e-14)
 
     result = trainer.predict(dataset[0][0])
     result_expected = np.array([[0, 0, 0.9999998, 0, 0]], np.float32)
-    tvm.testing.assert_allclose(result.numpy(), result_expected)
+    tvm_tirx.testing.assert_allclose(result.numpy(), result_expected)
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_load_export_params():
     target = "llvm"
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     backbone = _get_backbone()
     pred_ty = relax.TensorType((1, 5), "float32")
 
@@ -142,15 +144,15 @@ def test_load_export_params():
     trainer1.load_params(param_dict)
 
     x_sample = dataset[np.random.randint(len(dataset))][0]
-    tvm.testing.assert_allclose(
+    tvm_tirx.testing.assert_allclose(
         trainer.predict(x_sample).numpy(), trainer1.predict(x_sample).numpy()
     )
 
 
-@pytest.mark.skipif(not tvm.testing.device_enabled("llvm"), reason="llvm not enabled")
+@pytest.mark.skipif(not device_enabled("llvm"), reason="llvm not enabled")
 def test_setting_error():
     target = "llvm"
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     backbone = _get_backbone()
     pred_ty = relax.TensorType((1, 5), "float32")
 
@@ -175,4 +177,4 @@ def test_setting_error():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

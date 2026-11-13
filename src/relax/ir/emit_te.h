@@ -36,21 +36,24 @@ namespace relax {
 /*!
  * \brief A placeholder op that represents a relax expression.
  */
-class RXPlaceholderOpNode : public te::PlaceholderOpNode {
+class RXPlaceholderOpObj : public te::PlaceholderOpObj {
  public:
+  explicit RXPlaceholderOpObj(Expr value) : value(std::move(value)) {}
+  explicit RXPlaceholderOpObj(ffi::UnsafeInit) : value(ffi::UnsafeInit{}) {}
+
   /*! \brief The relax expression. */
   Expr value;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<RXPlaceholderOpNode>().def_ro("value", &RXPlaceholderOpNode::value);
+    refl::ObjectDef<RXPlaceholderOpObj>().def_ro("value", &RXPlaceholderOpObj::value);
   }
 
   // FFI system configuration for structural equality and hashing
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindTreeNode;
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.TEPlaceholderOp", RXPlaceholderOpNode,
-                                    te::PlaceholderOpNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("relax.TEPlaceholderOp", RXPlaceholderOpObj,
+                                    te::PlaceholderOpObj);
 };
 
 /*!
@@ -61,7 +64,7 @@ class RXPlaceholderOpNode : public te::PlaceholderOpNode {
  * shape of the input Expr.
  * \param name The name of the created tensor.
  */
-te::Tensor TETensor(Expr value, ffi::Map<tirx::Var, PrimExpr> tir_var_map, std::string name);
+te::Tensor TETensor(Expr value, ffi::Map<tvm::Var, PrimExpr> tir_var_map, std::string name);
 
 }  // namespace relax
 }  // namespace tvm

@@ -21,8 +21,9 @@
 import numpy as np
 
 import tvm
-import tvm.testing
-from tvm import te
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import te, topi
 
 
 def test_sort():
@@ -37,7 +38,7 @@ def test_sort():
     out = te.extern(
         data.shape,
         [data, sort_num],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.sort.argsort_nms", ins[0], ins[1], outs[0], axis, is_ascend
         ),
         dtype="int32",
@@ -53,14 +54,14 @@ def test_sort():
         [[3, 4, 4], [2, 3, 3], [1, 2, 2], [0, 1, 1], [4, 0, 0]],
     ]
 
-    dev = tvm.cpu(0)
+    dev = tvm_tirx.cpu(0)
     target = "llvm"
-    f = tvm.compile(te.create_prim_func([data, sort_num, out]), target=target)
-    a = tvm.runtime.tensor(np.array(input_data).astype(data.dtype.dtype), dev)
-    b = tvm.runtime.tensor(np.array(sort_num_input).astype(sort_num.dtype.dtype), dev)
-    c = tvm.runtime.tensor(np.zeros(a.shape, dtype=out.dtype.dtype), dev)
+    f = tvm.compile(te.create_function([data, sort_num, out]), target=target)
+    a = tvm_tirx.runtime.tensor(np.array(input_data).astype(data.dtype.dtype), dev)
+    b = tvm_tirx.runtime.tensor(np.array(sort_num_input).astype(sort_num.dtype.dtype), dev)
+    c = tvm_tirx.runtime.tensor(np.zeros(a.shape, dtype=out.dtype.dtype), dev)
     f(a, b, c)
-    tvm.testing.assert_allclose(
+    tvm_tirx.testing.assert_allclose(
         c.numpy(), np.array(sorted_index).astype(out.dtype.dtype), rtol=1e-5
     )
 
@@ -76,25 +77,33 @@ def test_sort_np():
     out = te.extern(
         data.shape,
         [data, sort_num],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.sort.argsort_nms", ins[0], ins[1], outs[0], axis, is_ascend
         ),
         dtype="int32",
         name="sort_tensor",
     )
 
-    dev = tvm.cpu(0)
+    dev = tvm_tirx.cpu(0)
     target = "llvm"
-    f = tvm.compile(te.create_prim_func([data, sort_num, out]), target=target)
+    f = tvm.compile(te.create_function([data, sort_num, out]), target=target)
 
     np_data = np.random.uniform(size=dshape)
     np_out = np.argsort(np_data, axis=axis)
     sort_num_input = np.full(reduced_shape, dshape[axis])
-    a = tvm.runtime.tensor(np.array(np_data).astype(data.dtype.dtype), dev)
-    b = tvm.runtime.tensor(np.array(sort_num_input).astype(sort_num.dtype.dtype), dev)
-    c = tvm.runtime.tensor(np.zeros(a.shape, dtype=out.dtype.dtype), dev)
+    a = tvm_tirx.runtime.tensor(np.array(np_data).astype(data.dtype.dtype), dev)
+    b = tvm_tirx.runtime.tensor(np.array(sort_num_input).astype(sort_num.dtype.dtype), dev)
+    c = tvm_tirx.runtime.tensor(np.zeros(a.shape, dtype=out.dtype.dtype), dev)
     f(a, b, c)
-    tvm.testing.assert_allclose(c.numpy(), np_out, rtol=1e-5)
+    tvm_tirx.testing.assert_allclose(c.numpy(), np_out, rtol=1e-5)
+
+
+def test_sort_none_index_dtype_defaults_to_float32():
+    data = te.placeholder((8,), dtype="int32")
+    indices = topi.argsort(data, dtype=None)
+    top_indices = topi.topk(data, k=2, ret_type="indices", dtype=None)
+    assert indices.dtype == "float32"
+    assert top_indices.dtype == "float32"
 
 
 if __name__ == "__main__":

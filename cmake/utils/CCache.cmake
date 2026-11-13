@@ -15,31 +15,31 @@
 # specific language governing permissions and limitations
 # under the License.
 
-if(USE_CCACHE) # True for AUTO, ON, /path/to/ccache
+if(TVM_USE_CCACHE) # True for AUTO, ON, /path/to/ccache
 
   if(DEFINED CMAKE_C_COMPILER_LAUNCHER)
-    if("${USE_CCACHE}" STREQUAL "AUTO")
+    if("${TVM_USE_CCACHE}" STREQUAL "AUTO")
       message(STATUS "CMAKE_C_COMPILER_LAUNCHER already defined.  Not using ccache.")
-    elseif("${USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
+    elseif("${TVM_USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
       message(FATAL_ERROR "CMAKE_C_COMPILER_LAUNCHER already defined.  Refusing to override with ccache. Either unset or disable ccache.")
     endif()
 
   elseif(DEFINED CMAKE_CXX_COMPILER_LAUNCHER)
-    if("${USE_CCACHE}" STREQUAL "AUTO")
+    if("${TVM_USE_CCACHE}" STREQUAL "AUTO")
       message(STATUS "CMAKE_CXX_COMPILER_LAUNCHER already defined.  Not using ccache.")
-    elseif("${USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
+    elseif("${TVM_USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
       message(FATAL_ERROR "CMAKE_CXX_COMPILER_LAUNCHER already defined.  Refusing to override with ccache. Either unset or disable ccache.")
     endif()
 
   elseif(DEFINED CMAKE_CUDA_COMPILER_LAUNCHER)
-    if("${USE_CCACHE}" STREQUAL "AUTO")
+    if("${TVM_USE_CCACHE}" STREQUAL "AUTO")
       message(STATUS "CMAKE_CUDA_COMPILER_LAUNCHER already defined.  Not using ccache.")
-    elseif("${USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
+    elseif("${TVM_USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
       message(FATAL_ERROR "CMAKE_CUDA_COMPILER_LAUNCHER already defined.  Refusing to override with ccache. Either unset or disable ccache.")
     endif()
 
   else()
-    if("${USE_CCACHE}" STREQUAL "AUTO") # Auto mode
+    if("${TVM_USE_CCACHE}" STREQUAL "AUTO") # Auto mode
       find_program(CCACHE_FOUND "ccache")
       if(CCACHE_FOUND)
         message(STATUS "Found the path to ccache, enabling ccache")
@@ -47,16 +47,16 @@ if(USE_CCACHE) # True for AUTO, ON, /path/to/ccache
       else()
         message(STATUS "Didn't find the path to CCACHE, disabling ccache")
       endif(CCACHE_FOUND)
-    elseif("${USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
+    elseif("${TVM_USE_CCACHE}" MATCHES ${IS_TRUE_PATTERN})
       find_program(CCACHE_FOUND "ccache")
       if(CCACHE_FOUND)
         message(STATUS "Found the path to ccache, enabling ccache")
         set(PATH_TO_CCACHE "ccache")
       else()
-        message(FATAL_ERROR "Cannot find ccache. Set USE_CCACHE mode to AUTO or OFF to build without ccache. USE_CCACHE=" "${USE_CCACHE}")
+        message(FATAL_ERROR "Cannot find ccache. Set TVM_USE_CCACHE mode to AUTO or OFF to build without ccache. TVM_USE_CCACHE=" "${TVM_USE_CCACHE}")
       endif(CCACHE_FOUND)
     else() # /path/to/ccache
-      set(PATH_TO_CCACHE "${USE_CCACHE}")
+      set(PATH_TO_CCACHE "${TVM_USE_CCACHE}")
       message(STATUS "Setting ccache path to " "${PATH_TO_CCACHE}")
     endif()
     # Set the flag for ccache
@@ -66,4 +66,4 @@ if(USE_CCACHE) # True for AUTO, ON, /path/to/ccache
       set(CMAKE_CUDA_COMPILER_LAUNCHER "${PATH_TO_CCACHE}")
     endif()
   endif()
-endif(USE_CCACHE)
+endif(TVM_USE_CCACHE)

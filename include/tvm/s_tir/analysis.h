@@ -24,6 +24,7 @@
 #ifndef TVM_S_TIR_ANALYSIS_H_
 #define TVM_S_TIR_ANALYSIS_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/module.h>
 #include <tvm/ir/prim/expr.h>
 #include <tvm/ir/transform.h>
@@ -40,8 +41,8 @@ namespace tirx {
  * \brief Auto detect the block access region according to its body stmt
  *        It will detect the access region as an array in order of appearance in AST
  * \param block The block to be detected
- * \param buffer_var_map The outside buffers which may be accessed the block.
- *                       It is a map from buffer var to the buffer.
+ * \param tensor_var_map The outside tensors which may be accessed the block.
+ *                       It is a map from tensor var to the tensor.
  * \return Array of access regions.
  *         There are three arrays of TensorRegion:
  *           - first: read regions
@@ -49,28 +50,28 @@ namespace tirx {
  *           - third: opaque regions
  */
 TVM_DLL ffi::Array<ffi::Array<TensorRegion>> GetSBlockAccessRegion(
-    const s_tir::SBlock& block, const ffi::Map<Var, BufferVar>& buffer_var_map);
+    const s_tir::SBlock& block, const ffi::Map<Var, TensorVar>& tensor_var_map);
 
 /*!
  * \brief Auto detect the block read/write region according to its body stmt. An opaque access will
  *        be counted as both a read and a write access
  * \param block The block to be detected
- * \param buffer_var_map The outside buffers which may be accessed the block.
- *                       It is a map from buffer var to the buffer
+ * \param tensor_var_map The outside tensors which may be accessed the block.
+ *                       It is a map from tensor var to the tensor
  * \return An array only consisting of the read regions and write regions of the input block
  */
 TVM_DLL ffi::Array<ffi::Array<TensorRegion>> GetSBlockReadWriteRegion(
-    const s_tir::SBlock& block, const ffi::Map<Var, BufferVar>& buffer_var_map);
+    const s_tir::SBlock& block, const ffi::Map<Var, TensorVar>& tensor_var_map);
 
 /*!
- * \brief Detect the lowest common ancestor(LCA) of buffer access, including both high-level
- *        access(BufferLoad, BufferStore) and low-level access(Load, Store and opaque access).
+ * \brief Detect the lowest common ancestor(LCA) of tensor access, including both high-level
+ *        access(TensorLoad, TensorStore) and low-level access(Load, Store and opaque access).
  *        The LCA may be a For loop or a Block.
- * \param func The PrimFunc to be detected.
- * \return The Map from buffer to the LCA of all access to it. The lca is function root if the
+ * \param func The Function to be detected.
+ * \return The Map from tensor to the LCA of all access to it. The lca is function root if the
  *         return stmt is std::nullopt.
  */
-TVM_DLL ffi::Map<BufferVar, ffi::Optional<Stmt>> DetectBufferAccessLCA(const PrimFunc& func);
+TVM_DLL ffi::Map<TensorVar, ffi::Optional<Stmt>> DetectTensorAccessLCA(const Function& func);
 
 /*!
  * \brief Find the "anchor block" of the given module.
@@ -86,7 +87,7 @@ TVM_DLL ffi::Map<BufferVar, ffi::Optional<Stmt>> DetectBufferAccessLCA(const Pri
  * \param mod The input TIR module.
  * \return The anchor block if found, nullptr otherwise.
  */
-const s_tir::SBlockNode* FindAnchorBlock(const IRModule& mod);
+const s_tir::SBlockObj* FindAnchorBlock(const IRModule& mod);
 
 }  // namespace tirx
 
@@ -98,10 +99,10 @@ class Analyzer;
 namespace s_tir {
 using namespace tvm::tirx;
 
-/*! \brief Verify variable/buffer definitions, load types and schedulable block boundaries. */
-TVM_DLL bool VerifyWellFormed(const tirx::PrimFunc& func, bool assert_mode = true);
+/*! \brief Verify variable/tensor definitions, load types and schedulable block boundaries. */
+TVM_DLL void CheckWellFormed(const tirx::Function& func);
 /*! \brief Verify S-TIR or mixed modules, including definitions shared across functions. */
-TVM_DLL bool VerifyWellFormed(const IRModule& mod, bool assert_mode = true);
+TVM_DLL void CheckWellFormed(const IRModule& mod);
 
 /*!
  * \brief Estimate the FLOPs of a TIR fragment.
@@ -123,7 +124,7 @@ TVM_DLL double EstimateTIRFlops(const IRModule& mod);
  * \param assert_on_error If true, an error will be thrown for an impure function.
  * \return The purity of the function.
  */
-TVM_DLL bool IsPureFunction(const PrimFunc& func, bool assert_on_error = false);
+TVM_DLL bool IsPureFunction(const Function& func, bool assert_on_error = false);
 
 /*!
  * \brief Verify the correctness of a GPU code
@@ -131,7 +132,7 @@ TVM_DLL bool IsPureFunction(const PrimFunc& func, bool assert_on_error = false);
  * \param constraints The dict to specify constraints to check.
  * \return valid Whether it is a valid GPU code.
  */
-TVM_DLL bool VerifyGPUCode(const PrimFunc& func, ffi::Map<ffi::String, PrimExpr> constraints);
+TVM_DLL bool VerifyGPUCode(const Function& func, ffi::Map<ffi::String, PrimExpr> constraints);
 
 /*! \brief Helper struct for return value of IdentifyMemCpy */
 struct MemCpyDetails {
@@ -147,23 +148,23 @@ struct MemCpyDetails {
 TVM_DLL std::optional<MemCpyDetails> IdentifyMemCpy(const For& loop, const sym::Analyzer& analyzer);
 
 /*!
- * \brief Infer the domain touched by buffer accesses within a statement.
+ * \brief Infer the domain touched by tensor accesses within a statement.
  * \param body The statement to analyze.
- * \param buffer The buffer whose accesses are analyzed.
+ * \param tensor The tensor whose accesses are analyzed.
  * \param consider_loads Whether to include loads.
  * \param consider_stores Whether to include stores.
  * \return The domain covering the selected accesses.
  */
-TVM_DLL Region DomainTouched(const Stmt& body, const BufferVar& buffer, bool consider_loads,
-                             bool consider_stores);
+TVM_DLL ffi::Array<ffi::Optional<Range>> DomainTouched(const Stmt& body, const TensorVar& tensor,
+                                                       bool consider_loads, bool consider_stores);
 
 /*!
- * \brief Calculate the allocated memory per scope in bytes needed inside the TIR PrimFunc
- * \param func The TIR PrimFunc for which the allocated memory size to be calculated
+ * \brief Calculate the allocated memory per scope in bytes needed inside the TIR Function
+ * \param func The TIR Function for which the allocated memory size to be calculated
  * \return Allocated memory size per scope in bytes.
  */
 TVM_DLL ffi::Map<ffi::String, ffi::Map<ffi::String, int64_t>> CalculateAllocatedBytes(
-    const PrimFunc& func);
+    const Function& func);
 
 /*!
  * \brief Calculate the allocated memory per scope in bytes for each function inside the module
@@ -180,7 +181,7 @@ TVM_DLL ffi::Map<ffi::String, ffi::Map<ffi::String, int64_t>> CalculateAllocated
 TVM_DLL ffi::Array<tvm::transform::Pass> GetVTCMCompactionPasses();
 
 /*!
- * \brief Verifies that the VTCM usage for all prim_funcs in the given IRModule.
+ * \brief Verifies that the VTCM usage for all functions in the given IRModule.
  * \param mod The module to be checked.
  * \param limit The limit to check.
  * \return true if the VTCM usage is within the provided limit.
@@ -188,12 +189,12 @@ TVM_DLL ffi::Array<tvm::transform::Pass> GetVTCMCompactionPasses();
 TVM_DLL bool VerifyVTCMLimit(const IRModule& mod, int64_t limit);
 
 /*!
- * \brief Verifies that the VTCM usage of the given prim_func is within the provided limit.
+ * \brief Verifies that the VTCM usage of the given function is within the provided limit.
  * \param func The function to be checked.
  * \param limit The limit to check.
  * \return true if the VTCM usage is within the provided limit.
  */
-TVM_DLL bool VerifyVTCMLimit(const PrimFunc& func, int64_t limit);
+TVM_DLL bool VerifyVTCMLimit(const Function& func, int64_t limit);
 
 namespace transform {
 

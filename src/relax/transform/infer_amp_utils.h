@@ -25,10 +25,10 @@
 #ifndef TVM_RELAX_TRANSFORM_INFER_AMP_UTILS_H_
 #define TVM_RELAX_TRANSFORM_INFER_AMP_UTILS_H_
 
-#include <tvm/relax/attrs/nn.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/nested_msg.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op/nn.h>
+#include <tvm/relax/op_attr.h>
 
 #include <unordered_map>
 #include <unordered_set>
@@ -41,9 +41,6 @@ using ffi::DLDataTypeToString;
 using ffi::StringToDLDataType;
 
 enum MixedPrecisionPolicyKind : int { kAlways = 0, kFollow = 1, kNever = 2 };
-
-/*! \brief the operator pattern */
-using TMixedPrecisionPolicy = int;
 
 // NType is the message we want to track for vars with nested tensorstructinfo
 // which represents the realization decision of the var.
@@ -70,7 +67,10 @@ NType NTypeMerge(const NType& a, const NType& b);
 using VarDTypeMap = std::unordered_map<Var, NType>;
 
 // Call is a call node, out_dtype is the expected output_dtype
-using FInferMixedPrecision = ffi::TypedFunction<Call(const Call& call_node, DLDataType out_dtype)>;
+
+// Compatibility names; new callers can deduce the value type from the key.
+using FInferMixedPrecision = decltype(op_attr::kInferMixedPrecision)::ValueType;
+using TMixedPrecisionPolicy = decltype(op_attr::kMixedPrecisionPolicy)::ValueType;
 
 ffi::Array<ffi::ObjectRef> InferMixedPrecisionFollow(const Call& call, DLDataType out_dtype);
 

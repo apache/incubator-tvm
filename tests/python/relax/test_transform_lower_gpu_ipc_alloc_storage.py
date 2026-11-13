@@ -15,17 +15,17 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_alloc_storage():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -39,8 +39,8 @@ def test_alloc_storage():
             )
             return alloc
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -58,12 +58,12 @@ def test_alloc_storage():
             return alloc
 
     mod = relax.transform.LowerGPUIPCAllocStorage()(Module)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 def test_builtin_alloc_tensor():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Module:
@@ -74,8 +74,8 @@ def test_builtin_alloc_tensor():
             )
             return tensor
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -93,7 +93,7 @@ def test_builtin_alloc_tensor():
             return tensor
 
     mod = relax.transform.LowerGPUIPCAllocStorage()(Module)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":

@@ -16,7 +16,18 @@
 # under the License.
 """Non-maximum suppression operators."""
 
-from . import _ffi_api
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC as _UNKNOWN_LOC
+from tvm_tirx.ir.location import Location as _Location
+
+
+@tvm_ffi.register_object("relax.attrs.AllClassNonMaximumSuppressionAttrs")
+class AllClassNonMaximumSuppressionAttrs(Attrs):
+    """Attributes for vision.all_class_non_max_suppression"""
 
 
 def all_class_non_max_suppression(
@@ -26,6 +37,9 @@ def all_class_non_max_suppression(
     iou_threshold,
     score_threshold,
     output_format="onnx",
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ):
     """Non-maximum suppression operator for object detection, corresponding to ONNX
     NonMaxSuppression and TensorFlow combined_non_max_suppression.
@@ -68,12 +82,31 @@ def all_class_non_max_suppression(
         So the box indices and scores for the class 0 come first in a sorted order, followed by
         the class 1 etc.
     """
-    return _ffi_api.all_class_non_max_suppression(
-        boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold, output_format
+    return _Call(
+        "relax.vision.all_class_non_max_suppression",
+        [boxes, scores, max_output_boxes_per_class, iou_threshold, score_threshold],
+        attrs=_make_attrs(
+            "relax.attrs.AllClassNonMaximumSuppressionAttrs", output_format=output_format
+        ),
+        loc=loc,
+        ty=ty,
     )
 
 
-def get_valid_counts(data, score_threshold=0, id_index=0, score_index=1):
+@tvm_ffi.register_object("relax.attrs.GetValidCountsAttrs")
+class GetValidCountsAttrs(Attrs):
+    """Attributes for vision.get_valid_counts"""
+
+
+def get_valid_counts(
+    data,
+    score_threshold=0,
+    id_index=0,
+    score_index=1,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
+):
     """Get valid count of bounding boxes given a score threshold.
     Also moves valid boxes to the top of input data.
 
@@ -99,7 +132,23 @@ def get_valid_counts(data, score_threshold=0, id_index=0, score_index=1):
         ``[batch_size, num_anchors, elem_length]``, and ``out_indices`` has shape
         ``[batch_size, num_anchors]``.
     """
-    return _ffi_api.get_valid_counts(data, score_threshold, id_index, score_index)
+    return _Call(
+        "relax.vision.get_valid_counts",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.GetValidCountsAttrs",
+            score_threshold=score_threshold,
+            id_index=id_index,
+            score_index=score_index,
+        ),
+        loc=loc,
+        ty=ty,
+    )
+
+
+@tvm_ffi.register_object("relax.attrs.NonMaximumSuppressionAttrs")
+class NonMaximumSuppressionAttrs(Attrs):
+    """Attributes for vision.non_max_suppression"""
 
 
 def non_max_suppression(
@@ -117,6 +166,9 @@ def non_max_suppression(
     invalid_to_bottom=False,
     soft_nms_sigma=0.0,
     score_threshold=0.0,
+    *,
+    ty=None,
+    loc: _Location = _UNKNOWN_LOC,
 ):
     """Non-maximum suppression operator for object detection.
 
@@ -186,19 +238,23 @@ def non_max_suppression(
         data.
         Otherwise returns the modified data tensor.
     """
-    return _ffi_api.non_max_suppression(
-        data,
-        valid_count,
-        indices,
-        max_output_size,
-        iou_threshold,
-        force_suppress,
-        top_k,
-        coord_start,
-        score_index,
-        id_index,
-        return_indices,
-        invalid_to_bottom,
-        soft_nms_sigma,
-        score_threshold,
+    return _Call(
+        "relax.vision.non_max_suppression",
+        [data, valid_count, indices],
+        attrs=_make_attrs(
+            "relax.attrs.NonMaximumSuppressionAttrs",
+            max_output_size=max_output_size,
+            iou_threshold=iou_threshold,
+            force_suppress=force_suppress,
+            top_k=top_k,
+            coord_start=coord_start,
+            score_index=score_index,
+            id_index=id_index,
+            return_indices=return_indices,
+            invalid_to_bottom=invalid_to_bottom,
+            soft_nms_sigma=soft_nms_sigma,
+            score_threshold=score_threshold,
+        ),
+        loc=loc,
+        ty=ty,
     )

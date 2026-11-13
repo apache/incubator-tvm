@@ -18,7 +18,7 @@
 
 import tvm_ffi
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 
@@ -43,7 +43,7 @@ def randint(low, high, size, dtype="int32"):
     return te.extern(
         size,
         [],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.random.randint", int(low), int(high), outs[0]
         ),
         dtype=dtype,
@@ -77,7 +77,7 @@ def uniform(low, high, size):
     return te.extern(
         size,
         [],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.random.uniform", float(low), float(high), outs[0]
         ),
         dtype="float32",
@@ -107,7 +107,7 @@ def normal(loc, scale, size):
     return te.extern(
         size,
         [],
-        lambda ins, outs: tvm.tirx.call_packed(
+        lambda ins, outs: tvm_tirx.tirx.call_packed(
             "tvm.contrib.random.normal", float(loc), float(scale), outs[0]
         ),
         dtype="float32",

@@ -17,21 +17,23 @@
 # ruff: noqa: F401
 
 import tvm
-import tvm.testing
-from tvm import relax, tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm import relax
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import ir as I
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
-target = tvm.target.Target({"kind": "llvm", "num-cores": 16})
+target = tvm_tirx.target.Target({"kind": "llvm", "num-cores": 16})
 
 
 def test_apply_to_func_with_different_block_name():
     @I.ir_module
     class RecordModule:
-        @Ts.prim_func
-        def main(A: T.Buffer((2,), "float32"), B: T.Buffer((2,), "float32")):
+        @Ts.function
+        def main(A: T.Tensor((2,), "float32"), B: T.Tensor((2,), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             for i in T.serial(2):
                 with Ts.sblock("block"):
@@ -40,8 +42,8 @@ def test_apply_to_func_with_different_block_name():
 
     @I.ir_module
     class BlockRenamedModule:
-        @Ts.prim_func
-        def main(A: T.Buffer((2,), "float32"), B: T.Buffer((2,), "float32")):
+        @Ts.function
+        def main(A: T.Tensor((2,), "float32"), B: T.Tensor((2,), "float32")):
             T.func_attr({"global_symbol": "main", "tirx.noalias": True})
             for i in T.serial(2):
                 with Ts.sblock("renamed_block"):
@@ -50,8 +52,8 @@ def test_apply_to_func_with_different_block_name():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((2,), "float32"), B: T.Buffer((2,), "float32")):
+        @Ts.function
+        def main(A: T.Tensor((2,), "float32"), B: T.Tensor((2,), "float32")):
             T.func_attr(
                 {
                     "tirx.is_scheduled": True,
@@ -64,7 +66,7 @@ def test_apply_to_func_with_different_block_name():
                     vi = Ts.axis.spatial(2, i)
                     B[vi] = A[vi]
 
-    def create_trace(mod: tvm.IRModule):
+    def create_trace(mod: tvm_tirx.IRModule):
         sch = tvm.s_tir.Schedule(mod)
         _ = sch.get_sblock("block")
         return sch.trace
@@ -77,10 +79,10 @@ def test_apply_to_func_with_different_block_name():
         )
     )
 
-    with db, target:
-        mod = relax.transform.MetaScheduleApplyDatabase()(BlockRenamedModule)
-    tvm.ir.assert_structural_equal(mod, Expected)
+    with db:
+        mod = relax.transform.MetaScheduleApplyDatabase(target=target)(BlockRenamedModule)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

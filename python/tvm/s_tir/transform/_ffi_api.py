@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""FFI APIs for tvm.tirx.transform"""
+"""FFI APIs for tvm_tirx.tirx.transform"""
 
 import tvm_ffi
 

@@ -42,14 +42,15 @@ ffi::Optional<s_tir::SBlockRV> TileForIntrin(s_tir::Schedule sch, s_tir::SBlockR
   }
   TVM_FFI_ICHECK(tiled_loop_rv.has_value());
   s_tir::SBlockRV outer_block = sch->Blockize(tiled_loop_rv.value());
-  sch->Annotate(outer_block, s_tir::attr::meta_schedule_auto_tensorize, ffi::String(intrin_name));
+  sch->Annotate(outer_block, tvm::s_tir::attr::kMetaScheduleAutoTensorize.name,
+                ffi::String(intrin_name));
   return outer_block;
 }
 
 /*!
  * \brief Extension of MultiLevelTiling for auto-tensorizing with a single intrinsic.
  */
-class MultiLevelTilingWithIntrinNode : public MultiLevelTilingNode {
+class MultiLevelTilingWithIntrinObj : public MultiLevelTilingObj {
  protected:
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch,
                                     const s_tir::SBlockRV& block_rv) final {
@@ -59,7 +60,7 @@ class MultiLevelTilingWithIntrinNode : public MultiLevelTilingNode {
       return {sch};
     }
 
-    auto res = MultiLevelTilingNode::Apply(sch->Copy(), block_rv);
+    auto res = MultiLevelTilingObj::Apply(sch->Copy(), block_rv);
 
     if (res.empty()) {
       TVM_PY_LOG(INFO, logger) << "The workload cannot be tensorized.";
@@ -69,11 +70,11 @@ class MultiLevelTilingWithIntrinNode : public MultiLevelTilingNode {
     return res;
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<MultiLevelTilingWithIntrinNode> n =
-        ffi::make_object<MultiLevelTilingWithIntrinNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<MultiLevelTilingWithIntrinObj> n =
+        ffi::make_object<MultiLevelTilingWithIntrinObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
   // Override ApplySubRules to tile the inner loops according to the given tensor intrinsic, then
@@ -86,19 +87,19 @@ class MultiLevelTilingWithIntrinNode : public MultiLevelTilingNode {
       }
       return std::vector<State>();
     });
-    return MultiLevelTilingNode::ApplySubRules(states);
+    return MultiLevelTilingObj::ApplySubRules(states);
   }
 
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MultiLevelTilingWithIntrinNode>();
+    refl::ObjectDef<MultiLevelTilingWithIntrinObj>();
   }
 
   /*! \brief The name of a tensor intrinsic. */
   ffi::String intrin_name;
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MultiLevelTilingWithIntrin",
-                                    MultiLevelTilingWithIntrinNode, MultiLevelTilingNode);
+                                    MultiLevelTilingWithIntrinObj, MultiLevelTilingObj);
 };
 
 ScheduleRule ScheduleRule::MultiLevelTilingWithIntrin(
@@ -109,15 +110,15 @@ ScheduleRule ScheduleRule::MultiLevelTilingWithIntrin(
     ffi::Optional<ffi::Map<ffi::String, ffi::Any>> reuse_write) {
   TVM_FFI_ICHECK(TensorIntrin::Get(intrin_name).has_value())
       << "Provided tensor intrinsic " << intrin_name << " is not registered.";
-  auto node = MultiLevelTilingInitCommon<MultiLevelTilingWithIntrinNode>(
+  auto node = MultiLevelTilingInitCommon<MultiLevelTilingWithIntrinObj>(
       structure, tile_binds, max_innermost_factor, vector_load_lens, reuse_read, reuse_write);
   node->intrin_name = intrin_name;
-  return ScheduleRule(node);
+  return ScheduleRule(ffi::UnsafeInit{}, node);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  MultiLevelTilingWithIntrinNode::RegisterReflection();
+  MultiLevelTilingWithIntrinObj::RegisterReflection();
   refl::GlobalDef().def("s_tir.meta_schedule.ScheduleRuleMultiLevelTilingWithIntrin",
                         ScheduleRule::MultiLevelTilingWithIntrin);
 }

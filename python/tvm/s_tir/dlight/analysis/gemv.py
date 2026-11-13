@@ -18,7 +18,9 @@
 
 import tvm_ffi
 
-from tvm import s_tir, sym, tirx
+import tvm_tirx
+from tvm import s_tir
+from tvm_tirx import sym, tirx
 
 from .common_analysis import (
     SBlockInfo,
@@ -45,21 +47,23 @@ def get_reduction_expr(block: s_tir.SBlock) -> tirx.Expr | None:
         The reduction expression (`Y`) if detected, otherwise None.
     """
 
-    buffer_store = block.body
-    if not isinstance(buffer_store, tirx.BufferStore):
+    if len(block.body) != 1:
         return None
-    if not isinstance(buffer_store.value, tirx.Add):
+    tensor_store = block.body[0]
+    if not isinstance(tensor_store, tvm_tirx.ir.TensorStore):
+        return None
+    if not isinstance(tensor_store.value, tirx.Add):
         return None
     if not tvm_ffi.structural_equal(
-        buffer_store.value.a,
-        tirx.BufferLoad(buffer_store.buffer, block.body.indices),
+        tensor_store.value.a,
+        tvm_tirx.ir.TensorLoad(tensor_store.dest, tensor_store.indices),
         map_free_vars=True,
     ):
         return None
-    return buffer_store.value.b
+    return tensor_store.value.b
 
 
-def is_gemv(sch: s_tir.Schedule, block_info: SBlockInfo) -> list[tirx.Buffer] | None:
+def is_gemv(sch: s_tir.Schedule, block_info: SBlockInfo) -> list[tirx.Var] | None:
     """Check if the block is a GEMV.
 
     Parameters
@@ -74,8 +78,8 @@ def is_gemv(sch: s_tir.Schedule, block_info: SBlockInfo) -> list[tirx.Buffer] | 
 
     Returns
     -------
-    ret : Optional[List[tirx.Buffer]]
-        The vector buffers used in the GEMV if it is a GEMV, otherwise None.
+    ret : Optional[List[tirx.Var]]
+        The vector tensors used in the GEMV if it is a GEMV, otherwise None.
     """
     block = block_info.block_rv
     block_stmt = sch.get(block)
@@ -111,14 +115,14 @@ def normalize(
         detect_dominant_read(block_stmt),
         input_iters={i.var: i.dom for i in block_stmt.iter_vars},
     )
-    buffers_use_vars = [
-        collect_block_iter_vars_used_in_access_region(block_stmt, buf.region)
-        for buf in block_stmt.writes
+    tensors_use_vars = [
+        collect_block_iter_vars_used_in_access_region(block_stmt, tensor.region)
+        for tensor in block_stmt.writes
     ]
-    buffers_use_vars.extend(
+    tensors_use_vars.extend(
         [
-            collect_block_iter_vars_used_in_access_region(block_stmt, buf.region)
-            for buf in block_stmt.reads
+            collect_block_iter_vars_used_in_access_region(block_stmt, tensor.region)
+            for tensor in block_stmt.reads
         ]
     )
     if collect_vars_used_in_prim_expr(access.base) & set(
@@ -149,7 +153,7 @@ def normalize(
             c_loops.append(c_loop)
         if is_reduction:
             r_loops.append(loop)
-        elif all([var in buf_vars for buf_vars in buffers_use_vars]):
+        elif all([var in tensor_vars for tensor_vars in tensors_use_vars]):
             batch_loops.append(loop)
         else:
             s_loops.append(loop)

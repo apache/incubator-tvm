@@ -18,11 +18,12 @@
 # ruff: noqa: E501, F401
 
 import tvm
-from tvm import tirx
+import tvm_tirx
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _target() -> Target:
@@ -48,20 +49,20 @@ def _create_context(mod, target) -> ms.TuneContext:
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,no-self-argument,line-too-long,chained-comparison,not-callable,too-many-nested-blocks
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Matmul_before_rewrite:
-    @Ts.prim_func
-    def main(A: T.Buffer([512, 512], dtype='float32'), B: T.Buffer([512, 512], dtype='float32'), C: T.Buffer([512, 512], dtype='float32')) -> None:
+    @Ts.function
+    def main(A: T.Tensor([512, 512], dtype='float32'), B: T.Tensor([512, 512], dtype='float32'), C: T.Tensor([512, 512], dtype='float32')) -> None:
 
-        C_local = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="local")
-        A_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        B_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        for i0_0_i1_0_fused in T.thread_binding(0, 16, thread="blockIdx.x"):
-            for i0_1_i1_1_fused in T.thread_binding(0, 16, thread="vthread.x"):
-                for i0_2_i1_2_fused in T.thread_binding(0, 8, thread="threadIdx.x"):
+        C_local = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="local")
+        A_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        B_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        for i0_0_i1_0_fused in T.parallel(0, 16, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_1_i1_1_fused in T.parallel(0, 16, annotations={"thread_binding": "vthread.x"}):
+                for i0_2_i1_2_fused in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                     for i2_0 in T.serial(0, 1):
                         for ax0_ax1_fused_0 in T.serial(0, 32768):
-                            for ax0_ax1_fused_1 in T.thread_binding(0, 8, thread="threadIdx.x"):
+                            for ax0_ax1_fused_1 in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                                 with Ts.sblock("A_shared"):
                                     v0 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 8 + ax0_ax1_fused_1) // 512)
                                     v1 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 8 + ax0_ax1_fused_1) % 512)
@@ -70,7 +71,7 @@ class Matmul_before_rewrite:
                                     Ts.sblock_attr({"meta_schedule.cooperative_fetch":1})
                                     A_shared[v0, v1] = A[v0, v1]
                         for ax0_ax1_fused_0 in T.serial(0, 1024):
-                            for ax0_ax1_fused_1 in T.thread_binding(0, 8, thread="threadIdx.x"):
+                            for ax0_ax1_fused_1 in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                                 for ax0_ax1_fused_2 in T.vectorized(0, 2):
                                     with Ts.sblock("B_shared"):
                                         v0 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 16 + ax0_ax1_fused_1 * 2 + ax0_ax1_fused_2) // 32)
@@ -97,20 +98,20 @@ class Matmul_before_rewrite:
                             Ts.writes([C[v0, v1]])
                             C[v0, v1] = C_local[v0, v1]
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Matmul_after_rewrite:
-    @Ts.prim_func
-    def main(A: T.Buffer([512, 512], dtype='float32'), B: T.Buffer([512, 512], dtype='float32'), C: T.Buffer([512, 512], dtype='float32')) -> None:
+    @Ts.function
+    def main(A: T.Tensor([512, 512], dtype='float32'), B: T.Tensor([512, 512], dtype='float32'), C: T.Tensor([512, 512], dtype='float32')) -> None:
 
-        C_local = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="local")
-        A_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        B_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        for i0_0_i1_0_fused in T.thread_binding(0, 16, thread="blockIdx.x"):
-            for i0_1_i1_1_fused in T.thread_binding(0, 16, thread="vthread.x"):
-                for i0_2_i1_2_fused in T.thread_binding(0, 8, thread="threadIdx.x"):
+        C_local = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="local")
+        A_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        B_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        for i0_0_i1_0_fused in T.parallel(0, 16, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_1_i1_1_fused in T.parallel(0, 16, annotations={"thread_binding": "vthread.x"}):
+                for i0_2_i1_2_fused in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                     for i2_0 in T.serial(0, 1):
                         for ax0_ax1_fused_0 in T.serial(0, 32768):
-                            for ax0_ax1_fused_1 in T.thread_binding(0, 8, thread="threadIdx.x"):
+                            for ax0_ax1_fused_1 in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                                 with Ts.sblock("A_shared"):
                                     v0 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 8 + ax0_ax1_fused_1) // 512)
                                     v1 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 8 + ax0_ax1_fused_1) % 512)
@@ -119,7 +120,7 @@ class Matmul_after_rewrite:
                                     Ts.sblock_attr({"meta_schedule.cooperative_fetch":1})
                                     A_shared[v0, v1] = A[v0, v1]
                         for ax0_ax1_fused_0 in T.serial(0, 1024):
-                            for ax0_ax1_fused_1 in T.thread_binding(0, 8, thread="threadIdx.x"):
+                            for ax0_ax1_fused_1 in T.parallel(0, 8, annotations={"thread_binding": "threadIdx.x"}):
                                 for ax0_ax1_fused_2 in T.vectorized(0, 2):
                                     with Ts.sblock("B_shared"):
                                         v0 = Ts.axis.spatial(512, (ax0_ax1_fused_0 * 16 + ax0_ax1_fused_1 * 2 + ax0_ax1_fused_2) // 32)
@@ -151,15 +152,15 @@ class Matmul_after_rewrite:
                             Ts.writes([C[v0, v1]])
                             C[v0, v1] = C_local[v0, v1]
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Softmax_cross_thread_reduction:
-    @Ts.prim_func
-    def main(A: T.Buffer((256, 256), "float32"), T_softmax_norm: T.Buffer((256, 256), "float32")) -> None:
-        T_softmax_maxelem_shared = Ts.sblock_alloc_buffer([256], dtype="float32", scope="shared")
-        T_softmax_expsum_shared = Ts.sblock_alloc_buffer([256], dtype="float32", scope="shared")
+    @Ts.function
+    def main(A: T.Tensor((256, 256), "float32"), T_softmax_norm: T.Tensor((256, 256), "float32")) -> None:
+        T_softmax_maxelem_shared = Ts.sblock_alloc_tensor([256], dtype="float32", scope="shared")
+        T_softmax_expsum_shared = Ts.sblock_alloc_tensor([256], dtype="float32", scope="shared")
         for i0 in T.serial(256):
             for ax0, ax1_0 in T.grid(1, 8):
-                for ax1_1 in T.thread_binding(32, thread="threadIdx.x"):
+                for ax1_1 in T.parallel(32, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_softmax_maxelem"):
                         i0_1 = Ts.axis.spatial(256, i0)
                         k = Ts.axis.reduce(256, ax1_0 * 32 + ax1_1)
@@ -169,7 +170,7 @@ class Softmax_cross_thread_reduction:
                             T_softmax_maxelem_shared[i0_1] = T.float32(-3.4028234663852886e+38)
                         T_softmax_maxelem_shared[i0_1] = T.max(T_softmax_maxelem_shared[i0_1], A[i0_1, k])
             for ax0, ax1_0 in T.grid(1, 8):
-                for ax1_1 in T.thread_binding(32, thread="threadIdx.x"):
+                for ax1_1 in T.parallel(32, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_softmax_expsum"):
                         i0_2 = Ts.axis.spatial(256, i0)
                         k = Ts.axis.reduce(256, ax1_0 * 32 + ax1_1)
@@ -177,16 +178,16 @@ class Softmax_cross_thread_reduction:
                         Ts.writes(T_softmax_expsum_shared[i0_2])
                         with Ts.init():
                             T_softmax_expsum_shared[i0_2] = T.float32(0)
-                        T_softmax_expsum_shared[i0_2] = T_softmax_expsum_shared[i0_2] + T.exp(A[i0_2, k] - T_softmax_maxelem_shared[i0_2], dtype="float32")
+                        T_softmax_expsum_shared[i0_2] = T_softmax_expsum_shared[i0_2] + T.exp(A[i0_2, k] - T_softmax_maxelem_shared[i0_2])
             for i1_0 in T.serial(8):
-                for i1_1 in T.thread_binding(32, thread="threadIdx.x"):
+                for i1_1 in T.parallel(32, annotations={"thread_binding": "threadIdx.x"}):
                     with Ts.sblock("T_softmax_norm"):
                         i0_3 = Ts.axis.spatial(256, i0)
                         i1 = Ts.axis.spatial(256, i1_0 * 32 + i1_1)
                         Ts.reads(A[i0_3, i1], T_softmax_maxelem_shared[i0_3], T_softmax_expsum_shared[i0_3])
                         Ts.writes(T_softmax_norm[i0_3, i1])
                         Ts.sblock_attr({"axis":1})
-                        T_softmax_norm[i0_3, i1] = T.exp(A[i0_3, i1] - T_softmax_maxelem_shared[i0_3], dtype="float32") / T_softmax_expsum_shared[i0_3]
+                        T_softmax_norm[i0_3, i1] = T.exp(A[i0_3, i1] - T_softmax_maxelem_shared[i0_3]) / T_softmax_expsum_shared[i0_3]
 
 # pylint: enable=no-member,invalid-name,unused-variable,no-self-argument,line-too-long,chained-comparison,not-callable,too-many-nested-blocks
 # fmt: on
@@ -199,7 +200,7 @@ def test_rewrite_tiled_matmul():
     sch = tvm.s_tir.Schedule(mod, debug_mask="all")
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
-    tvm.ir.assert_structural_equal(sch.mod, Matmul_after_rewrite)
+    tvm_tirx.ir.assert_structural_equal(sch.mod, Matmul_after_rewrite)
 
 
 def test_rewrite_softmax():
@@ -210,7 +211,7 @@ def test_rewrite_softmax():
     sch.enter_postproc()
     assert ctx.space_generator.postprocs[0].apply(sch)
     # The module should not be rewritten
-    tvm.ir.assert_structural_equal(sch.mod, Softmax_cross_thread_reduction)
+    tvm_tirx.ir.assert_structural_equal(sch.mod, Softmax_cross_thread_reduction)
 
 
 if __name__ == "__main__":

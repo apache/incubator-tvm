@@ -53,6 +53,18 @@ inline bool is_injective(std::string tag) {
          tag.rfind(kInjective, 0) == 0;
 }
 
+namespace attr {
+constexpr const char* kSrcLayout = "src_layout";
+constexpr const char* kDstLayout = "dst_layout";
+constexpr const char* kInputShape = "input_shape";
+constexpr const char* kLayoutFreePlaceholders = "layout_free_placeholders";
+constexpr const char* kConstMatrix = "const_matrix";
+constexpr const char* kAutoSchedulerSimplifyConstTensorIndices =
+    "auto_scheduler_simplify_const_tensor_indices";
+constexpr const char* kWorkload = "workload";
+constexpr const char* kAxis = "axis";
+}  // namespace attr
+
 }  // namespace topi
 }  // namespace tvm
 

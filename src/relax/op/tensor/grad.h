@@ -24,8 +24,8 @@
 #ifndef TVM_RELAX_OP_TENSOR_GRAD_H_
 #define TVM_RELAX_OP_TENSOR_GRAD_H_
 
-#include <tvm/relax/attrs/index.h>
-#include <tvm/relax/attrs/nn.h>
+#include <tvm/relax/op/index.h>
+#include <tvm/relax/op/nn.h>
 
 #include "../op_common.h"
 

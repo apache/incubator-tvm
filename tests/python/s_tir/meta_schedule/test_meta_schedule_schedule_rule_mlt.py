@@ -16,32 +16,33 @@
 # under the License.
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 # ruff: noqa: E741, F401
-import tvm.testing
+import tvm
+import tvm_tirx.testing
 from tvm import te
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing import te_workload
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
     print_sketches,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def test_cpu_matmul():
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        C: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        C: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C_global = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+        C_global = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
         for i0_0, i1_0, i0_1, i1_1 in T.grid(1, 8, 8, 1):
             for i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(16, 2, 8, 32, 32, 8):
                 with Ts.sblock("C"):
@@ -62,17 +63,17 @@ def test_cpu_matmul():
                     Ts.writes(C[v0, v1])
                     C[v0, v1] = C_global[v0, v1]
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_1(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        C: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        C: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C_global = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+        C_global = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
         for i0_0, i1_0 in T.grid(1, 8):
             for i0_1, i1_1, i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(8, 1, 16, 2, 8, 32, 32, 8):
                 with Ts.sblock("C"):
@@ -93,11 +94,11 @@ def test_cpu_matmul():
                     Ts.writes(C[v0, v1])
                     C[v0, v1] = C_global[v0, v1]
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_2(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        C: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        C: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
@@ -133,7 +134,7 @@ def test_cpu_matmul():
         ("SamplePerfectTile", [16, 32]),
     ]
 
-    mod = te.create_prim_func(te_workload.matmul(512, 512, 512))
+    mod = te.create_function(te_workload.matmul(512, 512, 512))
     actual = generate_design_space(
         kind="llvm",
         mod=mod,
@@ -149,17 +150,17 @@ def test_cpu_matmul():
 
 
 def test_cpu_matmul_relu():
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_relu_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        compute: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        compute: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+        C = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
         for i0_0, i1_0, i0_1, i1_1, i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(
             256, 4, 1, 4, 64, 1, 32, 8, 2, 1
         ):
@@ -180,17 +181,17 @@ def test_cpu_matmul_relu():
                 Ts.writes(compute[i0_4, i1_4])
                 compute[i0_4, i1_4] = T.max(C[i0_4, i1_4], T.float32(0))
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_relu_1(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        compute: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        compute: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+        C = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
         for i0_0, i1_0, i0_1, i1_1 in T.grid(256, 4, 1, 4):
             for i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(64, 1, 32, 8, 2, 1):
                 with Ts.sblock("C"):
@@ -211,17 +212,17 @@ def test_cpu_matmul_relu():
                     Ts.writes(compute[i0, i1])
                     compute[i0, i1] = T.max(C[i0, i1], T.float32(0))
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_relu_2(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        compute: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        compute: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
+        C = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
         for i0_0, i1_0 in T.grid(256, 4):
             for i0_1, i1_1, i2_0, i0_2, i1_2, i2_1, i0_3, i1_3 in T.grid(1, 4, 64, 1, 32, 8, 2, 1):
                 with Ts.sblock("C"):
@@ -257,7 +258,7 @@ def test_cpu_matmul_relu():
         ("SamplePerfectTile", [4, 4, 32, 1]),
         ("SamplePerfectTile", [64, 8]),
     ]
-    mod = te.create_prim_func(te_workload.matmul_relu(512, 512, 512))
+    mod = te.create_function(te_workload.matmul_relu(512, 512, 512))
     actual = generate_design_space(
         kind="llvm",
         mod=mod,
@@ -273,22 +274,22 @@ def test_cpu_matmul_relu():
 
 
 def test_cuda_matmul():
-    @Ts.prim_func
+    @Ts.function
     def cuda_matmul_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        C: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        C: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C_local = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="local")
-        A_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        B_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        for i0_0_i1_0_fused in T.thread_binding(128, thread="blockIdx.x"):
-            for i0_1_i1_1_fused in T.thread_binding(8, thread="vthread.x"):
-                for i0_2_i1_2_fused in T.thread_binding(4, thread="threadIdx.x"):
+        C_local = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="local")
+        A_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        B_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        for i0_0_i1_0_fused in T.parallel(128, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_1_i1_1_fused in T.parallel(8, annotations={"thread_binding": "vthread.x"}):
+                for i0_2_i1_2_fused in T.parallel(4, annotations={"thread_binding": "threadIdx.x"}):
                     for i2_0 in T.serial(128):
                         for ax0_ax1_fused in T.serial(256):
                             with Ts.sblock("A_shared"):
@@ -363,7 +364,7 @@ def test_cuda_matmul():
         ("SampleCategorical", 1),
         ("SampleCategorical", 0),
     ]
-    mod = te.create_prim_func(te_workload.matmul(512, 512, 512))
+    mod = te.create_function(te_workload.matmul(512, 512, 512))
     actual = generate_design_space(
         kind="cuda",
         mod=mod,
@@ -379,23 +380,23 @@ def test_cuda_matmul():
 
 
 def test_cuda_matmul_relu():
-    @Ts.prim_func
+    @Ts.function
     def cuda_matmul_relu_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        compute: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        compute: T.Tensor((512, 512), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # body
         # with Ts.sblock("root")
-        C = Ts.sblock_alloc_buffer([512, 512], dtype="float32")
-        C_local = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="local")
-        A_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        B_shared = Ts.sblock_alloc_buffer([512, 512], dtype="float32", scope="shared")
-        for i0_0_i1_0_fused in T.thread_binding(64, thread="blockIdx.x"):
-            for i0_1_i1_1_fused in T.thread_binding(64, thread="vthread.x"):
-                for i0_2_i1_2_fused in T.thread_binding(8, thread="threadIdx.x"):
+        C = Ts.sblock_alloc_tensor([512, 512], dtype="float32")
+        C_local = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="local")
+        A_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        B_shared = Ts.sblock_alloc_tensor([512, 512], dtype="float32", scope="shared")
+        for i0_0_i1_0_fused in T.parallel(64, annotations={"thread_binding": "blockIdx.x"}):
+            for i0_1_i1_1_fused in T.parallel(64, annotations={"thread_binding": "vthread.x"}):
+                for i0_2_i1_2_fused in T.parallel(8, annotations={"thread_binding": "threadIdx.x"}):
                     for i2_0 in T.serial(8):
                         for ax0_ax1_fused in T.serial(4096):
                             with Ts.sblock("A_shared"):
@@ -481,7 +482,7 @@ def test_cuda_matmul_relu():
         ("SampleCategorical", 1),
         ("SampleCategorical", 3),
     ]
-    mod = te.create_prim_func(te_workload.matmul_relu(512, 512, 512))
+    mod = te.create_function(te_workload.matmul_relu(512, 512, 512))
     actual = generate_design_space(
         kind="cuda",
         mod=mod,
@@ -497,10 +498,10 @@ def test_cuda_matmul_relu():
 
 
 def test_cuda_sum_with_trivial_block_iter():
-    @Ts.prim_func
+    @Ts.function
     def sum_with_trivial_block_iter(
-        A: T.Buffer((1, 64, 768), "float32"),
-        B: T.Buffer((1, 64, 1), "float32"),
+        A: T.Tensor((1, 64, 768), "float32"),
+        B: T.Tensor((1, 64, 1), "float32"),
     ) -> None:
         for i0, i1, i2, i3 in T.grid(1, 64, 1, 768):
             with Ts.sblock("sum"):
@@ -523,14 +524,14 @@ def test_cuda_sum_with_trivial_block_iter():
 
 
 def test_multi_level_tiling_hexagon():
-    @Ts.prim_func
+    @Ts.function
     def cpu_conv2d_nhwc(
-        inputs: T.Buffer((1, 56, 56, 64), "float16"),
-        weight: T.Buffer((3, 3, 64, 64), "float16"),
-        conv2d_nhwc: T.Buffer((1, 56, 56, 64), "float16"),
+        inputs: T.Tensor((1, 56, 56, 64), "float16"),
+        weight: T.Tensor((3, 3, 64, 64), "float16"),
+        conv2d_nhwc: T.Tensor((1, 56, 56, 64), "float16"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-        PadInput = Ts.sblock_alloc_buffer((1, 58, 58, 64), "float16")
+        PadInput = Ts.sblock_alloc_tensor((1, 58, 58, 64), "float16")
         for i0, i1, i2, i3 in T.grid(1, 58, 58, 64):
             with Ts.sblock("PadInput"):
                 v_i0, v_i1, v_i2, v_i3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -590,7 +591,7 @@ def test_multi_level_tiling_hexagon():
     H = 56
     W = 56
 
-    mod = te.create_prim_func(
+    mod = te.create_function(
         te_workload.conv2d_nhwc(1, H, W, I, O, 3, 1, 1, 1, in_dtype="float16", out_dtype="float16")
     )
 
@@ -628,20 +629,20 @@ def test_multi_level_tiling_hexagon():
 
 
 def test_cache_read_specify_consumer():
-    @Ts.prim_func
+    @Ts.function
     def cache_read_specify_consumer_0(
-        A: T.Buffer((512, 512), "float32"),
-        B: T.Buffer((512, 512), "float32"),
-        T_add: T.Buffer((512, 512), "float32"),
+        A: T.Tensor((512, 512), "float32"),
+        B: T.Tensor((512, 512), "float32"),
+        T_add: T.Tensor((512, 512), "float32"),
     ):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-        C = Ts.sblock_alloc_buffer((512, 512))
-        C_local = Ts.sblock_alloc_buffer((512, 512), scope="local")
-        A_shared = Ts.sblock_alloc_buffer((512, 512), scope="shared")
-        B_shared = Ts.sblock_alloc_buffer((512, 512), scope="shared")
-        for i_0_j_0_fused in T.thread_binding(2, thread="blockIdx.x"):
-            for i_1_j_1_fused in T.thread_binding(512, thread="vthread.x"):
-                for i_2_j_2_fused in T.thread_binding(16, thread="threadIdx.x"):
+        C = Ts.sblock_alloc_tensor((512, 512))
+        C_local = Ts.sblock_alloc_tensor((512, 512), scope="local")
+        A_shared = Ts.sblock_alloc_tensor((512, 512), scope="shared")
+        B_shared = Ts.sblock_alloc_tensor((512, 512), scope="shared")
+        for i_0_j_0_fused in T.parallel(2, annotations={"thread_binding": "blockIdx.x"}):
+            for i_1_j_1_fused in T.parallel(512, annotations={"thread_binding": "vthread.x"}):
+                for i_2_j_2_fused in T.parallel(16, annotations={"thread_binding": "threadIdx.x"}):
                     for k_0 in range(2):
                         for ax0_ax1_fused in range(131072):
                             with Ts.sblock("A_shared"):
@@ -720,7 +721,7 @@ def test_cache_read_specify_consumer():
         ("SampleCategorical", 2),
     ]
     A, B, C = te_workload.matmul(512, 512, 512)
-    mod = te.create_prim_func([A, B, C + A])
+    mod = te.create_function([A, B, C + A])
 
     space = generate_design_space(
         kind="cuda",
@@ -738,14 +739,14 @@ def test_cache_read_specify_consumer():
 
 def test_max_pool_blocked():
     # fmt off
-    @Ts.prim_func
+    @Ts.function
     def pool_blocked_cache_read_write(
-        X: T.Buffer((1, 2, 8, 8, 8, 8, 32), "uint8"),
-        pool: T.Buffer((1, 2, 4, 4, 8, 8, 32), "uint8"),
+        X: T.Tensor((1, 2, 8, 8, 8, 8, 32), "uint8"),
+        pool: T.Tensor((1, 2, 4, 4, 8, 8, 32), "uint8"),
     ):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-        pool_global = Ts.sblock_alloc_buffer((1, 2, 4, 4, 8, 8, 32), "uint8")
-        X_global = Ts.sblock_alloc_buffer((1, 2, 8, 8, 8, 8, 32), "uint8")
+        pool_global = Ts.sblock_alloc_tensor((1, 2, 4, 4, 8, 8, 32), "uint8")
+        X_global = Ts.sblock_alloc_tensor((1, 2, 8, 8, 8, 8, 32), "uint8")
         for b_0, c_o_0, h_o_0, w_o_0, h_i_0, w_i_0, c_i_0 in T.grid(1, 2, 4, 1, 8, 1, 4):
             for ax0_ax1_ax2_ax3_ax4_ax5_ax6_fused in range(896):
                 with Ts.sblock("X_global"):
@@ -844,7 +845,7 @@ def test_max_pool_blocked():
     height = width = 64
     channel = 64
 
-    mod = te.create_prim_func(max_pool_blocked_compute(height, width, channel))
+    mod = te.create_function(max_pool_blocked_compute(height, width, channel))
 
     actual = generate_design_space(
         kind="llvm",
@@ -887,4 +888,4 @@ def test_max_pool_blocked():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

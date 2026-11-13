@@ -83,30 +83,29 @@ class DFPatternFunctor<R(const DFPattern& n, Args...)> {
     return vtable(n, this, std::forward<Args>(args)...);
   }
   // Functions that can be overriden by subclass
-  virtual R VisitDFPattern_(const OrPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const AndPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const NotPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const AttrPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const CallPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const ConstantPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const DataTypePatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const ExprPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const FunctionPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const ShapePatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const TupleGetItemPatternNode* op,
+  virtual R VisitDFPattern_(const OrPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const AndPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const NotPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const AttrPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const CallPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const ConstantPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const DataTypePatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const ExprPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const FunctionPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const ShapePatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const TupleGetItemPatternObj* op,
                             Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const TuplePatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const TypePatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const WildcardPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const VarPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const TuplePatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const TypePatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const WildcardPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const VarPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
 
-  virtual R VisitDFPattern_(const DataflowVarPatternNode* op,
+  virtual R VisitDFPattern_(const DataflowVarPatternObj* op,
                             Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const GlobalVarPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const ExternFuncPatternNode* op,
-                            Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const PrimArrPatternNode* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
-  virtual R VisitDFPattern_(const UnorderedTuplePatternNode* op,
+  virtual R VisitDFPattern_(const GlobalVarPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const ExternFuncPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const PrimArrPatternObj* op, Args... args) DFPATTERN_FUNCTOR_DEFAULT;
+  virtual R VisitDFPattern_(const UnorderedTuplePatternObj* op,
                             Args... args) DFPATTERN_FUNCTOR_DEFAULT;
 
   virtual R VisitDFPatternDefault_(const ffi::Object* op, Args...) {
@@ -119,26 +118,26 @@ class DFPatternFunctor<R(const DFPattern& n, Args...)> {
   static FType InitVTable() {
     FType vtable;
     // Set dispatch
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(OrPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(AndPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(NotPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(AttrPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(CallPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ConstantPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(DataTypePatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ExprPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(FunctionPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ShapePatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TupleGetItemPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TuplePatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TypePatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(WildcardPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(VarPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(DataflowVarPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(GlobalVarPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ExternFuncPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(PrimArrPatternNode);
-    RELAX_DFPATTERN_FUNCTOR_DISPATCH(UnorderedTuplePatternNode);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(OrPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(AndPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(NotPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(AttrPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(CallPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ConstantPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(DataTypePatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ExprPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(FunctionPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ShapePatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TupleGetItemPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TuplePatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(TypePatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(WildcardPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(VarPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(DataflowVarPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(GlobalVarPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(ExternFuncPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(PrimArrPatternObj);
+    RELAX_DFPATTERN_FUNCTOR_DISPATCH(UnorderedTuplePatternObj);
     vtable.Finalize();
     return vtable;
   }
@@ -153,27 +152,27 @@ class DFPatternFunctor<R(const DFPattern& n, Args...)> {
 class DFPatternVisitor : public DFPatternFunctor<void(const DFPattern&)> {
  public:
   void VisitDFPattern(const DFPattern& pattern) override;
-  void VisitDFPattern_(const OrPatternNode* op) override;
-  void VisitDFPattern_(const AndPatternNode* op) override;
-  void VisitDFPattern_(const NotPatternNode* op) override;
-  void VisitDFPattern_(const AttrPatternNode* op) override;
-  void VisitDFPattern_(const CallPatternNode* op) override;
-  void VisitDFPattern_(const ConstantPatternNode* op) override;
-  void VisitDFPattern_(const DataTypePatternNode* op) override;
-  void VisitDFPattern_(const ExprPatternNode* op) override;
-  void VisitDFPattern_(const FunctionPatternNode* op) override;
-  void VisitDFPattern_(const ShapePatternNode* op) override;
-  void VisitDFPattern_(const TupleGetItemPatternNode* op) override;
-  void VisitDFPattern_(const TuplePatternNode* op) override;
-  void VisitDFPattern_(const TypePatternNode* op) override;
-  void VisitDFPattern_(const WildcardPatternNode* op) override;
-  void VisitDFPattern_(const VarPatternNode* op) override;
+  void VisitDFPattern_(const OrPatternObj* op) override;
+  void VisitDFPattern_(const AndPatternObj* op) override;
+  void VisitDFPattern_(const NotPatternObj* op) override;
+  void VisitDFPattern_(const AttrPatternObj* op) override;
+  void VisitDFPattern_(const CallPatternObj* op) override;
+  void VisitDFPattern_(const ConstantPatternObj* op) override;
+  void VisitDFPattern_(const DataTypePatternObj* op) override;
+  void VisitDFPattern_(const ExprPatternObj* op) override;
+  void VisitDFPattern_(const FunctionPatternObj* op) override;
+  void VisitDFPattern_(const ShapePatternObj* op) override;
+  void VisitDFPattern_(const TupleGetItemPatternObj* op) override;
+  void VisitDFPattern_(const TuplePatternObj* op) override;
+  void VisitDFPattern_(const TypePatternObj* op) override;
+  void VisitDFPattern_(const WildcardPatternObj* op) override;
+  void VisitDFPattern_(const VarPatternObj* op) override;
 
-  void VisitDFPattern_(const DataflowVarPatternNode* op) override;
-  void VisitDFPattern_(const GlobalVarPatternNode* op) override;
-  void VisitDFPattern_(const ExternFuncPatternNode* op) override;
-  void VisitDFPattern_(const PrimArrPatternNode* op) override;
-  void VisitDFPattern_(const UnorderedTuplePatternNode* op) override;
+  void VisitDFPattern_(const DataflowVarPatternObj* op) override;
+  void VisitDFPattern_(const GlobalVarPatternObj* op) override;
+  void VisitDFPattern_(const ExternFuncPatternObj* op) override;
+  void VisitDFPattern_(const PrimArrPatternObj* op) override;
+  void VisitDFPattern_(const UnorderedTuplePatternObj* op) override;
 
  protected:
   // set of already-visited nodes

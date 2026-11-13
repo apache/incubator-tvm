@@ -27,9 +27,6 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/device_api.h>
 
-#include <array>
-#include <mutex>
-
 namespace tvm {
 namespace runtime {
 
@@ -79,53 +76,11 @@ void RPCSession::AsyncStreamWait(Device dev, TVMStreamHandle stream,
   AnyView packed_args[1] = {nullptr};
 
   try {
-    this->GetDeviceAPI(dev)->StreamSync(dev, stream);
+    this->StreamSync(dev, stream);
     callback(RPCCode::kReturn, ffi::PackedArgs(packed_args, 1));
   } catch (const std::exception& e) {
     this->SendException(callback, e.what());
   }
-}
-
-class RPCSessTable {
- public:
-  static constexpr int kMaxRPCSession = 32;
-  // Get global singleton
-  static RPCSessTable* Global() {
-    static RPCSessTable inst;
-    return &inst;
-  }
-  // Get session from table
-  std::shared_ptr<RPCSession> Get(int index) {
-    TVM_FFI_ICHECK(index >= 0 && index < kMaxRPCSession);
-    return tbl_[index].lock();
-  }
-  // Insert session into table.
-  int Insert(std::shared_ptr<RPCSession> ptr) {
-    std::lock_guard<std::mutex> lock(mutex_);
-    for (int i = 0; i < kMaxRPCSession; ++i) {
-      if (tbl_[i].lock() == nullptr) {
-        tbl_[i] = ptr;
-        return i;
-      }
-    }
-    TVM_FFI_THROW(InternalError) << "maximum number of RPC session reached";
-  }
-
- private:
-  // The mutex
-  std::mutex mutex_;
-  // Use weak_ptr intentionally
-  // If the RPCSession get released, the pointer session will be released
-  std::array<std::weak_ptr<RPCSession>, kMaxRPCSession> tbl_;
-};
-
-std::shared_ptr<RPCSession> RPCSession::Get(int table_index) {
-  return RPCSessTable::Global()->Get(table_index);
-}
-
-void RPCSession::InsertToSessionTable(std::shared_ptr<RPCSession> sess) {
-  TVM_FFI_ICHECK_EQ(sess->table_index_, 0);
-  sess->table_index_ = RPCSessTable::Global()->Insert(sess);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() { tvm::ffi::reflection::ObjectDef<RPCObjectRefObj>(); }

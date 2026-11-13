@@ -26,11 +26,10 @@
 #include <tvm/ffi/container/tensor.h>
 #include <tvm/ffi/extra/json.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/support/bytes_io.h>
 #include <tvm/support/io.h>
 
 #include <unordered_map>
-
-#include "../../../../support/bytes_io.h"
 
 #ifdef TVM_GRAPH_EXECUTOR_CLML
 #include "clml_memory_planner.h"
@@ -208,7 +207,7 @@ class CLMLRuntime : public JSONRuntimeBase {
    *
    * \param consts The constant params from compiled model.
    */
-  void Init(const ffi::Array<Tensor>& consts) override {
+  void Init(const ffi::Array<ffi::Tensor>& consts) override {
     TVM_FFI_ICHECK_EQ(consts.size(), const_idx_.size())
         << "The number of input constants must match the number of required.";
     SetupConstants(consts);
@@ -240,7 +239,7 @@ class CLMLRuntime : public JSONRuntimeBase {
     if (!cws->is_tuning_run && cws->tuning_file) {
       std::vector<unsigned char> tune_buffer;
       std::string tune_blob;
-      LoadBinaryFromFile(cws->tuning_file, &tune_blob);
+      tune_blob = support::ReadBytesFromFile(cws->tuning_file);
       support::BytesInStream strm(tune_blob);
 
       uint64_t header, reserve;
@@ -278,7 +277,7 @@ class CLMLRuntime : public JSONRuntimeBase {
     }
     namespace json = ::tvm::ffi::json;
     cl_command_queue queue = CLML_QUEUE;
-    ffi::Map<ffi::String, Tensor> dump_tensors;
+    ffi::Map<ffi::String, ffi::Tensor> dump_tensors;
     json::Object obj;
 
     obj.Set(ffi::String("graph"), ffi::String(graph_json_));
@@ -299,8 +298,8 @@ class CLMLRuntime : public JSONRuntimeBase {
       // Dump tensor to CPU
       auto shape = node.GetOpShape()[0];
       DLDataType tvm_dtype = node.GetOpDataType()[0];
-      Tensor narr = Tensor::Empty(ffi::Shape(shape), tvm_dtype, {kDLCPU, 0});
-      CopyDataFromCLMLTensor(clml_desc, narr.operator->()->data);
+      ffi::Tensor narr = tvm::runtime::Empty(ffi::Shape(shape), tvm_dtype, {kDLCPU, 0});
+      CopyDataFromCLMLTensor(clml_desc, narr.GetDLTensorPtr()->data);
 
       // Naming convention
       std::string node_name;
@@ -319,9 +318,9 @@ class CLMLRuntime : public JSONRuntimeBase {
       dump_tensors.Set(node_name, narr);
     }
 
-    const auto f = tvm::ffi::Function::GetGlobal("runtime.SaveParams");
+    const auto f = tvm::ffi::Function::GetGlobal("vm.SaveParams");
     if (f.has_value()) {
-      std::string dump_bytes = (*f)(dump_tensors).cast<ffi::String>();
+      std::string dump_bytes = (*f)(dump_tensors).cast<ffi::Bytes>();
       std::ostringstream oss;
       /*TODO(Siva) HEX encoding doubles the size, look for better encode that can cross the RPC. */
       for (size_t i = 0; i < dump_bytes.size(); ++i) {
@@ -419,8 +418,8 @@ class CLMLRuntime : public JSONRuntimeBase {
           cl_channel_type cl_dtype = MakeCLDataType(tvm_dtype);
           int dtype_size = cl_dtype == CL_FLOAT ? 4 : 2;
           void* tmpptr = reinterpret_cast<void*>(malloc(isize * dtype_size));
-          Tensor::CopyToBytes(const_cast<DLTensor*>(data_entry_[eid]), const_cast<void*>(tmpptr),
-                              isize * dtype_size);
+          tvm::runtime::CopyToBytes(const_cast<DLTensor*>(data_entry_[eid]),
+                                    const_cast<void*>(tmpptr), isize * dtype_size);
           CopyDataToCLMLTensor(layer_.inputs[nid], tmpptr);
           free(tmpptr);
         }
@@ -454,9 +453,8 @@ class CLMLRuntime : public JSONRuntimeBase {
     if (cws->is_recordable_queue) {
       LOG_CLML << "Execution by Rec Queue";
       if (cws->workspace->IsProfiling(cws->tentry->device)) {
-        Timer t;
         auto f = tvm::ffi::Function::GetGlobal(std::string("runtime.timer.opencl"));
-        t = f->operator()(cws->tentry->device).cast<Timer>();
+        Timer t = f->operator()(cws->tentry->device).cast<Timer>();
         t->Start();
         queue = CLML_QUEUE;
         evts.resize(evts.size() + 1);
@@ -472,7 +470,7 @@ class CLMLRuntime : public JSONRuntimeBase {
     } else {
       LOG_CLML << "Execution by Normal Queue";
       for (size_t i = 0; i < this->layer_.function.size(); ++i) {
-        // Make CLML subgraphs accounted by OpenCLTimerNode.
+        // Make CLML subgraphs accounted by OpenCLTimerObj.
         LOG_CLML << "Run Layer:" << this->layer_.function[i].layer_name;
 #if (CL_QCOM_ML_OPS_H_MAJOR_VERSION >= 5)
         if (this->layer_.function[i].op_props.size() && this->layer_.function[i].op_props[1]) {
@@ -482,9 +480,8 @@ class CLMLRuntime : public JSONRuntimeBase {
         }
 #endif
         if (cws->workspace->IsProfiling(cws->tentry->device)) {
-          Timer t;
           auto f = tvm::ffi::Function::GetGlobal(std::string("runtime.timer.opencl"));
-          t = f->operator()(cws->tentry->device).cast<Timer>();
+          Timer t = f->operator()(cws->tentry->device).cast<Timer>();
           t->Start();
           queue = CLML_QUEUE;
           evts.resize(evts.size() + 1);
@@ -537,8 +534,8 @@ class CLMLRuntime : public JSONRuntimeBase {
 
         void* tmpptr = reinterpret_cast<void*>(malloc(osize * dtype_size));
         CopyDataFromCLMLTensor(layer_.outputs[0], tmpptr);
-        Tensor::CopyFromBytes(const_cast<DLTensor*>(data_entry_[eid]), const_cast<void*>(tmpptr),
-                              osize * dtype_size);
+        tvm::runtime::CopyFromBytes(const_cast<DLTensor*>(data_entry_[eid]),
+                                    const_cast<void*>(tmpptr), osize * dtype_size);
         free(tmpptr);
       }
     }
@@ -1950,12 +1947,12 @@ class CLMLRuntime : public JSONRuntimeBase {
 #else
   void Run() override {
     TVM_FFI_THROW(InternalError) << "Cannot call run on CLML module without runtime enabled. "
-                                 << "Please build with USE_CLML_GRAPH_EXECUTOR.";
+                                 << "Please build with TVM_USE_CLML_GRAPH_EXECUTOR.";
   }
 
   void BuildEngine() {
     LOG(WARNING) << "CLML engine is not initialized. "
-                 << "Please build with USE_CLML_GRAPH_EXECUTOR.";
+                 << "Please build with TVM_USE_CLML_GRAPH_EXECUTOR.";
   }
 #endif
   /*! CLML sub graph symbol in TVM main module */

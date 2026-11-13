@@ -25,8 +25,8 @@ from collections.abc import Callable
 from tvm_ffi import Shape, get_global_func, register_global_func
 from tvm_ffi.core import String
 
-import tvm
-from tvm.runtime import Tensor, tensor
+import tvm_tirx
+from tvm_tirx.runtime import Tensor, tensor
 
 
 @register_global_func("tests.disco.add_one", override=True)
@@ -62,7 +62,7 @@ def _shape_tuple_func(x: Shape):
 
 
 @register_global_func("tests.disco.test_callback", override=True)
-def _make_callback(device: tvm.runtime.Device) -> Callable[[str, int], Tensor]:
+def _make_callback(device: tvm_tirx.runtime.Device) -> Callable[[str, int], Tensor]:
     """For use in tests/python/disco/test_callback.py
 
     This function simulates a callback to be used for lazy parameter
@@ -70,7 +70,7 @@ def _make_callback(device: tvm.runtime.Device) -> Callable[[str, int], Tensor]:
 
     Parameters
     ----------
-    device: tvm.runtime.Device
+    device: tvm_tirx.runtime.Device
 
         The device on which parameters should be located, when
         returned by the callback function.
@@ -94,7 +94,7 @@ def _make_callback(device: tvm.runtime.Device) -> Callable[[str, int], Tensor]:
             arr = np.arange(4).reshape([2, 2]).astype("float32")
         else:
             raise ValueError(f"Unexpected index {param_index}")
-        return tvm.runtime.tensor(arr, device=device)
+        return tvm_tirx.runtime.tensor(arr, device=device)
 
     return fget_item
 

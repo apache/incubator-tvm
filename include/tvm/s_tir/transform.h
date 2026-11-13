@@ -24,8 +24,10 @@
 #ifndef TVM_S_TIR_TRANSFORM_H_
 #define TVM_S_TIR_TRANSFORM_H_
 
+#include <tvm/base.h>
 #include <tvm/ir/prim/expr.h>
 #include <tvm/ir/transform.h>
+#include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/target/target.h>
 #include <tvm/tirx/transform.h>
@@ -35,22 +37,13 @@
 
 namespace tvm {
 namespace s_tir {
-/*!
- * \brief Renew the definition nodes for a TIR, including Var, Buffer and IterVar.
- *        This pass works as a simple DeepCopy to duplicate a function with different Vars and
- *        Buffers but the same behavior
- * \param func The input PrimFunc.
- * \return The renewed func.
- */
-TVM_DLL tirx::PrimFunc RenewDefs(const tirx::PrimFunc& func);
-
 namespace transform {
 
-using tirx::transform::CreatePrimFuncPass;
+using tirx::transform::CreateFunctionPass;
 using tvm::transform::Pass;
 using tvm::transform::PassContext;
 
-/*! \brief De-duplicate definitions, including schedulable block iterators, across PrimFuncs. */
+/*! \brief De-duplicate definitions, including schedulable block iterators, across Functions. */
 TVM_DLL Pass ConvertSSA();
 
 /*! \brief Simplify schedulable TIR using block iteration constraints and shared simplifier options.
@@ -71,18 +64,18 @@ TVM_DLL Pass CanonicalizeLoop();
 TVM_DLL Pass LowerCrossThreadReduction();
 
 /*!
- * \brief Lower block init stmt into IfThenElse stmts
+ * \brief Lower block init stmt into If stmts
  * \return The pass.
  */
 TVM_DLL Pass LowerInitBlock();
 
 /*!
- * \brief Locate the buffer allocation to the exact position (usually is
- *        the lca of buffer access). This pass will inject opaque block
- *        with alloc_buffers at the allocation site.
+ * \brief Locate the tensor allocation to the exact position (usually is
+ *        the lca of tensor access). This pass will inject opaque block
+ *        with alloc_tensors at the allocation site.
  * \return The pass.
  */
-TVM_DLL Pass PlanAndUpdateBufferAllocationLocation();
+TVM_DLL Pass PlanAndUpdateTensorAllocationLocation();
 
 /*!
  * \brief Substitute all the block vars with the PrimExprs they are bound to, indicated by the
@@ -99,16 +92,16 @@ TVM_DLL Pass ConvertBlocksToOpaque();
 TVM_DLL Pass LiftThreadBinding();
 
 /*!
- * \brief Compact the buffer access region by removing the buffer regions that are not accessed,
- *        i.e. narrowing the buffer shape and adjust the access region if necessary.
+ * \brief Compact the tensor access region by removing the tensor regions that are not accessed,
+ *        i.e. narrowing the tensor shape and adjust the access region if necessary.
  *
- * Before narrowing, `B` is a `[16, 16]` buffer, but only a skinny vector `B[i, 0:16]` is accessed.
+ * Before narrowing, `B` is a `[16, 16]` tensor, but only a skinny vector `B[i, 0:16]` is accessed.
  *
  *  \code
  *
  *  for i in range(0, 16):
  *      with T.sblock():
- *          B = T.alloc_buffer(16, 16)
+ *          B = T.alloc_tensor(ty_args=[T.Tensor((16, 16), "float32")])
  *          for j in range(0, 16):
  *              B[i, j] = A[i, j] + 1
  *          for j in range(0, 16):
@@ -116,7 +109,7 @@ TVM_DLL Pass LiftThreadBinding();
  *
  *  \endcode
  *
- * This pass narrows the buffer shape and adjust its accessed region accordingly.
+ * This pass narrows the tensor shape and adjust its accessed region accordingly.
  * In this particular case, because only a `1 * 16` vector of `B` is accessed,
  * the pass narrows `B` to shape `[1, 16]`, and changes the access to `B[i, j]` to `B[0, j]`.
  *
@@ -124,7 +117,7 @@ TVM_DLL Pass LiftThreadBinding();
  *
  *  for i in range(0, 16):
  *      with T.sblock():
- *          B = T.alloc_buffer(1, 16)
+ *          B = T.alloc_tensor(ty_args=[T.Tensor((1, 16), "float32")])
  *          for j in range(0, 16):
  *              B[0, j] = A[i, j] + 1
  *          for j in range(0, 16):
@@ -133,16 +126,16 @@ TVM_DLL Pass LiftThreadBinding();
  *  \endcode
  *
  * \param is_strict ensure the compacted shape always smaller than the original shape.
- *   otherwise it allows to grow the shape to match actual accessed buffer regions.
+ *   otherwise it allows to grow the shape to match actual accessed tensor regions.
  * \return The pass.
  */
-TVM_DLL Pass CompactBufferAllocation(bool is_strict = true);
+TVM_DLL Pass CompactTensorAllocation(bool is_strict = true);
 
 /*!
- * \brief Remove match buffers inside the block. Also, it will validate the binding.
+ * \brief Remove match tensors inside the block. Also, it will validate the binding.
  * \return The pass.
  */
-TVM_DLL Pass LowerMatchBuffer();
+TVM_DLL Pass LowerMatchTensor();
 
 /*!
  * \brief Inject permuted layout for shared memory.
@@ -151,28 +144,25 @@ TVM_DLL Pass LowerMatchBuffer();
 TVM_DLL Pass InjectPermutedLayout();
 
 /*!
- * \brief Transform Mma scope (m16n8k8.matrixA/B/C) to local scope with layout transformation.
+ * \brief Transform Mma scope (mma.matrixA/B/C) to local scope with layout transformation.
  * \return The pass.
  */
-TVM_DLL Pass TransformMmaBufferLayout();
+TVM_DLL Pass TransformMmaTensorLayout();
 
 /*!
  * \brief Remove the block to ensure that the TIR can not be scheduled again.
+ * Run LoopPartition first when thread-binding loops carry loop_partition_hint.
  * \return The pass.
  */
 TVM_DLL Pass LowerOpaqueBlock();
 
 /*!
- * \brief Unify all the thread bindings for "blockIdx.x/y/z", "threadIdx.x/y/z", and
- *        "vthread.x/y/z". Before the unification, two vars that are bound to a thread axis (e.g.,
- *        "threadIdx.x") use different IterVars and variables in their AttrStmts. After the
- *        unification, we use a consolidated IterVar and a variable for them.
+ * \brief Lower thread-binding loops to fresh lexical launch regions.
+ * Run after LoopPartition and LowerOpaqueBlock, while retaining loops for scheduling
+ * and feature extraction before this boundary.
  * \return The pass.
- * \note `vthread` is a legacy behavior that will be deprecated, though thread bindings of `vthread`
- *       are still also unified in this pass. Please use `vthread.x`, `vthread.y` and `vthread.z`
- *       instead.
  */
-TVM_DLL Pass UnifyThreadBinding();
+TVM_DLL Pass LowerThreadBinding();
 
 /*!
  * \brief This pass transforms annotated loops into pipelined ones where producers and consumers
@@ -189,7 +179,7 @@ TVM_DLL Pass UnifyThreadBinding();
  * where max_stage is the maximum (inclusive) stage.
  * 2) Loop annotation `software_pipeline_order` defines the pipeline order.
  * An array of `n` integers, a permutation of [0, 1, ..., num_components - 1];
- * 3) SBlock annotation `double_buffer_scope` controls certain buffer sizes to allow decoupling of
+ * 3) SBlock annotation `double_buffer_scope` controls certain tensor sizes to allow decoupling of
  * read/write dependency. It's an integer index of the write regions of the block.
  *
  * Every annotated loop is transformed into a loop with three blocks as its direct children:
@@ -242,58 +232,10 @@ TVM_DLL Pass LoopPartition();
 TVM_DLL Pass InjectVirtualThread();
 
 /*!
- * \brief Inject double buffer statements.
- *
- * \return The pass.
- */
-TVM_DLL Pass InjectDoubleBuffer();
-
-/*!
- * \brief Hoist loop-invariant IfThenElse nodes to
- * outside the eligible loops.
- *
- * \param variant The variant of the pass.
- *        variant can have any one of following values ["basic", ""(Default)].
- * \return The pass.
- */
-TVM_DLL Pass HoistIfThenElse(tvm::ffi::String variant = "");
-
-/*!
- * \brief Hoist loop-invariant expressions to outside the eligible loops.
- *
- * Can hoist conditionals used in IfThenElse statements and
- * expressions, bindings of variables in Let statements and
- * expressions, or boolean expressions, configurable to enable/disable
- * each hoistable type.
- *
- * \return The pass.
- */
-TVM_DLL Pass HoistExpression();
-
-/*!
- * \brief Renormalize the split pattern from floordiv(floormod()) to floormod(floordiv()).
- * \return The pass.
- */
-TVM_DLL Pass RenormalizeSplitPattern();
-
-/*!
  * \brief Detect and rewrite unsafe select that contains memory access.
  * \return The pass.
  */
 TVM_DLL Pass RewriteUnsafeSelect();
-
-/*!
- * \brief Instruments bound checkers.
- * \return The pass.
- */
-TVM_DLL Pass InstrumentBoundCheckers();
-
-/*!
- * \brief Rewrite global to local memory copy on CUDA with ldg32 instruction.
- * \param enable_inject Whether to enable injection.
- * \return The pass.
- */
-TVM_DLL Pass InjectPTXLDG32(bool enable_inject = true);
 
 /*!
  * \brief Lower VTCM allocations.
@@ -306,19 +248,20 @@ TVM_DLL Pass LowerVtcmAlloc();
  * \param storage_scope The storage scope considered.
  * \return The pass.
  */
-TVM_DLL Pass ThreadSync(tvm::ffi::String storage_scope);
+TVM_DLL Pass ThreadSync(runtime::MemoryScope storage_scope);
+
+/*!
+ * \brief Lower asynchronous queue operations and remove synchronization regions.
+ * Run after ThreadSync and optional InjectPTXAsyncCopy.
+ * \return The pass.
+ */
+TVM_DLL Pass LowerSynchronization();
 
 /*!
  * \brief Infer the TensorCore fragment information using tensor intrinsics.
  * \return The pass.
  */
 TVM_DLL Pass InferFragment();
-
-/*!
- * \brief Lower cross thread allreduce.
- * \return The pass.
- */
-TVM_DLL Pass LowerThreadAllreduce();
 
 /*!
  * \brief Rewrite global to shared memory copy on CUDA with asynchronous copy.
@@ -333,10 +276,10 @@ TVM_DLL Pass InjectPTXAsyncCopy();
 TVM_DLL Pass MergeSharedMemoryAllocations();
 
 /*!
- * \brief Set default thread bindings for GPU PrimFuncs.
+ * \brief Set default thread bindings for GPU Functions.
  * \return The pass.
  */
-TVM_DLL Pass DefaultGPUSchedule();
+TVM_DLL Pass DefaultGPUSchedule(ffi::Optional<Target> target = std::nullopt);
 
 /*!
  * \brief Remove weight layout rewrite block before benchmark.
@@ -346,35 +289,10 @@ TVM_DLL Pass DefaultGPUSchedule();
 TVM_DLL Pass RemoveWeightLayoutRewriteBlock(bool skip_tensor_rewrite = false);
 
 /*!
- * \brief Remove stores of tirx::builtin::undef.
+ * \brief Remove stores of tirx::undef_op.
  * \return The pass.
  */
 TVM_DLL Pass RemoveStoreUndef();
-
-/*!
- * \brief Decorate all the function's body as device function.
- * \return The pass.
- */
-TVM_DLL Pass DecorateDeviceScope();
-
-/*!
- * \brief Eliminate branches by leveraging buffer assumptions (T.assume).
- * \return The pass.
- */
-TVM_DLL Pass UseAssumeToReduceBranches();
-
-/*!
- * \brief Force to narrow down indexing expressions and integer buffers to int32 dtype in
- *        functions that may still contain S-TIR blocks.
- *
- * Unlike tirx::transform::ForceNarrowIndexToInt32, this pass also rewrites block iterators,
- * block access regions, and match buffer regions, so it can run on scheduled functions before
- * block lowering.
- *
- * \return The pass.
- * \note This pass should not be used in default cases.
- */
-TVM_DLL Pass ForceNarrowIndexToInt32();
 
 }  // namespace transform
 }  // namespace s_tir

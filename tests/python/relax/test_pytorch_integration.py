@@ -29,12 +29,12 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-import tvm
+import tvm_tirx
 from tvm.relax import BasePyModule
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 n_matmul = T.dynamic("n", "int32")
 
@@ -62,11 +62,11 @@ class PyTorchIntegrationModule(BasePyModule):
 
         return lv3
 
-    @Ts.prim_func
+    @Ts.function
     def matmul(
-        A: T.Buffer((n_matmul, 16), "float32"),
-        B: T.Buffer((16, 20), "float32"),
-        C: T.Buffer((n_matmul, 20), "float32"),
+        A: T.Tensor((n_matmul, 16), "float32"),
+        B: T.Tensor((16, 20), "float32"),
+        C: T.Tensor((n_matmul, 20), "float32"),
     ):
         """TIR function for matrix multiplication."""
 
@@ -84,7 +84,7 @@ class PyTorchIntegrationModule(BasePyModule):
 
 class TestPyTorchIntegration:
     def test_end_to_end_pipeline(self):
-        instance = PyTorchIntegrationModule(tvm.cpu(0))
+        instance = PyTorchIntegrationModule(tvm_tirx.cpu(0))
 
         def my_softmax(tensor, dim):
             return F.softmax(tensor, dim=dim)
@@ -107,7 +107,7 @@ class TestPyTorchIntegration:
             torch.testing.assert_close(result, expected, rtol=1e-5, atol=1e-3)
 
     def test_missing_packed_function(self):
-        instance = BasePyModule(tvm.IRModule({}), tvm.cpu(0))
+        instance = BasePyModule(tvm_tirx.IRModule({}), tvm_tirx.cpu(0))
 
         with pytest.raises(
             ValueError,

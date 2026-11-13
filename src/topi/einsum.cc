@@ -104,8 +104,8 @@ EinsumEquation EinsumEquation::FromString(const std::string& equation) {
 }
 
 PrimExpr GetBroadcastedExtent(const PrimExpr& extent1, const PrimExpr& extent2) {
-  const IntImmNode* extent1_imm = extent1.as<IntImmNode>();
-  const IntImmNode* extent2_imm = extent2.as<IntImmNode>();
+  const IntImmObj* extent1_imm = extent1.as<IntImmObj>();
+  const IntImmObj* extent2_imm = extent2.as<IntImmObj>();
   if (extent1_imm != nullptr && extent2_imm != nullptr) {
     if (extent1_imm->value == extent2_imm->value) {
       return extent1;
@@ -127,7 +127,7 @@ PrimExpr GetIndexForBroadcastedDim(const PrimVar& index, const PrimExpr& extent,
                                    const PrimExpr& broadcasted_extent) {
   // Check if current dimension is being broadcasted to `broadcasted_extent` (symbolic shape is
   // handled)
-  if (is_one(extent) && !is_one(broadcasted_extent)) {
+  if (IsOne(extent) && !IsOne(broadcasted_extent)) {
     return IntImm(index.ty(), 0);
   }
   return index;
@@ -175,7 +175,7 @@ class EinsumBuilder {
           const PrimExpr& extent = input_shape[current_dim++];
           auto it = label_to_extent_.find(label);
           if (it == label_to_extent_.end()) {
-            label_to_extent_[label] = extent;
+            label_to_extent_.insert_or_assign(label, extent);
           } else {
             it->second = GetBroadcastedExtent(it->second, extent);
           }
@@ -205,7 +205,7 @@ class EinsumBuilder {
       if (label == EinsumEquation::kEllipsis) {
         output_shape_.insert(output_shape_.end(), ellipsis_shape.begin(), ellipsis_shape.end());
       } else {
-        output_shape_.push_back(label_to_extent_[label]);
+        output_shape_.push_back(label_to_extent_.at(label));
       }
     }
     ellipsis_shape_ = std::move(ellipsis_shape);
@@ -291,8 +291,8 @@ class EinsumBuilder {
       } else {
         // Normal label
         reduction_axes->push_back(
-            IterVar(Range(0, label_to_extent_[label]),
-                    PrimVar(std::string(1, label), label_to_extent_[label].ty()),
+            IterVar(Range(0, label_to_extent_.at(label)),
+                    PrimVar(std::string(1, label), label_to_extent_.at(label).ty()),
                     IterVarType::kCommReduce));
         label_to_index->emplace(label, reduction_axes->back()->var);
       }

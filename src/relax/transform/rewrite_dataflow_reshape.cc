@@ -37,13 +37,13 @@
 namespace tvm {
 namespace relax {
 
-std::vector<size_t> GetUsedTensorArgIndices(const tirx::PrimFunc& fn, size_t num_args) {
+std::vector<size_t> GetUsedTensorArgIndices(const tirx::Function& fn, size_t num_args) {
   std::vector<size_t> indices;
   for (size_t i = 0; i < num_args; ++i) {
-    if (auto buffer = fn->params[i].as<tirx::BufferVar>()) {
-      auto buffer_var = buffer.value().var();
-      auto walkfn = [=](const tirx::Var& var) -> ffi::Expected<ffi::WalkResult> {
-        return var.get() == buffer_var.get() ? ffi::WalkResult::Interrupt(ffi::VisitInterrupt(var))
+    if (auto tensor = fn->params[i].as<tirx::TensorVar>()) {
+      tvm::Var tensor_var = tensor.value();
+      auto walkfn = [=](const tvm::Var& var) -> ffi::Expected<ffi::WalkResult> {
+        return var.get() == tensor_var.get() ? ffi::WalkResult::Interrupt(ffi::VisitInterrupt(var))
                                              : ffi::WalkResult::Advance();
       };
       if (ffi::StructuralWalk<ffi::WalkOrder::kPreOrder>(fn->body, walkfn).has_value()) {
@@ -63,42 +63,42 @@ class DataflowReshapeRewriter : public ExprMutator {
 
   BindingBlock VisitBindingBlock(const BindingBlock& block) final {
     // We only rewrite the bindings inside dataflow blocks.
-    if (const auto* dataflow_block = block.as<DataflowBlockNode>()) {
+    if (const auto* dataflow_block = block.as<DataflowBlockObj>()) {
       return VisitBindingBlock_(dataflow_block);
     } else {
       return block;
     }
   }
 
-  void VisitBinding_(const VarBindingNode* binding) final {
+  void VisitBinding_(const VarBindingObj* binding) final {
     // We only rewrite the bindings that are not dataflow output (which means they are not
     // externally referenced)
-    if (!binding->var->IsInstance<DataflowVarNode>()) {
+    if (!binding->var->IsInstance<DataflowVarObj>()) {
       this->builder_->EmitNormalized(ffi::GetRef<VarBinding>(binding));
     } else {
       ExprMutator::VisitBinding_(binding);
     }
   }
 
-  Expr VisitExpr_(const CallNode* call) final {
+  Expr VisitExpr_(const CallObj* call) final {
     static const Op call_tir_op = Op::Get("relax.call_tir");
     if (!call->op.same_as(call_tir_op)) {
       return ffi::GetRef<Call>(call);
     }
 
-    // We bring the calls of reshape PrimFunc back to calls of high-level
+    // We bring the calls of reshape tirx::Function back to calls of high-level
     // relax.reshape op, which will be lowered to calls of the ExternFunc
     // vm.builtin.reshape in the LowerRuntimeBuiltin pass.
 
     auto prim_fn =
-        mod_->Lookup(call->args[0].as_or_throw<GlobalVar>()).as_or_throw<tirx::PrimFunc>();
+        mod_->Lookup(call->args[0].as_or_throw<GlobalVar>()).as_or_throw<tirx::Function>();
     auto arg_tuple = call->args[1].as_or_throw<Tuple>()->fields;
     auto used_tensor_arg_indices = GetUsedTensorArgIndices(prim_fn, arg_tuple.size());
 
     // The number of inputs to call_tir(reshape, (...)) might not be one, since FuseOps
     // can generate a fused TupleGetItem + reshape function whose input is a tuple. FuseTIR
     // then flattens the tuple input so that the fused TIR reshape function ends up having
-    // multiple input buffers. But only one of them should be accessed and reshaped.
+    // multiple input tensors. But only one of them should be accessed and reshaped.
     if (used_tensor_arg_indices.size() != 1) {
       return ffi::GetRef<Call>(call);
     }
@@ -113,11 +113,11 @@ class DataflowReshapeRewriter : public ExprMutator {
     return reshape(arg, res_ty->shape.value());
   }
 
-  bool IsCallingTIRReshape(const CallNode* call, Expr inp) {
+  bool IsCallingTIRReshape(const CallObj* call, Expr inp) {
     const GlobalVar& global_var = call->args[0].as_or_throw<GlobalVar>();
-    const auto* func = mod_->functions.Get(global_var).value().as<tirx::PrimFuncNode>();
+    const auto* func = mod_->functions.Get(global_var).value().as<tirx::FunctionObj>();
     TVM_FFI_ICHECK_NOTNULL(func);
-    if (!HasReshapePattern(ffi::GetRef<tirx::PrimFunc>(func))) {
+    if (!HasReshapePattern(ffi::GetRef<tirx::Function>(func))) {
       return false;
     }
 
@@ -125,7 +125,8 @@ class DataflowReshapeRewriter : public ExprMutator {
     // as the number of elements in the result. There are operators that could have a reshape
     // pattern that don't meet this requirement (e.g. strided_slice), and they should not be
     // converted to reshape.
-    TVM_FFI_ICHECK(!inp->ty.IsMissing() && !call->ty.IsMissing());
+    TVM_FFI_ICHECK(!inp->ty.as<MissingType>().has_value() &&
+                   !call->ty.as<MissingType>().has_value());
     TensorType inp_ty = inp->ty.as_or_throw<TensorType>();
     TensorType res_ty = call->ty.as_or_throw<TensorType>();
 
@@ -137,13 +138,8 @@ class DataflowReshapeRewriter : public ExprMutator {
       return false;
     }
     auto product = [](ffi::Array<PrimExpr> args) -> PrimExpr {
-      PrimExpr p;
-      if (args.empty()) {
-        // Scalar tensors may be empty indicating a single element.
-        p = 1;
-      } else {
-        p = args[0];
-      }
+      // Scalar tensors may be empty indicating a single element.
+      PrimExpr p = args.empty() ? PrimExpr(1) : args[0];
       for (int i = 1, e = args.size(); i < e; ++i) p *= args[i];
       return p;
     };
@@ -169,7 +165,7 @@ Pass RewriteDataflowReshape() {
   auto pass_func = [=](Function f, IRModule m, PassContext pc) {
     return RewriteDataflowReshape(f, m).as_or_throw<Function>();
   };
-  return CreateFunctionPass(pass_func, 0, "RewriteDataflowReshape", {});
+  return CreateFunctionPass(pass_func, 0, "RewriteDataflowReshape");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

@@ -19,26 +19,31 @@
 
 /*!
  * \file src/runtime/timer.cc
- * \brief Runtime timer primitives: Timer, WrapTimeEvaluator.
+ * \brief Parent runtime timing and benchmarking policy.
  */
 
+#include <tvm/ffi/extra/module.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/c_backend_api.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/runtime/logging.h>
-#include <tvm/runtime/timer.h>
+#include <tvm/runtime/tensor.h>
+#include <tvm/runtime/timing.h>
 
 #include <chrono>
 #include <mutex>
 #include <set>
 #include <sstream>
 #include <thread>
+#if defined(_M_X64) || defined(__x86_64__)
+#include <immintrin.h>
+#endif
 
 namespace tvm {
 namespace runtime {
 
-class DefaultTimerNode : public TimerNode {
+class DefaultTimerObj : public TimerObj {
  public:
   virtual void Start() {
     DeviceAPI::Get(device_)->StreamSync(device_, nullptr);
@@ -49,10 +54,10 @@ class DefaultTimerNode : public TimerNode {
     duration_ = std::chrono::high_resolution_clock::now() - start_;
   }
   virtual int64_t SyncAndGetElapsedNanos() { return duration_.count(); }
-  virtual ~DefaultTimerNode() {}
+  virtual ~DefaultTimerObj() {}
 
-  explicit DefaultTimerNode(Device dev) : device_(dev) {}
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("runtime.DefaultTimerNode", DefaultTimerNode, TimerNode);
+  explicit DefaultTimerObj(Device dev) : device_(dev) {}
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("runtime.DefaultTimer", DefaultTimerObj, TimerObj);
 
  private:
   std::chrono::high_resolution_clock::time_point start_;
@@ -60,15 +65,17 @@ class DefaultTimerNode : public TimerNode {
   Device device_;
 };
 
-static Timer DefaultTimer(Device dev) { return Timer(ffi::make_object<DefaultTimerNode>(dev)); }
+static Timer DefaultTimer(Device dev) {
+  return Timer(ffi::UnsafeInit{}, ffi::make_object<DefaultTimerObj>(dev));
+}
 
-class CPUTimerNode : public TimerNode {
+class CPUTimerObj : public TimerObj {
  public:
   virtual void Start() { start_ = std::chrono::high_resolution_clock::now(); }
   virtual void Stop() { duration_ = std::chrono::high_resolution_clock::now() - start_; }
   virtual int64_t SyncAndGetElapsedNanos() { return duration_.count(); }
-  virtual ~CPUTimerNode() {}
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("runtime.CPUTimerNode", CPUTimerNode, TimerNode);
+  virtual ~CPUTimerObj() {}
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("runtime.CPUTimer", CPUTimerObj, TimerObj);
 
  private:
   std::chrono::high_resolution_clock::time_point start_;
@@ -77,11 +84,12 @@ class CPUTimerNode : public TimerNode {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def("runtime.timer.cpu",
-                        [](Device dev) { return Timer(ffi::make_object<CPUTimerNode>()); });
+  refl::GlobalDef().def("runtime.timer.cpu", [](Device dev) {
+    return Timer(ffi::UnsafeInit{}, ffi::make_object<CPUTimerObj>());
+  });
 }
 
-Timer Timer::Start(Device dev) {
+Timer StartTimer(Device dev) {
   // Function-local statics: thread-safe lazy init (C++11 magic statics),
   // visible only to this function.
   static std::set<DLDeviceType> seen_devices;
@@ -123,10 +131,10 @@ ffi::Function WrapTimeEvaluator(ffi::Function pf, Device dev, int number, int re
     pf.CallPacked(args, num_args, &temp);
 
     // allocate two large arrays to flush L2 cache
-    Tensor arr1, arr2;
+    ffi::Optional<ffi::Tensor> arr1, arr2;
     if (cache_flush_bytes > 0) {
-      arr1 = Tensor::Empty({cache_flush_bytes / 4}, {kDLInt, 32, 1}, dev);
-      arr2 = Tensor::Empty({cache_flush_bytes / 4}, {kDLInt, 32, 1}, dev);
+      arr1 = tvm::runtime::Empty({cache_flush_bytes / 4}, {kDLInt, 32, 1}, dev);
+      arr2 = tvm::runtime::Empty({cache_flush_bytes / 4}, {kDLInt, 32, 1}, dev);
     }
 
     DeviceAPI::Get(dev)->StreamSync(dev, nullptr);
@@ -144,11 +152,11 @@ ffi::Function WrapTimeEvaluator(ffi::Function pf, Device dev, int number, int re
               std::max((min_repeat_ms / (duration_ms / number) + 1), number * golden_ratio));
         }
         if (cache_flush_bytes > 0) {
-          arr1.CopyFrom(arr2);
+          tvm::runtime::CopyFromTo(arr2.value().GetDLTensorPtr(), arr1.value().GetDLTensorPtr());
         }
         DeviceAPI::Get(dev)->StreamSync(dev, nullptr);
         // start timing
-        Timer t = Timer::Start(dev);
+        Timer t = StartTimer(dev);
         for (int j = 0; j < number; ++j) {
           pf.CallPacked(args, num_args, &temp);
         }
@@ -171,6 +179,98 @@ ffi::Function WrapTimeEvaluator(ffi::Function pf, Device dev, int number, int re
     *rv = ffi::Bytes(std::move(blob));
   };
   return ffi::Function::FromPacked(ftimer);
+}
+
+/*!
+ * \brief Flush the cache.
+ * \param addr The address of data we want to flush
+ * \param len The length of data
+ */
+/*
+ * When we are in the tuning of TVM, we will make TVM occupy
+ * the cache fully and doesn't flush it during iteration.
+ * This has problems then in e2e testing, since arrays that
+ * we assume exist in cache (ie. weights) are evicted during e2e runs,
+ * which leads to lower performance.
+ */
+inline void CPUCacheFlushImpl(const char* addr, unsigned int len) {
+#if (defined(_M_X64) || defined(__x86_64__) || defined(__aarch64__))
+
+#if defined(__aarch64__)
+  size_t ctr_el0 = 0;
+  asm volatile("mrs %0, ctr_el0" : "=r"(ctr_el0));
+  const size_t cache_line = 4 << ((ctr_el0 >> 16) & 15);
+#else
+  const size_t cache_line = 64;
+#endif
+
+  if (addr == nullptr || len <= 0) {
+    return;
+  }
+
+  for (uintptr_t uptr = (uintptr_t)addr & ~(cache_line - 1); uptr < (uintptr_t)addr + len;
+       uptr += cache_line) {
+#if defined(__aarch64__)
+    asm volatile("dc civac, %0\n\t" : : "r"(reinterpret_cast<const void*>(uptr)) : "memory");
+#else
+    _mm_clflush(reinterpret_cast<const void*>(uptr));
+#endif
+  }
+
+#if defined(__aarch64__)
+  asm volatile("dmb ishst" : : : "memory");
+#endif
+
+#endif
+}
+
+inline void CPUCacheFlush(int begin_index, const ffi::PackedArgs& args) {
+  for (int i = begin_index; i < args.size(); i++) {
+    CPUCacheFlushImpl(static_cast<char*>((args[i].cast<DLTensor*>()->data)),
+                      ffi::GetDataSize(*(args[i].cast<DLTensor*>())));
+  }
+}
+
+TVM_FFI_STATIC_INIT_BLOCK() {
+  namespace refl = tvm::ffi::reflection;
+  refl::GlobalDef()
+      .def("runtime.LocalTimeEvaluator",
+           [](ffi::Optional<ffi::Module> opt_mod, std::string name, int device_type, int device_id,
+              int number, int repeat, int min_repeat_ms, int limit_zero_time_iterations,
+              int cooldown_interval_ms, int repeats_to_cooldown, int cache_flush_bytes,
+              std::string f_preproc_name) {
+             Device dev{static_cast<DLDeviceType>(device_type), device_id};
+             auto pf = opt_mod.has_value() ? opt_mod.value()->GetFunction(name)
+                                           : ffi::Function::GetGlobal(name);
+             TVM_FFI_ICHECK(pf.has_value()) << "Cannot find " << name;
+             ffi::Function f_preproc;
+             if (!f_preproc_name.empty()) {
+               f_preproc = ffi::Function::GetGlobalRequired(f_preproc_name);
+             }
+             return WrapTimeEvaluator(*pf, dev, number, repeat, min_repeat_ms,
+                                      limit_zero_time_iterations, cooldown_interval_ms,
+                                      repeats_to_cooldown, cache_flush_bytes, f_preproc);
+           })
+      .def("runtime.ModuleTimeEvaluator",
+           [](ffi::Module mod, std::string name, ffi::AnyView device, int number, int repeat,
+              int min_repeat_ms, int limit_zero_time_iterations, int cooldown_interval_ms,
+              int repeats_to_cooldown, int cache_flush_bytes, std::string f_preproc_name) {
+             if (std::string(mod->kind()) == "rpc") {
+               return ffi::Function::GetGlobalRequired("rpc.ModuleTimeEvaluator")(
+                          mod, name, device, number, repeat, min_repeat_ms,
+                          limit_zero_time_iterations, cooldown_interval_ms, repeats_to_cooldown,
+                          cache_flush_bytes, f_preproc_name)
+                   .cast<ffi::Function>();
+             }
+             auto dev = device.cast<DLDevice>();
+             return ffi::Function::GetGlobalRequired("runtime.LocalTimeEvaluator")(
+                        mod, name, static_cast<int>(dev.device_type), dev.device_id, number, repeat,
+                        min_repeat_ms, limit_zero_time_iterations, cooldown_interval_ms,
+                        repeats_to_cooldown, cache_flush_bytes, f_preproc_name)
+                 .cast<ffi::Function>();
+           })
+      .def_packed("runtime.CacheFlushCPUArguments",
+                  [](ffi::PackedArgs args, ffi::Any* rv) { CPUCacheFlush(1, args); });
 }
 
 }  // namespace runtime

@@ -23,7 +23,7 @@ import subprocess
 import sys
 import tempfile
 
-import tvm.testing
+import tvm_tirx.testing
 
 TEST_SCRIPT_FILE = pathlib.Path(__file__).with_name("pickle_memoize_script.py").resolve()
 
@@ -55,7 +55,7 @@ def test_current_directory_is_not_required_to_be_writable():
         # User may read/cd into the temp dir, nobody may write to temp
         # dir.
         temp_dir.chmod(0o500)
-        subprocess.check_call([sys.executable, "-c", "import tvm"], cwd=temp_dir)
+        subprocess.check_call([sys.executable, "-c", "import tvm, tvm_tirx"], cwd=temp_dir)
 
 
 def test_cache_dir_defaults_to_home_config_cache():
@@ -125,4 +125,4 @@ def test_cache_dir_only_created_when_used():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

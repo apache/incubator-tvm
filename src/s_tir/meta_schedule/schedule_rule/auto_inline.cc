@@ -32,11 +32,11 @@ using s_tir::CanReverseComputeInline;
 using s_tir::GetAnn;
 using s_tir::GetConsumers;
 using s_tir::GetProducers;
-using s_tir::GetRootPrimFunc;
+using s_tir::GetRootFunction;
 using s_tir::GetSBlockRealize;
 using s_tir::HasIfThenElse;
 using s_tir::HasOp;
-using s_tir::IsSpatialPrimFunc;
+using s_tir::IsSpatialFunction;
 using s_tir::ScheduleState;
 
 /*! \brief The type of inline to be performed on a specific block */
@@ -49,25 +49,25 @@ enum class InlineType : int32_t {
   kInlineIntoProducer = 2,
 };
 
-bool IsInSpatialPrimFunc(const s_tir::Schedule& sch, const tirx::StmtSRef& block_sref) {
+bool IsInSpatialFunction(const s_tir::Schedule& sch, const tirx::StmtSRef& block_sref) {
   using namespace tvm::tirx;
-  const StmtSRefNode* sref = block_sref.get();
+  const StmtSRefObj* sref = block_sref.get();
   for (; sref->parent != nullptr; sref = sref->parent) {
   }
-  TVM_FFI_ICHECK(sref->stmt != nullptr && sref->stmt->IsInstance<SBlockNode>());
-  return IsSpatialPrimFunc(ffi::GetRef<PrimFunc>(GetRootPrimFunc(sch->mod(), sref->stmt, nullptr)));
+  TVM_FFI_ICHECK(sref->stmt != nullptr && sref->stmt->IsInstance<SBlockObj>());
+  return IsSpatialFunction(ffi::GetRef<Function>(GetRootFunction(sch->mod(), sref->stmt, nullptr)));
 }
 
 /*! \brief The rule that inlines spatial blocks if it satisfies some conditions. */
-class AutoInlineNode : public ScheduleRuleNode {
+class AutoInlineObj : public ScheduleRuleObj {
  public:
   /*! \brief Checks if the specific block should be inlined */
   inline InlineType CheckInline(const s_tir::Schedule& sch, const s_tir::SBlockRV& block_rv);
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   void InitializeWithTuneContext(const TuneContext& context) final {}
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch,
                                     const s_tir::SBlockRV& block_rv) final {
     InlineType inline_type = CheckInline(sch, block_rv);
@@ -79,10 +79,10 @@ class AutoInlineNode : public ScheduleRuleNode {
     return {sch};
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<AutoInlineNode> n = ffi::make_object<AutoInlineNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<AutoInlineObj> n = ffi::make_object<AutoInlineObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
  public:
@@ -103,28 +103,28 @@ class AutoInlineNode : public ScheduleRuleNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<AutoInlineNode>()
-        .def_ro("into_producer", &AutoInlineNode::into_producer)
-        .def_ro("into_consumer", &AutoInlineNode::into_consumer)
-        .def_ro("inline_const_tensor", &AutoInlineNode::inline_const_tensor)
-        .def_ro("disallow_if_then_else", &AutoInlineNode::disallow_if_then_else)
-        .def_ro("require_injective", &AutoInlineNode::require_injective)
-        .def_ro("require_ordered", &AutoInlineNode::require_ordered)
-        .def_ro("disallow_op", &AutoInlineNode::disallow_op);
+    refl::ObjectDef<AutoInlineObj>()
+        .def_ro("into_producer", &AutoInlineObj::into_producer)
+        .def_ro("into_consumer", &AutoInlineObj::into_consumer)
+        .def_ro("inline_const_tensor", &AutoInlineObj::inline_const_tensor)
+        .def_ro("disallow_if_then_else", &AutoInlineObj::disallow_if_then_else)
+        .def_ro("require_injective", &AutoInlineObj::require_injective)
+        .def_ro("require_ordered", &AutoInlineObj::require_ordered)
+        .def_ro("disallow_op", &AutoInlineObj::disallow_op);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AutoInline", AutoInlineNode,
-                                    ScheduleRuleNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.AutoInline", AutoInlineObj,
+                                    ScheduleRuleObj);
 };
 
-inline InlineType AutoInlineNode::CheckInline(const s_tir::Schedule& sch,
-                                              const s_tir::SBlockRV& block_rv) {
+inline InlineType AutoInlineObj::CheckInline(const s_tir::Schedule& sch,
+                                             const s_tir::SBlockRV& block_rv) {
   using namespace tvm::tirx;
   StmtSRef block_sref = sch->GetSRef(block_rv);
-  bool is_pure_sptial = IsInSpatialPrimFunc(sch, block_sref);
+  bool is_pure_sptial = IsInSpatialFunction(sch, block_sref);
   ScheduleState state = sch->state();
-  const SBlockNode* block = TVM_SREF_TO_SBLOCK(block_sref);
+  const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   SBlockRealize realize = GetSBlockRealize(state, block_sref);
-  // Cond 1. The block has only one write buffer
+  // Cond 1. The block has only one write tensor
   if (block->writes.size() != 1) {
     return InlineType::kNoInline;
   }
@@ -161,17 +161,17 @@ inline InlineType AutoInlineNode::CheckInline(const s_tir::Schedule& sch,
   }
   // Cond 6. The block is disallowed for auto inline
   if (ffi::Optional<ffi::String> ann =
-          s_tir::GetAnn<ffi::String>(block_sref, s_tir::attr::meta_schedule_inline_rule)) {
+          s_tir::GetAnn<ffi::String>(block_sref, tvm::s_tir::attr::kMetaScheduleInlineRule.name)) {
     if (ann.value() == "disable") return InlineType::kNoInline;
   }
   // Last cond: Check inline into the consumers or the spatial producer
   // Skip if:
   // - root block (no parent scope).
   // - root block is wrapped in a For loop, then parent is non-null, but there is still no enclosing
-  // SBlockNode.
-  const StmtSRefNode* p = block_sref->parent;
+  // SBlockObj.
+  const StmtSRefObj* p = block_sref->parent;
   for (; p != nullptr; p = p->parent) {
-    if (p->stmt->IsInstance<SBlockNode>()) break;
+    if (p->stmt->IsInstance<SBlockObj>()) break;
   }
   if (p == nullptr) {
     return InlineType::kNoInline;
@@ -189,7 +189,7 @@ inline InlineType AutoInlineNode::CheckInline(const s_tir::Schedule& sch,
     if (producer_srefs.size() == 1 &&
         s_tir::IsCompleteBlock(sch->state(), producer_srefs[0], scope_block) &&
         CanReverseComputeInline(state, block_sref) &&
-        !GetAnn<ffi::String>(producer_srefs[0], s_tir::attr::meta_schedule_auto_tensorize)
+        !GetAnn<ffi::String>(producer_srefs[0], tvm::s_tir::attr::kMetaScheduleAutoTensorize.name)
              .has_value()) {
       return InlineType::kInlineIntoProducer;
     }
@@ -204,7 +204,7 @@ ScheduleRule ScheduleRule::AutoInline(bool into_producer,          //
                                       bool require_injective,      //
                                       bool require_ordered,        //
                                       ffi::Optional<ffi::Array<ffi::String>> disallow_op) {
-  ffi::ObjectPtr<AutoInlineNode> n = ffi::make_object<AutoInlineNode>();
+  ffi::ObjectPtr<AutoInlineObj> n = ffi::make_object<AutoInlineObj>();
   n->into_producer = into_producer;
   n->into_consumer = into_consumer;
   n->inline_const_tensor = inline_const_tensor;
@@ -219,10 +219,10 @@ ScheduleRule ScheduleRule::AutoInline(bool into_producer,          //
       n->disallow_op.push_back(Op::Get(op_name));
     }
   }
-  return ScheduleRule(n);
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { AutoInlineNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { AutoInlineObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
@@ -230,7 +230,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 /*! \brief Inline blocks that produce a constant scalar. */
-class InlineConstantScalarsNode : public ScheduleRuleNode {
+class InlineConstantScalarsObj : public ScheduleRuleObj {
  public:
   void InitializeWithTuneContext(const TuneContext& context) final {}
 
@@ -244,7 +244,7 @@ class InlineConstantScalarsNode : public ScheduleRuleNode {
     // }
     auto block = sch->Get(block_rv);
     if (block->reads.size() == 0 && block->writes.size() == 1 &&
-        block->writes[0]->source.as_or_throw<tvm::tirx::BufferVar>()->shape.size() == 0) {
+        block->writes[0]->source.as_or_throw<tvm::tirx::TensorVar>().shape().size() == 0) {
       auto sref = sch->GetSRef(block_rv);
       if (!s_tir::IsOutputBlock(sch->state(), sref,
                                 s_tir::GetScopeRoot(sch->state(), sref, true))) {
@@ -255,25 +255,24 @@ class InlineConstantScalarsNode : public ScheduleRuleNode {
   }
 
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<InlineConstantScalarsNode> n =
-        ffi::make_object<InlineConstantScalarsNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<InlineConstantScalarsObj> n = ffi::make_object<InlineConstantScalarsObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<InlineConstantScalarsNode>();
+    refl::ObjectDef<InlineConstantScalarsObj>();
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.InlineConstantScalars",
-                                    InlineConstantScalarsNode, ScheduleRuleNode);
+                                    InlineConstantScalarsObj, ScheduleRuleObj);
 };
 
 ScheduleRule ScheduleRule::InlineConstantScalars() {
-  ffi::ObjectPtr<InlineConstantScalarsNode> n = ffi::make_object<InlineConstantScalarsNode>();
-  return ScheduleRule(n);
+  ffi::ObjectPtr<InlineConstantScalarsObj> n = ffi::make_object<InlineConstantScalarsObj>();
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { InlineConstantScalarsNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { InlineConstantScalarsObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

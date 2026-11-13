@@ -16,23 +16,23 @@
 # under the License.
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing import te_workload
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
-from tvm.te import create_prim_func
+from tvm.te import create_function
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def test_cpu_matmul():
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_0(
-        A: T.Buffer((4, 512), "float32"),
-        B: T.Buffer((512, 4), "float32"),
-        C: T.Buffer((4, 4), "float32"),
+        A: T.Tensor((4, 512), "float32"),
+        B: T.Tensor((512, 4), "float32"),
+        C: T.Tensor((4, 4), "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         for i0, i1, i2 in T.grid(4, 4, 512):
@@ -44,14 +44,14 @@ def test_cpu_matmul():
                     C[i, j] = T.float32(0)
                 C[i, j] = C[i, j] + A[i, k] * B[k, j]
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_1(
-        A: T.Buffer((4, 512), "float32"),
-        B: T.Buffer((512, 4), "float32"),
-        C: T.Buffer((4, 4), "float32"),
+        A: T.Tensor((4, 512), "float32"),
+        B: T.Tensor((512, 4), "float32"),
+        C: T.Tensor((4, 4), "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-        C_rf = Ts.sblock_alloc_buffer([4, 4, 128], dtype="float32")
+        C_rf = Ts.sblock_alloc_tensor([4, 4, 128], dtype="float32")
         for i0, i1, i2_0, i2_1 in T.grid(4, 4, 4, 128):
             with Ts.sblock("C_rf"):
                 vi2_1, i, j, vi2_0 = Ts.axis.remap("SSSR", [i2_1, i0, i1, i2_0])
@@ -72,14 +72,14 @@ def test_cpu_matmul():
                     C[i, j] = T.float32(0)
                 C[i, j] = C[i, j] + C_rf[i, j, vi2_1]
 
-    @Ts.prim_func
+    @Ts.function
     def cpu_matmul_2(
-        A: T.Buffer((4, 512), "float32"),
-        B: T.Buffer((512, 4), "float32"),
-        C: T.Buffer((4, 4), "float32"),
+        A: T.Tensor((4, 512), "float32"),
+        B: T.Tensor((512, 4), "float32"),
+        C: T.Tensor((4, 4), "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
-        C_rf = Ts.sblock_alloc_buffer([4, 4, 4], dtype="float32")
+        C_rf = Ts.sblock_alloc_tensor([4, 4, 4], dtype="float32")
         for i0, i1, i2_0, i2_1 in T.grid(4, 4, 4, 128):
             with Ts.sblock("C_rf"):
                 vi2_0, i, j, vi2_1 = Ts.axis.remap("SSSR", [i2_0, i0, i1, i2_1])
@@ -107,7 +107,7 @@ def test_cpu_matmul():
     decision_2 = [
         ("SamplePerfectTile", [4, 128]),
     ]
-    mod = create_prim_func(te_workload.matmul(n=4, m=4, k=512))
+    mod = create_function(te_workload.matmul(n=4, m=4, k=512))
     actual = generate_design_space(
         kind="llvm",
         mod=mod,
@@ -123,12 +123,12 @@ def test_cpu_matmul():
 
 
 def test_cpu_argmax():
-    @Ts.prim_func
+    @Ts.function
     def argmax(
-        idx: T.Buffer((128, 128), "int32"),
-        val: T.Buffer((128, 128), "float32"),
-        argmax_v0: T.Buffer((128,), "int32"),
-        argmax_v1: T.Buffer((128,), "float32"),
+        idx: T.Tensor((128, 128), "int32"),
+        val: T.Tensor((128, 128), "float32"),
+        argmax_v0: T.Tensor((128,), "int32"),
+        argmax_v1: T.Tensor((128,), "float32"),
     ) -> None:
         for i0, i1 in T.grid(128, 128):
             with Ts.sblock("argmax"):
@@ -138,7 +138,7 @@ def test_cpu_argmax():
                 Ts.writes(argmax_v0[i], argmax_v1[i])
                 with Ts.init():
                     argmax_v0[i] = -1
-                    argmax_v1[i] = T.min_value("float32")
+                    argmax_v1[i] = T.min_value(ty="float32")
                 v_argmax_v0: T.let[T.int32] = T.Select(
                     argmax_v1[i] >= val[i, k], argmax_v0[i], idx[i, k]
                 )
@@ -148,12 +148,12 @@ def test_cpu_argmax():
                 argmax_v0[i] = v_argmax_v0
                 argmax_v1[i] = v_argmax_v1
 
-    @Ts.prim_func
+    @Ts.function
     def argmax_0(
-        idx: T.Buffer((128, 128), "int32"),
-        val: T.Buffer((128, 128), "float32"),
-        argmax_v0: T.Buffer(128, "int32"),
-        argmax_v1: T.Buffer(128, "float32"),
+        idx: T.Tensor((128, 128), "int32"),
+        val: T.Tensor((128, 128), "float32"),
+        argmax_v0: T.Tensor(128, "int32"),
+        argmax_v1: T.Tensor(128, "float32"),
     ) -> None:
         for i0, i1 in T.grid(128, 128):
             with Ts.sblock("argmax"):
@@ -172,15 +172,15 @@ def test_cpu_argmax():
                 argmax_v0[i] = v_argmax_v0
                 argmax_v1[i] = v_argmax_v1
 
-    @Ts.prim_func
+    @Ts.function
     def argmax_1(
-        idx: T.Buffer((128, 128), "int32"),
-        val: T.Buffer((128, 128), "float32"),
-        argmax_v0: T.Buffer(128, "int32"),
-        argmax_v1: T.Buffer(128, "float32"),
+        idx: T.Tensor((128, 128), "int32"),
+        val: T.Tensor((128, 128), "float32"),
+        argmax_v0: T.Tensor(128, "int32"),
+        argmax_v1: T.Tensor(128, "float32"),
     ) -> None:
-        argmax_v0_rf = Ts.sblock_alloc_buffer([128, 16], dtype="int32")
-        argmax_v1_rf = Ts.sblock_alloc_buffer([128, 16], dtype="float32")
+        argmax_v0_rf = Ts.sblock_alloc_tensor([128, 16], dtype="int32")
+        argmax_v1_rf = Ts.sblock_alloc_tensor([128, 16], dtype="float32")
         for i0, i1_0, i1_1 in T.grid(128, 8, 16):
             with Ts.sblock("argmax_rf"):
                 vi1_1, i, vi1_0 = Ts.axis.remap("SSR", [i1_1, i0, i1_0])
@@ -219,17 +219,17 @@ def test_cpu_argmax():
                 argmax_v0[i] = v_argmax_v0
                 argmax_v1[i] = v_argmax_v1
 
-    @Ts.prim_func
+    @Ts.function
     def argmax_2(
-        idx: T.Buffer((128, 128), "int32"),
-        val: T.Buffer((128, 128), "float32"),
-        argmax_v0: T.Buffer(128, "int32"),
-        argmax_v1: T.Buffer(128, "float32"),
+        idx: T.Tensor((128, 128), "int32"),
+        val: T.Tensor((128, 128), "float32"),
+        argmax_v0: T.Tensor(128, "int32"),
+        argmax_v1: T.Tensor(128, "float32"),
     ) -> None:
         # body
         # with Ts.sblock("root")
-        argmax_v0_rf = Ts.sblock_alloc_buffer([128, 8], dtype="int32")
-        argmax_v1_rf = Ts.sblock_alloc_buffer([128, 8], dtype="float32")
+        argmax_v0_rf = Ts.sblock_alloc_tensor([128, 8], dtype="int32")
+        argmax_v1_rf = Ts.sblock_alloc_tensor([128, 8], dtype="float32")
         for i0, i1_0, i1_1 in T.grid(128, 8, 16):
             with Ts.sblock("argmax_rf"):
                 vi1_0, i, vi1_1 = Ts.axis.remap("SSR", [i1_0, i0, i1_1])

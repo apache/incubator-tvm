@@ -25,7 +25,7 @@
 #define TVM_RELAX_OP_VISION_NMS_H_
 
 #include <tvm/ffi/string.h>
-#include <tvm/relax/attrs/vision.h>
+#include <tvm/relax/op/vision.h>
 
 #include "../op_common.h"
 

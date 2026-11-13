@@ -25,7 +25,7 @@
 #ifndef TVM_RELAX_OP_NN_CONVOLUTION_H_
 #define TVM_RELAX_OP_NN_CONVOLUTION_H_
 
-#include <tvm/relax/attrs/nn.h>
+#include <tvm/relax/op/nn.h>
 
 #include <string>
 #include <utility>
@@ -50,7 +50,7 @@ inline Expr MakeConv(Expr data, Expr weight, ffi::Array<int64_t> strides,
   attrs->out_layout = std::move(out_layout);
   attrs->out_dtype = out_dtype;
   const Op op = Op::Get(op_name);
-  return Call::Unchecked(Type::Missing(), op, {data, weight}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {data, weight}, Attrs(attrs), {});
 }
 
 /*! \brief 1D convolution */

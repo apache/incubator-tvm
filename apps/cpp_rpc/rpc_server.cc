@@ -50,6 +50,11 @@ using namespace std::chrono;
 
 namespace tvm {
 namespace runtime {
+namespace {
+bool IsNumber(const std::string& str) {
+  return !str.empty() && str.find_first_not_of("0123456789") == std::string::npos;
+}
+}  // namespace
 
 #ifdef __ANDROID__
 static std::string getNextString(std::stringstream* iss) {
@@ -332,7 +337,7 @@ class RPCServer {
     size_t pos = opts.rfind(option);
     if (pos != std::string::npos) {
       const std::string cmd = opts.substr(pos + option.size());
-      TVM_FFI_ICHECK(support::IsNumber(cmd)) << "Timeout is not valid";
+      TVM_FFI_ICHECK(IsNumber(cmd)) << "Timeout is not valid";
       return std::stoi(cmd);
     }
     return 0;

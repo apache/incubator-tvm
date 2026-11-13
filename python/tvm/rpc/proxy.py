@@ -43,7 +43,7 @@ except ImportError as error_msg:
         f"RPCProxy module requires tornado package {error_msg}. Try 'pip install tornado'."
     )
 
-from tvm.support.popen_pool import PopenWorker
+from tvm_tirx.support.popen_pool import PopenWorker
 
 from . import _ffi_api, base
 from .base import TrackerCode

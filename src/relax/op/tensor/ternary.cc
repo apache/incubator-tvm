@@ -26,6 +26,7 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/relax/op_attr.h>
 
 namespace tvm {
 namespace relax {
@@ -67,24 +68,24 @@ Type InferTypeEwiseFMA(const Call& call, const BlockBuilder& ctx) {
     output_dtype = t1->dtype;
   }
 
-  VDevice vdev = VDevice();
+  ffi::Optional<VDevice> vdev;
   for (int i = 0; i < 3; ++i) {
     if (input_ty[i]->vdevice.has_value()) {
-      if (!vdev.defined()) {
+      if (!vdev.has_value()) {
         vdev = input_ty[i]->vdevice.value();
-      } else if (input_ty[i]->vdevice.value()->target.defined()) {
+      } else if (input_ty[i]->vdevice.value()->target.has_value()) {
         // mismatch
-        if (input_ty[i]->vdevice.value() != vdev) {
-          vdev = VDevice();
+        if (input_ty[i]->vdevice.value() != vdev.value()) {
+          vdev = std::nullopt;
           break;
         }
       }
     }
   }
 
-  auto* s1 = t1->shape.as<ShapeExprNode>();
-  auto* s2 = t2->shape.as<ShapeExprNode>();
-  auto* s3 = t3->shape.as<ShapeExprNode>();
+  auto* s1 = t1->shape.as<ShapeExprObj>();
+  auto* s2 = t2->shape.as<ShapeExprObj>();
+  auto* s3 = t3->shape.as<ShapeExprObj>();
   sym::Analyzer analyzer = ctx->GetAnalyzer();
   if (s1 && s2 && s3) {
     ffi::Array<PrimExpr> output_shape;
@@ -99,18 +100,18 @@ Type InferTypeEwiseFMA(const Call& call, const BlockBuilder& ctx) {
             << "The 3 arguments of EwiseFMA must have the same shape";
       }
     }
-    if (vdev.defined()) {
+    if (vdev.has_value()) {
       return TensorType(ShapeExpr(output_shape), output_dtype, vdev);
     }
     return TensorType(ShapeExpr(output_shape), output_dtype);
   } else if (t1->shape.has_value() && t1->shape.same_as(t2->shape) &&
              t1->shape.same_as(t3->shape)) {
-    if (vdev.defined()) {
+    if (vdev.has_value()) {
       return TensorType(t1->shape.value(), output_dtype, vdev);
     }
     return TensorType(t1->shape.value(), output_dtype);
   }
-  if (vdev.defined()) {
+  if (vdev.has_value()) {
     return TensorType(output_dtype, ndim, vdev);
   }
   return TensorType(output_dtype, ndim);
@@ -128,7 +129,7 @@ InferLayoutOutput InferLayoutEwiseFMA(
   if (NLayoutEqual()(layout1, layout2)) {
     layout = layout1;
   }
-  return InferLayoutOutput({layout, layout, layout}, {layout}, Attrs(call->attrs));
+  return InferLayoutOutput({layout, layout, layout}, {layout}, call->attrs);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -138,15 +139,15 @@ TVM_FFI_STATIC_INIT_BLOCK() {
           sig::arg("x2", "The right hand operand of the multiplication"),
           sig::arg("x3", "The operand of the addition"),
           sig::var_ty_args("out_type", "Optional output tensor type carrying the virtual device."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeEwiseFMA)
-      .set_attr<FRelaxInferLayout>("FRelaxInferLayout", InferLayoutEwiseFMA)
-      .set_attr<TMixedPrecisionPolicy>("TMixedPrecisionPolicy", MixedPrecisionPolicyKind::kFollow)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeEwiseFMA)
+      .set_attr(tvm::relax::op_attr::kInferLayout, InferLayoutEwiseFMA)
+      .set_attr(tvm::relax::op_attr::kMixedPrecisionPolicy, MixedPrecisionPolicyKind::kFollow)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 Expr ewise_fma(Expr x1, Expr x2, Expr x3) {
   static const Op op = Op::Get("relax.ewise_fma");
-  return Call::Unchecked(Type::Missing(), op, {x1, x2, x3}, Attrs(), {});
+  return Call(Type::Missing(), op, {x1, x2, x3}, std::nullopt, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

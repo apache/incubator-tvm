@@ -17,17 +17,17 @@
 
 import pytest
 
-import tvm
-import tvm.script
+import tvm_tirx
+import tvm_tirx.script
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_vm_builtin_lower_mem_alloc_storage():
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -43,8 +43,8 @@ def test_vm_builtin_lower_mem_alloc_storage():
             gv0 = alloc
             return gv0
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Expected:
@@ -63,14 +63,14 @@ def test_vm_builtin_lower_mem_alloc_storage():
             return gv0
 
     After = relax.transform.LowerRuntimeBuiltin()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_vm_builtin_alloc_tensor_raises_error():
     """R.builtin.alloc_tensor should be handled earlier"""
 
-    m = T.dynamic("m")
-    n = T.dynamic("n")
+    m = T.dynamic("m", "int64")
+    n = T.dynamic("n", "int64")
 
     @I.ir_module
     class Before:
@@ -115,7 +115,7 @@ def test_vm_reshape_may_be_var():
 
     After = relax.transform.LowerRuntimeBuiltin()(Before)
 
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_vm_reshape_using_tensor_to_shape():
@@ -151,8 +151,8 @@ def test_vm_reshape_using_tensor_to_shape():
 
     After = relax.transform.LowerRuntimeBuiltin()(Before)
 
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

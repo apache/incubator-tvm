@@ -19,20 +19,20 @@
 import pytest
 import torch
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax import BasePyModule
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 n = T.dynamic("n", "int32")
 
 
 @R.py_module
 class TestPyFuncModule(BasePyModule):
-    """Test module with Python functions using @I.pyfunc decorator."""
+    """Test module with Python functions using @T.pyfunc decorator."""
 
     @I.pyfunc
     def pytorch_processor(x: torch.Tensor) -> torch.Tensor:
@@ -51,10 +51,10 @@ class TestPyFuncModule(BasePyModule):
         result = torch.nn.functional.dropout(result, p=0.1, training=False)
         return result * 10.0
 
-    @Ts.prim_func
+    @Ts.function
     def simple_tir_func(
-        A: T.Buffer((n,), "float32"),
-        B: T.Buffer((n,), "float32"),
+        A: T.Tensor((n,), "float32"),
+        B: T.Tensor((n,), "float32"),
     ):
         T.func_attr({"tirx.noalias": True})
 
@@ -175,7 +175,7 @@ class TestTVMScriptPyFunc:
 
         assert hasattr(module, "__call__"), "Module should be callable"
 
-        device = tvm.cpu(0)
+        device = tvm_tirx.cpu(0)
         instance = module(device)
 
         assert isinstance(instance, BasePyModule), "Instance should be BasePyModule"
@@ -191,10 +191,10 @@ class TestTVMScriptPyFunc:
     def test_pyfunc_module_creation_and_execution_gpu(self):
         module = TestPyFuncModule
 
-        if tvm.cuda().exist:
+        if tvm_tirx.cuda().exist:
 
             def run_and_check():
-                device = tvm.cuda(0)
+                device = tvm_tirx.cuda(0)
                 instance = module(device)
 
                 assert isinstance(instance, BasePyModule), "Instance should be BasePyModule"
@@ -209,7 +209,7 @@ class TestTVMScriptPyFunc:
                 expected = torch.nn.functional.relu(x) * 2.0
                 assert torch.allclose(result, expected, atol=1e-5)
 
-            tvm.testing.run_with_gpu_lock(run_and_check)
+            tvm_tirx.testing.run_with_gpu_lock(run_and_check)
         else:
             pytest.skip("CUDA not available")
 
@@ -218,7 +218,7 @@ class TestTVMScriptPyFunc:
         module = TestPyFuncModule
 
         # Create instance
-        device = tvm.cpu(0)
+        device = tvm_tirx.cpu(0)
         instance = module(device)
 
         # Test TIR function execution
@@ -240,7 +240,7 @@ class TestTVMScriptPyFunc:
         assert torch.allclose(result, input_tensor, atol=1e-5)
 
     def test_pyfunc_decorator_preserves_function_signatures(self):
-        """Test that @I.pyfunc decorator preserves function signatures."""
+        """Test that @T.pyfunc decorator preserves function signatures."""
         module = TestPyFuncModule
         pyfuncs = module.__pyfuncs__
 
@@ -264,4 +264,4 @@ class TestTVMScriptPyFunc:
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -18,171 +18,147 @@
  */
 
 #include <tvm/relax/distributed/type.h>
+#include <tvm/relax/expr.h>
+#include <tvm/relax/type.h>
+#include <tvm/runtime/tensor.h>
+#include <tvm/script/printer/doc_translator.h>
+#include <tvm/script/printer/printer.h>
+#include <tvm/script/printer/support.h>
 
 #include <cmath>
+#include <cstring>
 #include <limits>
+#include <optional>
 
-#include "../../../script/printer/dialect_prefix.h"
-#include "../../../tirx/script/printer/utils.h"
-#include "./utils.h"
+#include "utils.h"
 
 namespace tvm {
 namespace script {
 namespace printer {
+namespace details {
 
-TVM_FFI_STATIC_INIT_BLOCK() { RegisterDialectPrefix("relax.prefix", "R"); }
+namespace {
 
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<StringImm>(
-      "relax", [](StringImm n, AccessPath n_p, IRDocsifier d) -> Doc {
-        return Relax(d, "str")->Call({LiteralDoc::Str(n->value, n_p->Attr("value"))});
-      });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::Tuple>(  //
-      "", [](relax::Tuple n, AccessPath n_p, IRDocsifier d) -> Doc {
-        // TODO(@junrushao): revisit tuple printing
-        if (n->fields.empty()) {
-          return Relax(d, "tuple")->Call({});
-        }
-        ffi::Array<ExprDoc> fields_doc;
-        AccessPath fields_p = n_p->Attr("fields");
-        for (int i = 0, l = n->fields.size(); i < l; ++i) {
-          fields_doc.push_back(d->AsDoc<ExprDoc>(n->fields[i], fields_p->ArrayItem(i)));
-        }
-        return TupleDoc(fields_doc);
-      });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::TupleGetItem>(  //
-      "", [](relax::TupleGetItem n, AccessPath n_p, IRDocsifier d) -> Doc {
-        ExprDoc idx = LiteralDoc::Int(n->index, n_p->Attr("index"));
-        return d->AsDoc<ExprDoc>(n->tuple, n_p->Attr("tuple"))[{idx}];
-      });
-}
-
-TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::ShapeExpr>(  //
-      "", [](relax::ShapeExpr n, AccessPath n_p, IRDocsifier d) -> Doc {
-        ffi::Array<ExprDoc> values_doc;
-        AccessPath values_p = n_p->Attr("values");
-        for (int i = 0, l = n->values.size(); i < l; ++i) {
-          values_doc.push_back(d->AsDoc<ExprDoc>(n->values[i], values_p->ArrayItem(i)));
-        }
-        return Relax(d, "shape")->Call({ListDoc(values_doc)});
-      });
-}
-
-ffi::Optional<ExprDoc> SpecialScalar(const runtime::Tensor& n, const AccessPath& p) {
-  DLDataType dtype = n.DataType();
-  const void* data = n->data;
-  if (n->ndim != 0 || n->device.device_type != kDLCPU) {
-    return std::nullopt;
+ffi::Optional<ExprDoc> GenericConstDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                                const ffi::Object*) {
+  const auto* constant =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const GenericConstObj>(input);
+  if (auto dtype = constant->value.as<DLDataType>()) {
+    return LiteralDoc::DataType(dtype.value(), std::nullopt);
   }
-
-  if (dtype == DLDataType{kDLInt, 8, 1}) {
-    return LiteralDoc::Int(*reinterpret_cast<const int8_t*>(data), p);
-  } else if (dtype == DLDataType{kDLInt, 16, 1}) {
-    return LiteralDoc::Int(*reinterpret_cast<const int16_t*>(data), p);
-  } else if (dtype == DLDataType{kDLInt, 32, 1}) {
-    return LiteralDoc::Int(*reinterpret_cast<const int32_t*>(data), p);
-  } else if (dtype == DLDataType{kDLInt, 64, 1}) {
-    return LiteralDoc::Int(*reinterpret_cast<const int64_t*>(data), p);
-  } else if (dtype == DLDataType{kDLFloat, 16, 1}) {
-    // From IEEE-754 float16 definition
-    //
-    // Ref: https://en.wikipedia.org/wiki/Half-precision_floating-point_format
-    uint16_t bits = *reinterpret_cast<const uint16_t*>(data);
-    uint16_t sign_bit = (bits & 0b1000'0000'0000'0000) >> 15;
-    uint16_t exponent = (bits & 0b0111'1100'0000'0000) >> 10;
-    uint16_t fraction = (bits & 0b0000'0011'1111'1111) >> 0;
-
-    double value;
-    if (exponent == 0b1'1111 && fraction == 0) {
-      value = std::numeric_limits<double>::infinity();
-    } else if (exponent == 0b1'1111) {
-      value = std::numeric_limits<double>::quiet_NaN();
-    } else if (exponent == 0 && fraction == 0) {
-      value = 0.0;
-    } else if (exponent == 0) {
-      value = std::pow(2.0, -24) * static_cast<double>(fraction);
-    } else {
-      value = std::pow(2.0, static_cast<double>(exponent) - 25) *
-              static_cast<double>(fraction | (1 << 10));
+  auto tensor = constant->value.as<ffi::Tensor>();
+  if (!tensor || !tensor->defined()) return AddMetadata(d, ffi::GetRef<GenericConst>(constant));
+  const ffi::Tensor& data = tensor.value();
+  DLDataType dtype = data.dtype();
+  auto print_const = [&](ExprDoc value) -> ExprDoc {
+    if (constant->ty.as<relax::distributed::DTensorTypeObj>()) {
+      return NamespaceDoc("relax")->Attr("dist")->Attr("const")->Call(
+          {value, d->Translate(constant->ty).value()});
     }
-    if (sign_bit) {
-      value *= -1.0;
-    }
-
-    return LiteralDoc::Float(value, p);
-  } else if (dtype == DLDataType{kDLFloat, 32, 1}) {
-    return LiteralDoc::Float(*reinterpret_cast<const float*>(data), p);
-  } else if (dtype == DLDataType{kDLFloat, 64, 1}) {
-    return LiteralDoc::Float(*reinterpret_cast<const double*>(data), p);
-  } else if (dtype == DLDataType{kDLBool, 8, 1}) {
-    return LiteralDoc::Boolean(*reinterpret_cast<const uint8_t*>(data), p);
+    return NamespaceDoc("relax")->Attr("const")->Call(
+        {value, LiteralDoc::DataType(dtype, std::nullopt)});
+  };
+  if (data.ndim() != 0) return AddMetadata(d, ffi::GetRef<GenericConst>(constant));
+  if (data.device().device_type != kDLCPU)
+    return AddMetadata(d, ffi::GetRef<GenericConst>(constant));
+  if (dtype.lanes != 1 || dtype.bits == 0 || dtype.bits > 64 || dtype.bits % 8 != 0) {
+    return AddMetadata(d, ffi::GetRef<GenericConst>(constant));
+  }
+  alignas(double) uint8_t scalar_bytes[sizeof(double)]{};
+  tvm::runtime::CopyToBytes(data, scalar_bytes, dtype.bits / 8);
+  auto read_scalar = [&](auto value) {
+    std::memcpy(&value, scalar_bytes, sizeof(value));
+    return value;
+  };
+  ExprDoc scalar(ffi::UnsafeInit{});
+  if (dtype == (DLDataType{kDLInt, 8, 1})) {
+    scalar = LiteralDoc::Int(read_scalar(int8_t{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLInt, 16, 1})) {
+    scalar = LiteralDoc::Int(read_scalar(int16_t{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLInt, 32, 1})) {
+    scalar = LiteralDoc::Int(read_scalar(int32_t{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLInt, 64, 1})) {
+    scalar = LiteralDoc::Int(read_scalar(int64_t{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLFloat, 16, 1})) {
+    uint16_t bits = read_scalar(uint16_t{});
+    uint16_t exponent = (bits >> 10) & 31;
+    uint16_t fraction = bits & 1023;
+    double value = exponent == 31
+                       ? (fraction ? std::numeric_limits<double>::quiet_NaN()
+                                   : std::numeric_limits<double>::infinity())
+                       : (exponent == 0 ? std::ldexp(static_cast<double>(fraction), -24)
+                                        : std::ldexp(static_cast<double>(fraction | 1024),
+                                                     static_cast<int>(exponent) - 25));
+    if (bits & 0x8000) value = -value;
+    scalar = LiteralDoc::Float(value, std::nullopt);
+  } else if (dtype == (DLDataType{kDLFloat, 32, 1})) {
+    scalar = LiteralDoc::Float(read_scalar(float{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLFloat, 64, 1})) {
+    scalar = LiteralDoc::Float(read_scalar(double{}), std::nullopt);
+  } else if (dtype == (DLDataType{kDLBool, 8, 1})) {
+    scalar = LiteralDoc::Boolean(read_scalar(uint8_t{}), std::nullopt);
   } else {
-    return std::nullopt;
+    return AddMetadata(d, ffi::GetRef<GenericConst>(constant));
   }
+  return print_const(scalar);
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<::tvm::GenericConst>(  //
-      "relax", [](::tvm::GenericConst n, AccessPath n_p, IRDocsifier d) -> Doc {
-        if (n->value.as<DLDataType>()) {
-          return IRDocsifier::vtable()("", n, n_p, d);
-        }
-        auto data = n->value.cast<runtime::Tensor>();
-        if (ffi::Optional<ExprDoc> s = SpecialScalar(data, n_p->Attr("value"))) {
-          if (n->ty.as<relax::distributed::DTensorTypeNode>()) {
-            ExprDoc ann = d->AsDoc<ExprDoc>(n->ty, n_p->Attr("ty"));
-            return Relax(d, "dist.const")->Call({s.value(), ann});
-          }
-          return Relax(d, "const")
-              ->Call({
-                  s.value(),
-                  LiteralDoc::DataType(data.DataType(), n_p->Attr("value")->Attr("dtype")),
-              });
-        }
-        return d->AddMetadata(n);
-      });
+  ffi::reflection::TypeAttrDef<GenericConstObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&GenericConstDocTranslate>());
 }
 
-Doc PrintRelaxVar(tvm::Var n, AccessPath p, IRDocsifier d) {
-  if (!d->IsVarDefined(n)) {
-    ExprDoc ann = d->AsDoc<ExprDoc>(n->ty, p->Attr("ty"));
-    Frame f = d->frames.back();
-    ExprDoc var = DefineRelaxVar(n, f, d);
-    f->stmts.push_back(AssignDoc(var, std::nullopt, ann));
-  }
-  return d->GetVarDoc(n).value();
+ffi::Optional<ExprDoc> ShapeExprDocTranslate(DocTranslatorObj* d, ffi::AnyView input,
+                                             const ffi::Object*) {
+  const auto* shape =
+      ffi::detail::AnyUnsafe::RawObjectPtrFromAnyViewAfterCheck<const relax::ShapeExprObj>(input);
+  ffi::Array<ExprDoc> dimensions;
+  for (const PrimExpr& dim : shape->values) dimensions.push_back(RelaxShapeDim(d, dim));
+  return NamespaceDoc("relax")->Attr("shape")->Call({ListDoc(dimensions)});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  IRDocsifier::vtable().set_dispatch<relax::DataflowVar>("relax", PrintRelaxVar);
-}
-
-std::string ReprPrintVar(const ffi::ObjectRef& obj, const PrinterConfig& cfg) {
-  Var var = obj.as_or_throw<Var>();
-  if (var->ty.as<PrimTypeNode>() || var->ty.as<PointerTypeNode>() ||
-      var->ty.as<tirx::BufferTypeNode>()) {
-    return ReprPrintTIR(obj, cfg);
-  }
-  return ReprPrintRelax(obj, cfg);
+  ffi::reflection::TypeAttrDef<relax::ShapeExprObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&ShapeExprDocTranslate>());
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  TVMScriptPrinter::Register<relax::TupleNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::TupleGetItemNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<relax::ShapeExprNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<VarNode>(ReprPrintVar);
-  TVMScriptPrinter::Register<relax::DataflowVarNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<::tvm::GenericConstNode>(ReprPrintRelax);
-  TVMScriptPrinter::Register<::tvm::DataTypeImmNode>(ReprPrintRelax);
+  ffi::reflection::TypeAttrDef<relax::DataflowVarObj>().attr(
+      tvm::script::printer::type_attr::kDocTranslate.name,
+      FDocTranslate::FromNative<&VarDocTranslate>());
 }
 
+}  // namespace
+
+}  // namespace details
 }  // namespace printer
 }  // namespace script
+
+TVM_FFI_STATIC_INIT_BLOCK() {
+  using script::printer::RegisterScriptRepr;
+  ffi::reflection::GlobalDef().def("script.printer.ReprPrintRelax",
+                                   [](const ffi::ObjectRef& obj, const PrinterConfig& config) {
+                                     return tvm::Script(obj, config);
+                                   });
+  RegisterScriptRepr<relax::BindingBlockObj>();
+  RegisterScriptRepr<relax::DataflowBlockObj>();
+  RegisterScriptRepr<relax::DataflowVarObj>();
+  RegisterScriptRepr<relax::ExternFuncObj>();
+  RegisterScriptRepr<relax::FuncTypeObj>();
+  RegisterScriptRepr<relax::FunctionObj>();
+  RegisterScriptRepr<relax::IfExprObj>();
+  RegisterScriptRepr<relax::MatchCastObj>();
+  RegisterScriptRepr<relax::PackedFuncTypeObj>();
+  RegisterScriptRepr<relax::SeqExprObj>();
+  RegisterScriptRepr<relax::ShapeExprObj>();
+  RegisterScriptRepr<relax::ShapeTypeObj>();
+  RegisterScriptRepr<relax::TensorTypeObj>();
+  RegisterScriptRepr<relax::VarBindingObj>();
+  RegisterScriptRepr<relax::distributed::DTensorTypeObj>();
+  RegisterScriptRepr<relax::distributed::DeviceMeshObj>();
+  RegisterScriptRepr<relax::distributed::PlacementObj>();
+}
+
 }  // namespace tvm

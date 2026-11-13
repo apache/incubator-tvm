@@ -14,21 +14,21 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import tvm
+import tvm_tirx
 from tvm.s_tir import Schedule
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.transform import tile_with_tensor_intrin
 from tvm.s_tir.tensor_intrin.x86 import AVX512_DOT_16x4_INTRIN, VNNI_DOT_16x4_INTRIN
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class DenseTIRModule:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((1024, 1024), "uint8"),
-        placeholder_1: T.Buffer((64, 256, 16, 4), "int8"),
-        compute: T.Buffer((1024, 1024), "int32"),
+        placeholder: T.Tensor((1024, 1024), "uint8"),
+        placeholder_1: T.Tensor((64, 256, 16, 4), "int8"),
+        compute: T.Tensor((1024, 1024), "int32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         with Ts.sblock("root"):
@@ -41,18 +41,18 @@ class DenseTIRModule:
                     Ts.writes(compute[i, j])
                     with Ts.init():
                         compute[i, j] = 0
-                    compute[i, j] = compute[i, j] + T.cast(placeholder[i, k], "int32") * T.cast(
-                        placeholder_1[j // 16, k // 4, j % 16, k % 4], "int32"
+                    compute[i, j] = compute[i, j] + T.cast(placeholder[i, k], ty="int32") * T.cast(
+                        placeholder_1[j // 16, k // 4, j % 16, k % 4], ty="int32"
                     )
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class DenseTIRModuleTiled:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((1024, 1024), "uint8"),
-        placeholder_1: T.Buffer((64, 256, 16, 4), "int8"),
-        compute: T.Buffer((1024, 1024), "int32"),
+        placeholder: T.Tensor((1024, 1024), "uint8"),
+        placeholder_1: T.Tensor((64, 256, 16, 4), "int8"),
+        compute: T.Tensor((1024, 1024), "int32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
@@ -67,18 +67,18 @@ class DenseTIRModuleTiled:
                 Ts.writes(compute[i, j])
                 with Ts.init():
                     compute[i, j] = 0
-                compute[i, j] = compute[i, j] + T.cast(placeholder[i, k], "int32") * T.cast(
-                    placeholder_1[j // 16, k // 4, j % 16, k % 4], "int32"
+                compute[i, j] = compute[i, j] + T.cast(placeholder[i, k], ty="int32") * T.cast(
+                    placeholder_1[j // 16, k // 4, j % 16, k % 4], ty="int32"
                 )
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dNCHWcTIRModule:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"),
-        placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"),
-        conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32"),
+        placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"),
+        placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"),
+        conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         for i0, i1, i2, i3, i4, i5, i6, i7, i8, i9 in T.grid(1, 16, 56, 56, 16, 1, 1, 4, 4, 4):
@@ -106,20 +106,20 @@ class Conv2dNCHWcTIRModule:
                     n, oc_chunk, oh, ow, oc_block
                 ] + T.cast(
                     placeholder[n, ic_outer, oh + kh, ow + kw, ic_f_inner * 4 + ic_s_inner],
-                    "int32",
+                    ty="int32",
                 ) * T.cast(
                     placeholder_1[oc_chunk, ic_outer, kh, kw, ic_f_inner, oc_block, ic_s_inner],
-                    "int32",
+                    ty="int32",
                 )
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dNCHWcTIRModuleTiled:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"),
-        placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"),
-        conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32"),
+        placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"),
+        placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"),
+        conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
@@ -144,10 +144,10 @@ class Conv2dNCHWcTIRModuleTiled:
                     n, oc_chunk, oh, ow, oc_block
                 ] + T.cast(
                     placeholder[n, ic_outer, oh + kh, ow + kw, ic_f_inner * 4 + ic_s_inner],
-                    "int32",
+                    ty="int32",
                 ) * T.cast(
                     placeholder_1[oc_chunk, ic_outer, kh, kw, ic_f_inner, oc_block, ic_s_inner],
-                    "int32",
+                    ty="int32",
                 )
 
 
@@ -160,7 +160,7 @@ def test_tile_with_tensor_intrin_dense(intrin=VNNI_DOT_16x4_INTRIN):
     _, _, _, i1_1, _ = s.get_loops(block)
 
     assert s.get(tiled_loop) == s.get(i1_1)
-    tvm.ir.assert_structural_equal(s.mod, DenseTIRModuleTiled)
+    tvm_tirx.ir.assert_structural_equal(s.mod, DenseTIRModuleTiled)
 
 
 def test_tile_with_tensor_intrin_conv2d_nchwc(intrin=VNNI_DOT_16x4_INTRIN):
@@ -170,7 +170,7 @@ def test_tile_with_tensor_intrin_conv2d_nchwc(intrin=VNNI_DOT_16x4_INTRIN):
     tiled_loops = s.get_loops(block)
     assert len(tiled_loops) == 12
     assert s.get(tiled_loop) == s.get(tiled_loops[-2])
-    tvm.ir.assert_structural_equal(s.mod, Conv2dNCHWcTIRModuleTiled)
+    tvm_tirx.ir.assert_structural_equal(s.mod, Conv2dNCHWcTIRModuleTiled)
 
 
 if __name__ == "__main__":

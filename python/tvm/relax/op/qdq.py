@@ -16,11 +16,32 @@
 # under the License.
 """Relax quantize/dequantize operators"""
 
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir import PrimType as _PrimType
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+
 from ..expr import Expr
-from . import _ffi_api
 
 
-def quantize(data: Expr, scale: Expr, zero_point: Expr, axis: int = -1, out_dtype: str = "int8"):
+@tvm_ffi.register_object("relax.attrs.QuantizeAttrs")
+class QuantizeAttrs(Attrs):
+    """Attributes used in quantize/dequantize operators"""
+
+
+def quantize(
+    data: Expr,
+    scale: Expr,
+    zero_point: Expr,
+    axis: int = -1,
+    out_dtype: str = "int8",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+):
     r"""Quantize op
     This operator takes input and produces quantized output. The input tensor can be of any shape.
     The output shape is the same as input shape.
@@ -50,11 +71,28 @@ def quantize(data: Expr, scale: Expr, zero_point: Expr, axis: int = -1, out_dtyp
         The computed result.
     """
 
-    return _ffi_api.quantize(data, scale, zero_point, axis, out_dtype)
+    return _Call(
+        "relax.quantize",
+        [data, scale, zero_point],
+        attrs=_make_attrs(
+            "relax.attrs.QuantizeAttrs",
+            axis=axis,
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        loc=loc,
+        ty=ty,
+    )
 
 
 def dequantize(
-    data: Expr, scale: Expr, zero_point: Expr, axis: int = -1, out_dtype: str = "float32"
+    data: Expr,
+    scale: Expr,
+    zero_point: Expr,
+    axis: int = -1,
+    out_dtype: str = "float32",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ):
     r"""Dequantize op
     This operator takes input and produces dequantized output. The input tensor can be of any shape.
@@ -85,4 +123,14 @@ def dequantize(
         The computed result.
     """
 
-    return _ffi_api.dequantize(data, scale, zero_point, axis, out_dtype)
+    return _Call(
+        "relax.dequantize",
+        [data, scale, zero_point],
+        attrs=_make_attrs(
+            "relax.attrs.QuantizeAttrs",
+            axis=axis,
+            out_dtype=(out_dtype.dtype if isinstance(out_dtype, _PrimType) else out_dtype),
+        ),
+        loc=loc,
+        ty=ty,
+    )

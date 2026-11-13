@@ -20,7 +20,10 @@
 
 import sys
 
+import tvm_ffi
+
 import tvm
+import tvm_tirx
 
 from . import disco_worker as _  # pylint: disable=unused-import
 
@@ -32,5 +35,5 @@ if __name__ == "__main__":
     server_host = sys.argv[1]
     server_port = int(sys.argv[2])
     num_workers = int(sys.argv[3])
-    func = tvm.get_global_func("runtime.disco.RemoteSocketSession")
+    func = tvm_ffi.get_global_func("runtime.disco.RemoteSocketSession")
     func(server_host, server_port, num_workers)

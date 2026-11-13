@@ -46,7 +46,6 @@ TinyLlama model from Hugging Face and deploy it on various devices.
 #   universal runtime, and execute it on different devices, such as CPU, GPU, or other accelerators.
 #
 
-
 ######################################################################
 # Construct the model architecture
 # --------------------------------
@@ -54,22 +53,24 @@ TinyLlama model from Hugging Face and deploy it on various devices.
 # pre-trained weight from Hugging Face but not the model architecture. We need to construct the
 # model architecture by ourselves. Apache TVM prepares a PyTorch-liked API to construct the model
 # architecture. We can use the API to construct the model architecture.
-
 import dataclasses
 import enum
 import os
 from pathlib import Path
 from pprint import pprint
 
+import tvm_ffi
 from tvm_ffi import Shape
 
 import tvm
-from tvm import relax, te, tirx
+import tvm_tirx
+from tvm import relax, te
 from tvm.relax import register_pipeline
 from tvm.relax.frontend import nn
 from tvm.relax.frontend.nn import Tensor, op
 from tvm.relax.frontend.nn.llm.kv_cache import PagedKVCache, TIRPagedKVCache
 from tvm.s_tir import dlight
+from tvm_tirx import tirx
 
 ######################################################################
 # First, we need to define the model configuration. The configuration includes the key parameters
@@ -92,8 +93,8 @@ class LlamaConfig:
     head_dim: int = 64  # hidden_size // num_attention_heads
 
 
-dev = tvm.cuda(0)
-target = tvm.target.Target.from_device(dev)
+dev = tvm_tirx.cuda(0)
+target = tvm_tirx.target.Target.from_device(dev)
 
 
 ######################################################################
@@ -306,7 +307,7 @@ class LlamaForCausalLM(nn.Module):
             rope_scale=1,
             rope_theta=self.rope_theta,
             rope_scaling={},
-            rope_ext_factors=tirx.IntImm("int64", 0),
+            rope_ext_factors=tvm_tirx.ir.IntImm("int64", 0),
             rotary_dim=self.head_dim,
             dtype=self.dtype,
             target=target,
@@ -373,24 +374,28 @@ pprint(named_params[:5])  # Only show the first 5 parameters for demonstration
 # Define Optimization Pipeline
 # ----------------------------
 # We define a series of optimization passes to optimize the model. The optimization pipeline
-# is designed specifically for the LLMs.
+# is designed specifically for the LLMs. Pass the compilation target explicitly to legalization
+# and GPU scheduling.
 
 
 @register_pipeline("opt_llm")
 def _pipeline(  # pylint: disable=too-many-arguments
+    target: tvm_tirx.target.Target,
     ext_mods: list[nn.ExternModule] | None = None,
 ):
     ext_mods = ext_mods or []
 
-    @tvm.transform.module_pass(opt_level=0)
-    def _pipeline(mod: tvm.ir.IRModule, _ctx: tvm.transform.PassContext) -> tvm.ir.IRModule:
-        seq = tvm.transform.Sequential(
+    @tvm_tirx.ir.transform.module_pass(opt_level=0)
+    def _pipeline(
+        mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext
+    ) -> tvm_tirx.ir.IRModule:
+        seq = tvm_tirx.ir.transform.Sequential(
             [
                 # Phase 1. Passes on high-level operator graph
                 # We can enable cublas for further optimization
                 relax.transform.FuseTransposeMatmul(),
                 # Phase 2. Lowering to TIR, inherited TVM Relax's official "zero" pipeline
-                relax.transform.LegalizeOps(),
+                relax.transform.LegalizeOps(target=target),
                 relax.transform.AnnotateTIROpPattern(),
                 relax.transform.FoldConstant(),
                 relax.transform.FuseOps(),
@@ -404,6 +409,7 @@ def _pipeline(  # pylint: disable=too-many-arguments
                     dlight.gpu.Reduction(),
                     dlight.gpu.GeneralReduction(),
                     dlight.gpu.Fallback(),
+                    target=target,
                 ),
                 # Phase 5. Lowering to VM bytecode
                 relax.transform.RewriteDataflowReshape(),
@@ -426,9 +432,8 @@ def _pipeline(  # pylint: disable=too-many-arguments
     return _pipeline
 
 
-with target:
-    ex = tvm.compile(mod, target, relax_pipeline=relax.get_pipeline("opt_llm"))
-    vm = relax.VirtualMachine(ex, dev)
+ex = tvm.compile(mod, target, relax_pipeline=relax.get_pipeline("opt_llm", target=target))
+vm = relax.VirtualMachine(ex, dev)
 
 
 ######################################################################
@@ -490,7 +495,8 @@ if not IS_IN_CI:
 
     # Convert params into ndarray
     params = [
-        tvm.runtime.tensor(param_dict[k].astype("float16"), device=dev) for k in named_params.keys()
+        tvm_tirx.runtime.tensor(param_dict[k].astype("float16"), device=dev)
+        for k in named_params.keys()
     ]
 
 
@@ -524,7 +530,7 @@ if not IS_IN_CI:
     input_len = len(prompt)
 
     # Load prompt tokens into TVM ndarray on the target device
-    tokens = tvm.runtime.tensor(np.array(prompt).astype("int32"), device=dev)
+    tokens = tvm_tirx.runtime.tensor(np.array(prompt).astype("int32"), device=dev)
 
 ######################################################################
 # Create the KVCache
@@ -548,7 +554,7 @@ if not IS_IN_CI:
 # The next step is to embed the tokens into the hidden states. We use the `embed` function
 # compiled in the Relax IRModule to embed the tokens into the hidden states.
 
-nd_view_func = tvm.get_global_func("vm.builtin.reshape")
+nd_view_func = tvm_ffi.get_global_func("vm.builtin.reshape")
 
 
 def embed(tokens, params):
@@ -563,9 +569,9 @@ def embed(tokens, params):
 # ~~~~~~~
 # Before running the forward pass, we first get some help functions for preparation.
 
-add_sequence_func = tvm.get_global_func("vm.builtin.kv_state_add_sequence")
-begin_forward_func = tvm.get_global_func("vm.builtin.kv_state_begin_forward")
-end_forward_func = tvm.get_global_func("vm.builtin.kv_state_end_forward")
+add_sequence_func = tvm_ffi.get_global_func("vm.builtin.kv_state_add_sequence")
+begin_forward_func = tvm_ffi.get_global_func("vm.builtin.kv_state_begin_forward")
+end_forward_func = tvm_ffi.get_global_func("vm.builtin.kv_state_end_forward")
 
 ######################################################################
 # As we are creating a new sequence, we need to call `add_sequence_func` to initialize
@@ -610,7 +616,7 @@ if not IS_IN_CI:
     print("The generated token:")
 
     while last_token != tokenizer.eos_token_id:
-        tokens = tvm.runtime.tensor(np.array([last_token]).astype("int32"), device=dev)
+        tokens = tvm_tirx.runtime.tensor(np.array([last_token]).astype("int32"), device=dev)
         hidden_states = embed(tokens, params)
         begin_forward_func(kv_cache, Shape([seq_id]), Shape([1]))
         logits, kv_cache = vm["decode"](hidden_states, kv_cache, params)

@@ -17,7 +17,7 @@
 # pylint: disable=invalid-name
 """ROI Pool operator"""
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 
@@ -31,16 +31,16 @@ def roi_pool_nchw(data, rois, pooled_size, spatial_scale):
     else:
         pooled_size_h, pooled_size_w = pooled_size
 
-    zero = tvm.tirx.const(0.0, data.dtype)
+    zero = tvm_tirx.tirx.const(0.0, data.dtype)
     roi_dtype = rois.dtype
 
-    neg_inf = tvm.tirx.const(float("-inf"), data.dtype)
+    neg_inf = tvm_tirx.tirx.const(float("-inf"), data.dtype)
 
     def _round_away(x):
         # ONNX MaxRoiPool spec uses ties-away-from-zero rounding for coordinate
         # mapping (matching std::round semantics in the reference implementation).
         # Use floor(x + 0.5) to be explicit and independent of tir.round semantics.
-        half = tvm.tirx.const(0.5, roi_dtype)
+        half = tvm_tirx.tirx.const(0.5, roi_dtype)
         return te.floor(x + half)
 
     def _bin_bounds(i, ph, pw):
@@ -50,16 +50,20 @@ def roi_pool_nchw(data, rois, pooled_size, spatial_scale):
         roi_end_w = _round_away(roi[3] * spatial_scale).astype("int32")
         roi_end_h = _round_away(roi[4] * spatial_scale).astype("int32")
 
-        roi_h = te.max(roi_end_h - roi_start_h + 1, tvm.tirx.const(1, "int32"))
-        roi_w = te.max(roi_end_w - roi_start_w + 1, tvm.tirx.const(1, "int32"))
+        roi_h = te.max(roi_end_h - roi_start_h + 1, tvm_tirx.tirx.const(1, "int32"))
+        roi_w = te.max(roi_end_w - roi_start_w + 1, tvm_tirx.tirx.const(1, "int32"))
 
-        bin_h = tvm.tirx.Cast(roi_dtype, roi_h) / tvm.tirx.const(float(pooled_size_h), roi_dtype)
-        bin_w = tvm.tirx.Cast(roi_dtype, roi_w) / tvm.tirx.const(float(pooled_size_w), roi_dtype)
+        bin_h = tvm_tirx.tirx.Cast(roi_dtype, roi_h) / tvm_tirx.tirx.const(
+            float(pooled_size_h), roi_dtype
+        )
+        bin_w = tvm_tirx.tirx.Cast(roi_dtype, roi_w) / tvm_tirx.tirx.const(
+            float(pooled_size_w), roi_dtype
+        )
 
-        hstart = te.floor(tvm.tirx.Cast(roi_dtype, ph) * bin_h).astype("int32")
-        wstart = te.floor(tvm.tirx.Cast(roi_dtype, pw) * bin_w).astype("int32")
-        hend = te.ceil(tvm.tirx.Cast(roi_dtype, ph + 1) * bin_h).astype("int32")
-        wend = te.ceil(tvm.tirx.Cast(roi_dtype, pw + 1) * bin_w).astype("int32")
+        hstart = te.floor(tvm_tirx.tirx.Cast(roi_dtype, ph) * bin_h).astype("int32")
+        wstart = te.floor(tvm_tirx.tirx.Cast(roi_dtype, pw) * bin_w).astype("int32")
+        hend = te.ceil(tvm_tirx.tirx.Cast(roi_dtype, ph + 1) * bin_h).astype("int32")
+        wend = te.ceil(tvm_tirx.tirx.Cast(roi_dtype, pw + 1) * bin_w).astype("int32")
 
         hstart = te.min(te.max(hstart + roi_start_h, 0), height)
         hend = te.min(te.max(hend + roi_start_h, 0), height)
@@ -71,12 +75,12 @@ def roi_pool_nchw(data, rois, pooled_size, spatial_scale):
         roi = rois[i]
         batch_index = roi[0].astype("int32")
         hstart, hend, wstart, wend = _bin_bounds(i, ph, pw)
-        valid = tvm.tirx.all(hstart <= rh, rh < hend, wstart <= rw, rw < wend)
-        return tvm.tirx.if_then_else(valid, data[batch_index, c, rh, rw], neg_inf)
+        valid = tvm_tirx.tirx.all(hstart <= rh, rh < hend, wstart <= rw, rw < wend)
+        return tvm_tirx.tirx.if_then_else(valid, data[batch_index, c, rh, rw], neg_inf)
 
     def _is_empty(i, ph, pw):
         hstart, hend, wstart, wend = _bin_bounds(i, ph, pw)
-        return tvm.tirx.any(hend <= hstart, wend <= wstart)
+        return tvm_tirx.tirx.any(hend <= hstart, wend <= wstart)
 
     rh = te.reduce_axis((0, height), name="rh")
     rw = te.reduce_axis((0, width), name="rw")
@@ -88,7 +92,7 @@ def roi_pool_nchw(data, rois, pooled_size, spatial_scale):
 
     return te.compute(
         (num_roi, channel, pooled_size_h, pooled_size_w),
-        lambda i, c, ph, pw: tvm.tirx.if_then_else(
+        lambda i, c, ph, pw: tvm_tirx.tirx.if_then_else(
             _is_empty(i, ph, pw), zero, pooled[i, c, ph, pw]
         ),
     )

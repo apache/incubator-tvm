@@ -44,6 +44,10 @@
 
   <properties>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <tvm.include.dir>${maven.multiModuleProjectDirectory}/../include</tvm.include.dir>
+    <tvm.ffi.include.dir>${maven.multiModuleProjectDirectory}/../3rdparty/tvm-tirx/3rdparty/tvm-ffi/include</tvm.ffi.include.dir>
+    <tvm.lib.dir>${maven.multiModuleProjectDirectory}/../build/lib</tvm.lib.dir>
+    <tvm.ffi.lib.dir>${tvm.lib.dir}</tvm.ffi.lib.dir>
   </properties>
 
   <packaging>pom</packaging>

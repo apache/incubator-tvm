@@ -23,7 +23,7 @@ CUDA helpers
 
 The CUDA backend installs the ``Tx.cuda`` namespace when it is loaded::
 
-   from tvm.script import tirx as Tx
+   from tvm_tirx.script import tirx as Tx
 
    Tx.cuda.cta_sync()
    leader = Tx.cuda.elect_sync()
@@ -61,7 +61,7 @@ The current ``Tx.cuda`` surface includes:
        ``get_tmem_addr``, ``cvta_generic_to_shared``,
        ``smem_addr_from_uint64``, ``sm100_2sm_leader_smem_addr``, and ``mov_sreg``
    * - Loads, calls, and diagnostics
-     - ``ldg``, ``func_call``, ``printf``, ``trap_when_assert_failed``,
+     - ``func_call``, ``printf``, ``trap_when_assert_failed``,
        ``nano_sleep``, ``clock64``, and ``ffs_u32``
    * - Numeric conversion and packed math
      - ``half2float``, ``bfloat162float``, ``float22half2``,
@@ -74,8 +74,11 @@ The current ``Tx.cuda`` surface includes:
      - ``iket.mark``, ``iket.range_start``, ``iket.range_end``,
        ``iket.range_push``, ``iket.range_pop``, ``iket.sentinel_token``,
        ``iket.official_event``, ``timer_init``, ``timer_start``, ``timer_end``,
-       ``timer_finalize``, ``mma_store``, ``mma_fill``, ``mma_store_legacy``,
-       and ``mma_fill_legacy``
+       ``timer_finalize``, ``mma_store``, and ``mma_fill``
+
+``mma_store`` and ``mma_fill`` remain available for downstream emitters.
+TVM CUDA codegen does not emit them; express stores and initialization with
+ordinary tensor assignments.
 
 NVSHMEM namespace
 -----------------
@@ -88,87 +91,56 @@ provide ``.warp`` and ``.block`` variants.
 CUDA language utilities
 -----------------------
 
-``tvm.backend.cuda.lang`` provides reusable objects for hand-written CUDA TIRx
-kernels, including schedulers, pipelines, roles, barriers, descriptors, and
-memory pools.
+``tvm_tirx.backend.cuda.lang`` provides reusable objects for hand-written CUDA TIRx
+kernels, including schedulers, pipelines, barriers, and shared-memory pools.
 
-.. autoclass:: tvm.backend.cuda.lang.BaseTileScheduler
+.. autoclass:: tvm_tirx.backend.cuda.lang.BaseTileScheduler
    :members:
 
-.. py:class:: tvm.backend.cuda.lang.ClusterPersistentScheduler2D(prefix, num_m_tiles, num_n_tiles, num_clusters, l2_group_size=8, cluster_m=1, cluster_n=1, serpentine=False)
+.. py:class:: tvm_tirx.backend.cuda.lang.ClusterPersistentScheduler2D(prefix, num_m_tiles, num_n_tiles, num_clusters, l2_group_size=8, cluster_m=1, cluster_n=1, serpentine=False)
 
    Persistent two-dimensional tile scheduler with group-major or serpentine
    traversal.  ``init`` selects the first tile for a cluster, ``next_tile`` or
    ``next_tile_stride`` advances it, and ``valid`` reports whether the current
    ``m_idx`` / ``n_idx`` is in range.
 
-.. autoclass:: tvm.backend.cuda.lang.FlashAttentionLPTScheduler
+.. autoclass:: tvm_tirx.backend.cuda.lang.FlashAttentionLPTScheduler
    :members:
 
-.. py:class:: tvm.backend.cuda.lang.FlashAttentionLinearScheduler(prefix, num_batches, num_heads, num_m_blocks, num_ctas)
+.. py:class:: tvm_tirx.backend.cuda.lang.FlashAttentionLinearScheduler(prefix, num_batches, num_heads, num_m_blocks, num_ctas)
 
    Linear persistent scheduler over ``(batch, head, m_block)`` tasks.
    ``init`` starts from a CTA index, ``next_tile`` advances by ``num_ctas``,
    and ``valid`` reports whether work remains.
 
-.. autoclass:: tvm.backend.cuda.lang.GroupMajor3D
+.. autoclass:: tvm_tirx.backend.cuda.lang.MBarrier
    :members:
 
-.. autoclass:: tvm.backend.cuda.lang.IndexedTripleTileScheduler
+.. autoclass:: tvm_tirx.backend.cuda.lang.Pipeline
    :members:
 
-.. autoclass:: tvm.backend.cuda.lang.MBarrier
+.. autoclass:: tvm_tirx.backend.cuda.lang.PipelineState
    :members:
 
-.. autoclass:: tvm.backend.cuda.lang.Pipeline
+.. autoclass:: tvm_tirx.backend.cuda.lang.SMEMPool
    :members:
 
-.. autoclass:: tvm.backend.cuda.lang.PipelineState
+.. autoclass:: tvm_tirx.backend.cuda.lang.TCGen05Bar
    :members:
 
-.. autoclass:: tvm.backend.cuda.lang.RankAwareGroupMajorTileScheduler
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.SMEMPool
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.SmemDescriptor
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.TCGen05Bar
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.TMABar
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.TMEMPool
-   :members:
-   :exclude-members: alloc
-
-.. py:method:: TMEMPool.alloc(shape, dtype="float32", *, layout=None, cols=None)
-
-   Allocate a tensor-memory buffer from the pool.  ``layout`` supplies an
-   explicit ``TileLayout``; without it, two-dimensional shapes use the default
-   dense layout.  ``cols`` overrides the inferred tensor-memory column count.
-   Datapath-specific accumulators can instead use
-   ``alloc_tcgen05_mma_D(...)`` / ``alloc_tcgen05_mma_C(...)``.
-
-.. autoclass:: tvm.backend.cuda.lang.WarpRole
-   :members:
-
-.. autoclass:: tvm.backend.cuda.lang.WarpgroupRole
+.. autoclass:: tvm_tirx.backend.cuda.lang.TMABar
    :members:
 
 IKET profiling
 --------------
 
-.. automodule:: tvm.backend.cuda.iket
+.. automodule:: tvm_tirx.backend.cuda.iket
    :members:
    :no-index:
 
 CUDA-specific transforms
 ------------------------
 
-.. automodule:: tvm.backend.cuda.transforms
+.. automodule:: tvm_tirx.backend.cuda.transform
    :members:
    :no-index:

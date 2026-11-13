@@ -41,7 +41,7 @@ using namespace tvm::te;
  * \return The fused iteration variable
  */
 inline IterVar Fuse(Stage stage, const ffi::Array<IterVar>& args) {
-  IterVar res;
+  IterVar res(ffi::UnsafeInit{});
   stage.fuse(args, &res);
   return res;
 }

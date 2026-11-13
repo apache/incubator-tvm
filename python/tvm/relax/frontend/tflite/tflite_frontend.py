@@ -27,10 +27,13 @@ import math
 
 import numpy as np
 
-import tvm
-from tvm import relax, tirx
+import tvm_tirx
+from tvm import relax
+from tvm.relax import ExternFunc as _ExternFunc
 from tvm.relax import op as _op
-from tvm.script import s_tir as Ts
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.ir import TupleType as _TupleType
 
 from .tflite_flexbuffer import FlexBufferDecoder
 
@@ -500,11 +503,11 @@ class OperatorConverter:
             )
 
         if len(raise_msg) > 0:
-            raise tvm.error.OpNotImplemented(raise_msg)
+            raise NotImplementedError(raise_msg)
 
     def convert_operator_marker(self, op, op_name):
         """Reject TFLite marker builtins with an explicit diagnostic."""
-        raise tvm.error.OpNotImplemented(
+        raise NotImplementedError(
             f"TFLite operator marker {op_name} is not a Relax tensor operator"
         )
 
@@ -602,12 +605,12 @@ class OperatorConverter:
             return (container, shared_name)
         if fallback_tensor is not None:
             return ("", get_tensor_name(self.subgraph, fallback_tensor.tensor_idx))
-        raise tvm.error.OpNotImplemented("VAR_HANDLE requires VarHandleOptions")
+        raise NotImplementedError("VAR_HANDLE requires VarHandleOptions")
 
     def _get_resource_key_for_handle(self, tensor, op_name):
         tensor_name = get_tensor_name(self.subgraph, tensor.tensor_idx)
         if tensor_name not in self.resource_handles:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"{op_name} requires a VAR_HANDLE in the same TFLite subgraph"
             )
         return self.resource_handles[tensor_name]
@@ -617,7 +620,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 0 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented("VAR_HANDLE expects no inputs and one output")
+            raise NotImplementedError("VAR_HANDLE expects no inputs and one output")
 
         resource_key = self._get_var_handle_resource_key(op, output_tensors[0])
         resource_tensor_name = get_tensor_name(self.subgraph, output_tensors[0].tensor_idx)
@@ -627,7 +630,7 @@ class OperatorConverter:
     def convert_assign_variable(self, op):
         """Convert the CALL_ONCE initialization subset of ASSIGN_VARIABLE."""
         if not self.conversion_state["in_call_once_init"]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "ASSIGN_VARIABLE outside CALL_ONCE initialization is not supported by the "
                 "Relax TFLite frontend yet because it requires mutable resource state modeling."
             )
@@ -635,7 +638,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 2 or len(output_tensors) != 0:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "ASSIGN_VARIABLE expects a resource handle and value input with no outputs"
             )
 
@@ -650,12 +653,12 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 1 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented("READ_VARIABLE expects one input and one output")
+            raise NotImplementedError("READ_VARIABLE expects one input and one output")
 
         resource_key = self._get_resource_key_for_handle(input_tensors[0], "READ_VARIABLE")
         resource_values = self.conversion_state["resource_values"]
         if resource_key not in resource_values:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "READ_VARIABLE requires a resource initialized by a supported CALL_ONCE subgraph"
             )
         return resource_values[resource_key]
@@ -689,9 +692,9 @@ class OperatorConverter:
                 pass
 
         if key_dtype is None or value_dtype is None:
-            raise tvm.error.OpNotImplemented("HASHTABLE requires HashtableOptions")
+            raise NotImplementedError("HASHTABLE requires HashtableOptions")
         if not self._is_supported_hashtable_type_pair(key_dtype, value_dtype):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite HASHTABLE only supports int64/string or string/int64 tables"
             )
 
@@ -703,14 +706,12 @@ class OperatorConverter:
                 key_dtype,
                 value_dtype,
             )
-        raise tvm.error.OpNotImplemented("HASHTABLE requires HashtableOptions")
+        raise NotImplementedError("HASHTABLE requires HashtableOptions")
 
     def _get_hashtable_info_for_handle(self, tensor, op_name):
         tensor_name = get_tensor_name(self.subgraph, tensor.tensor_idx)
         if tensor_name not in self.hashtable_handles:
-            raise tvm.error.OpNotImplemented(
-                f"{op_name} requires a HASHTABLE in the same TFLite subgraph"
-            )
+            raise NotImplementedError(f"{op_name} requires a HASHTABLE in the same TFLite subgraph")
         return self.hashtable_handles[tensor_name]
 
     @staticmethod
@@ -730,38 +731,38 @@ class OperatorConverter:
     def _get_string_tensor_value(self, tensor_wrapper, op_name):
         """Decode a constant TFLite string tensor buffer."""
         if not self._is_tflite_string_type(tensor_wrapper.tensor.Type()):
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a TensorType.STRING tensor")
+            raise NotImplementedError(f"{op_name} requires a TensorType.STRING tensor")
         if not self._has_tensor_buffer_data(tensor_wrapper):
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a constant string tensor")
+            raise NotImplementedError(f"{op_name} requires a constant string tensor")
 
         data = bytes(tensor_wrapper.buffer.DataAsNumpy())
         if len(data) < 4:
-            raise tvm.error.OpNotImplemented(f"{op_name} has an invalid string tensor buffer")
+            raise NotImplementedError(f"{op_name} has an invalid string tensor buffer")
 
         count = int(np.frombuffer(data, dtype="<i4", count=1)[0])
         if count < 0:
-            raise tvm.error.OpNotImplemented(f"{op_name} has an invalid string tensor count")
+            raise NotImplementedError(f"{op_name} has an invalid string tensor count")
 
         header_size = 4 * (count + 2)
         if len(data) < header_size:
-            raise tvm.error.OpNotImplemented(f"{op_name} has an invalid string tensor offsets")
+            raise NotImplementedError(f"{op_name} has an invalid string tensor offsets")
 
         offsets = np.frombuffer(data, dtype="<i4", count=count + 1, offset=4).astype(np.int64)
         if np.any(offsets < header_size) or np.any(offsets > len(data)):
-            raise tvm.error.OpNotImplemented(f"{op_name} has out-of-bounds string tensor offsets")
+            raise NotImplementedError(f"{op_name} has out-of-bounds string tensor offsets")
         if np.any(offsets[:-1] > offsets[1:]):
-            raise tvm.error.OpNotImplemented(f"{op_name} has non-monotonic string tensor offsets")
+            raise NotImplementedError(f"{op_name} has non-monotonic string tensor offsets")
 
         try:
             values = [
                 data[int(offsets[i]) : int(offsets[i + 1])].decode("utf-8") for i in range(count)
             ]
         except UnicodeDecodeError as e:
-            raise tvm.error.OpNotImplemented(f"{op_name} has invalid UTF-8 string data: {e}") from e
+            raise NotImplementedError(f"{op_name} has invalid UTF-8 string data: {e}") from e
         shape = self._get_tensor_shape_tuple(tensor_wrapper)
         expected_count = math.prod(shape) if shape else 1
         if expected_count != count:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"{op_name} string tensor buffer count does not match its shape"
             )
         return np.array(values, dtype=object).reshape(shape)
@@ -771,7 +772,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 0 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented("HASHTABLE expects no inputs and one output")
+            raise NotImplementedError("HASHTABLE expects no inputs and one output")
 
         table_key, key_dtype, value_dtype = self._get_hashtable_key(op, output_tensors[0])
         table_tensor_name = get_tensor_name(self.subgraph, output_tensors[0].tensor_idx)
@@ -785,7 +786,7 @@ class OperatorConverter:
     def convert_hashtable_import(self, op):
         """Convert static metadata for the CALL_ONCE HASHTABLE_IMPORT subset."""
         if not self.conversion_state["in_call_once_init"]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_IMPORT outside CALL_ONCE initialization is not supported by the "
                 "Relax TFLite frontend yet because it requires mutable resource state modeling."
             )
@@ -793,7 +794,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 3 or len(output_tensors) != 0:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_IMPORT expects table, keys, and values inputs with no outputs"
             )
 
@@ -804,15 +805,15 @@ class OperatorConverter:
             key_tensor.tensor.Type() != table_info["key_dtype"]
             or value_tensor.tensor.Type() != table_info["value_dtype"]
         ):
-            raise tvm.error.OpNotImplemented("HASHTABLE_IMPORT key/value dtypes mismatch")
+            raise NotImplementedError("HASHTABLE_IMPORT key/value dtypes mismatch")
         key_shape = self._get_tensor_shape_tuple(key_tensor)
         value_shape = self._get_tensor_shape_tuple(value_tensor)
         if key_shape != value_shape:
-            raise tvm.error.OpNotImplemented("HASHTABLE_IMPORT requires keys and values same shape")
+            raise NotImplementedError("HASHTABLE_IMPORT requires keys and values same shape")
         if not self._has_tensor_buffer_data(key_tensor) or not self._has_tensor_buffer_data(
             value_tensor
         ):
-            raise tvm.error.OpNotImplemented("HASHTABLE_IMPORT requires constant keys and values")
+            raise NotImplementedError("HASHTABLE_IMPORT requires constant keys and values")
 
         if self._is_tflite_string_type(table_info["key_dtype"]):
             keys = self._get_string_tensor_value(key_tensor, "HASHTABLE_IMPORT")
@@ -824,9 +825,7 @@ class OperatorConverter:
             values = self.get_tensor_value(value_tensor)
 
         if np.unique(keys).size != keys.size:
-            raise tvm.error.OpNotImplemented(
-                "HASHTABLE_IMPORT with duplicate keys is not supported"
-            )
+            raise NotImplementedError("HASHTABLE_IMPORT with duplicate keys is not supported")
 
         hashtable_values = self.conversion_state["hashtable_values"]
         table_key = table_info["table_key"]
@@ -847,7 +846,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 3 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_FIND expects table, query, and default inputs with one output"
             )
 
@@ -857,7 +856,7 @@ class OperatorConverter:
         table_key = table_info["table_key"]
         hashtable_values = self.conversion_state["hashtable_values"]
         if table_key not in hashtable_values:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_FIND requires a table initialized by a supported CALL_ONCE subgraph"
             )
         table_values = hashtable_values[table_key]
@@ -867,26 +866,24 @@ class OperatorConverter:
             or default_tensor.tensor.Type() != table_values["value_dtype"]
             or output_tensor.tensor.Type() != table_values["value_dtype"]
         ):
-            raise tvm.error.OpNotImplemented("HASHTABLE_FIND key/value dtypes mismatch")
+            raise NotImplementedError("HASHTABLE_FIND key/value dtypes mismatch")
 
         if not (
             self._is_tflite_string_type(table_values["key_dtype"])
             and table_values["value_dtype"] == TensorType.INT64
         ):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_FIND only supports constant string -> int64 tables"
             )
         if not self._has_tensor_buffer_data(query_tensor):
-            raise tvm.error.OpNotImplemented(
-                "HASHTABLE_FIND with runtime string queries is not supported"
-            )
+            raise NotImplementedError("HASHTABLE_FIND with runtime string queries is not supported")
         if not self._has_tensor_buffer_data(default_tensor):
-            raise tvm.error.OpNotImplemented("HASHTABLE_FIND requires constant default values")
+            raise NotImplementedError("HASHTABLE_FIND requires constant default values")
 
         query_shape = self._get_tensor_shape_tuple(query_tensor)
         output_shape = self._get_tensor_shape_tuple(output_tensor)
         if output_shape != query_shape:
-            raise tvm.error.OpNotImplemented("HASHTABLE_FIND output shape must match query shape")
+            raise NotImplementedError("HASHTABLE_FIND output shape must match query shape")
 
         query_values = self._get_string_tensor_value(query_tensor, "HASHTABLE_FIND")
         default_values = self.get_tensor_value(default_tensor)
@@ -896,7 +893,7 @@ class OperatorConverter:
         elif default_shape == query_shape:
             result = default_values.astype(np.int64).copy()
         else:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_FIND default value must be scalar or match query shape"
             )
 
@@ -918,7 +915,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 3 or len(output_tensors) != 2:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP expects lookup, key, and value inputs with two outputs"
             )
 
@@ -929,19 +926,17 @@ class OperatorConverter:
             lookup_tensor.tensor.Type() != TensorType.INT32
             or key_tensor.tensor.Type() != TensorType.INT32
         ):
-            raise tvm.error.OpNotImplemented(
-                "HASHTABLE_LOOKUP requires int32 lookup and key tensors"
-            )
+            raise NotImplementedError("HASHTABLE_LOOKUP requires int32 lookup and key tensors")
         if self._is_tflite_string_type(value_tensor.tensor.Type()):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP with TensorType.STRING values is not supported"
             )
         if value_tensor.tensor.Type() != output_tensor.tensor.Type():
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP output dtype must match the value tensor dtype"
             )
         if hits_tensor.tensor.Type() != TensorType.UINT8:
-            raise tvm.error.OpNotImplemented("HASHTABLE_LOOKUP hits output must be uint8")
+            raise NotImplementedError("HASHTABLE_LOOKUP hits output must be uint8")
 
         lookup_shape = to_int_list(self.get_tensor_shape(lookup_tensor))
         key_shape = to_int_list(self.get_tensor_shape(key_tensor))
@@ -950,25 +945,21 @@ class OperatorConverter:
         hits_shape = to_int_list(self.get_tensor_shape(hits_tensor))
 
         if len(lookup_shape) != 1 or len(key_shape) != 1 or len(value_shape) < 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP requires rank-1 lookup/key and rank>=1 value tensors"
             )
         if key_shape[0] != value_shape[0]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP requires key and value tensors to agree on row count"
             )
         if key_shape[0] == 0:
-            raise tvm.error.OpNotImplemented(
-                "HASHTABLE_LOOKUP requires a non-empty key/value table"
-            )
+            raise NotImplementedError("HASHTABLE_LOOKUP requires a non-empty key/value table")
         if output_shape != [lookup_shape[0]] + value_shape[1:]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_LOOKUP output shape must match lookup count and value tail shape"
             )
         if hits_shape != [lookup_shape[0]]:
-            raise tvm.error.OpNotImplemented(
-                "HASHTABLE_LOOKUP hits output shape must match lookup count"
-            )
+            raise NotImplementedError("HASHTABLE_LOOKUP hits output shape must match lookup count")
 
         lookup = self.get_tensor_expr(lookup_tensor)
         key = self.get_tensor_expr(key_tensor)
@@ -998,17 +989,17 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 1 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented("HASHTABLE_SIZE expects one input and one output")
+            raise NotImplementedError("HASHTABLE_SIZE expects one input and one output")
 
         from tflite.TensorType import TensorType
 
         if output_tensors[0].tensor.Type() != TensorType.INT64:
-            raise tvm.error.OpNotImplemented("HASHTABLE_SIZE output must be int64")
+            raise NotImplementedError("HASHTABLE_SIZE output must be int64")
         table_info = self._get_hashtable_info_for_handle(input_tensors[0], "HASHTABLE_SIZE")
         table_key = table_info["table_key"]
         hashtable_values = self.conversion_state["hashtable_values"]
         if table_key not in hashtable_values:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "HASHTABLE_SIZE requires a table initialized by a supported CALL_ONCE subgraph"
             )
         return relax.const(np.array([hashtable_values[table_key]["size"]], dtype=np.int64), "int64")
@@ -1110,7 +1101,7 @@ class OperatorConverter:
                         # Ensure that all zero points are zeros
                         zero_point = tflite_zero_point
                         if not np.all(zero_point == 0):
-                            raise tvm.error.OpAttributeInvalid(
+                            raise AttributeError(
                                 "TFLite per-axis quantization restricts all zero points to be"
                                 + " 0, but a non-zero value is observed"
                             )
@@ -1242,7 +1233,7 @@ class OperatorConverter:
 
         For COMPLEX64 tensors, the trailing (2,) axis encodes the real/imag pair.
         Returns an empty tuple () for rank-0 tensors. Shape elements are Python ints
-        (not numpy scalars) so the result is safe to feed into TIRX ``T.Buffer(shape, ...)``.
+        (not numpy scalars) so the result is safe to feed into TIRX ``T.Tensor(shape, ...)``.
         """
         tensor = self._unwrap_tflite_tensor(tensor)
         shape = to_int_list(tensor.ShapeAsNumpy()) if tensor.ShapeLength() > 0 else ()
@@ -1330,8 +1321,8 @@ class OperatorConverter:
 
         # Get min/max of the output dtype. This will be used to ensure that clip a_min/a_max are not
         # beyond the dtype range.
-        qmin = float(tvm.tirx.min_value(dtype).value)
-        qmax = float(tvm.tirx.max_value(dtype).value)
+        qmin = float(tvm_tirx.tirx.min_value(ty=dtype).value)
+        qmax = float(tvm_tirx.tirx.max_value(ty=dtype).value)
 
         # The input expr is a quantized tensor with its scale and zero point. We calculate the
         # suitable clip off points based on these scale and zero point.
@@ -1345,7 +1336,7 @@ class OperatorConverter:
             return relax.op.clip(expr, min=max(qmin, quantize(0.0)), max=qmax)
 
         fused_activation_fn_str = self.activation_fn_type[fused_activation_fn]
-        raise tvm.error.OpNotImplemented(
+        raise NotImplementedError(
             f"Quantized activation {fused_activation_fn_str} is not supported yet."
         )
 
@@ -1372,7 +1363,7 @@ class OperatorConverter:
                 target_value, success = try_infer_value(
                     target_expr,
                     parameters={
-                        k: tvm.runtime.tensor(np.array(v)) for k, v in self.exp_tab.params.items()
+                        k: tvm_tirx.runtime.tensor(np.array(v)) for k, v in self.exp_tab.params.items()
                     },
                 )
                 """
@@ -1523,7 +1514,7 @@ class OperatorConverter:
         input_tensor_rank = len(input_tensor.tensor.ShapeAsNumpy())
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized L2_NORMALIZATION operator is not supported yet."
             )
 
@@ -1537,7 +1528,7 @@ class OperatorConverter:
 
         # if we have fused activation fn
         if output_tensor.qnn_params:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized L2_NORMALIZATION operator is not supported yet."
             )
         out = self.convert_fused_activation_function(out, fused_activation_fn)
@@ -1551,7 +1542,7 @@ class OperatorConverter:
         from tflite.LocalResponseNormalizationOptions import LocalResponseNormalizationOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented("TFlite quantized LRN operator is not supported yet.")
+            raise NotImplementedError("TFlite quantized LRN operator is not supported yet.")
 
         input_tensors = self.get_input_tensors(op)
         assert len(input_tensors) == 1, "input tensors length should be 1"
@@ -1691,7 +1682,7 @@ class OperatorConverter:
 
         def is_dynamic(tensor):
             return self.has_expr(tensor.tensor_idx) and not isinstance(
-                self.get_expr(tensor.tensor_idx), tvm.ir.GenericConst
+                self.get_expr(tensor.tensor_idx), tvm_tirx.ir.GenericConst
             )
 
         def static_scalar(tensor):
@@ -2093,7 +2084,7 @@ class OperatorConverter:
         elif dtype.startswith(("int", "uint")):
             op_fn = _op.bitwise_and
         else:
-            raise tvm.error.OpNotImplemented(f"STABLEHLO_AND with dtype {dtype} is not supported")
+            raise NotImplementedError(f"STABLEHLO_AND with dtype {dtype} is not supported")
         return self.bb.normalize(op_fn(lhs, rhs))
 
     def _convert_stablehlo_or(self, op):
@@ -2111,7 +2102,7 @@ class OperatorConverter:
         elif dtype.startswith(("int", "uint")):
             op_fn = _op.bitwise_or
         else:
-            raise tvm.error.OpNotImplemented(f"STABLEHLO_OR with dtype {dtype} is not supported")
+            raise NotImplementedError(f"STABLEHLO_OR with dtype {dtype} is not supported")
         return self.bb.normalize(op_fn(lhs, rhs))
 
     def _convert_stablehlo_ternary(self, op, relax_op):
@@ -2143,7 +2134,7 @@ class OperatorConverter:
             # A malformed flatbuffer may declare a BuiltinOptions2 type without
             # carrying the actual options table. Fail cleanly instead of raising
             # an opaque AttributeError when accessing the missing payload.
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"{options_cls.__name__} is required but missing from the operator"
             )
         # Look up the expected BuiltinOptions2 enum value by matching the class
@@ -2163,9 +2154,7 @@ class OperatorConverter:
         try:
             return [int(dim) for dim in self.get_tensor_shape(tensor)]
         except (TypeError, ValueError) as err:
-            raise tvm.error.OpNotImplemented(
-                f"{op_name} requires statically-known tensor shapes"
-            ) from err
+            raise NotImplementedError(f"{op_name} requires statically-known tensor shapes") from err
 
     def _get_stablehlo_i64_vector(self, vector, default):
         """Convert an optional StableHLO int64 vector field to a Python int list."""
@@ -2177,7 +2166,7 @@ class OperatorConverter:
         """Return expr dtype if the StableHLO subset supports it."""
         dtype = expr.ty.dtype.dtype
         if not dtype.startswith("float"):
-            raise tvm.error.OpNotImplemented(f"{op_name} with dtype {dtype} is not supported")
+            raise NotImplementedError(f"{op_name} with dtype {dtype} is not supported")
         return dtype
 
     def _convert_stablehlo_cbrt(self, op):
@@ -2217,9 +2206,7 @@ class OperatorConverter:
     def _get_stablehlo_simple_body_op(self, body_subgraph_index, parent_op_name, input_count):
         """Return the single operator from a simple StableHLO body subgraph."""
         if body_subgraph_index <= 0 or body_subgraph_index >= self.model.SubgraphsLength():
-            raise tvm.error.OpNotImplemented(
-                f"{parent_op_name} requires a valid non-main body subgraph"
-            )
+            raise NotImplementedError(f"{parent_op_name} requires a valid non-main body subgraph")
 
         body_subgraph = self.model.Subgraphs(body_subgraph_index)
         if (
@@ -2227,9 +2214,7 @@ class OperatorConverter:
             or body_subgraph.OutputsLength() != 1
             or body_subgraph.OperatorsLength() != 1
         ):
-            raise tvm.error.OpNotImplemented(
-                f"{parent_op_name} only supports single-op body subgraphs"
-            )
+            raise NotImplementedError(f"{parent_op_name} only supports single-op body subgraphs")
 
         return body_subgraph.Operators(0)
 
@@ -2238,13 +2223,11 @@ class OperatorConverter:
     ):
         """Validate that the StableHLO reduce init value matches the Relax identity."""
         if self.has_expr(init_tensor.tensor_idx):
-            raise tvm.error.OpNotImplemented(
-                f"{parent_op_name} with dynamic init values is not supported"
-            )
+            raise NotImplementedError(f"{parent_op_name} with dynamic init values is not supported")
 
         init_value = np.asarray(self.get_tensor_value(init_tensor))
         if init_value.shape not in [(), (1,)]:
-            raise tvm.error.OpNotImplemented(f"{parent_op_name} requires scalar init values")
+            raise NotImplementedError(f"{parent_op_name} requires scalar init values")
 
         dtype = init_value.dtype
         scalar = init_value.item()
@@ -2267,12 +2250,10 @@ class OperatorConverter:
             else:
                 is_identity = False
         else:
-            raise tvm.error.OpNotImplemented(
-                f"{parent_op_name} reducer {reducer_name} is not supported"
-            )
+            raise NotImplementedError(f"{parent_op_name} reducer {reducer_name} is not supported")
 
         if not is_identity:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"{parent_op_name} init value must match the reducer identity"
             )
 
@@ -2298,9 +2279,7 @@ class OperatorConverter:
             "STABLEHLO_MULTIPLY": relax.op.prod,
         }
         if reducer_name not in reducers:
-            raise tvm.error.OpNotImplemented(
-                f"STABLEHLO_REDUCE reducer {reducer_name} is not supported"
-            )
+            raise NotImplementedError(f"STABLEHLO_REDUCE reducer {reducer_name} is not supported")
 
         self._check_stablehlo_reduce_init(input_tensors[1], reducer_name)
         data = self.get_tensor_expr(input_tensors[0])
@@ -2320,14 +2299,14 @@ class OperatorConverter:
         )
         reducer_name = self.get_op_code_str(body_op)
         if reducer_name != "STABLEHLO_MAXIMUM":
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_REDUCE_WINDOW only supports MAXIMUM reducer windows"
             )
         self._check_stablehlo_reduce_init(input_tensors[1], reducer_name, "STABLEHLO_REDUCE_WINDOW")
 
         data_shape = self._get_static_tensor_shape(input_tensors[0], "STABLEHLO_REDUCE_WINDOW")
         if len(data_shape) != 4:
-            raise tvm.error.OpNotImplemented("STABLEHLO_REDUCE_WINDOW only supports 4D input")
+            raise NotImplementedError("STABLEHLO_REDUCE_WINDOW only supports 4D input")
 
         window_dimensions = self._get_stablehlo_i64_vector(opts.WindowDimensionsAsNumpy(), [])
         window_strides = self._get_stablehlo_i64_vector(
@@ -2350,25 +2329,21 @@ class OperatorConverter:
             or len(window_dilations) != 4
             or len(padding) != 8
         ):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_REDUCE_WINDOW only supports rank-4 window attributes"
             )
         if window_dimensions[0] != 1 or window_dimensions[3] != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_REDUCE_WINDOW only supports pooling over spatial dimensions"
             )
         if window_strides[0] != 1 or window_strides[3] != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_REDUCE_WINDOW only supports unit batch/channel strides"
             )
         if base_dilations != [1, 1, 1, 1]:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_REDUCE_WINDOW with base dilation is not supported"
-            )
+            raise NotImplementedError("STABLEHLO_REDUCE_WINDOW with base dilation is not supported")
         if padding[0] != 0 or padding[1] != 0 or padding[6] != 0 or padding[7] != 0:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_REDUCE_WINDOW only supports spatial padding"
-            )
+            raise NotImplementedError("STABLEHLO_REDUCE_WINDOW only supports spatial padding")
 
         data = self.get_tensor_expr(input_tensors[0])
         return self.bb.normalize(
@@ -2406,23 +2381,23 @@ class OperatorConverter:
         index_vector_dim = int(opts.IndexVectorDim())
 
         if indices_rank == 0 or index_vector_dim != indices_rank - 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SCATTER only supports trailing index-vector dimensions"
             )
         if update_window_dims:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SCATTER only supports point updates without update windows"
             )
         if inserted_window_dims != list(range(operand_rank)):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SCATTER only supports point updates for every operand dimension"
             )
         if scatter_dims_to_operand_dims != list(range(operand_rank)):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SCATTER only supports canonical scatter-to-operand dimensions"
             )
         if indices_shape[-1] != operand_rank or updates_shape != indices_shape[:-1]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SCATTER requires point update shapes to match scatter indices"
             )
 
@@ -2437,9 +2412,7 @@ class OperatorConverter:
             "STABLEHLO_MULTIPLY": "mul",
         }
         if reducer_name not in reductions:
-            raise tvm.error.OpNotImplemented(
-                f"STABLEHLO_SCATTER reducer {reducer_name} is not supported"
-            )
+            raise NotImplementedError(f"STABLEHLO_SCATTER reducer {reducer_name} is not supported")
 
         operand = self.get_tensor_expr(input_tensors[0])
         indices = self.get_tensor_expr(input_tensors[1])
@@ -2455,7 +2428,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_COMPOSITE only supports single-output decompositions"
             )
 
@@ -2465,7 +2438,7 @@ class OperatorConverter:
             composite_name.decode("utf-8") if composite_name is not None else "<unnamed>"
         )
         if opts.CompositeAttributesLength() != 0:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"STABLEHLO_COMPOSITE {composite_name} with composite attributes is not supported"
             )
 
@@ -2474,16 +2447,16 @@ class OperatorConverter:
             decomposition_subgraph_index <= 0
             or decomposition_subgraph_index >= self.model.SubgraphsLength()
         ):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"STABLEHLO_COMPOSITE {composite_name} requires a valid decomposition subgraph"
             )
         decomposition_subgraph = self.model.Subgraphs(decomposition_subgraph_index)
         if decomposition_subgraph.InputsLength() != len(input_tensors):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"STABLEHLO_COMPOSITE {composite_name} decomposition input count mismatch"
             )
         if decomposition_subgraph.OutputsLength() != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"STABLEHLO_COMPOSITE {composite_name} only supports single-output decompositions"
             )
 
@@ -2525,20 +2498,20 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 1 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_SORT only supports single-input single-output sort"
             )
 
         opts = self._get_stablehlo_options(op, StablehloSortOptions)
         if opts.IsStable():
-            raise tvm.error.OpNotImplemented("STABLEHLO_SORT stable sort is not supported")
+            raise NotImplementedError("STABLEHLO_SORT stable sort is not supported")
 
         body_op = self._get_stablehlo_simple_body_op(
             int(opts.ComparatorSubgraphIndex()), "STABLEHLO_SORT", 2
         )
         comparator_name = self.get_op_code_str(body_op)
         if comparator_name != "STABLEHLO_COMPARE":
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"STABLEHLO_SORT comparator {comparator_name} is not supported"
             )
 
@@ -2547,9 +2520,7 @@ class OperatorConverter:
             compare_opts.CompareType()
             == StablehloComparisonType.STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER
         ):
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_SORT with TOTALORDER comparator is not supported"
-            )
+            raise NotImplementedError("STABLEHLO_SORT with TOTALORDER comparator is not supported")
 
         direction = compare_opts.ComparisonDirection()
         _DIR = StablehloComparisonDirection
@@ -2558,7 +2529,7 @@ class OperatorConverter:
         elif direction == _DIR.STABLEHLO_COMPARISON_DIRECTION_GT:
             descending = True
         else:
-            raise tvm.error.OpNotImplemented("STABLEHLO_SORT only supports LT or GT comparators")
+            raise NotImplementedError("STABLEHLO_SORT only supports LT or GT comparators")
 
         data = self.get_tensor_expr(input_tensors[0])
         return self.bb.normalize(
@@ -2582,15 +2553,15 @@ class OperatorConverter:
             # dropped for single-device import. TFLite has no runtime kernel
             # for general STABLEHLO_CUSTOM_CALL targets.
             if opts.HasSideEffect():
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_CUSTOM_CALL Sharding with side effects is not supported"
                 )
             if opts.CalledComputationsLength() != 0:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_CUSTOM_CALL Sharding with called computations is not supported"
                 )
             if len(input_tensors) != 1 or len(output_tensors) != 1:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_CUSTOM_CALL Sharding requires one input and one output"
                 )
             self._check_tensor_metadata_match(
@@ -2599,7 +2570,7 @@ class OperatorConverter:
             return self.get_tensor_expr(input_tensors[0])
 
         target = call_target_name or "<empty>"
-        raise tvm.error.OpNotImplemented(f"STABLEHLO_CUSTOM_CALL target {target} is not supported")
+        raise NotImplementedError(f"STABLEHLO_CUSTOM_CALL target {target} is not supported")
 
     def _convert_stablehlo_rng_bit_generator(self, op):
         """Convert STABLEHLO_RNG_BIT_GENERATOR to a bit-exact call_tir kernel."""
@@ -2610,7 +2581,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 1 or len(output_tensors) != 2:
-            raise tvm.error.OpNotImplemented(f"{op_name} expects one input and two outputs")
+            raise NotImplementedError(f"{op_name} expects one input and two outputs")
 
         opts = self._get_stablehlo_options(op, StablehloRngBitGeneratorOptions)
         algorithm_enum = opts.Algorithm()
@@ -2620,49 +2591,49 @@ class OperatorConverter:
         elif algorithm_enum in (RngAlgorithm.PHILOX, RngAlgorithm.DEFAULT):
             algorithm = "philox"
         else:
-            raise tvm.error.OpNotImplemented(
-                f"{op_name} algorithm {algorithm_enum} is not supported"
-            )
+            raise NotImplementedError(f"{op_name} algorithm {algorithm_enum} is not supported")
 
         state_tensor = input_tensors[0]
         if self.get_tensor_type_str(state_tensor.tensor.Type()) != "uint64":
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a uint64 initial state")
+            raise NotImplementedError(f"{op_name} requires a uint64 initial state")
         state_shape = self._get_static_tensor_shape(state_tensor, op_name)
         if len(state_shape) != 1:
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a 1-D initial state")
+            raise NotImplementedError(f"{op_name} requires a 1-D initial state")
         state_len = int(state_shape[0])
         # State-length constraints mirror the TFLite runtime kernel.
         if algorithm == "threefry" and state_len != 2:
-            raise tvm.error.OpNotImplemented(f"{op_name} THREEFRY requires a u64[2] state")
+            raise NotImplementedError(f"{op_name} THREEFRY requires a u64[2] state")
         if algorithm == "philox" and state_len not in (2, 3):
-            raise tvm.error.OpNotImplemented(f"{op_name} PHILOX requires a u64[2] or u64[3] state")
+            raise NotImplementedError(f"{op_name} PHILOX requires a u64[2] or u64[3] state")
 
         out_state_tensor, out_tensor = output_tensors
         if self.get_tensor_type_str(out_state_tensor.tensor.Type()) != "uint64":
-            raise tvm.error.OpNotImplemented(f"{op_name} output state must be uint64")
+            raise NotImplementedError(f"{op_name} output state must be uint64")
         out_state_shape = self._get_static_tensor_shape(out_state_tensor, op_name)
         if list(out_state_shape) != list(state_shape):
-            raise tvm.error.OpNotImplemented(
-                f"{op_name} output state shape must match the initial state"
-            )
+            raise NotImplementedError(f"{op_name} output state shape must match the initial state")
         out_dtype = self.get_tensor_type_str(out_tensor.tensor.Type())
         if out_dtype not in ("int32", "int64", "uint32", "uint64"):
-            raise tvm.error.OpNotImplemented(f"{op_name} output dtype {out_dtype} is not supported")
+            raise NotImplementedError(f"{op_name} output dtype {out_dtype} is not supported")
         out_shape = tuple(self._get_static_tensor_shape(out_tensor, op_name))
 
-        prim_func = _build_stablehlo_rng_bit_generator_primfunc(
+        function = _build_stablehlo_rng_bit_generator_function(
             algorithm, state_len, out_dtype, out_shape
         )
         module_builder = self.conversion_state["module_builder"]
         func_name = f"tflite_stablehlo_rng_{algorithm}_{out_state_tensor.tensor_idx}"
-        gv = module_builder.add_func(prim_func, func_name)
+        gv = module_builder.add_func(function, func_name)
         state_expr = self.get_tensor_expr(state_tensor)
         call = relax.call_tir(
             gv,
             [state_expr],
-            [
-                relax.TensorType(tuple(state_shape), "uint64"),
-                relax.TensorType(out_shape, out_dtype),
+            ty_args=[
+                _TupleType(
+                    [
+                        relax.TensorType(tuple(state_shape), "uint64"),
+                        relax.TensorType(out_shape, out_dtype),
+                    ]
+                )
             ],
         )
         return self.bb.normalize(call)
@@ -2686,11 +2657,11 @@ class OperatorConverter:
 
         op_options = op.BuiltinOptions()
         if op_options is None:
-            raise tvm.error.OpNotImplemented(f"{options_cls.__name__} is required")
+            raise NotImplementedError(f"{options_cls.__name__} is required")
 
         options_type = getattr(BuiltinOptions, options_cls.__name__, None)
         if options_type is not None and op.BuiltinOptionsType() != options_type:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"Unexpected BuiltinOptions type: expected "
                 f"{options_cls.__name__}, got {op.BuiltinOptionsType()}"
             )
@@ -2701,9 +2672,9 @@ class OperatorConverter:
     def _get_subgraph(self, subgraph_index, op_name, allow_main=False):
         """Return a validated TFLite subgraph by index."""
         if subgraph_index < 0 or subgraph_index >= self.model.SubgraphsLength():
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a valid subgraph index")
+            raise NotImplementedError(f"{op_name} requires a valid subgraph index")
         if not allow_main and subgraph_index == 0:
-            raise tvm.error.OpNotImplemented(f"{op_name} cannot target the main subgraph")
+            raise NotImplementedError(f"{op_name} cannot target the main subgraph")
         return self.model.Subgraphs(subgraph_index)
 
     def _make_tuple_or_single(self, exprs):
@@ -2720,9 +2691,9 @@ class OperatorConverter:
         """Validate a referenced subgraph's input and output counts."""
         subgraph = self._get_subgraph(subgraph_index, op_name)
         if input_count is not None and subgraph.InputsLength() != input_count:
-            raise tvm.error.OpNotImplemented(f"{op_name} subgraph input count mismatch")
+            raise NotImplementedError(f"{op_name} subgraph input count mismatch")
         if output_count is not None and subgraph.OutputsLength() != output_count:
-            raise tvm.error.OpNotImplemented(f"{op_name} subgraph output count mismatch")
+            raise NotImplementedError(f"{op_name} subgraph output count mismatch")
         return subgraph
 
     def _check_subgraph_interface(
@@ -2772,7 +2743,7 @@ class OperatorConverter:
     def _check_tensor_metadata_match(self, actual, expected, op_name, tensor_role):
         """Validate that two TFLite tensors have matching static metadata."""
         if self._get_tensor_metadata(actual) != self._get_tensor_metadata(expected):
-            raise tvm.error.OpNotImplemented(f"{op_name} {tensor_role} tensor metadata mismatch")
+            raise NotImplementedError(f"{op_name} {tensor_role} tensor metadata mismatch")
 
     def _check_subgraph_tensor_metadata(
         self, subgraph, op_name, tensor_role, subgraph_indices, expected_tensors
@@ -2794,7 +2765,7 @@ class OperatorConverter:
             tensor = tensor.tensor
         dtype = self.get_tensor_type_str(tensor.Type())
         if dtype != "bool" or tensor.ShapeLength() != 0:
-            raise tvm.error.OpNotImplemented(f"{op_name} requires a scalar bool condition")
+            raise NotImplementedError(f"{op_name} requires a scalar bool condition")
 
     def _get_subgraph_params(self, subgraph):
         """Create Relax parameters for a TFLite subgraph."""
@@ -2825,9 +2796,7 @@ class OperatorConverter:
 
         lowering_stack = self.conversion_state["lowering_stack"]
         if subgraph_index in lowering_stack:
-            raise tvm.error.OpNotImplemented(
-                f"Recursive TFLite {op_name} subgraphs are not supported"
-            )
+            raise NotImplementedError(f"Recursive TFLite {op_name} subgraphs are not supported")
 
         subgraph = self._get_subgraph(subgraph_index, op_name)
         lowering_stack.append(subgraph_index)
@@ -2897,7 +2866,7 @@ class OperatorConverter:
 
         if_bb = relax.BlockBuilder()
         with if_bb.function(if_name, params=params, private=True):
-            result = relax.If(
+            result = relax.IfExpr(
                 cond,
                 relax.Call(then_func, branch_args),
                 relax.Call(else_func, branch_args),
@@ -2939,7 +2908,7 @@ class OperatorConverter:
             next_args = self._bind_call_outputs(next_state, loop_var_count)
             true_branch = relax.Call(loop_gv, next_args)
             false_branch = self._make_tuple_or_single(params)
-            result = relax.If(cond, true_branch, false_branch)
+            result = relax.IfExpr(cond, true_branch, false_branch)
             loop_bb.emit_func_output(result)
         loop_func = loop_bb.get()[loop_name]
         module_builder.update_func(loop_gv, loop_func)
@@ -2976,7 +2945,7 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) < 1:
-            raise tvm.error.OpNotImplemented("IF requires a condition input")
+            raise NotImplementedError("IF requires a condition input")
 
         self._require_scalar_bool_tensor(input_tensors[0], "IF")
         branch_input_count = len(input_tensors) - 1
@@ -3013,9 +2982,9 @@ class OperatorConverter:
         output_tensors = self.get_output_tensors(op)
         loop_var_count = len(input_tensors)
         if loop_var_count == 0:
-            raise tvm.error.OpNotImplemented(f"{op_name} requires loop-carried inputs")
+            raise NotImplementedError(f"{op_name} requires loop-carried inputs")
         if len(output_tensors) != loop_var_count:
-            raise tvm.error.OpNotImplemented(f"{op_name} output count must match input count")
+            raise NotImplementedError(f"{op_name} output count must match input count")
 
         cond_subgraph = self._check_subgraph_interface(
             cond_subgraph_index,
@@ -3080,13 +3049,11 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 0 or len(output_tensors) != 0:
-            raise tvm.error.OpNotImplemented("CALL_ONCE with inputs or outputs is not supported")
+            raise NotImplementedError("CALL_ONCE with inputs or outputs is not supported")
 
         init_subgraph = self._get_subgraph(init_subgraph_index, "CALL_ONCE")
         if init_subgraph.InputsLength() != 0 or init_subgraph.OutputsLength() != 0:
-            raise tvm.error.OpNotImplemented(
-                "CALL_ONCE with non-empty init subgraph I/O is not supported"
-            )
+            raise NotImplementedError("CALL_ONCE with non-empty init subgraph I/O is not supported")
         if init_subgraph.OperatorsLength() != 0:
             self._convert_call_once_init_subgraph(init_subgraph)
         return None
@@ -3097,7 +3064,7 @@ class OperatorConverter:
         for op_idx in range(init_subgraph.OperatorsLength()):
             op_name = self.get_op_code_str(init_subgraph.Operators(op_idx))
             if op_name not in supported_init_ops:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     f"CALL_ONCE init subgraph operator {op_name} is not supported"
                 )
 
@@ -3304,7 +3271,7 @@ class OperatorConverter:
 
         # TOTALORDER compare is not expressible via Relax comparison ops.
         if compare_type == StablehloComparisonType.STABLEHLO_COMPARISON_TYPE_FLOAT_TOTAL_ORDER:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_COMPARE with TOTALORDER comparison type is not supported"
             )
 
@@ -3319,9 +3286,7 @@ class OperatorConverter:
         }
         relax_fn = direction_map.get(direction)
         if relax_fn is None:
-            raise tvm.error.OpNotImplemented(
-                f"Unsupported StableHLO comparison direction: {direction}"
-            )
+            raise NotImplementedError(f"Unsupported StableHLO comparison direction: {direction}")
 
         lhs = self.get_tensor_expr(input_tensors[0])
         rhs = self.get_tensor_expr(input_tensors[1])
@@ -3346,11 +3311,11 @@ class OperatorConverter:
         interior = [int(d) for d in opts.InteriorPaddingAsNumpy()]
 
         if any(d != 0 for d in interior):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_PAD with interior (dilation) padding is not supported"
             )
         if any(d < 0 for d in edge_low) or any(d < 0 for d in edge_high):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_PAD with negative edge padding (crop) is not supported"
             )
 
@@ -3361,9 +3326,7 @@ class OperatorConverter:
         if not self.has_expr(pad_value_tensor.tensor_idx):
             pad_val = float(self.get_tensor_value(pad_value_tensor))
         else:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_PAD with dynamic padding value is not supported"
-            )
+            raise NotImplementedError("STABLEHLO_PAD with dynamic padding value is not supported")
 
         # R.nn.pad with flat pad_width: [lo0, hi0, lo1, hi1, ...]
         pad_width = []
@@ -3398,14 +3361,14 @@ class OperatorConverter:
         # (assumes start values are constant in the flatbuffer)
         # TODO: support dynamic start indices via Relax arithmetic
         if any(self.has_expr(t.tensor_idx) for t in input_tensors[1:]):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_DYNAMIC_SLICE with dynamic start indices is not supported"
             )
         start_vals = [int(self.get_tensor_value(t)) for t in input_tensors[1:]]
         operand_shape = [int(d) for d in self.get_tensor_shape(input_tensors[0])]
         for start, size, dim in zip(start_vals, slice_sizes, operand_shape):
             if start < 0 or start + size > dim:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_DYNAMIC_SLICE with out-of-bounds start indices is not supported"
                 )
         end_vals = [s + sz for s, sz in zip(start_vals, slice_sizes)]
@@ -3443,13 +3406,13 @@ class OperatorConverter:
         update_shape = self._get_static_tensor_shape(update_tensor, op_name)
         rank = len(operand_shape)
         if len(update_shape) != rank or len(start_tensors) != rank:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_DYNAMIC_UPDATE_SLICE requires operand, update, "
                 "and start-index ranks to match"
             )
         for dim, size in zip(operand_shape, update_shape):
             if size > dim:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_DYNAMIC_UPDATE_SLICE update shape must be smaller than "
                     "or equal to operand shape for all dimensions"
                 )
@@ -3466,7 +3429,7 @@ class OperatorConverter:
         start_vals = [int(np.asarray(self.get_tensor_value(t)).item()) for t in start_tensors]
         for start, size, dim in zip(start_vals, update_shape, operand_shape):
             if start < 0 or start + size > dim:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_DYNAMIC_UPDATE_SLICE with out-of-bounds update "
                     "indices is not supported"
                 )
@@ -3528,13 +3491,13 @@ class OperatorConverter:
         lhs_shape = self._get_static_tensor_shape(input_tensors[0], "STABLEHLO_DOT_GENERAL")
         rhs_shape = self._get_static_tensor_shape(input_tensors[1], "STABLEHLO_DOT_GENERAL")
         if len(lhs_shape) != 2 or len(rhs_shape) != 2:
-            raise tvm.error.OpNotImplemented("STABLEHLO_DOT_GENERAL only supports 2D matmul")
+            raise NotImplementedError("STABLEHLO_DOT_GENERAL only supports 2D matmul")
         if lhs_batch_dims or rhs_batch_dims:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_DOT_GENERAL with batching dimensions is not supported"
             )
         if lhs_contract_dims != [1] or rhs_contract_dims != [0]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_DOT_GENERAL only supports canonical contracting dimensions"
             )
 
@@ -3561,17 +3524,11 @@ class OperatorConverter:
             opts.OutputSpatialDimensionsAsNumpy(), []
         )
         if input_spatial_dims != [1, 2]:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION only supports NHWC input layout"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports NHWC input layout")
         if kernel_spatial_dims != [0, 1]:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION only supports HWIO kernel layout"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports HWIO kernel layout")
         if output_spatial_dims != [1, 2]:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION only supports NHWC output layout"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports NHWC output layout")
 
         if (
             int(opts.InputBatchDimension()) != 0
@@ -3581,24 +3538,24 @@ class OperatorConverter:
             or int(opts.OutputBatchDimension()) != 0
             or int(opts.OutputFeatureDimension()) != 3
         ):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_CONVOLUTION only supports canonical NHWC/HWIO dimension numbers"
             )
         if int(opts.BatchGroupCount()) != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_CONVOLUTION with batch_group_count > 1 is not supported"
             )
         if int(opts.FeatureGroupCount()) != 1:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_CONVOLUTION with feature_group_count > 1 is not supported"
             )
 
         data_shape = self._get_static_tensor_shape(input_tensors[0], "STABLEHLO_CONVOLUTION")
         kernel_shape = self._get_static_tensor_shape(input_tensors[1], "STABLEHLO_CONVOLUTION")
         if len(data_shape) != 4 or len(kernel_shape) != 4:
-            raise tvm.error.OpNotImplemented("STABLEHLO_CONVOLUTION only supports 2D convolution")
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports 2D convolution")
         if data_shape[3] != kernel_shape[2]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_CONVOLUTION input channels must match kernel input channels"
             )
 
@@ -3612,21 +3569,13 @@ class OperatorConverter:
         )
 
         if len(window_strides) != 2 or len(rhs_dilation) != 2:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION only supports two spatial dimensions"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports two spatial dimensions")
         if lhs_dilation != [1, 1]:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION with lhs dilation is not supported"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION with lhs dilation is not supported")
         if any(window_reversal):
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION with window reversal is not supported"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION with window reversal is not supported")
         if len(padding) != 4:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_CONVOLUTION only supports 2D low/high padding"
-            )
+            raise NotImplementedError("STABLEHLO_CONVOLUTION only supports 2D low/high padding")
 
         # StableHLO stores padding as [low_h, high_h, low_w, high_w].
         relax_padding = [padding[0], padding[2], padding[1], padding[3]]
@@ -3651,7 +3600,7 @@ class OperatorConverter:
 
         Only handles gather patterns equivalent to R.take along a single axis.
         Multi-dimensional gathers, index_vector_dim != rank(indices)-1, and
-        non-trivial slice_sizes raise OpNotImplemented.
+        non-trivial slice_sizes raise NotImplementedError.
         """
         from tflite.StablehloGatherOptions import StablehloGatherOptions
 
@@ -3673,43 +3622,39 @@ class OperatorConverter:
         output_shape = [int(d) for d in self.get_tensor_shape(output_tensors[0])]
 
         if len(start_index_map) != 1:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_GATHER only supports one start_index_map entry"
-            )
+            raise NotImplementedError("STABLEHLO_GATHER only supports one start_index_map entry")
         axis = start_index_map[0]
         if axis < 0 or axis >= len(data_shape):
-            raise tvm.error.OpNotImplemented(f"Unsupported STABLEHLO_GATHER axis: {axis}")
+            raise NotImplementedError(f"Unsupported STABLEHLO_GATHER axis: {axis}")
         if collapsed_slice_dims != [axis]:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_GATHER only supports collapsed_slice_dims matching the gather axis"
             )
         if len(slice_sizes) != len(data_shape):
-            raise tvm.error.OpNotImplemented("STABLEHLO_GATHER slice_sizes must match operand rank")
+            raise NotImplementedError("STABLEHLO_GATHER slice_sizes must match operand rank")
         for i, (size, dim) in enumerate(zip(slice_sizes, data_shape)):
             expected = 1 if i == axis else dim
             if size != expected:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "STABLEHLO_GATHER only supports take-equivalent slice_sizes"
                 )
         if index_vector_dim != len(indices_shape) - 1:
-            raise tvm.error.OpNotImplemented(
-                "STABLEHLO_GATHER only supports trailing index_vector_dim"
-            )
+            raise NotImplementedError("STABLEHLO_GATHER only supports trailing index_vector_dim")
         if not indices_shape or indices_shape[index_vector_dim] != 1:
-            raise tvm.error.OpNotImplemented("STABLEHLO_GATHER only supports index vector size 1")
+            raise NotImplementedError("STABLEHLO_GATHER only supports index vector size 1")
 
         indices_batch_shape = indices_shape[:index_vector_dim]
         expected_offset_dims = list(range(axis)) + list(
             range(axis + len(indices_batch_shape), len(data_shape) + len(indices_batch_shape) - 1)
         )
         if offset_dims != expected_offset_dims:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_GATHER offset_dims do not match Relax take output layout"
             )
 
         expected_output_shape = data_shape[:axis] + indices_batch_shape + data_shape[axis + 1 :]
         if output_shape != expected_output_shape:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "STABLEHLO_GATHER output shape does not match Relax take semantics"
             )
 
@@ -3735,7 +3680,7 @@ class OperatorConverter:
     def convert_gelu(self, op):
         """Convert TFLite GELU"""
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "The TFLite to Relax converter does not support quantized GELU operator yet."
             )
 
@@ -3818,7 +3763,7 @@ class OperatorConverter:
 
         if input_is_quantized and not comparison_op:
             if not output_tensor.qnn_params:
-                raise tvm.error.OpAttributeInvalid(
+                raise AttributeError(
                     "Quantized TFLite elemwise operator output must have quantization parameters"
                 )
             out = self.quantize(out, output_tensor)
@@ -3841,7 +3786,7 @@ class OperatorConverter:
     def convert_cumsum(self, op):
         """Convert TFLite CUMSUM"""
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "The TFLite to Relax converter does not support quantized CUMSUM operator yet."
             )
 
@@ -3854,7 +3799,7 @@ class OperatorConverter:
         input_expr = self.get_tensor_expr(input_tensors[0])
 
         if self.has_expr(input_tensors[1].tensor_idx):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "The TFLite to Relax converter does not support dynamic axis for CUMSUM yet."
             )
         axis = self.get_tensor_value(input_tensors[1])
@@ -3868,7 +3813,7 @@ class OperatorConverter:
         cumsum_options.Init(op_options.Bytes, op_options.Pos)
         exclusive = cumsum_options.Exclusive()
         if cumsum_options.Reverse():
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "The TFLite to Relax converter does not support reverse CUMSUM operator yet."
             )
 
@@ -4217,7 +4162,7 @@ class OperatorConverter:
     def _check_random_output_dtype(self, op_name, output_dtype, supported_dtypes):
         if output_dtype not in supported_dtypes:
             supported = ", ".join(supported_dtypes)
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"The TFLite {op_name} converter currently supports output dtype(s) "
                 f"{supported} only, but got {output_dtype}."
             )
@@ -4236,9 +4181,9 @@ class OperatorConverter:
         out_shape, _ = self._get_shape_expr_from_tensor(input_tensors[0], "random_uniform_dim")
         seed, seed2 = self._get_random_options(op)
         return relax.op.call_dps_packed(
-            "tvm.contrib.random.uniform",
+            _ExternFunc("tvm.contrib.random.uniform"),
             (seed, seed2, 0.0, 1.0),
-            out_ty=relax.TensorType(out_shape, output_dtype),
+            ty_args=[relax.TensorType(out_shape, output_dtype)],
         )
 
     def convert_random_standard_normal(self, op):
@@ -4257,9 +4202,9 @@ class OperatorConverter:
         )
         seed, seed2 = self._get_random_options(op)
         return relax.op.call_dps_packed(
-            "tvm.contrib.random.normal",
+            _ExternFunc("tvm.contrib.random.normal"),
             (seed, seed2, 0.0, 1.0),
-            out_ty=relax.TensorType(out_shape, output_dtype),
+            ty_args=[relax.TensorType(out_shape, output_dtype)],
         )
 
     def convert_multinomial(self, op):
@@ -4296,9 +4241,9 @@ class OperatorConverter:
 
         seed, seed2 = self._get_random_options(op)
         uniform_sample = relax.op.call_dps_packed(
-            "tvm.contrib.random.uniform",
+            _ExternFunc("tvm.contrib.random.uniform"),
             (seed, seed2, 0.0, 1.0),
-            out_ty=relax.TensorType([output_batch, 1], "float32"),
+            ty_args=[relax.TensorType([output_batch, 1], "float32")],
         )
         sample_indices = relax.op.reshape(
             relax.op.broadcast_to(
@@ -4477,7 +4422,7 @@ class OperatorConverter:
             in_f32 = self.dequantize(in_expr, input_tensor)
             weight_axis = weight_tensor.qnn_params["axis"]
             if weight_axis != 0:
-                raise tvm.error.OpAttributeInvalid(
+                raise AttributeError(
                     f"FC weight QuantizedDimension() must be 0 (output-channel "
                     f"axis in [OC,IC] layout), got {weight_axis}"
                 )
@@ -4595,7 +4540,7 @@ class OperatorConverter:
         if fused_activation_fn == ActivationFunctionType.TANH:
             return relax.op.tanh(in_expr)
         fused_activation_fn_str = self.activation_fn_type[fused_activation_fn]
-        raise tvm.error.OpNotImplemented(
+        raise NotImplementedError(
             f"Fused activation {fused_activation_fn_str} is not supported yet."
         )
 
@@ -4635,9 +4580,7 @@ class OperatorConverter:
             conv_options.Init(op_options.Bytes, op_options.Pos)
             depth_multiplier = conv_options.DepthMultiplier()
         else:
-            raise tvm.error.OpNotImplemented(
-                f"Operator {conv_type} is not supported for frontend TFLite."
-            )
+            raise NotImplementedError(f"Operator {conv_type} is not supported for frontend TFLite.")
 
         stride_h = conv_options.StrideH()
         stride_w = conv_options.StrideW()
@@ -4752,7 +4695,7 @@ class OperatorConverter:
                 params["padding"] = [pad_top, pad_left, pad_bottom, pad_right]
 
         else:
-            raise tvm.error.OpAttributeUnImplemented(
+            raise NotImplementedError(
                 f"Padding format {padding} is not supported for operator Conv."
             )
 
@@ -4767,13 +4710,13 @@ class OperatorConverter:
             if is_depthwise_conv:
                 if per_channel_depthwise:
                     if weight_axis != 3:
-                        raise tvm.error.OpAttributeInvalid(
+                        raise AttributeError(
                             "Per-channel DepthwiseConv2D weight QuantizedDimension() must be 3 "
                             f"(the flattened output-channel axis), got {weight_axis}"
                         )
                     scale_count = weight_tensor.tensor.Quantization().ScaleLength()
                     if scale_count != in_channels:
-                        raise tvm.error.OpAttributeInvalid(
+                        raise AttributeError(
                             "Per-channel DepthwiseConv2D weight scale count must match "
                             f"input_channels * depth_multiplier ({in_channels}), got {scale_count}"
                         )
@@ -4789,7 +4732,7 @@ class OperatorConverter:
                     w_f32 = relax.op.reshape(w_f32, depthwise_weight_shape)
                 else:
                     if weight_axis != 0:
-                        raise tvm.error.OpAttributeInvalid(
+                        raise AttributeError(
                             "Per-tensor DepthwiseConv2D weight QuantizedDimension() must be 0, "
                             f"got {weight_axis}"
                         )
@@ -4801,7 +4744,7 @@ class OperatorConverter:
                     )
             else:
                 if weight_axis != 0:
-                    raise tvm.error.OpAttributeInvalid(
+                    raise AttributeError(
                         f"Conv2D weight QuantizedDimension() must be 0 (output-channel "
                         f"axis in [OC,KH,KW,IC] layout), got {weight_axis}"
                     )
@@ -4973,12 +4916,12 @@ class OperatorConverter:
             if do_pad:
                 params["padding"] = [pad_front, pad_top, pad_left, pad_back, pad_bottom, pad_right]
         else:
-            raise tvm.error.OpAttributeUnImplemented(
+            raise NotImplementedError(
                 f"Padding format {padding} is not supported for operator Conv3D."
             )
 
         if input_tensor.qnn_params:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "Quantized Conv3D is not yet supported in the Relax frontend."
             )
 
@@ -5004,7 +4947,7 @@ class OperatorConverter:
 
         # Handle fused activation.
         if output_tensor.qnn_params:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "Quantized Conv3D is not yet supported in the Relax frontend."
             )
 
@@ -5119,12 +5062,12 @@ class OperatorConverter:
                 output_pad = max(0, dim_stride - dim_kernel)
                 params["output_padding"][idx] = output_pad
         else:
-            raise tvm.error.OpAttributeUnImplemented(
+            raise NotImplementedError(
                 f"Padding format {padding} is not supported for operator Conv3DTranspose."
             )
 
         if input_tensor.qnn_params:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "Quantized Conv3DTranspose is not yet supported in the Relax frontend."
             )
 
@@ -5150,7 +5093,7 @@ class OperatorConverter:
 
         # Handle fused activation.
         if output_tensor.qnn_params:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "Quantized Conv3DTranspose is not yet supported in the Relax frontend."
             )
 
@@ -5351,7 +5294,7 @@ class OperatorConverter:
             elif np.issubdtype(np_dtype, np.integer):
                 identity = np.iinfo(np_dtype).min
             else:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     f"UNSORTED_SEGMENT_MAX does not support output dtype {output_dtype}."
                 )
             return relax.op.full(output_shape, relax.const(identity, output_dtype), output_dtype)
@@ -5362,7 +5305,7 @@ class OperatorConverter:
             elif np.issubdtype(np_dtype, np.integer):
                 identity = np.iinfo(np_dtype).max
             else:
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     f"UNSORTED_SEGMENT_MIN does not support output dtype {output_dtype}."
                 )
             return relax.op.full(output_shape, relax.const(identity, output_dtype), output_dtype)
@@ -5373,20 +5316,20 @@ class OperatorConverter:
         if op_name == "SEGMENT_SUM":
             segment_ids_tensor = input_tensors[1]
             if self.has_expr(segment_ids_tensor.tensor_idx):
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "TFLite SEGMENT_SUM with runtime segment_ids is not supported, "
                     "because TFLite does not encode a reliable output segment count."
                 )
             segment_ids = self.get_tensor_value(segment_ids_tensor)
             if np.any(segment_ids < 0):
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "TFLite SEGMENT_SUM with negative segment ids is not supported."
                 )
             return int(np.max(segment_ids)) + 1 if segment_ids.size else 0
 
         num_segments_tensor = input_tensors[2]
         if self.has_expr(num_segments_tensor.tensor_idx):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"TFLite {op_name} with runtime num_segments is not supported."
             )
         num_segments_value = self.get_tensor_value(num_segments_tensor)
@@ -5418,7 +5361,7 @@ class OperatorConverter:
         if not self.has_expr(segment_ids_tensor.tensor_idx):
             segment_ids_value = self.get_tensor_value(segment_ids_tensor)
             if np.any(segment_ids_value < 0):
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     f"TFLite {op_name} with negative segment ids is not supported."
                 )
 
@@ -5481,7 +5424,7 @@ class OperatorConverter:
         from tflite.ReverseSequenceOptions import ReverseSequenceOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite does not support quantized REVERSE_SEQUENCE operator yet."
             )
 
@@ -5529,54 +5472,54 @@ class OperatorConverter:
         input_tensors = self.get_input_tensors(op)
         output_tensors = self.get_output_tensors(op)
         if len(input_tensors) != 2 or len(output_tensors) != 1:
-            raise tvm.error.OpNotImplemented("RFFT2D expects two inputs and one output")
+            raise NotImplementedError("RFFT2D expects two inputs and one output")
 
         data_tensor, fft_length_tensor = input_tensors
         output_tensor = output_tensors[0]
         if data_tensor.tensor.Type() != TensorType.FLOAT32:
-            raise tvm.error.OpNotImplemented("RFFT2D input must be float32")
+            raise NotImplementedError("RFFT2D input must be float32")
         if not self._is_tflite_complex64_type(output_tensor.tensor.Type()):
-            raise tvm.error.OpNotImplemented("RFFT2D output must be COMPLEX64")
+            raise NotImplementedError("RFFT2D output must be COMPLEX64")
         if (
             data_tensor.tensor.Sparsity() is not None
             or fft_length_tensor.tensor.Sparsity() is not None
         ):
-            raise tvm.error.OpNotImplemented("RFFT2D does not support sparse inputs")
+            raise NotImplementedError("RFFT2D does not support sparse inputs")
 
         input_shape = tuple(to_int_list(self.get_tensor_shape(data_tensor)))
         tflite_output_shape = tuple(to_int_list(self.get_tensor_shape(output_tensor)))
         if len(input_shape) < 2:
-            raise tvm.error.OpNotImplemented("RFFT2D input rank must be at least 2")
+            raise NotImplementedError("RFFT2D input rank must be at least 2")
 
         try:
             fft_length_value = self.get_tensor_value_or_prefetched(fft_length_tensor)
         except (ValueError, TypeError):
-            raise tvm.error.OpNotImplemented("RFFT2D requires a constant fft_length") from None
+            raise NotImplementedError("RFFT2D requires a constant fft_length") from None
         if fft_length_value is None:
-            raise tvm.error.OpNotImplemented("RFFT2D requires a constant fft_length")
+            raise NotImplementedError("RFFT2D requires a constant fft_length")
         # Reject non-integer fft_length tensors before astype("int64") can silently
         # truncate (e.g. float32 2.7 -> int64 2).
         if not np.issubdtype(fft_length_value.dtype, np.integer):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"RFFT2D fft_length must be an integer tensor, got dtype {fft_length_value.dtype!r}"
             )
         fft_length = fft_length_value.astype("int64")
         if tuple(fft_length.shape) != (2,):
-            raise tvm.error.OpNotImplemented("RFFT2D fft_length must be a length-2 tensor")
+            raise NotImplementedError("RFFT2D fft_length must be a length-2 tensor")
 
         height = int(fft_length[0])
         width = int(fft_length[1])
         if height <= 0 or width <= 0:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"RFFT2D fft_length must be positive, got ({height}, {width})"
             )
         if height != int(input_shape[-2]) or width != int(input_shape[-1]):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "RFFT2D currently supports fft_length matching the input spatial shape"
             )
         expected_tflite_output_shape = input_shape[:-2] + (height, width // 2 + 1)
         if tflite_output_shape != expected_tflite_output_shape:
-            raise tvm.error.OpNotImplemented("RFFT2D output shape does not match fft_length")
+            raise NotImplementedError("RFFT2D output shape does not match fft_length")
 
         relax_output_shape = self._get_relax_tensor_shape(output_tensor)
         # Dispatch: power-of-2 sizes use the O(N^2 log N) Cooley-Tukey FFT kernel;
@@ -5584,17 +5527,17 @@ class OperatorConverter:
         # reference. Both kernels share the same call_tir contract, so the
         # downstream code is kernel-agnostic.
         if _is_power_of_2(height) and _is_power_of_2(width):
-            prim_func = _build_tflite_rfft2d_fft_primfunc(input_shape, relax_output_shape)
+            function = _build_tflite_rfft2d_fft_function(input_shape, relax_output_shape)
         else:
-            prim_func = _build_tflite_rfft2d_primfunc(input_shape, relax_output_shape)
+            function = _build_tflite_rfft2d_function(input_shape, relax_output_shape)
         module_builder = self.conversion_state["module_builder"]
         func_name = f"tflite_rfft2d_{output_tensor.tensor_idx}"
-        gv = module_builder.add_func(prim_func, func_name)
+        gv = module_builder.add_func(function, func_name)
         data_expr = self.get_tensor_expr(data_tensor)
         call = relax.call_tir(
             gv,
             [data_expr],
-            relax.TensorType(relax_output_shape, "float32"),
+            ty_args=[relax.TensorType(relax_output_shape, "float32")],
         )
         return self.bb.normalize(call)
 
@@ -5731,7 +5674,7 @@ class OperatorConverter:
             pad_left, pad_right = get_pad_value(input_w, filter_w, stride_w)
             params["padding"] = [pad_top, pad_left, pad_bottom, pad_right]
         else:
-            raise tvm.error.OpAttributeUnImplemented(
+            raise NotImplementedError(
                 f"Padding format {padding} for operator Pool2D is not supported."
             )
 
@@ -5764,7 +5707,7 @@ class OperatorConverter:
             avg_pool_exp = relax.op.nn.avg_pool2d(square_exp, **params)
             out = relax.op.sqrt(avg_pool_exp)
         else:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"Operator {pool_type} pool is not supported for frontend TFLite."
             )
 
@@ -5868,9 +5811,7 @@ class OperatorConverter:
 
         mode = "REFLECT" if mode_byte == 0 else "SYMMETRIC"
         if mode == "SYMMETRIC":
-            raise tvm.error.OpAttributeUnImplemented(
-                "MIRROR_PAD with SYMMETRIC mode is not yet supported."
-            )
+            raise NotImplementedError("MIRROR_PAD with SYMMETRIC mode is not yet supported.")
         # Flatten tuple-of-tuples to a list for relax.op.nn.pad
         flat_pads = [int(v) for pair in paddings for v in pair]
         out = relax.op.nn.pad(in_expr, flat_pads, pad_mode="reflect")
@@ -5993,7 +5934,7 @@ class OperatorConverter:
         from tflite.LSTMOptions import LSTMOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented("TFLite quantized LSTM is not supported yet.")
+            raise NotImplementedError("TFLite quantized LSTM is not supported yet.")
 
         input_tensors = self.get_input_tensors(op)
         assert len(input_tensors) == 24, (
@@ -6016,7 +5957,7 @@ class OperatorConverter:
 
         # Only coupled input-forget gate is supported.
         if input_tensors[1].tensor_idx != -1 or input_tensors[5].tensor_idx != -1:
-            raise tvm.error.OpNotImplemented("Only coupled input-forget LSTM is supported.")
+            raise NotImplementedError("Only coupled input-forget LSTM is supported.")
 
         # Peephole, projection, and layer norm are not modeled yet.
         if (
@@ -6024,7 +5965,7 @@ class OperatorConverter:
             or any(t.tensor_idx != -1 for t in input_tensors[16:18])
             or any(t.tensor_idx != -1 for t in input_tensors[20:24])
         ):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "Peephole, projection, and layer norm LSTM are not supported yet."
             )
 
@@ -6139,7 +6080,7 @@ class OperatorConverter:
         from tflite.SVDFOptions import SVDFOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented("TFLite quantized SVDF is not supported yet.")
+            raise NotImplementedError("TFLite quantized SVDF is not supported yet.")
 
         input_tensors = self.get_input_tensors(op)
         assert len(input_tensors) == 5, (
@@ -6166,7 +6107,7 @@ class OperatorConverter:
             batch_size = int(batch_size)
         num_filters = to_int_list(self.get_tensor_shape(input_tensors[1]))[0]
         if num_filters % rank != 0:
-            raise tvm.error.OpNotImplemented("SVDF num_filters must be divisible by rank.")
+            raise NotImplementedError("SVDF num_filters must be divisible by rank.")
         num_units = num_filters // rank
         memory_size = to_int_list(self.get_tensor_shape(input_tensors[2]))[1]
 
@@ -6230,7 +6171,7 @@ class OperatorConverter:
         from tflite.SequenceRNNOptions import SequenceRNNOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized UNIDIRECTIONAL_SEQUENCE_RNN is not supported yet."
             )
 
@@ -6345,7 +6286,7 @@ class OperatorConverter:
         from tflite.UnidirectionalSequenceLSTMOptions import UnidirectionalSequenceLSTMOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized UNIDIRECTIONAL_SEQUENCE_LSTM is not supported yet."
             )
 
@@ -6368,13 +6309,13 @@ class OperatorConverter:
 
         # Only coupled input-forget gate is supported.
         if input_tensors[1].tensor_idx != -1 or input_tensors[5].tensor_idx != -1:
-            raise tvm.error.OpNotImplemented("Only coupled input-forget LSTM is supported.")
+            raise NotImplementedError("Only coupled input-forget LSTM is supported.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [9, 10, 11]):
-            raise tvm.error.OpNotImplemented("TFLite peephole LSTM is not supported yet.")
+            raise NotImplementedError("TFLite peephole LSTM is not supported yet.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [16, 17]):
-            raise tvm.error.OpNotImplemented("TFLite projection LSTM is not supported yet.")
+            raise NotImplementedError("TFLite projection LSTM is not supported yet.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [20, 21, 22, 23]):
-            raise tvm.error.OpNotImplemented("TFLite layer-norm LSTM is not supported yet.")
+            raise NotImplementedError("TFLite layer-norm LSTM is not supported yet.")
 
         # Weights (transposed once outside the loop).
         w_f_t = relax.op.permute_dims(self.get_tensor_expr(input_tensors[2]))
@@ -6494,7 +6435,7 @@ class OperatorConverter:
         from tflite.BuiltinOptions import BuiltinOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized BIDIRECTIONAL_SEQUENCE_RNN is not supported yet."
             )
 
@@ -6514,7 +6455,7 @@ class OperatorConverter:
         fused_activation_fn = rnn_opts.FusedActivationFunction()
         merge_outputs = rnn_opts.MergeOutputs()
         if any(input_tensors[idx].tensor_idx != -1 for idx in [9, 10, 11]):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite BIDIRECTIONAL_SEQUENCE_RNN aux input is not supported yet."
             )
 
@@ -6657,7 +6598,7 @@ class OperatorConverter:
         from tflite.BuiltinOptions import BuiltinOptions
 
         if self.is_quantized(op):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite quantized BIDIRECTIONAL_SEQUENCE_LSTM is not supported yet."
             )
 
@@ -6681,11 +6622,11 @@ class OperatorConverter:
 
         # ── Forward LSTM weights (transposed once outside the loop) ──
         if input_tensors[1].tensor_idx != -1 or input_tensors[5].tensor_idx != -1:
-            raise tvm.error.OpNotImplemented("Only coupled input-forget LSTM is supported.")
+            raise NotImplementedError("Only coupled input-forget LSTM is supported.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [9, 10, 11]):
-            raise tvm.error.OpNotImplemented("TFLite peephole LSTM is not supported yet.")
+            raise NotImplementedError("TFLite peephole LSTM is not supported yet.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [16, 17]):
-            raise tvm.error.OpNotImplemented("TFLite projection LSTM is not supported yet.")
+            raise NotImplementedError("TFLite projection LSTM is not supported yet.")
 
         fw_w_f_t = relax.op.permute_dims(self.get_tensor_expr(input_tensors[2]))
         fw_w_c_t = relax.op.permute_dims(self.get_tensor_expr(input_tensors[3]))
@@ -6699,13 +6640,13 @@ class OperatorConverter:
 
         # ── Backward LSTM weights (transposed once outside the loop) ──
         if input_tensors[18].tensor_idx != -1 or input_tensors[22].tensor_idx != -1:
-            raise tvm.error.OpNotImplemented("Only coupled input-forget LSTM is supported.")
+            raise NotImplementedError("Only coupled input-forget LSTM is supported.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [26, 27, 28]):
-            raise tvm.error.OpNotImplemented("TFLite peephole LSTM is not supported yet.")
+            raise NotImplementedError("TFLite peephole LSTM is not supported yet.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in [33, 34]):
-            raise tvm.error.OpNotImplemented("TFLite projection LSTM is not supported yet.")
+            raise NotImplementedError("TFLite projection LSTM is not supported yet.")
         if any(input_tensors[idx].tensor_idx != -1 for idx in range(39, 48)):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite BIDIRECTIONAL_SEQUENCE_LSTM aux input is not supported yet."
             )
 
@@ -6874,14 +6815,14 @@ class OperatorConverter:
         output_dtype = self.get_tensor_type_str(output_tensor.tensor.Type())
 
         out = relax.op.call_dps_packed(
-            "topi.nn.batch_to_space_nd",
+            _ExternFunc("topi.nn.batch_to_space_nd"),
             (
                 in_expr,
                 relax.ShapeExpr(block_shape),
                 relax.ShapeExpr(crop_begin),
                 relax.ShapeExpr(crop_end),
             ),
-            out_ty=relax.TensorType(output_shape, output_dtype),
+            ty_args=[relax.TensorType(output_shape, output_dtype)],
         )
 
         return out
@@ -6956,7 +6897,7 @@ class OperatorConverter:
         )
 
         if self.has_expr(dense_shape_tensor.tensor_idx):
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 "TFLite EMBEDDING_LOOKUP_SPARSE with runtime dense_shape is not supported."
             )
 
@@ -6969,7 +6910,7 @@ class OperatorConverter:
         if not self.has_expr(ids_tensor.tensor_idx):
             ids_value = self.get_tensor_value(ids_tensor)
             if np.any(ids_value < 0):
-                raise tvm.error.OpNotImplemented(
+                raise NotImplementedError(
                     "TFLite EMBEDDING_LOOKUP_SPARSE with negative ids is not supported."
                 )
 
@@ -7010,7 +6951,7 @@ class OperatorConverter:
         elif combiner == CombinerType.SQRTN:
             denominator_updates = relax.op.multiply(weights, weights)
         else:
-            raise tvm.error.OpNotImplemented(
+            raise NotImplementedError(
                 f"Unsupported TFLite EMBEDDING_LOOKUP_SPARSE combiner value {combiner}"
             )
 
@@ -7117,7 +7058,7 @@ class OperatorConverter:
         output_dtype = self.get_tensor_type_str(output_tensor.tensor.Type())
 
         out = relax.op.call_dps_packed(
-            "topi.nn.space_to_batch_nd",
+            _ExternFunc("topi.nn.space_to_batch_nd"),
             (
                 in_expr,
                 relax.ShapeExpr(block_shape),
@@ -7125,7 +7066,7 @@ class OperatorConverter:
                 relax.ShapeExpr(pad_after),
                 0.0,
             ),
-            out_ty=relax.TensorType(output_shape, output_dtype),
+            ty_args=[relax.TensorType(output_shape, output_dtype)],
         )
 
         return out
@@ -7218,9 +7159,9 @@ class OperatorConverter:
         output_shape_expr = relax.const(list(self.get_tensor_value(output_shape)), "int32")
 
         out = relax.op.call_dps_packed(
-            "topi.sparse_to_dense",
+            _ExternFunc("topi.sparse_to_dense"),
             (indices_expr, output_shape_expr, values_expr, default_value_expr),
-            out_ty=relax.TensorType(output_shape_val, output_dtype),
+            ty_args=[relax.TensorType(output_shape_val, output_dtype)],
         )
 
         return out
@@ -7332,7 +7273,7 @@ class OperatorConverter:
             in_f32 = self.dequantize(in_expr, input_tensor)
             weight_axis = weights_tensor.qnn_params["axis"]
             if weight_axis != 0:
-                raise tvm.error.OpAttributeInvalid(
+                raise AttributeError(
                     f"TransposeConv weight QuantizedDimension() must be 0 "
                     f"(output-channel axis in OHWI layout), got {weight_axis}"
                 )
@@ -7976,11 +7917,11 @@ class OperatorConverter:
         on_val = self.get_tensor_value(on_value).item()
         off_val = self.get_tensor_value(off_value).item()
         if "float" in dtype:
-            on_prim = relax.prim_value(tvm.tirx.FloatImm(dtype, float(on_val)))
-            off_prim = relax.prim_value(tvm.tirx.FloatImm(dtype, float(off_val)))
+            on_prim = relax.prim_value(tvm_tirx.ir.FloatImm(dtype, float(on_val)))
+            off_prim = relax.prim_value(tvm_tirx.ir.FloatImm(dtype, float(off_val)))
         else:
-            on_prim = relax.prim_value(tvm.tirx.IntImm(dtype, int(on_val)))
-            off_prim = relax.prim_value(tvm.tirx.IntImm(dtype, int(off_val)))
+            on_prim = relax.prim_value(tvm_tirx.ir.IntImm(dtype, int(on_val)))
+            off_prim = relax.prim_value(tvm_tirx.ir.IntImm(dtype, int(off_val)))
 
         out = relax.op.one_hot(indices_expr, on_prim, off_prim, depth, axis)
 
@@ -8039,7 +7980,7 @@ class OperatorConverter:
         # )
         # TFLite MATRIX_SET_DIAG only sets the main diagonal, so k1=0, k2=0
         out = relax.op.call_dps_packed(
-            "topi.matrix_set_diag",
+            _ExternFunc("topi.matrix_set_diag"),
             (
                 input_expr,
                 diagonal_expr,
@@ -8048,7 +7989,7 @@ class OperatorConverter:
                 relax.const(False),
                 relax.const(False),
             ),
-            out_ty=relax.TensorType(output_shape, output_dtype),
+            ty_args=[relax.TensorType(output_shape, output_dtype)],
         )
         return out
 
@@ -8080,7 +8021,7 @@ class OperatorConverter:
         # )
         # TFLite MATRIX_DIAG only sets the main diagonal, so k1=0, k2=0
         out = relax.op.call_dps_packed(
-            "topi.matrix_set_diag",
+            _ExternFunc("topi.matrix_set_diag"),
             (
                 zeros_expr,
                 diagonal_expr,
@@ -8089,7 +8030,7 @@ class OperatorConverter:
                 relax.const(False),
                 relax.const(False),
             ),
-            out_ty=relax.TensorType(output_shape, output_dtype),
+            ty_args=[relax.TensorType(output_shape, output_dtype)],
         )
         return out
 
@@ -8295,7 +8236,7 @@ def _bit_reversal_swap_pairs(n):
     return swaps
 
 
-def _build_tflite_rfft2d_primfunc(input_shape, output_pair_shape):
+def _build_tflite_rfft2d_function(input_shape, output_pair_shape):
     """Build a reference TIR kernel for TFLite RFFT2D.
 
     The TFLite frontend represents complex tensors as float32 real/imag pairs
@@ -8318,7 +8259,7 @@ def _build_tflite_rfft2d_primfunc(input_shape, output_pair_shape):
     (batch, out_y, out_x) iteration is structured as S-TIR spatial axes so a
     downstream ``tvm.tir.schedule`` pass can parallelize it.
     """
-    from tvm.script.parser import tirx as T
+    from tvm_tirx.script.parser import tirx as T
 
     batch = 1
     for dim in input_shape[:-2]:
@@ -8330,15 +8271,20 @@ def _build_tflite_rfft2d_primfunc(input_shape, output_pair_shape):
     output_complex_total = batch * height * out_width
     neg_two_pi = np.float32(-2.0 * math.pi)
 
-    @Ts.prim_func(private=True, check_well_formed=False)
+    @Ts.function(private=True, check_well_formed=False)
     def kernel(
-        data: T.Buffer(input_shape, "float32"), output: T.Buffer(output_pair_shape, "float32")
+        data: T.Tensor(input_shape, "float32"), output: T.Tensor(output_pair_shape, "float32")
     ):
         # Flat 1D aliases of the multi-dim buffers. The kernel is rank-agnostic
         # over the leading batch dimensions, so collapsing the index space
         # avoids special-casing 2D / 3D / 4D input shapes.
-        data_flat = T.decl_buffer((input_total,), "float32", data=data.data)
-        output_flat = T.decl_buffer((output_complex_total * 2,), "float32", data=output.data)
+        data_flat = T.decl_tensor(
+            data.data, ty_args=[T.Tensor((input_total,), "float32", data=data.data)]
+        )
+        output_flat = T.decl_tensor(
+            output.data,
+            ty_args=[T.Tensor((output_complex_total * 2,), "float32", data=output.data)],
+        )
         neg_two_pi_const = T.float32(neg_two_pi)
 
         for b_idx, out_y, out_x in T.grid(batch, height, out_width):
@@ -8361,7 +8307,7 @@ def _build_tflite_rfft2d_primfunc(input_shape, output_pair_shape):
     return kernel
 
 
-def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
+def _build_tflite_rfft2d_fft_function(input_shape, output_pair_shape):
     """Build a 2D Cooley-Tukey FFT TIR kernel for TFLite RFFT2D.
 
     Precondition: both ``input_shape[-2]`` (height) and ``input_shape[-1]``
@@ -8387,7 +8333,7 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
     Complexity is ``O(B * H * W * (log2(H) + log2(W)))``, vs the DFT
     reference kernel's ``O(B * H * W * H * W)``.
     """
-    from tvm.script.parser import tirx as T
+    from tvm_tirx.script.parser import tirx as T
 
     batch = 1
     for dim in input_shape[:-2]:
@@ -8405,7 +8351,7 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
 
     if not (_is_power_of_2(height) and _is_power_of_2(width)):
         raise ValueError(
-            f"_build_tflite_rfft2d_fft_primfunc requires power-of-2 height and width, "
+            f"_build_tflite_rfft2d_fft_function requires power-of-2 height and width, "
             f"got H={height}, W={width}"
         )
 
@@ -8413,7 +8359,7 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
     # constant for a given FFT length and will be inlined in the TIR source.
     # Each emitted line is indented 16 spaces (4 levels: top → b_idx loop →
     # sblock → row/col loop body) so it lands inside the for loop when
-    # concatenated into the primfunc source.
+    # concatenated into the function source.
     row_swap_stmts = []
     for i, j in _bit_reversal_swap_pairs(width):
         row_swap_stmts.append(
@@ -8443,7 +8389,7 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
     col_swaps_code = "".join(col_swap_stmts) if col_swap_stmts else "                pass\n"
 
     # Build the per-stage butterfly code with the stage loop fully unrolled
-    # at primfunc-construction time. After unrolling, all loop bounds
+    # at function-construction time. After unrolling, all loop bounds
     # (block_start, k) are compile-time integers, so the TIR parser doesn't
     # need to reason about runtime loop extents and the scheduler can
     # see static twiddle factors instead of runtime trig calls.
@@ -8494,25 +8440,25 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
         log2_h, height, "                ", stride=width, base_expr="col_base"
     )
 
-    # Build the primfunc source. The bit-reversal swaps are inlined (one
+    # Build the function source. The bit-reversal swaps are inlined (one
     # unconditional block per (i, j) pair) and the butterfly stages are
     # fully unrolled, so the TIR parser sees ordinary statements rather than
     # runtime table lookups or runtime-magnitude loops. The body is wrapped
     # in a single S-TIR block over the batch dimension so the Relax
-    # pipeline (which expects an SBlockRealize at the primfunc body) accepts
+    # pipeline (which expects an SBlockRealize at the function body) accepts
     # this kernel.
-    primfunc_source = (
-        "from tvm.script.parser import tirx as T\n"
-        "from tvm.script import s_tir as Ts\n"
-        "@Ts.prim_func(private=True, check_well_formed=False)\n"
+    function_source = (
+        "from tvm_tirx.script.parser import tirx as T\n"
+        "from tvm.s_tir import script as Ts\n"
+        "@Ts.function(private=True, check_well_formed=False)\n"
         "def kernel(\n"
-        f"    data: T.Buffer({tuple(int(x) for x in input_shape)}, 'float32'),\n"
-        f"    output: T.Buffer({tuple(int(x) for x in output_pair_shape)}, 'float32'),\n"
+        f"    data: T.Tensor({tuple(int(x) for x in input_shape)}, 'float32'),\n"
+        f"    output: T.Tensor({tuple(int(x) for x in output_pair_shape)}, 'float32'),\n"
         "):\n"
-        f"    data_flat = T.decl_buffer(({input_total},), 'float32', data=data.data)\n"
-        f"    output_flat = T.decl_buffer(({output_complex_total * 2},), 'float32', data=output.data)\n"
-        f"    scratch_real = T.decl_buffer(({input_total},), 'float32')\n"
-        f"    scratch_imag = T.decl_buffer(({input_total},), 'float32')\n"
+        f"    data_flat = T.decl_tensor(data.data, ty_args=[T.Tensor(({input_total},), 'float32')])\n"
+        f"    output_flat = T.decl_tensor(output.data, ty_args=[T.Tensor(({output_complex_total * 2},), 'float32')])\n"
+        f"    scratch_real = T.alloc_tensor(ty_args=[T.Tensor(({input_total},), 'float32')])\n"
+        f"    scratch_imag = T.alloc_tensor(ty_args=[T.Tensor(({input_total},), 'float32')])\n"
         f"    for b_idx in T.serial({batch}):\n"
         f"        with Ts.sblock('rfft2d_fft'):\n"
         f"            v_b = Ts.axis.remap('S', [b_idx])\n"
@@ -8551,14 +8497,14 @@ def _build_tflite_rfft2d_fft_primfunc(input_shape, output_pair_shape):
     # for any callers who want to introspect the generated source.
     import linecache as _linecache
 
-    fake_file = f"<tflite_rfft2d_fft_primfunc H={height} W={width} outW={out_width}>"
+    fake_file = f"<tflite_rfft2d_fft_function H={height} W={width} outW={out_width}>"
     _linecache.cache[fake_file] = (
-        len(primfunc_source.splitlines()),
+        len(function_source.splitlines()),
         None,
-        [line + "\n" for line in primfunc_source.splitlines()],
+        [line + "\n" for line in function_source.splitlines()],
         fake_file,
     )
-    code = compile(primfunc_source, fake_file, "exec")
+    code = compile(function_source, fake_file, "exec")
     exec(code, namespace)
     return namespace["kernel"]
 
@@ -8572,7 +8518,7 @@ _STABLEHLO_RNG_PHILOX_WEYL_A = 0x9E3779B9
 _STABLEHLO_RNG_PHILOX_WEYL_B = 0xBB67AE85
 
 
-def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype, out_shape):
+def _build_stablehlo_rng_bit_generator_function(algorithm, state_len, out_dtype, out_shape):
     """Build a bit-exact TIR kernel for STABLEHLO_RNG_BIT_GENERATOR.
 
     Mirrors the TFLite runtime kernel (tensorflow/lite/kernels/rng_bit_generator.cc),
@@ -8582,7 +8528,7 @@ def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype,
     tensor. The updated state keeps the key unchanged and only advances the counter,
     which is the only behaviour the runtime relies on.
     """
-    from tvm.script.parser import tirx as T
+    from tvm_tirx.script.parser import tirx as T
 
     total = 1
     for dim in out_shape:
@@ -8608,19 +8554,19 @@ def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype,
         if is_64bit:
             low = _u64(words[2 * write_index])
             high = _u64(words[2 * write_index + 1])
-            return T.reinterpret(out_dtype, low | (high << T.uint64(32)))
-        return T.reinterpret(out_dtype, words[write_index])
+            return T.reinterpret(low | (high << T.uint64(32)), ty=out_dtype)
+        return T.reinterpret(words[write_index], ty=out_dtype)
 
     if algorithm == "threefry":
 
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def kernel(
-            initial_state: T.Buffer((state_len,), "uint64"),
-            output_state: T.Buffer((state_len,), "uint64"),
-            output: T.Buffer(out_shape, out_dtype),
+            initial_state: T.Tensor((state_len,), "uint64"),
+            output_state: T.Tensor((state_len,), "uint64"),
+            output: T.Tensor(out_shape, out_dtype),
         ):
             # A single opaque structured block keeps the imperative kernel as a
-            # well-formed block-structured PrimFunc, as required by the Relax
+            # well-formed block-structured Function, as required by the Relax
             # pipeline (e.g. HasReshapePattern).
             with Ts.sblock("rng_bit_generator"):
                 state_key = initial_state[0]
@@ -8629,10 +8575,12 @@ def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype,
                 key_1 = _u32(state_key >> T.uint64(32))
                 output_state[0] = state_key
                 output_state[1] = state_counter + T.uint64(num_blocks)
-                out_flat = T.decl_buffer((total,), out_dtype, data=output.data)
-                keys = T.decl_buffer((3,), "uint32", scope="local")
-                rotations = T.decl_buffer((8,), "uint32", scope="local")
-                ctr = T.decl_buffer((2,), "uint32", scope="local")
+                out_flat = T.decl_tensor(
+                    output.data, ty_args=[T.Tensor((total,), out_dtype, data=output.data)]
+                )
+                keys = T.alloc_tensor(ty_args=[T.Tensor((3,), "uint32", scope="local")])
+                rotations = T.alloc_tensor(ty_args=[T.Tensor((8,), "uint32", scope="local")])
+                ctr = T.alloc_tensor(ty_args=[T.Tensor((2,), "uint32", scope="local")])
                 keys[0] = key_0
                 keys[1] = key_1
                 keys[2] = key_0 ^ key_1 ^ T.uint32(parity)
@@ -8663,11 +8611,11 @@ def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype,
 
         return kernel
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def kernel(
-        initial_state: T.Buffer((state_len,), "uint64"),
-        output_state: T.Buffer((state_len,), "uint64"),
-        output: T.Buffer(out_shape, out_dtype),
+        initial_state: T.Tensor((state_len,), "uint64"),
+        output_state: T.Tensor((state_len,), "uint64"),
+        output: T.Tensor(out_shape, out_dtype),
     ):
         with Ts.sblock("rng_bit_generator"):
             state_key = initial_state[0]
@@ -8676,10 +8624,12 @@ def _build_stablehlo_rng_bit_generator_primfunc(algorithm, state_len, out_dtype,
             key_1 = _u32(state_key >> T.uint64(32))
             output_state[0] = state_key
             output_state[1] = state_counter + T.uint64(num_blocks)
-            out_flat = T.decl_buffer((total,), out_dtype, data=output.data)
-            ctr = T.decl_buffer((4,), "uint32", scope="local")
-            keys = T.decl_buffer((2,), "uint32", scope="local")
-            high_ctr = T.decl_buffer((2,), "uint32", scope="local")
+            out_flat = T.decl_tensor(
+                output.data, ty_args=[T.Tensor((total,), out_dtype, data=output.data)]
+            )
+            ctr = T.alloc_tensor(ty_args=[T.Tensor((4,), "uint32", scope="local")])
+            keys = T.alloc_tensor(ty_args=[T.Tensor((2,), "uint32", scope="local")])
+            high_ctr = T.alloc_tensor(ty_args=[T.Tensor((2,), "uint32", scope="local")])
             if state_len == 3:
                 # PHILOX u64[3]: the third state word feeds the high counter and
                 # is passed through to the output state unchanged.
@@ -8759,7 +8709,7 @@ def prepare_dense_matrix_from_sparse(sparse_tensor, sparse_tensor_value, sparse_
         elif VectorType(v_type) == VectorType.Uint8:
             return N.Uint8Flags
         else:
-            raise tvm.error.OpNotImplemented(f"The provided type {v_type} is not supported")
+            raise NotImplementedError(f"The provided type {v_type} is not supported")
 
     def _get_flattened_index(indices, shape):
         index = 0
@@ -8862,7 +8812,7 @@ def prepare_dense_matrix_from_sparse(sparse_tensor, sparse_tensor_value, sparse_
 
 def get_scalar_from_constant(expr):
     """Returns scalar value from Relax constant scalar."""
-    assert isinstance(expr, tvm.ir.GenericConst) and not expr.value.shape, (
+    assert isinstance(expr, tvm_tirx.ir.GenericConst) and not expr.value.shape, (
         "Expr is not a constant scalar."
     )
     value = expr.value.numpy()
@@ -9014,7 +8964,7 @@ def from_tflite(
 
     Returns
     -------
-    mod : tvm.IRModule
+    mod : tvm_tirx.IRModule
         The relax module for compilation.
 
     params : dict of str to tvm.nd.NDArray
@@ -9135,13 +9085,12 @@ def from_tflite(
                     # inputs cannot be represented. This also covers runtime string queries
                     # for ops like HASHTABLE_FIND, whose constant-foldable subset is handled
                     # in the op converter.
-                    raise tvm.error.OpNotImplemented(
+                    raise NotImplementedError(
                         "Relax TFLite frontend does not support TensorType.STRING graph inputs "
                         "(e.g. runtime string queries)"
                     )
                 input_var = relax.Var(
-                    name=model_input_name,
-                    ty=relax.TensorType(shape=shape, dtype=dtype),
+                    name=model_input_name, ty=relax.TensorType(shape=shape, dtype=dtype)
                 )
                 exp_tab.set_expr(model_input_name, input_var)
                 input_list.append(input_var)
@@ -9167,7 +9116,7 @@ def from_tflite(
             _, param_value_list = map(list, zip(*exp_tab.params.values()))
         func_attrs = {}
         func_attrs["num_input"] = len(input_list)
-        func_attrs["params"] = [tvm.runtime.tensor(arr) for arr in param_value_list]
+        func_attrs["params"] = [tvm_tirx.runtime.tensor(arr) for arr in param_value_list]
         relax_mod["main"] = relax_mod["main"].with_attrs(func_attrs)
 
         return relax_mod

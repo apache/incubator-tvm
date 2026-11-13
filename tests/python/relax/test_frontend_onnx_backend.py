@@ -41,6 +41,7 @@ import onnx.backend.test
 from onnx.backend.base import Backend, BackendRep
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend.onnx import from_onnx
 
@@ -58,9 +59,9 @@ class TVMRelaxBackendRep(BackendRep):
         self._func_param_names = func_param_names
         self._graph_input_names = graph_input_names
 
-        with tvm.transform.PassContext(opt_level=3):
+        with tvm_tirx.ir.transform.PassContext(opt_level=3):
             ex = tvm.compile(mod, target="llvm")
-        self._vm = relax.VirtualMachine(ex, tvm.cpu())
+        self._vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
 
     def run(self, inputs, **kwargs):
         # Map positional inputs to names.  The runner loads one .pb per
@@ -83,7 +84,7 @@ class TVMRelaxBackendRep(BackendRep):
         self._vm.invoke_stateful("main")
         output = self._vm.get_outputs("main")
 
-        if isinstance(output, tvm.runtime.Tensor | np.ndarray):
+        if isinstance(output, tvm_tirx.runtime.Tensor | np.ndarray):
             return (output.numpy() if hasattr(output, "numpy") else output,)
         if isinstance(output, tuple | list):
             return tuple(o.numpy() if hasattr(o, "numpy") else np.array(o) for o in output)
@@ -181,6 +182,7 @@ _INCLUDE_OPS = [
     "or",
     "reciprocal",
     "relu",
+    "reversesequence",
     "round",
     "scatternd",
     "sigmoid",

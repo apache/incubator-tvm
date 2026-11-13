@@ -20,6 +20,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_MEASURE_CANDIDATE_H_
 #define TVM_S_TIR_META_SCHEDULE_MEASURE_CANDIDATE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
@@ -32,8 +33,11 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The schedule (with input shapes) to be measured. */
-class MeasureCandidateNode : public ffi::Object {
+class MeasureCandidateObj : public ffi::Object {
  public:
+  explicit MeasureCandidateObj(ffi::UnsafeInit tag) : sch(tag) {}
+
+  explicit MeasureCandidateObj(s_tir::Schedule sch) : sch(std::move(sch)) {}
   /*! \brief The schedule for measurement. */
   s_tir::Schedule sch;
   /*! \brief The argument information, e.g., (shape, dtype) for tensors. */
@@ -41,17 +45,17 @@ class MeasureCandidateNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MeasureCandidateNode>()
-        .def_ro("sch", &MeasureCandidateNode::sch)
-        .def_ro("args_info", &MeasureCandidateNode::args_info);
+    refl::ObjectDef<MeasureCandidateObj>()
+        .def_ro("sch", &MeasureCandidateObj::sch)
+        .def_ro("args_info", &MeasureCandidateObj::args_info);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MeasureCandidate", MeasureCandidateNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MeasureCandidate", MeasureCandidateObj,
                                     ffi::Object);
 };
 
 /*!
- * \brief Managed reference to MeasureCandidateNode.
- * \sa MeasureCandidateNode
+ * \brief Managed reference to MeasureCandidateObj.
+ * \sa MeasureCandidateObj
  */
 class MeasureCandidate : public ffi::ObjectRef {
  public:
@@ -62,7 +66,7 @@ class MeasureCandidate : public ffi::ObjectRef {
    */
   TVM_DLL MeasureCandidate(s_tir::Schedule sch, ffi::Array<ArgInfo> args_info);
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(MeasureCandidate, ffi::ObjectRef,
-                                                MeasureCandidateNode);
+                                                MeasureCandidateObj);
 };
 
 }  // namespace meta_schedule

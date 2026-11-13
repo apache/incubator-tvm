@@ -17,9 +17,11 @@
 # pylint: disable=abstract-method,unused-argument
 # pylint: disable=missing-function-docstring,missing-module-docstring
 
-import tvm
-from tvm.ir import Call, Op
-from tvm.ir.module import IRModule
+import tvm_ffi
+
+import tvm_tirx
+from tvm_tirx.ir import Call, Op
+from tvm_tirx.ir.module import IRModule
 
 from ..expr import Expr, Function, ShapeExpr
 from ..expr_functor import PyExprVisitor, visitor
@@ -124,11 +126,11 @@ def estimate_memory_usage(mod: IRModule | Function) -> str:
                 )
             size: int = 1
             for dim_len in shape.values:
-                if not isinstance(dim_len, tvm.tirx.IntImm):
+                if not isinstance(dim_len, tvm_tirx.ir.IntImm):
                     self.total_dyn_size_tensor_num += 1
                     return -1
                 size *= dim_len.value
-            dtype = tvm.DataType(dtype_str)
+            dtype = tvm_ffi.dtype(dtype_str)
             return size * ((dtype.bits + 7) // 8) * dtype.lanes
 
         def accumulate_builtin_tensor_alloc(self, shape: Expr, dtype_str: str) -> None:
@@ -177,6 +179,6 @@ def estimate_memory_usage(mod: IRModule | Function) -> str:
             return "- Function " + func_name + ":\n" + est
 
     if isinstance(mod, Function):
-        mod = tvm.IRModule({tvm.ir.GlobalVar("foo"): mod})
+        mod = tvm_tirx.IRModule({tvm_tirx.ir.GlobalVar("foo"): mod})
 
     return MemoryEstimator().estimate(mod)

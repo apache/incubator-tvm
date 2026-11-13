@@ -24,7 +24,7 @@ represent and optimize primitive tensor functions.
 
 The TensorIR codebase consists of two modules (split from the former ``tir``):
 
-- **tirx** — Core IR definitions and lowering (PrimFunc, Buffer, SBlock,
+- **tirx** — Core IR definitions and lowering (Function, Buffer, SBlock,
   expressions, statements, lowering passes).
 - **s_tir** (Schedulable TIR) — Schedule primitives, MetaSchedule, DLight,
   and tensor intrinsics.

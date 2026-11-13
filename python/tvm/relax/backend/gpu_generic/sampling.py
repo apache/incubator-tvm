@@ -20,10 +20,9 @@
 import math
 from collections.abc import Callable
 
-import tvm
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.tirx import PrimFunc
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import tirx as T
+from tvm_tirx.tirx import Function
 
 
 def _is_power_of_two(n: int):
@@ -40,7 +39,9 @@ def gpu_multinomial_from_uniform(
     tx_len: int = 32,
     thread_elem: int = 4,
     eps: float = 1e-6,
-) -> PrimFunc:
+    *,
+    target=None,
+) -> Function:
     """Generate GPU kernel for multinomial_from_uniform operator.
 
     Parameters
@@ -68,11 +69,10 @@ def gpu_multinomial_from_uniform(
 
     Returns
     -------
-    func : PrimFunc
+    func : Function
         The generated function
     """
 
-    target = tvm.target.Target.current()
     target_dtype = "int32" if "webgpu" in str(target) else "int64"
 
     TX = T.int64(tx_len)  # threadIdx.x
@@ -102,8 +102,8 @@ def gpu_multinomial_from_uniform(
     def block_cumsum(
         ty: T.int64,
         tx: T.int64,
-        source_local: T.Buffer,
-        output_shared: T.Buffer,
+        source_local: T.Tensor,
+        output_shared: T.Tensor,
     ):
         """cumsum inside block (SM)"""
         # Inclusive scan inside thread
@@ -136,11 +136,11 @@ def gpu_multinomial_from_uniform(
     def block_adjacent_difference_left(
         ty: T.int64,
         tx: T.int64,
-        source_local: T.Buffer,
-        output_local: T.Buffer,
+        source_local: T.Tensor,
+        output_local: T.Tensor,
     ):
         with Ts.sblock():
-            shared_buf = Ts.sblock_alloc_buffer((TX * TY,), "bool", scope="shared")
+            shared_buf = Ts.sblock_alloc_tensor((TX * TY,), "bool", scope="shared")
             tx_idx: T.let[T.int64] = ty * TX + tx
             shared_buf[tx_idx] = source_local[thread_elem - 1]
             output_local[0] = T.if_then_else(
@@ -162,15 +162,15 @@ def gpu_multinomial_from_uniform(
         ty: T.int64,
         tx: T.int64,
         init_value,
-        data_local: T.Buffer,
-        output_local: T.Buffer,
+        data_local: T.Tensor,
+        output_local: T.Tensor,
         dtype: str,
         reduce_op: Callable,  # T.macro
-        mask_local: T.Buffer | None = None,
+        mask_local: T.Tensor | None = None,
     ):
         with Ts.sblock():
-            local_sum = Ts.sblock_alloc_buffer((), dtype, scope="local")
-            shared_buf = Ts.sblock_alloc_buffer((TX * TY,), dtype, scope="shared")
+            local_sum = Ts.sblock_alloc_tensor((), dtype, scope="local")
+            shared_buf = Ts.sblock_alloc_tensor((TX * TY,), dtype, scope="shared")
             idx: T.let[T.int64] = ty * TX + tx
 
             local_sum[()] = T.Cast(dtype, init_value)
@@ -201,13 +201,13 @@ def gpu_multinomial_from_uniform(
         sample_id_local,
     ):
         with Ts.sblock():
-            prob_gt_threshold = Ts.sblock_alloc_buffer((thread_elem,), prob_dtype, scope="local")
-            cumsum = Ts.sblock_alloc_buffer((block_elem,), prob_dtype, scope="shared")
-            greater_than_u = Ts.sblock_alloc_buffer((thread_elem,), "bool", scope="local")
-            mask = Ts.sblock_alloc_buffer((thread_elem,), "bool", scope="local")
-            valid = Ts.sblock_alloc_buffer((thread_elem,), "bool", scope="local")
-            indices = Ts.sblock_alloc_buffer((thread_elem), dtype, scope="local")
-            step_aggregate = Ts.sblock_alloc_buffer((), prob_dtype, scope="local")
+            prob_gt_threshold = Ts.sblock_alloc_tensor((thread_elem,), prob_dtype, scope="local")
+            cumsum = Ts.sblock_alloc_tensor((block_elem,), prob_dtype, scope="shared")
+            greater_than_u = Ts.sblock_alloc_tensor((thread_elem,), "bool", scope="local")
+            mask = Ts.sblock_alloc_tensor((thread_elem,), "bool", scope="local")
+            valid = Ts.sblock_alloc_tensor((thread_elem,), "bool", scope="local")
+            indices = Ts.sblock_alloc_tensor((thread_elem), dtype, scope="local")
+            step_aggregate = Ts.sblock_alloc_tensor((), prob_dtype, scope="local")
             # Load prob data from global memory to local memory
             for v in T.unroll(thread_elem):
                 idx: T.let[T.int64] = step_iter * block_elem + ty * warp_elem + tx * thread_elem + v
@@ -231,7 +231,7 @@ def gpu_multinomial_from_uniform(
                 reduce_op=op_reduce_sum,
                 mask_local=None,
             )
-            if T.tvm_thread_invariant(aggregate[()] + step_aggregate[()] >= uniform_sample - eps):
+            if T.gpu_thread_invariant(aggregate[()] + step_aggregate[()] >= uniform_sample - eps):
                 block_cumsum(ty, tx, prob_gt_threshold, cumsum)
                 # Note: it should be `T.vectorized` instead of `T.unroll`
                 # However, it will cause vulkan codegen error
@@ -259,34 +259,34 @@ def gpu_multinomial_from_uniform(
 
             aggregate[()] += step_aggregate[()]
 
-    n = T.dynamic("n")
-    vocab_size = T.dynamic("vocab_size")
-    batch_size = T.dynamic("batch_size")
+    n = T.dynamic("n", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
+    batch_size = T.dynamic("batch_size", "int64")
 
-    @Ts.prim_func
+    @Ts.function
     def parallel_sampling_from_prob(
-        prob: T.Buffer((n, vocab_size), prob_dtype),
-        uniform_samples: T.Buffer((batch_size, 1), sample_dtype),
-        row_indices: T.Buffer((batch_size, 1), sample_indices_dtype),
-        token_ids: T.Buffer((batch_size, 1), dtype),
+        prob: T.Tensor((n, vocab_size), prob_dtype),
+        uniform_samples: T.Tensor((batch_size, 1), sample_dtype),
+        row_indices: T.Tensor((batch_size, 1), sample_indices_dtype),
+        token_ids: T.Tensor((batch_size, 1), dtype),
     ):
         T.func_attr({"tirx.is_scheduled": True})
         # match buffers
 
         # local buffers
-        aggregate = Ts.sblock_alloc_buffer((), prob_dtype, scope="local")
-        sample_id_local = Ts.sblock_alloc_buffer((), dtype, scope="local")
-        step_iter = Ts.sblock_alloc_buffer((), "int32", scope="local")
+        aggregate = Ts.sblock_alloc_tensor((), prob_dtype, scope="local")
+        sample_id_local = Ts.sblock_alloc_tensor((), dtype, scope="local")
+        step_iter = Ts.sblock_alloc_tensor((), "int32", scope="local")
 
-        for bx in T.thread_binding(batch_size, thread="blockIdx.x"):
+        for bx in T.parallel(batch_size, annotations={"thread_binding": "blockIdx.x"}):
             row_idx: T.let[T.int64] = T.Cast("int64", row_indices[bx, 0])
-            for ty in T.thread_binding(TY, thread="threadIdx.y"):
-                for tx in T.thread_binding(TX, thread="threadIdx.x"):
+            for ty in T.parallel(TY, annotations={"thread_binding": "threadIdx.y"}):
+                for tx in T.parallel(TX, annotations={"thread_binding": "threadIdx.x"}):
                     u: T.let[T.float32] = uniform_samples[bx, 0]
                     aggregate[()] = T.Cast(prob_dtype, 0)
                     step_iter[()] = T.int32(0)
                     # at least one iteration
-                    while T.tvm_thread_invariant(
+                    while T.gpu_thread_invariant(
                         (step_iter[()] == 0 or aggregate[()] < u - eps)
                         and T.Cast(target_dtype, step_iter[()])
                         < T.Cast(target_dtype, T.ceildiv(vocab_size, block_elem))
@@ -318,16 +318,16 @@ def generic_get_sample_index(
 ):
     """Generate a generic get_sample_index kernel."""
 
-    batch = T.dynamic("batch")
-    vocab_size = T.dynamic("vocab_size")
-    out_batch = T.dynamic("out_batch")
+    batch = T.dynamic("batch", "int64")
+    vocab_size = T.dynamic("vocab_size", "int64")
+    out_batch = T.dynamic("out_batch", "int64")
 
-    @Ts.prim_func(private=True)
+    @Ts.function(private=True)
     def _get_sample_index(
-        prob: T.Buffer((batch, vocab_size), prob_dtype),
-        usample: T.Buffer((out_batch, 1), sample_dtype),
-        sample_indices: T.Buffer((out_batch, 1), sample_indices_dtype),
-        output_index: T.Buffer((out_batch, 1), dtype),
+        prob: T.Tensor((batch, vocab_size), prob_dtype),
+        usample: T.Tensor((out_batch, 1), sample_dtype),
+        sample_indices: T.Tensor((out_batch, 1), sample_indices_dtype),
+        output_index: T.Tensor((out_batch, 1), dtype),
     ):
         for ax0, ax1 in T.grid(out_batch, vocab_size):
             with Ts.sblock("T_get_sample_index"):

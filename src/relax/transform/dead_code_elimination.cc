@@ -33,11 +33,11 @@
  */
 
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/expr_functor.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
-#include <tvm/tirx/expr_functor.h>
 #include <tvm/tirx/function.h>
 #include <tvm/tirx/stmt_functor.h>
 
@@ -53,7 +53,7 @@ namespace {
 struct RelaxCalleeCollector : relax::ExprVisitor {
   std::vector<GlobalVar>* callees;
   explicit RelaxCalleeCollector(std::vector<GlobalVar>* out) : callees(out) {}
-  void VisitExpr_(const GlobalVarNode* node) final {
+  void VisitExpr_(const GlobalVarObj* node) final {
     callees->push_back(ffi::GetRef<GlobalVar>(node));
   }
 };
@@ -62,7 +62,7 @@ struct TIRxCalleeCollector : tirx::StmtExprVisitor {
   std::vector<GlobalVar>* callees;
   explicit TIRxCalleeCollector(std::vector<GlobalVar>* out) : callees(out) {}
   using tirx::StmtExprVisitor::Visit_;
-  ffi::Optional<VisitInterrupt> Visit_(const CallNode* node) final {
+  ffi::Optional<VisitInterrupt> Visit_(const CallObj* node) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(tirx::StmtExprVisitor::Visit_(node));
     if (auto opt_gvar = node->op.as<GlobalVar>()) {
       callees->push_back(opt_gvar.value());
@@ -81,7 +81,7 @@ ffi::Array<GlobalVar> CollectCallees(const BaseFunc& func) {
     visitor(opt.value());
   } else if (func.as<relax::ExternFunc>()) {
     // no callees
-  } else if (auto opt = func.as<tirx::PrimFunc>()) {
+  } else if (auto opt = func.as<tirx::Function>()) {
     ffi::make_object<TIRxCalleeCollector>(&raw)->Visit(opt.value()->body);
   }
   // dedup preserving order
@@ -162,7 +162,7 @@ IRModule DeadCodeElimination(const IRModule& arg_mod,
   }
   for (const auto& gv : mod->GetGlobalVars()) {
     const auto& func = mod->Lookup(gv);
-    if (func.as<ExternFuncNode>() || func->GetLinkageType() == LinkageType::kExternal) {
+    if (func.as<ExternFuncObj>() || func->GetLinkageType() == LinkageType::kExternal) {
       entry_functions.insert(gv);
     }
   }
@@ -198,7 +198,7 @@ Pass DeadCodeElimination(ffi::Array<ffi::String> entry_functions) {
   auto pass_func = [=](IRModule m, PassContext pc) {
     return relax::DeadCodeElimination(m, entry_functions);
   };
-  return CreateModulePass(pass_func, 1, "DeadCodeElimination", {});
+  return CreateModulePass(pass_func, 1, "DeadCodeElimination");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

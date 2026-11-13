@@ -21,15 +21,17 @@ import ctypes.util
 
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.testing import env
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
+from tvm_tirx.testing import env
 
 # fmt: off
 
@@ -43,22 +45,22 @@ class Module:
         gv: R.Tuple(R.Any, R.Any) = R.call_builtin_with_ctx("vm.builtin.cuda_graph.get_cached_alloc", (cls.cuda_graph_alloc, R.prim_value(0)), ty_args=(R.Tuple(R.Any, R.Any),))
         storage: R.Any = gv[0]
         alloc = R.vm.alloc_tensor(storage, R.prim_value(0), R.shape((16, 16)), R.dtype("float32"))
-        _: R.Tuple = cls.add(x, alloc)
+        _: R.Tuple = R.call_tir_packed(cls.add, (x, alloc))
         storage1: R.Any = gv[1]
         gv1: R.Tuple(R.Tensor(dtype="float32"), R.Any, R.Any) = (alloc, storage1, storage)
         gv2: R.Tuple(R.Tensor((16, 16), dtype="float32")) = R.call_builtin_with_ctx("vm.builtin.cuda_graph.run_or_capture", (cls.cuda_graph_capture, gv1, R.prim_value(0)), ty_args=(R.Tuple(R.Tensor((16, 16), dtype="float32")),))
         storage2: R.Any = R.vm.alloc_storage(R.shape((1024,)), R.prim_value(0), R.dtype("uint8"))
         alloc3 = R.vm.alloc_tensor(storage2, R.prim_value(0), R.shape((16, 16)), R.dtype("float32"))
         lv4: R.Tensor((16, 16), dtype="float32") = gv2[0]
-        _3: R.Tuple = cls.add(lv4, alloc3)
+        _3: R.Tuple = R.call_tir_packed(cls.add, (lv4, alloc3))
         lv5: R.Tensor(dtype="float32") = alloc3
         return lv5
 
-    @Ts.prim_func
-    def add(A: T.Buffer((16, 16), "float32"), B: T.Buffer((16, 16), "float32")):
+    @Ts.function
+    def add(A: T.Tensor((16, 16), "float32"), B: T.Tensor((16, 16), "float32")):
         T.func_attr({"global_symbol": "add"})
         with Ts.sblock("root"):
-            for i in T.thread_binding(16, thread="threadIdx.x"):
+            for i in T.parallel(16, annotations={"thread_binding": "threadIdx.x"}):
                 for j in range(16):
                     with Ts.sblock("update"):
                         vi, vj = Ts.axis.remap("SS", [i, j])
@@ -78,12 +80,12 @@ class Module:
         R.func_attr({"global_symbol": "cuda_graph_capture"})
         lv0: R.Tensor((16, 16), dtype="float32") = alloc
         alloc1 = R.vm.alloc_tensor(storage1, R.prim_value(0), R.shape((16, 16)), R.dtype("float32"))
-        _1: R.Tuple = cls.add(lv0, alloc1)
+        _1: R.Tuple = R.call_tir_packed(cls.add, (lv0, alloc1))
         lv1: R.Tensor(dtype="float32") = alloc1
         lv2: R.Tuple(R.Tensor(dtype="float32")) = (lv1,)
         lv3: R.Tensor(dtype="float32") = lv2[0]
         alloc2 = R.vm.alloc_tensor(storage, R.prim_value(0), R.shape((16, 16)), R.dtype("float32"))
-        _2: R.Tuple = cls.add(lv3, alloc2)
+        _2: R.Tuple = R.call_tir_packed(cls.add, (lv3, alloc2))
         lv4: R.Tensor(dtype="float32") = alloc2
         gv: R.Tuple(R.Tensor(dtype="float32")) = (lv4,)
         return gv
@@ -103,19 +105,19 @@ def codegen(mod, target):
 @pytest.mark.skipif(not env.has_cuda(), reason="need cuda")
 def test_vm_run():
     mod = Module
-    target = tvm.target.Target("cuda", host="llvm")
+    target = tvm_tirx.target.Target("cuda", host="llvm")
     ex = codegen(mod, target)
     x_np = np.random.uniform(size=(16, 16)).astype("float32")
     y_np = x_np + 1.0 + 1.0 + 1.0 + 1.0
 
     def run_and_check():
-        dev = tvm.cuda(0)
+        dev = tvm_tirx.cuda(0)
         vm = relax.VirtualMachine(ex, dev)
-        x = tvm.runtime.tensor(x_np, dev)
+        x = tvm_tirx.runtime.tensor(x_np, dev)
         y = vm["main"](x)
-        tvm.testing.assert_allclose(y.numpy(), y_np, rtol=1e-5, atol=1e-5)
+        tvm_tirx.testing.assert_allclose(y.numpy(), y_np, rtol=1e-5, atol=1e-5)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -138,7 +140,7 @@ def test_capture_error_is_recoverable():
 
     """
 
-    target = tvm.target.Target("cuda")
+    target = tvm_tirx.target.Target("cuda")
 
     @I.ir_module
     class Module:
@@ -153,11 +155,11 @@ def test_capture_error_is_recoverable():
             D = R.add(C, C)
             return D
 
-    with target, tvm.ir.transform.PassContext(config={"relax.backend.use_cuda_graph": True}):
-        Module = tvm.ir.transform.Sequential(
+    with tvm_tirx.ir.transform.PassContext(config={"relax.backend.use_cuda_graph": True}):
+        Module = tvm_tirx.ir.transform.Sequential(
             [
-                tvm.relax.transform.LegalizeOps(),
-                tvm.s_tir.transform.DefaultGPUSchedule(),
+                tvm.relax.transform.LegalizeOps(target=target),
+                tvm.s_tir.transform.DefaultGPUSchedule(target=target),
                 tvm.relax.transform.RemovePurityChecking(),
                 tvm.relax.transform.CallTIRRewrite(),
                 tvm.relax.transform.StaticPlanBlockMemory(),
@@ -173,7 +175,7 @@ def test_capture_error_is_recoverable():
     built = tvm.compile(Module, target=target)
 
     def run_and_check():
-        dev = tvm.cuda()
+        dev = tvm_tirx.cuda()
         cudart_path = ctypes.util.find_library("cudart")
         assert cudart_path is not None, "Unable to locate the CUDA runtime library"
         cudart = ctypes.CDLL(cudart_path)
@@ -181,17 +183,19 @@ def test_capture_error_is_recoverable():
         cudart.cudaGetLastError.restype = ctypes.c_int
         cudart.cudaGetLastError()
 
-        @tvm.register_global_func("test_vm_cuda_graph.invalid_impl_for_cudagraph", override=True)
+        @tvm_ffi.register_global_func(
+            "test_vm_cuda_graph.invalid_impl_for_cudagraph", override=True
+        )
         def invalid_impl_for_cudagraph(arg_tensor):
             # Memory allocation/deallocation may not be performed while
             # capturing a cudaGraph.  This passes the warm-up run
             # performed by "vm.builtin.cuda_graph.run_or_capture", but
             # throws an exception when the cudaGraph is being captured.
-            _dummy_workspace = tvm.runtime.empty([16], "float16", dev)
+            _dummy_workspace = tvm_tirx.runtime.empty([16], "float16", dev)
             return arg_tensor
 
         vm = tvm.relax.VirtualMachine(built, dev)
-        arg = tvm.runtime.tensor(np.arange(16).astype("float16"), dev)
+        arg = tvm_tirx.runtime.tensor(np.arange(16).astype("float16"), dev)
 
         with pytest.raises(RuntimeError):
             vm["main"](arg)
@@ -203,8 +207,8 @@ def test_capture_error_is_recoverable():
             f"CUDA error state was not cleared after failed graph capture: {cuda_error}"
         )
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -236,7 +236,7 @@ size_t GraphPartitioner::CountArgs_(IndexedForwardGraph::Node* src,
   visited_groups.insert(gnode->FindRoot());
   auto calc_args_number = [this, src, &graph, &visited_groups,
                            update_postpone](const Expr& arg) -> size_t {
-    if (arg.as<VarNode>()) return 0;
+    if (arg.as<VarObj>()) return 0;
     auto* node = graph.node_map.at(arg.get());
     Group* prev_group = groups_[node->index]->FindRoot();
     if (visited_groups.count(prev_group) == 0) {
@@ -254,11 +254,11 @@ size_t GraphPartitioner::CountArgs_(IndexedForwardGraph::Node* src,
     }
     return 0;
   };
-  if (auto call_node = ffi::GetRef<ffi::ObjectRef>(src->ref).as<CallNode>()) {
+  if (auto call_node = ffi::GetRef<ffi::ObjectRef>(src->ref).as<CallObj>()) {
     for (auto& it : call_node->args) {
       sum += calc_args_number(it);
     }
-  } else if (auto tuple_node = ffi::GetRef<ffi::ObjectRef>(src->ref).as<TupleNode>()) {
+  } else if (auto tuple_node = ffi::GetRef<ffi::ObjectRef>(src->ref).as<TupleObj>()) {
     for (auto& it : tuple_node->fields) {
       sum += calc_args_number(it);
     }
@@ -290,19 +290,19 @@ size_t GraphPartitioner::CountFusedArgs(const IndexedForwardGraph& graph,
 void GraphPartitioner::InitGroups(const IndexedForwardGraph& graph) {
   auto args_counter = [](const tvm::ffi::Object* obj) {
     size_t args_num = 0;
-    if (auto call_node = ffi::GetRef<ffi::ObjectRef>(obj).as<CallNode>()) {
+    if (auto call_node = ffi::GetRef<ffi::ObjectRef>(obj).as<CallObj>()) {
       for (auto& it : call_node->args) {
-        if (it.as<VarNode>() || it.as<TupleGetItemNode>()) {
+        if (it.as<VarObj>() || it.as<TupleGetItemObj>()) {
           args_num++;
         }
       }
-    } else if (auto tuple_node = ffi::GetRef<ffi::ObjectRef>(obj).as<TupleNode>()) {
+    } else if (auto tuple_node = ffi::GetRef<ffi::ObjectRef>(obj).as<TupleObj>()) {
       for (auto& it : tuple_node->fields) {
-        if (it.as<VarNode>() || it.as<TupleGetItemNode>()) {
+        if (it.as<VarObj>() || it.as<TupleGetItemObj>()) {
           args_num++;
         }
       }
-    } else if (ffi::GetRef<ffi::ObjectRef>(obj).as<VarNode>()) {
+    } else if (ffi::GetRef<ffi::ObjectRef>(obj).as<VarObj>()) {
       args_num++;
     }
     return args_num;

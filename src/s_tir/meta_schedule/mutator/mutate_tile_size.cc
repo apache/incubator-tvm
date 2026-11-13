@@ -62,24 +62,24 @@ int64_t Product(const std::vector<int64_t>& array) {
 }
 
 /*! \brief A mutator that mutates the tile size */
-class MutateTileSizeNode : public MutatorNode {
+class MutateTileSizeObj : public MutatorObj {
  public:
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<MutateTileSizeNode>();
+    refl::ObjectDef<MutateTileSizeObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MutateTileSize", MutateTileSizeNode,
-                                    MutatorNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.MutateTileSize", MutateTileSizeObj,
+                                    MutatorObj);
 
  public:
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   void InitializeWithTuneContext(const TuneContext& context) final {}
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   ffi::Optional<Trace> Apply(const Trace& trace, TRandState* rand_state) final;
-  // Inherit from `MutatorNode`
+  // Inherit from `MutatorObj`
   Mutator Clone() const final {
-    ffi::ObjectPtr<MutateTileSizeNode> n = ffi::make_object<MutateTileSizeNode>(*this);
-    return Mutator(n);
+    ffi::ObjectPtr<MutateTileSizeObj> n = ffi::make_object<MutateTileSizeObj>(*this);
+    return Mutator(ffi::UnsafeInit{}, n);
   }
 };
 
@@ -127,8 +127,8 @@ void FindSampleVectorize(const Trace& trace, std::vector<Instruction>* inst,
       TVM_FFI_ICHECK_EQ(inst->attrs.size(), 1);
       TVM_FFI_ICHECK_EQ(inst->inputs.size(), 2);
       if (inst->attrs[0].as_or_throw<ffi::String>() ==
-          s_tir::attr::meta_schedule_cooperative_fetch) {
-        const auto* ann_val = inst->inputs[1].as<s_tir::ExprRVNode>();
+          tvm::s_tir::attr::kMetaScheduleCooperativeFetch.name) {
+        const auto* ann_val = inst->inputs[1].as<s_tir::ExprRVObj>();
         TVM_FFI_ICHECK(ann_val);
         annotated.insert(ann_val);
       }
@@ -220,7 +220,7 @@ ffi::Optional<Trace> MutateSampleTileSize(const Trace& trace, Instruction inst,
     if (y != n_splits - 1) {
       divide_factor = factors[s_tir::SampleInt(rand_state, 1, factors.size())];
     } else {
-      ffi::BigInt limit = inst->attrs[1].as_or_throw<IntImm>()->value;
+      ffi::BigInt limit = inst->attrs[1].cast<int64_t>();
       int max_factor_index = static_cast<int>(factors.size()) - 1;
       for (; max_factor_index >= 1; max_factor_index--) {
         if (factors[max_factor_index] * tiles[y] <= limit) {
@@ -256,7 +256,7 @@ ffi::Optional<Trace> MutateSampleVectorize(const Trace& trace, Instruction inst,
   return trace->WithDecision(inst, static_cast<int64_t>(result), /*remove_postproc=*/true);
 }
 
-ffi::Optional<Trace> MutateTileSizeNode::Apply(const Trace& trace, TRandState* rand_state) {
+ffi::Optional<Trace> MutateTileSizeObj::Apply(const Trace& trace, TRandState* rand_state) {
   std::vector<Instruction> sample_perfect_tile_insts;
   std::vector<Instruction> sample_vectorize_insts;
   std::vector<std::vector<int64_t>> sample_perfect_tile_tiles;
@@ -279,9 +279,11 @@ ffi::Optional<Trace> MutateTileSizeNode::Apply(const Trace& trace, TRandState* r
   }
 }
 
-Mutator Mutator::MutateTileSize() { return Mutator(ffi::make_object<MutateTileSizeNode>()); }
+Mutator Mutator::MutateTileSize() {
+  return Mutator(ffi::UnsafeInit{}, ffi::make_object<MutateTileSizeObj>());
+}
 
-TVM_FFI_STATIC_INIT_BLOCK() { MutateTileSizeNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { MutateTileSizeObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

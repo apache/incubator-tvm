@@ -21,11 +21,13 @@
 
 #include <tvm/ffi/function.h>
 #include <tvm/ir/prim/expr.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/runtime/memory_scope.h>
+#include <tvm/s_tir/stmt.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/sym/iter_affine_map.h>
 #include <tvm/target/target.h>
-#include <tvm/tirx/op.h>
 
 #include <utility>
 
@@ -64,10 +66,10 @@ struct ConstraintSet {
         read_region(read_region),
         write_region(write_region),
         data_bits(data_bits) {
-    if (auto add_local_stage = ann.Get("local_stage")) {
+    if (auto add_local_stage = ann.Get(tvm::s_tir::attr::kLocalStage.name)) {
       this->add_local_stage = static_cast<bool>(add_local_stage.value().cast<IntImm>()->value);
     }
-    if (auto vector_bytes = ann.Get("vector_bytes")) {
+    if (auto vector_bytes = ann.Get(tvm::s_tir::attr::kVectorBytes.name)) {
       this->vector_bytes = vector_bytes.value().cast<IntImm>()->value.as<int>().value();
     }
   }
@@ -75,10 +77,10 @@ struct ConstraintSet {
 
 /*! \brief The set containing all possible outputs of a rewrite rule */
 struct OutputSet {
-  /*! \brief New buffers allocated after rewrite */
-  ffi::Array<BufferVar> alloc_buffer;
-  /*! \brief The minimal padding size of a buffer in base 2 logarithm */
-  ffi::Map<BufferVar, int64_t> padding_min;
+  /*! \brief New tensors allocated after rewrite */
+  ffi::Array<TensorVar> alloc_tensor;
+  /*! \brief The minimal padding size of a tensor in base 2 logarithm */
+  ffi::Map<TensorVar, int64_t> padding_min;
 };
 
 /*!
@@ -92,7 +94,7 @@ class RewriteRule {
    * \param stmt The stmt
    * \param constraints The constraints of the rewrite
    * \param output Some additional information that the rewrite rule produces. (including the new
-   *               buffer to be allocated, etc.)
+   *               tensor to be allocated, etc.)
    * \return the stmt after rewrite
    */
   virtual Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints,
@@ -115,16 +117,24 @@ class RewriteRule {
   }
 };
 
-inline bool IsCopyBetweenScope(const BufferVar& src_buffer, const BufferVar& tgt_buffer,
-                               runtime::StorageRank src_rank, runtime::StorageRank tgt_rank) {
-  runtime::StorageScope src_scope = runtime::StorageScope::Create(src_buffer.scope());
-  runtime::StorageScope tgt_scope = runtime::StorageScope::Create(tgt_buffer.scope());
-  return src_scope.rank == src_rank && tgt_scope.rank == tgt_rank;
+inline bool IsScope(const TensorVar& tensor, runtime::MemoryScope expected) {
+  static const auto scope_shared = runtime::MemoryScope::Get("shared");
+  static const auto scope_shared_dyn = runtime::MemoryScope::Get("shared.dyn");
+
+  auto scope = tensor.scope();
+  if (scope == expected) return true;
+  if (expected == scope_shared) {
+    return scope == scope_shared_dyn;
+  }
+  if (expected == runtime::MemoryScope::Global()) {
+    return IsGlobalMemoryScope(scope);
+  }
+  return false;
 }
 
-inline bool IsScope(const BufferVar& src_buffer, runtime::StorageRank src_rank) {
-  runtime::StorageScope src_scope = runtime::StorageScope::Create(src_buffer.scope());
-  return src_scope.rank == src_rank;
+inline bool IsCopyBetweenScope(const TensorVar& src_tensor, const TensorVar& tgt_tensor,
+                               runtime::MemoryScope src_scope, runtime::MemoryScope tgt_scope) {
+  return IsScope(src_tensor, src_scope) && IsScope(tgt_tensor, tgt_scope);
 }
 
 /*!
@@ -135,12 +145,13 @@ class CoalescedAccess : public RewriteRule {
   CoalescedAccess() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kGlobal,
-                              runtime::StorageRank::kShared) ||
-           IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kShared,
-                              runtime::StorageRank::kGlobal);
+    static const auto scope_shared = runtime::MemoryScope::Get("shared");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, runtime::MemoryScope::Global(),
+                              scope_shared) ||
+           IsCopyBetweenScope(src_tensor, tgt_tensor, scope_shared, runtime::MemoryScope::Global());
   }
 };
 
@@ -152,10 +163,11 @@ class InverseMapping : public RewriteRule {
   InverseMapping() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kShared,
-                              runtime::StorageRank::kGlobal);
+    static const auto scope_shared = runtime::MemoryScope::Get("shared");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, scope_shared, runtime::MemoryScope::Global());
   }
 };
 
@@ -167,11 +179,13 @@ class CreateLocalStage : public RewriteRule {
   CreateLocalStage() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kGlobal,
-                              runtime::StorageRank::kShared) &&
-           is_one(constraints.add_local_stage);
+    static const auto scope_shared = runtime::MemoryScope::Get("shared");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, runtime::MemoryScope::Global(),
+                              scope_shared) &&
+           IsOne(constraints.add_local_stage);
   }
 };
 
@@ -184,10 +198,12 @@ class WmmaToGlobal : public RewriteRule {
   WmmaToGlobal() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kWMMAAccumulator,
-                              runtime::StorageRank::kGlobal);
+    static const auto scope_wmma_accumulator = runtime::MemoryScope::Get("wmma.accumulator");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, scope_wmma_accumulator,
+                              runtime::MemoryScope::Global());
   }
 };
 
@@ -200,10 +216,12 @@ class MmaToGlobal : public RewriteRule {
   MmaToGlobal() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kMMAMatrixC,
-                              runtime::StorageRank::kGlobal);
+    static const auto scope_mma_matrixC = runtime::MemoryScope::Get("mma.matrixC");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, scope_mma_matrixC,
+                              runtime::MemoryScope::Global());
   }
 };
 
@@ -215,12 +233,14 @@ class SharedToWmma : public RewriteRule {
   SharedToWmma() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kShared,
-                              runtime::StorageRank::kWMMAMatrixA) ||
-           IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kShared,
-                              runtime::StorageRank::kWMMAMatrixB);
+    static const auto scope_shared = runtime::MemoryScope::Get("shared");
+    static const auto scope_wmma_matrix_a = runtime::MemoryScope::Get("wmma.matrix_a");
+    static const auto scope_wmma_matrix_b = runtime::MemoryScope::Get("wmma.matrix_b");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, scope_shared, scope_wmma_matrix_a) ||
+           IsCopyBetweenScope(src_tensor, tgt_tensor, scope_shared, scope_wmma_matrix_b);
   }
 };
 
@@ -232,10 +252,12 @@ class WmmaToShared : public RewriteRule {
   WmmaToShared() = default;
   Stmt Rewrite(const Stmt& stmt, const ConstraintSet& constraints, OutputSet* output) const final;
   bool CanApply(const Stmt& stmt, const ConstraintSet& constraints) const final {
-    BufferVar src_buffer = constraints.read_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    BufferVar tgt_buffer = constraints.write_region->source.as_or_throw<tvm::tirx::BufferVar>();
-    return IsCopyBetweenScope(src_buffer, tgt_buffer, runtime::StorageRank::kWMMAAccumulator,
-                              runtime::StorageRank::kShared);
+    static const auto scope_wmma_accumulator = runtime::MemoryScope::Get("wmma.accumulator");
+    static const auto scope_shared = runtime::MemoryScope::Get("shared");
+
+    TensorVar src_tensor = constraints.read_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    TensorVar tgt_tensor = constraints.write_region->source.as_or_throw<tvm::tirx::TensorVar>();
+    return IsCopyBetweenScope(src_tensor, tgt_tensor, scope_wmma_accumulator, scope_shared);
   }
 };
 
@@ -246,14 +268,14 @@ class WmmaToShared : public RewriteRule {
  * \param storage_scope the storage scope of the new cache
  * \param compute_location the compute location.
  * \param outer_loops the outer loops of this stmt
- * \param alloc_buffer the new cache block
+ * \param alloc_tensor the new cache block
  * \return a pair. The first is the stmt after transformation.
  *         The second is the SeqStmt that contains 2 stages (one original and another inserted).
  */
 std::pair<Stmt, SeqStmt> InsertCacheStage(Stmt stmt, bool is_write_cache, ffi::String storage_scope,
                                           ffi::Optional<For> compute_location,
                                           const ffi::Array<For>& outer_loops,
-                                          BufferVar* alloc_buffer);
+                                          TensorVar* alloc_tensor);
 
 }  // namespace s_tir
 }  // namespace tvm

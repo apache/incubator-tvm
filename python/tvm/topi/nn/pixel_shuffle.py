@@ -18,6 +18,7 @@
 """TVM operator pixel shuffle compute."""
 
 import tvm
+import tvm_tirx
 
 
 def pixel_shuffle(data, upscale_factor, name="PixelShuffle"):
@@ -44,10 +45,10 @@ def pixel_shuffle(data, upscale_factor, name="PixelShuffle"):
     ndim = len(data.shape)
     assert ndim >= 3, "Input must be at least 3D"
 
-    upscale_factor_const = tvm.tirx.const(upscale_factor, "int32")
+    upscale_factor_const = tvm_tirx.tirx.const(upscale_factor, "int32")
     c_in, h_in, w_in = data.shape[-3], data.shape[-2], data.shape[-1]
 
-    c_out = tvm.tirx.floordiv(c_in, upscale_factor_const * upscale_factor_const)
+    c_out = tvm_tirx.tirx.floordiv(c_in, upscale_factor_const * upscale_factor_const)
     h_out = h_in * upscale_factor_const
     w_out = w_in * upscale_factor_const
 
@@ -57,10 +58,10 @@ def pixel_shuffle(data, upscale_factor, name="PixelShuffle"):
         batch_indices = indices[:-3]
         c_out_idx, h_out_idx, w_out_idx = indices[-3], indices[-2], indices[-1]
 
-        h_idx = tvm.tirx.floordiv(h_out_idx, upscale_factor_const)
+        h_idx = tvm_tirx.tirx.floordiv(h_out_idx, upscale_factor_const)
         h_offset = h_out_idx % upscale_factor_const
 
-        w_idx = tvm.tirx.floordiv(w_out_idx, upscale_factor_const)
+        w_idx = tvm_tirx.tirx.floordiv(w_out_idx, upscale_factor_const)
         w_offset = w_out_idx % upscale_factor_const
 
         c_in_idx = (

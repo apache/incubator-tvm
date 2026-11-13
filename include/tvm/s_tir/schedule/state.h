@@ -23,6 +23,7 @@
 #ifndef TVM_S_TIR_SCHEDULE_STATE_H_
 #define TVM_S_TIR_SCHEDULE_STATE_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/module.h>
 #include <tvm/ir/prim/expr.h>
@@ -77,8 +78,8 @@ struct SBlockInfo {
 };
 
 /*!
- * \brief The bitmask of the debug flag in the ScheduleStateNode.
- * \sa ScheduleStateNode
+ * \brief The bitmask of the debug flag in the ScheduleStateObj.
+ * \sa ScheduleStateObj
  */
 enum ScheduleDebugMask : uint32_t {
   /*! \brief Verify the correctness of the sref tree */
@@ -99,7 +100,7 @@ enum ScheduleDebugMask : uint32_t {
  * 5) A debug flag, if set, extra checking is enabled (debug_mask)
  * 6) A check flag, if set, enable prequisite check for schedule primitives (enable_check)
  */
-class ScheduleStateNode : public ffi::Object {
+class ScheduleStateObj : public ffi::Object {
  public:
   /*! \brief The AST of the module being scheduled */
   IRModule mod;
@@ -110,7 +111,7 @@ class ScheduleStateNode : public ffi::Object {
    */
   std::unordered_map<StmtSRef, SBlockInfo, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> block_info;
   /*! \brief The reverse mapping from block/for-loop to their corresponding srefs */
-  std::unordered_map<const StmtNode*, StmtSRef> stmt2ref;
+  std::unordered_map<const StmtObj*, StmtSRef> stmt2ref;
   /*!
    * \brief Do extra correctness checking after the class creation
    * and each time after calling the Replace method.
@@ -124,10 +125,10 @@ class ScheduleStateNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<ScheduleStateNode>()
-        .def_ro("mod", &ScheduleStateNode::mod)
-        .def_ro("debug_mask", &ScheduleStateNode::debug_mask)
-        .def_ro("enable_check", &ScheduleStateNode::enable_check);
+    refl::ObjectDef<ScheduleStateObj>()
+        .def_ro("mod", &ScheduleStateObj::mod)
+        .def_ro("debug_mask", &ScheduleStateObj::debug_mask)
+        .def_ro("enable_check", &ScheduleStateObj::enable_check);
   }
 
   /*!
@@ -160,7 +161,7 @@ class ScheduleStateNode : public ffi::Object {
   TVM_DLL void DebugVerify() const;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.ScheduleState", ScheduleStateNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.ScheduleState", ScheduleStateObj, ffi::Object);
 
   /******** Property of blocks ********/
   /*! \brief Returns the SBlockInfo correpsonding to the block sref */
@@ -207,11 +208,16 @@ class ScheduleStateNode : public ffi::Object {
 };
 
 /*!
- * \brief Managed reference to ScheduleStateNode
- * \sa ScheduleStateNode
+ * \brief Managed reference to ScheduleStateObj
+ * \sa ScheduleStateObj
  */
 class ScheduleState : public ffi::ObjectRef {
  public:
+  explicit ScheduleState(ffi::UnsafeInit tag, ffi::ObjectPtr<ScheduleStateObj> data)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief Construct a schedule state from an IRModule
    * \param mod The IRModule to be scheduled
@@ -221,7 +227,7 @@ class ScheduleState : public ffi::ObjectRef {
    */
   TVM_DLL explicit ScheduleState(IRModule mod, int debug_mask = 0, bool enable_check = true);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(ScheduleState, ffi::ObjectRef, ScheduleStateNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ScheduleState, ffi::ObjectRef, ScheduleStateObj);
 };
 
 }  // namespace s_tir

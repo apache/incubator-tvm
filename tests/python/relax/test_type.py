@@ -18,15 +18,15 @@
 import pytest
 import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax as rx
-from tvm import tirx
+from tvm_tirx import tirx
 
 
 def _check_equal(x, y, map_free_vars=False):
-    tvm.ir.assert_structural_equal(x, y, map_free_vars)
-    tvm.ir.assert_structural_equal(y, x, map_free_vars)
+    tvm_tirx.ir.assert_structural_equal(x, y, map_free_vars)
+    tvm_tirx.ir.assert_structural_equal(y, x, map_free_vars)
 
     xhash = tvm_ffi.structural_hash(x, map_free_vars)
     yhash = tvm_ffi.structural_hash(y, map_free_vars)
@@ -35,7 +35,7 @@ def _check_equal(x, y, map_free_vars=False):
 
 
 def _check_json_roundtrip(x):
-    xret = tvm.ir.load_json(tvm.ir.save_json(x))
+    xret = tvm_tirx.ir.load_json(tvm_tirx.ir.save_json(x))
     _check_equal(x, xret, map_free_vars=True)
     return xret
 
@@ -75,9 +75,9 @@ def test_dyn_tensor_type():
 
 
 def test_prim_ty():
-    s0 = tvm.ir.PrimType("float32")
-    s1 = tvm.ir.PrimType("float32")
-    s2 = tvm.ir.PrimType("int32")
+    s0 = tvm_tirx.ir.PrimType("float32")
+    s1 = tvm_tirx.ir.PrimType("float32")
+    s2 = tvm_tirx.ir.PrimType("int32")
 
     _check_equal(s0, s1)
 
@@ -87,7 +87,7 @@ def test_prim_ty():
     assert s0 == s1
     assert s0 != s2
 
-    assert isinstance(s0, tvm.ir.PrimType)
+    assert isinstance(s0, tvm_tirx.ir.PrimType)
     _check_json_roundtrip(s0)
     _check_json_roundtrip(s1)
 
@@ -96,7 +96,7 @@ def test_prim_ty():
 
     # wrong API constructors
     with pytest.raises((RuntimeError, TypeError)):
-        tvm.ir.PrimType([1])
+        tvm_tirx.ir.PrimType([1])
 
 
 def test_shape_ty():
@@ -199,9 +199,9 @@ def test_tuple_ty():
 
     assert t0 == t1
 
-    assert rx.TupleType is tvm.ir.TupleType
-    assert isinstance(t0, tvm.ir.TupleType)
-    assert t0.__class__ is tvm.ir.TupleType
+    assert rx.TupleType is tvm_tirx.ir.TupleType
+    assert isinstance(t0, tvm_tirx.ir.TupleType)
+    assert t0.__class__ is tvm_tirx.ir.TupleType
     t0 = _check_json_roundtrip(t0)
     t1 = _check_json_roundtrip(t1)
     t2 = _check_json_roundtrip(t2)
@@ -250,4 +250,4 @@ def test_func_ty():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

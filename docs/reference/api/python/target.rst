@@ -15,15 +15,15 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.target
-----------
-.. automodule:: tvm.target
+tvm_tirx.target
+---------------
+.. automodule:: tvm_tirx.target
     :members:
     :imported-members:
     :autosummary:
 
-tvm.target.tag
-~~~~~~~~~~~~~~
-.. automodule:: tvm.target.tag
+tvm_tirx.target.tag
+~~~~~~~~~~~~~~~~~~~
+.. automodule:: tvm_tirx.target.tag
     :members:
     :imported-members:

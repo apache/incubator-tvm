@@ -21,11 +21,11 @@
  * \brief Transform all dataflow structure to non-dataflow version.
  */
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 #include <tvm/relax/type.h>
 #include <tvm/relax/utils.h>
-#include <tvm/tirx/op.h>
 
 namespace tvm {
 namespace relax {
@@ -34,15 +34,15 @@ using namespace tvm::prim;
 class ToNonDFMutator : public ExprMutator {
  public:
   Var VisitVarDef(const Var& var) final {
-    if (var.as<DataflowVarNode>()) {
-      Var new_var = Var(var->name, GetType(var), var->span);
-      this->var_remap_[var] = new_var;
+    if (var.as<DataflowVarObj>()) {
+      Var new_var = Var(var->name, GetType(var), var->loc);
+      this->var_remap_.insert_or_assign(var, new_var);
       return new_var;
     }
     return var;
   }
 
-  BindingBlock VisitBindingBlock_(const DataflowBlockNode* block) final {
+  BindingBlock VisitBindingBlock_(const DataflowBlockObj* block) final {
     builder_->BeginBindingBlock();
     for (Binding binding : block->bindings) {
       this->VisitBinding(binding);
@@ -59,7 +59,7 @@ Pass ToNonDataflow() {
   auto pass_func = [=](Function f, IRModule m, PassContext pc) {
     return ToNonDataflow(f).as_or_throw<Function>();
   };
-  return CreateFunctionPass(pass_func, 0, "ToNonDataflow", {});
+  return CreateFunctionPass(pass_func, 0, "ToNonDataflow");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

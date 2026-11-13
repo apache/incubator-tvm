@@ -17,6 +17,7 @@
 """Elementwise operators"""
 
 import tvm
+import tvm_tirx
 from tvm import te
 
 from .. import tag
@@ -37,7 +38,7 @@ def relu(x):
     y : tvm.te.Tensor
         The result.
     """
-    return te.compute(x.shape, lambda *i: tvm.te.max(x(*i), tvm.tirx.const(0, x.dtype)))
+    return te.compute(x.shape, lambda *i: tvm.te.max(x(*i), tvm_tirx.tirx.const(0, x.dtype)))
 
 
 @tvm.te.tag_scope(tag=tag.ELEMWISE)
@@ -60,8 +61,8 @@ def leaky_relu(x, alpha):
 
     def _compute(*indices):
         value = x(*indices)
-        calpha = tvm.tirx.const(alpha, value.ty)
-        return tvm.tirx.Select(value > 0, value, value * calpha)
+        calpha = tvm_tirx.tirx.const(alpha, value.ty)
+        return tvm_tirx.tirx.Select(value > 0, value, value * calpha)
 
     return te.compute(x.shape, _compute)
 
@@ -89,11 +90,11 @@ def softplus(x, beta=1.0, threshold=20.0):
 
     def _compute(*indices):
         value = x(*indices)
-        b = tvm.tirx.const(beta, value.ty)
-        t = tvm.tirx.const(threshold, value.ty)
+        b = tvm_tirx.tirx.const(beta, value.ty)
+        t = tvm_tirx.tirx.const(threshold, value.ty)
 
-        return tvm.tirx.Select(
-            b * value > t, value, (1 / b) * tvm.tirx.log(1 + tvm.tirx.exp(b * value))
+        return tvm_tirx.tirx.Select(
+            b * value > t, value, (1 / b) * tvm_tirx.tirx.log(1 + tvm_tirx.tirx.exp(b * value))
         )
 
     return te.compute(x.shape, _compute)
@@ -138,6 +139,6 @@ def prelu(x, slope, axis=1):
 
     def _compute_channelwise(*indices):
         xval = x(*indices)
-        return tvm.tirx.Select(xval > 0, xval, xval * slope(indices[axis]))
+        return tvm_tirx.tirx.Select(xval > 0, xval, xval * slope(indices[axis]))
 
     return te.compute(x.shape, _compute_channelwise)

@@ -25,7 +25,7 @@
 #ifndef TVM_RELAX_OP_CCL_CCL_H_
 #define TVM_RELAX_OP_CCL_CCL_H_
 
-#include <tvm/relax/attrs/ccl.h>
+#include <tvm/relax/op/ccl.h>
 
 #include "../op_common.h"
 

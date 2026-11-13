@@ -25,6 +25,8 @@
 
 #include <tvm/ffi/extra/module.h>
 #include <tvm/ffi/function.h>
+#include <tvm/runtime/extra_base.h>
+#include <tvm/runtime/memory_scope.h>
 #include <tvm/support/io.h>
 #include <tvm/support/serializer.h>
 
@@ -84,7 +86,7 @@ struct VMFuncInfo {
  * The executable contains information (e.g. data in different memory regions)
  * to run in a virtual machine.
  */
-class TVM_RUNTIME_DLL VMExecutable : public ffi::ModuleObj {
+class TVM_RUNTIME_EXTRA_DLL VMExecutable : public ffi::ModuleObj {
  public:
   /*! \brief Get the property of the runtime module .*/
   int GetPropertyMask() const final { return ffi::Module::kBinarySerializable; };
@@ -153,7 +155,7 @@ class TVM_RUNTIME_DLL VMExecutable : public ffi::ModuleObj {
   /*! \brief The global constant pool. */
   std::vector<ffi::Any> constants;
   /*! \brief The VDevice memory scopes */
-  std::unordered_map<Index, std::string> memory_scopes;
+  std::unordered_map<Index, MemoryScope> memory_scopes;
   /*! \brief The offset of instruction. */
   std::vector<Index> instr_offset;
   /*! \brief The byte data of instruction. */

@@ -18,7 +18,7 @@
 
 #######################################################
 function(find_and_set_linker use_alternative_linker)
-  if(${use_alternative_linker} MATCHES ${IS_FALSE_PATTERN})
+  if("${use_alternative_linker}" MATCHES ${IS_FALSE_PATTERN})
     return()
   endif()
 
@@ -28,11 +28,9 @@ function(find_and_set_linker use_alternative_linker)
   endif()
 
   macro(add_to_linker_flags flag)
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${flag}" PARENT_SCOPE)
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${flag}" PARENT_SCOPE)
-    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${flag}" PARENT_SCOPE)
-    message(STATUS "Added \"${flag}\" to linker flags " ${CMAKE_SHARED_LINKER_FLAGS})
-  endmacro(add_to_linker_flags)
+    set(TVM_LINKER_FLAGS "${flag}" PARENT_SCOPE)
+    message(STATUS "Parent linker option: ${flag}")
+  endmacro()
 
   find_program(MOLD_BIN "mold")
   find_program(LLD_BIN "lld")
@@ -49,7 +47,7 @@ function(find_and_set_linker use_alternative_linker)
         NO_CACHE
       )
       if(MOLD_LIBEXEC_DIR)
-        add_to_linker_flags(" -B \"${MOLD_LIBEXEC_DIR}\"")
+        add_to_linker_flags("-B${MOLD_LIBEXEC_DIR}")
         return()
       endif()
     else()
@@ -58,8 +56,8 @@ function(find_and_set_linker use_alternative_linker)
     endif()
   elseif(LLD_BIN)
     add_to_linker_flags("-fuse-ld=lld")
-  elseif(${use_alternative_linker} MATCHES ${IS_TRUE_PATTERN})
-    message(FATAL_ERROR "Could not find 'mold' or 'lld' executable but USE_ALTERNATIVE_LINKER was set to ON")
+  elseif("${use_alternative_linker}" MATCHES ${IS_TRUE_PATTERN})
+    message(FATAL_ERROR "Could not find 'mold' or 'lld' executable but TVM_USE_ALTERNATIVE_LINKER was set to ON")
   endif()
 
 endfunction(find_and_set_linker)

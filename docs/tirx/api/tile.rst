@@ -15,144 +15,64 @@
     specific language governing permissions and limitations
     under the License.
 
-Tile Primitive Authoring API
-============================
+Tensor Instruction Authoring API
+================================
 
-Kernel code calls tile primitives through ``Tx.tile``::
+Use ``T.cuda.tile`` or ``T.trn.tile`` after ``from tvm.script import tirx as T``.
+The signatures below list runtime operands first and static keyword qualifiers
+after ``*``. Tensor variables are expanded to full regions. Trainium unary sources
+may default to the destination; its named workspace arguments are optional.
 
-   from tvm.script import tirx as Tx
+See :doc:`../tile_ops` for memory, scope, descriptor, and synchronization
+contracts. These calls produce ordinary IR Calls; the raw scalar instruction
+namespaces remain ``T.ptx`` and ``T.nki``.
 
-   Tx.tile.copy(dst, src)
-   Tx.tile.wg.gemm_async(accum, lhs, rhs)
+CUDA
+----
 
-The scope namespaces bind an operation to an execution scope.
-``Tx.tile.copy(...)`` uses thread scope, while ``Tx.tile.warp.copy(...)``,
-``Tx.tile.wg.copy(...)``, and ``Tx.tile.cta.copy(...)`` request wider
-cooperation.  The dialect also exposes those scope objects at its root: for
-example, ``Tx.cta.copy(...)``
-and ``Tx.tile.cta.copy(...)`` construct the same call.  This documentation uses
-the explicit ``Tx.tile`` form consistently.  See the
-:doc:`programming guide <../tile_primitives>` for the model, primitive catalog,
-and dispatch configuration.
+.. py:function:: T.cuda.tile.apply(instruction, *operands, scope='thread', **parameters)
 
-Scope namespaces
-----------------
+   Apply an exact ``T.ptx[opcode]`` to canonical ``group × repeat × atom``
+   tensor views. Keyword parameters are serialized Call arguments. The :doc:`../tile_ops` instruction pages list every parameter, default,
+   canonical operand image and code-generation rule. Common scope/region
+   conventions are in :doc:`../cuda_tile_patterns`. Shared matrix descriptors
+   for tcgen05.cp/mma are obtained from the operand layouts.
 
-.. autodata:: tvm.tirx.script.tile.thread
-   :no-index:
+.. py:function:: T.cuda.tile.ewise(function, dst, *inputs, scope='thread')
 
-.. autodata:: tvm.tirx.script.tile.warp
-   :no-index:
+   Inline a typed scalar TIRx function at every register coordinate. Tensor
+   inputs have the destination shape; scalar inputs broadcast. There is no
+   implicit memory staging or packed arithmetic selection.
 
-.. autodata:: tvm.tirx.script.tile.wg
-   :no-index:
+TRN
+---
 
-.. autodata:: tvm.tirx.script.tile.warpgroup
-   :no-index:
+.. py:function:: T.trn.tile.load(dst, src, *, scope='thread')
 
-.. autodata:: tvm.tirx.script.tile.cta
-   :no-index:
+.. py:function:: T.trn.tile.store(dst, src, *, scope='thread')
 
-.. autodata:: tvm.tirx.script.tile.cluster
-   :no-index:
+.. py:function:: T.trn.tile.tensor_copy(dst, src, *, scope='thread', max_inst_size=512)
 
-Operations
-----------
+.. py:function:: T.trn.tile.matmul(D, A, B, C=None, transpose_A=False, transpose_B=False, alpha=1.0, beta=0.0, acc_psum=None, *, scope='thread')
 
-``ScopedOp`` objects are callable but are not ordinary Python functions, so
-they are listed explicitly.  Autodoc follows each wrapper to its underlying
-builder function, whose signature includes an internal ``scope`` parameter.
-Kernel authors do not pass that parameter directly: choose a scope through
-``Tx.tile.thread`` / ``warp`` / ``wg`` / ``cta`` / ``cluster``. Bound scope
-objects expose a generic ``(*args, **kwargs)`` Python signature and forward to
-the same underlying operation.
+.. py:function:: T.trn.tile.reciprocal(dst, src, *, scope='thread', max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.add
-   :no-index:
+.. py:function:: T.trn.tile.memset(dst, src, *, scope='thread', max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.binary_chain
-   :no-index:
+.. py:function:: T.trn.tile.activation(dst, src, scale=1.0, bias=0.0, const_bias=None, *, scope='thread', opcode='exp', max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.binary_reduce
-   :no-index:
+.. py:function:: T.trn.tile.tensortensor(dst, lhs, rhs, *, scope='thread', opcode='add', max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.cast
-   :no-index:
+.. py:function:: T.trn.tile.tensorscalar(dst, lhs, rhs, *, scope='thread', opcode='add', max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.copy
-   :no-index:
+.. py:function:: T.trn.tile.tensorreduce(dst, src, partial_reduce=None, *, scope='thread', reduce_op='sum', axes=[-1], negate=False, max_inst_size=None)
 
-.. autofunction:: tvm.tirx.script.tile.copy_async
-   :no-index:
+.. py:function:: T.trn.tile.scalar_tensor_scalar(dst, data, operand0, operand1, *, scope='thread', op0='mul', op1='add', reverse1=False, max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.exp
-   :no-index:
+.. py:function:: T.trn.tile.scalar_tensor_tensor(dst, data, operand0, operand1, *, scope='thread', op0='mul', op1='add', reverse1=False, max_inst_size=512)
 
-.. autofunction:: tvm.tirx.script.tile.exp2
-   :no-index:
+.. py:function:: T.trn.tile.tensorscalar_reduce(dst, reduced, lhs, rhs, partial_reduce=None, *, scope='thread', opcode='add', reduce_op='sum', axes=[-1], max_inst_size=None)
 
-.. autofunction:: tvm.tirx.script.tile.log2
-   :no-index:
+.. py:function:: T.trn.tile.activation_reduce(dst, reduced, src, scale=1.0, bias=0.0, const_bias=None, partial_reduce=None, *, scope='thread', opcode='exp', reduce_op='sum', axes=[-1], max_inst_size=None)
 
-.. autofunction:: tvm.tirx.script.tile.fdiv
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.fill
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.fma
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.gemm
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.gemm_async
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.max
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.maximum
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.memset
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.min
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.minimum
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.mul
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.permute_layout
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.reciprocal
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.reduce_negate
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.select
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.silu
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.sqrt
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.sub
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.sum
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.unary_reduce
-   :no-index:
-
-.. autofunction:: tvm.tirx.script.tile.zero
-   :no-index:
+.. py:function:: T.trn.tile.affine_select(dst, true_value, false_value, pred, *, scope='thread')

@@ -20,14 +20,15 @@
 from tvm import relax
 from tvm.relax import DataflowVar, PyExprMutator
 from tvm.relax.transform import PatternCheckContext
-from tvm.target import Target
+from tvm_tirx.target import Target
 
 
 class BackendDispatcher(PyExprMutator):
     """Base class for backend dispatcher"""
 
-    def __init__(self, mod):
+    def __init__(self, mod, target: Target | None = None):
         super().__init__(mod)
+        self.target = Target(target) if target is not None else None
 
     @staticmethod
     def is_gpu_target(target: Target) -> bool:
@@ -51,22 +52,25 @@ class BackendDispatcher(PyExprMutator):
         return shape, dtype
 
     def _get_target(self, ty: relax.Type) -> Target:
-        # Get target information from TensorType
-        if isinstance(ty, relax.TensorType):
-            vdevice = ty.vdevice
-            if vdevice is not None:
-                return vdevice.target
-        elif isinstance(ty, relax.TupleType):
-            for f in ty.fields:
-                tgt = self._get_target(f)
-                if tgt != Target.current():
-                    return tgt
-        # Return the target in current context
-        target = Target.current()
+        def find_target(ty):
+            if isinstance(ty, relax.TensorType) and ty.vdevice is not None:
+                return ty.vdevice.target
+            if isinstance(ty, relax.TupleType):
+                for field in ty.fields:
+                    target = find_target(field)
+                    if target is not None:
+                        return target
+            return None
+
+        annotated_target = find_target(ty)
+        if annotated_target is not None:
+            return annotated_target
+        # Fall back to the explicit compilation target
+        target = self.target
         if target is None:
             raise ValueError(
                 "Target not found. Please ensure that the target is annotated within the module, "
-                "or alternatively, execute this within a specified target context."
+                "or pass an explicit target to the dispatch pass."
             )
         return target
 

@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_SCRIPT_IR_BUILDER_IR_H_
 #define TVM_S_TIR_SCRIPT_IR_BUILDER_IR_H_
 
+#include <tvm/runtime/memory_scope.h>
 #include <tvm/s_tir/script/ir_builder/frame.h>
 #include <tvm/tirx/script/ir_builder/ir.h>
 
@@ -27,33 +28,29 @@ namespace script {
 namespace ir_builder {
 namespace s_tir {
 
-using tvm::tirx::BufferVar;
+using tvm::Var;
 using tvm::tirx::Layout;
-using tvm::tirx::Var;
+using tvm::tirx::TensorVar;
 
-PrimFuncFrame PrimFunc(bool is_private = false, bool persistent = false);
-PrimFuncFrame DeclFunction(bool is_private = false, bool persistent = false);
+FunctionFrame Function(bool is_private = false, bool persistent = false,
+                       bool is_declaration = false);
 
 /*!
- * \brief Bind a buffer subregion in an S-TIR block.
- * \param param The buffer subregion to match.
- * \param shape The type of the buffer prior to flattening.
- * \param dtype The data type in the content of the buffer.
+ * \brief Bind a tensor subregion in an S-TIR block.
+ * \param param The tensor subregion to match.
+ * \param shape The type of the tensor prior to flattening.
+ * \param dtype The data type in the content of the tensor.
  * \param data The pointer to the head of the data.
- * \param strides The strides of each dimension.
- * \param elem_offset The offset in terms of number of dtype elements (including lanes).
- * \param storage_scope The optional storage scope of buffer data pointer.
+ * \param storage_scope The optional storage scope of tensor data pointer.
  * \param align The alignment requirement of data pointer in bytes.
- * \param offset_factor The factor of elem_offset field.
- * \param layout The buffer layout.
- * \param allocated_addr Addresses assigned to the buffer allocation.
- * \return The matched buffer.
+ * \param layout The tensor layout.
+ * \param allocated_addr Addresses assigned to the tensor allocation.
+ * \return The matched tensor.
  */
-BufferVar MatchBuffer(ffi::ObjectRef param, ffi::Array<PrimExpr> shape,
+TensorVar MatchTensor(ffi::ObjectRef param, ffi::Array<PrimExpr> shape,
                       PrimType dtype = PrimType::Float(32), ffi::Optional<Expr> data = std::nullopt,
-                      ffi::Array<PrimExpr> strides = {}, PrimExpr elem_offset = PrimExpr(),
-                      ffi::String storage_scope = "global", int align = -1, int offset_factor = 0,
-                      ffi::Optional<Layout> layout = std::nullopt,
+                      runtime::MemoryScope storage_scope = runtime::MemoryScope::Global(),
+                      int align = -1, ffi::Optional<Layout> layout = std::nullopt,
                       ffi::Array<PrimExpr> allocated_addr = {});
 
 /*!
@@ -77,16 +74,16 @@ BlockInitFrame Init();
 void Where(PrimExpr predicate);
 
 /*!
- * \brief The block buffer region reading statement.
- * \param buffer_slices The array of buffer regions to read.
+ * \brief The block tensor region reading statement.
+ * \param tensor_slices The array of tensor regions to read.
  */
-void Reads(ffi::Array<ffi::ObjectRef> buffer_slices);
+void Reads(ffi::Array<ffi::ObjectRef> tensor_slices);
 
 /*!
- * \brief The block buffer region writing statement.
- * \param buffer_slices The array of buffer regions to write.
+ * \brief The block tensor region writing statement.
+ * \param tensor_slices The array of tensor regions to write.
  */
-void Writes(ffi::Array<ffi::ObjectRef> buffer_slices);
+void Writes(ffi::Array<ffi::ObjectRef> tensor_slices);
 
 /*!
  * \brief The block annotation statement.
@@ -95,24 +92,20 @@ void Writes(ffi::Array<ffi::ObjectRef> buffer_slices);
 void BlockAttrs(ffi::Map<ffi::String, ffi::Any> attrs);
 
 /*!
- * \brief The buffer allocation function.
- * \param shape The type of the buffer prior to flattening.
- * \param dtype The data type in the content of the buffer.
+ * \brief The tensor allocation function.
+ * \param shape The type of the tensor prior to flattening.
+ * \param dtype The data type in the content of the tensor.
  * \param data The pointer to the head of the data.
- * \param strides The strides of each dimension.
- * \param elem_offset The offset in terms of number of dtype elements (including lanes).
- * \param storage_scope The optional storage scope of buffer data pointer.
+ * \param storage_scope The optional storage scope of tensor data pointer.
  * \param align The alignment requirement of data pointer in bytes.
- * \param offset_factor The factor of elem_offset field.
- * \param layout The layout of the buffer.
- * \param allocated_addr The allocated address of the buffer. Might be multi-dimensional.
- * \return The buffer attached to its enclosing block or function allocation list.
+ * \param layout The layout of the tensor.
+ * \param allocated_addr The allocated address of the tensor. Might be multi-dimensional.
+ * \return The tensor attached to its enclosing block or function allocation list.
  */
-BufferVar SBlockAllocBuffer(ffi::Array<PrimExpr> shape, PrimType dtype = PrimType::Float(32),
+TensorVar SBlockAllocTensor(ffi::Array<PrimExpr> shape, PrimType dtype = PrimType::Float(32),
                             ffi::Optional<Expr> data = std::nullopt,
-                            ffi::Array<PrimExpr> strides = {}, PrimExpr elem_offset = PrimExpr(),
-                            ffi::String storage_scope = "", int align = -1, int offset_factor = 0,
-                            ffi::Optional<Layout> layout = std::nullopt,
+                            runtime::MemoryScope storage_scope = runtime::MemoryScope::Global(),
+                            int align = -1, ffi::Optional<Layout> layout = std::nullopt,
                             ffi::Array<PrimExpr> allocated_addr = {});
 
 namespace axis {
@@ -120,38 +113,42 @@ namespace axis {
 /*!
  * \brief The spatial block axis defining function.
  * \param dom The domain of the iteration variable.
- * \param binding The binding value of the iteration variable.
+ * \param binding The binding value, omitted only for a no_realize block.
  * \param dtype The data type of the iteration variable.
  * \return The iteration variable.
  */
-Var Spatial(Range dom, PrimExpr binding, PrimType dtype = PrimType::Int(32));
+Var Spatial(Range dom, ffi::Optional<PrimExpr> binding = std::nullopt,
+            PrimType dtype = PrimType::Int(32));
 
 /*!
  * \brief The reduced block axis defining function.
  * \param dom The domain of the iteration variable.
- * \param binding The binding value of the iteration variable.
+ * \param binding The binding value, omitted only for a no_realize block.
  * \param dtype The data type of the iteration variable.
  * \return The iteration variable.
  */
-Var Reduce(Range dom, PrimExpr binding, PrimType dtype = PrimType::Int(32));
+Var Reduce(Range dom, ffi::Optional<PrimExpr> binding = std::nullopt,
+           PrimType dtype = PrimType::Int(32));
 
 /*!
  * \brief The scanning block axis defining function.
  * \param dom The domain of the iteration variable.
- * \param binding The binding value of the iteration variable.
+ * \param binding The binding value, omitted only for a no_realize block.
  * \param dtype The data type of the iteration variable.
  * \return The iteration variable.
  */
-Var Scan(Range dom, PrimExpr binding, PrimType dtype = PrimType::Int(32));
+Var Scan(Range dom, ffi::Optional<PrimExpr> binding = std::nullopt,
+         PrimType dtype = PrimType::Int(32));
 
 /*!
  * \brief The opaque block axis defining function.
  * \param dom The domain of the iteration variable.
- * \param binding The binding value of the iteration variable.
+ * \param binding The binding value, omitted only for a no_realize block.
  * \param dtype The data type of the iteration variable.
  * \return The iteration variable.
  */
-Var Opaque(Range dom, PrimExpr binding, PrimType dtype = PrimType::Int(32));
+Var Opaque(Range dom, ffi::Optional<PrimExpr> binding = std::nullopt,
+           PrimType dtype = PrimType::Int(32));
 
 /*!
  * \brief The block axis remapping function.

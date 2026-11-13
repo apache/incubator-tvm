@@ -45,10 +45,11 @@ import math
 import numpy as np
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.frontend.nn.llm.kv_cache import _attention_sequence_prefill_with_mask
-from tvm.testing import env
+from tvm.testing import device_enabled
+from tvm_tirx.testing import env
 
 
 def _reference_masked_attention(q, k, v, valid_lens, sm_scale):
@@ -123,8 +124,8 @@ def _build_masked_prefill(h_kv, h_q, d, dtype, target, mask_mode="padded"):
         sm_scale=sm_scale,
         mask_mode=mask_mode,
     )
-    mod = tvm.IRModule({"main": tir_func})
-    return tvm.tirx.build(mod["main"], target=target), sm_scale
+    mod = tvm_tirx.IRModule({"main": tir_func})
+    return tvm_tirx.tirx.compile(mod["main"], target=target).mod, sm_scale
 
 
 def _run_case(
@@ -142,7 +143,7 @@ def _run_case(
     seed=0,
     mask_mode="padded",
 ):
-    target = tvm.target.Target(target)
+    target = tvm_tirx.target.Target(target)
     built, sm_scale = _build_masked_prefill(h_kv, h_q, d, dtype, target, mask_mode=mask_mode)
 
     if seq_kv is None:
@@ -161,12 +162,12 @@ def _run_case(
         ref = _reference_masked_attention_causal_padded_left(q_np, k_np, v_np, valid_np, sm_scale)
 
     def run_and_check():
-        q_nd = tvm.runtime.tensor(q_np, device=dev)
-        k_nd = tvm.runtime.tensor(k_np, device=dev)
-        v_nd = tvm.runtime.tensor(v_np, device=dev)
-        valid_nd = tvm.runtime.tensor(valid_np, device=dev)
-        out_nd = tvm.runtime.tensor(out_np, device=dev)
-        lse_nd = tvm.runtime.tensor(lse_np, device=dev)
+        q_nd = tvm_tirx.runtime.tensor(q_np, device=dev)
+        k_nd = tvm_tirx.runtime.tensor(k_np, device=dev)
+        v_nd = tvm_tirx.runtime.tensor(v_np, device=dev)
+        valid_nd = tvm_tirx.runtime.tensor(valid_np, device=dev)
+        out_nd = tvm_tirx.runtime.tensor(out_np, device=dev)
+        lse_nd = tvm_tirx.runtime.tensor(lse_np, device=dev)
         built.main(q_nd, k_nd, v_nd, valid_nd, out_nd, lse_nd)
         got = out_nd.numpy().astype(np.float32)
         rtol, atol = (2e-2, 2e-2) if dtype == "float16" else (1e-4, 1e-4)
@@ -180,7 +181,7 @@ def _run_case(
                 pad_q = seq - length
                 np.testing.assert_allclose(got[b, pad_q:], ref[b, pad_q:], rtol=rtol, atol=atol)
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -191,9 +192,9 @@ def _run_case(
 )
 def test_valid_len_zero(target):
     """All samples are fully padded: kernel must not crash and must stay bounded."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -214,9 +215,9 @@ def test_valid_len_zero(target):
 )
 def test_valid_len_full(target):
     """All samples are fully valid: must match a plain unmasked attention."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -237,9 +238,9 @@ def test_valid_len_full(target):
 )
 def test_valid_len_mixed(target):
     """Typical encoder batch with different valid lengths per sample."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -260,9 +261,9 @@ def test_valid_len_mixed(target):
 )
 def test_valid_len_mixed_gqa(target):
     """Grouped-query attention: ``group_size = h_q / h_kv > 1``."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -283,9 +284,9 @@ def test_valid_len_mixed_gqa(target):
 )
 def test_causal_padded_left_valid_len_zero(target):
     """Causal left-pad: all samples are fully padded."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -307,9 +308,9 @@ def test_causal_padded_left_valid_len_zero(target):
 )
 def test_causal_padded_left_valid_len_full(target):
     """Causal left-pad: all samples are fully valid — degenerates to plain causal attention."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -331,9 +332,9 @@ def test_causal_padded_left_valid_len_full(target):
 )
 def test_causal_padded_left_valid_len_mixed(target):
     """Causal left-pad: typical decoder-embedding batch with mixed lengths."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -355,9 +356,9 @@ def test_causal_padded_left_valid_len_mixed(target):
 )
 def test_causal_padded_left_valid_len_mixed_gqa(target):
     """Causal left-pad: grouped-query attention with mixed lengths."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -379,9 +380,9 @@ def test_causal_padded_left_valid_len_mixed_gqa(target):
 )
 def test_causal_padded_left_qo_len_differs_from_kv_len(target):
     """Causal left-pad: Q and K/V may have different padded lengths."""
-    if not tvm.testing.device_enabled(target):
+    if not device_enabled(target):
         pytest.skip(f"{target} not enabled")
-    dev = tvm.device_from_target(target)
+    dev = tvm_tirx.device_from_target(target)
     _run_case(
         target=target,
         dev=dev,
@@ -397,4 +398,4 @@ def test_causal_padded_left_qo_len_differs_from_kv_len(target):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

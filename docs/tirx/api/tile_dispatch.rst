@@ -15,43 +15,57 @@
     specific language governing permissions and limitations
     under the License.
 
-Tile Dispatch Extension API
-===========================
+Tensor Instruction Registration
+===============================
 
-Raw node constructors
----------------------
+Backend authors define an ``Instruction`` with its canonical operator name,
+ordered ``Operand`` list, reflected static attribute schema, and one lowerer.
+The shared implementation is ``tvm.tirx.tile.instruction``; CUDA and
+Trainium's ``tile/instructions.py`` files contain the concrete contracts.
 
-``tvm.tirx.script.ir_builder.tirx`` constructs the same
-``TilePrimitiveCall`` nodes as the validated ``Tx.tile`` facade.  This surface
-is intended for parser, builder, and extension authors; kernel code should
-normally use the :doc:`tile authoring API <tile>`.  Its public builder spelling
-is ``tvm.tirx.script.ir_builder.tile``::
+Registration installs the fixed argument count, void return type, opaque
+side effects, ``FTileOpDispatch``, printer name, and native Call validator on the Op.
+The validator also runs for directly constructed Calls and printer entry.
+Runtime expressions must be operands. CUDA encodes the opcode and named
+instruction/descriptor parameters as normal Call arguments; only execution
+scope uses a reflected attribute. See :doc:`../cuda_tile_patterns` for the
+CUDA pattern extension workflow.
 
-   from tvm.tirx.script import ir_builder as Tx_builder
+Lowerers receive a semantic view and ``DispatchContext`` and return a
+``tvm.ir.Stmt`` directly. They can prepare pointers/descriptors and expand
+layouts for the selected core instruction. They must report unsupported
+contracts rather than select a different instruction family.
 
-   Tx_builder.tile.copy(dst, src)
+``FTileOpDispatch`` has the signature
+``(tvm.ir.Call, DispatchContext) -> tvm.ir.Stmt``. Its presence identifies
+a tile Op; no separate category registration is required. ``Instruction``
+registers an adapter that decodes the semantic view and invokes its lowerer.
+Custom implementations can register the callback directly using
+``tvm.ir.register_op_attr(op_name, "FTileOpDispatch", dispatch)`` or C++
+``OpDef::set_attr<tile::FTileOpDispatch>``. The Call must carry reflected
+attributes with a required ``ThreadScope`` ``scope`` field in the target's
+execution hierarchy. Direct construction may use a registered qualified name,
+such as ``"cuda.thread"``, which the typed FFI boundary resolves to its enum.
 
-Each callable tile operation has a same-name raw constructor.  The authoring
-page lists the public facade without duplicating the full operation list here.
+Named workspace operands have fixed optional slots. Declare a workspace policy
+only for instructions that own such scratch storage; do not use it to hide
+caller-owned algorithms. See :doc:`../arch/tile_dispatch` for callbacks and
+the statement replacement boundary.
 
-.. py:class:: ScopedOp(fn)
 
-   Internal callable wrapper that supplies a default thread scope or binds a
-   scope selected through a namespace.
+The common Python API is under ``tvm.tirx.tile`` (also ``T.tile``):
+``Instruction``, ``Operand``, ``TensorCall``, and ``DispatchContext``. Backend
+implementations live under ``tvm.backend.cuda.tile`` and
+``tvm.backend.trn.tile``. Their user-facing instruction paths remain
+``T.cuda.tile`` and ``T.trn.tile``. Instruction operator names and attribute
+schema type keys remain unchanged. Scope tags use the ``tirx.ThreadScope`` type
+key; serialized data containing the former scope type must be regenerated.
 
-.. py:class:: ScopeNamespace(scope, label)
-
-   Internal resolver that binds the named execution scope to a tile operation.
-
-.. _tirx-api-dispatch-extension-points:
-
-Dispatch registration
----------------------
-
-.. automodule:: tvm.tirx.operator.tile_primitive
-   :members:
-   :imported-members:
-   :no-index:
-
-See :doc:`../arch/tile_dispatch` for the selection algorithm and the registered
-CUDA and Trainium variants.
+Thread scopes are backend-qualified enum identities. Native backends register
+their supported tags and explicit ranks with ``EnumDef``; CUDA exposes
+``T.cuda.ThreadScope("warp")`` and Trainium exposes
+``T.trn.ThreadScope("thread")``. A string instruction scope is resolved by the
+instruction's backend before constructing its Call. Lowerers consume the enum
+directly through ``DispatchContext.thread_scope``. CUDA predicate analysis,
+index bindings, and active thread sets live in its private tile implementation;
+Trainium does not use CUDA's execution-context model.

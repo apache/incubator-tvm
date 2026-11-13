@@ -17,52 +17,52 @@
 # pylint: disable=invalid-name
 """Relax distributed-related transformation passes."""
 
-import tvm.ir
+import tvm_tirx.ir
 
 from . import _ffi_api
 
 
-def PropagateSharding() -> tvm.ir.transform.Pass:
+def PropagateSharding() -> tvm_tirx.ir.transform.Pass:
     """Propagate sharding information.
 
     Returns
     -------
-    ret : tvm.transform.Pass
+    ret : tvm_tirx.ir.transform.Pass
         The registered pass
     """
     return _ffi_api.PropagateSharding()  # type: ignore
 
 
-def LowerGlobalViewToLocalView() -> tvm.ir.transform.Pass:
+def LowerGlobalViewToLocalView() -> tvm_tirx.ir.transform.Pass:
     """Lower global view TIR to local view
 
     Returns
     -------
-    ret : tvm.transform.Pass
+    ret : tvm_tirx.ir.transform.Pass
         The registered pass
     """
     return _ffi_api.LowerGlobalViewToLocalView()  # type: ignore
 
 
-def LegalizeRedistribute() -> tvm.ir.transform.Pass:
+def LegalizeRedistribute() -> tvm_tirx.ir.transform.Pass:
     """Legalize redistribute op to ccl op.
     S->R: R.ccl.allgather
     R->S: R.dist.redistribute_replica_to_shard
 
     Returns
     -------
-    ret : tvm.transform.Pass
+    ret : tvm_tirx.ir.transform.Pass
         The registered pass
     """
     return _ffi_api.LegalizeRedistribute()  # type: ignore
 
 
-def LowerDistIR() -> tvm.ir.transform.Pass:
+def LowerDistIR() -> tvm_tirx.ir.transform.Pass:
     """Lower DistIR to Relax
 
     Returns
     -------
-    ret : tvm.transform.Pass
+    ret : tvm_tirx.ir.transform.Pass
         The registered pass
     """
     return _ffi_api.LowerDistIR()  # type: ignore

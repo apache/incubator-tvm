@@ -23,16 +23,17 @@ implementation using TVM's testing infrastructure.
 
 import numpy as np
 import pytest
+import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.backend.pattern_registry import get_patterns_with_prefix
 from tvm.relax.transform import FuseOpsByPattern, MergeCompositeFunctions, RunCodegen
-from tvm.script import relax as R
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MatmulReLU:
     """Example module with matrix multiplication and ReLU"""
 
@@ -48,7 +49,7 @@ class MatmulReLU:
         return z
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLU:
     """Example module with 2D convolution and ReLU"""
 
@@ -64,7 +65,7 @@ class Conv2dReLU:
         return z
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class MultipleOps:
     """Example module with multiple operations that can be fused"""
 
@@ -83,7 +84,7 @@ class MultipleOps:
         return out
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Softmax:
     """Example module with softmax"""
 
@@ -96,8 +97,8 @@ class Softmax:
 
 
 # Check if the example NPU runtime is available
-has_example_npu_codegen = tvm.get_global_func("relax.ext.example_npu", True)
-has_example_npu_runtime = tvm.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
+has_example_npu_codegen = tvm_ffi.get_global_func("relax.ext.example_npu", True)
+has_example_npu_runtime = tvm_ffi.get_global_func("runtime.ExampleNPUJSONRuntimeCreate", True)
 has_example_npu = has_example_npu_codegen and has_example_npu_runtime
 
 example_npu_enabled = pytest.mark.skipif(
@@ -224,7 +225,6 @@ def test_example_npu_codegen():
 @example_npu_enabled
 def test_example_npu_runtime_execution():
     """Test end-to-end execution with the example NPU runtime"""
-    import tvm.relax.backend.contrib.example_npu
 
     # Create simple test inputs
     np.random.seed(42)
@@ -244,15 +244,15 @@ def test_example_npu_runtime_execution():
     mod = RunCodegen()(mod)
 
     # Build the module
-    target = tvm.target.Target("llvm")
-    with tvm.transform.PassContext(opt_level=3):
+    target = tvm_tirx.target.Target("llvm")
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
         built = relax.build(mod, target)
 
     # Create VM and run
-    vm = relax.VirtualMachine(built, tvm.cpu())
+    vm = relax.VirtualMachine(built, tvm_tirx.cpu())
 
-    x_tvm = tvm.runtime.tensor(x_np, tvm.cpu())
-    w_tvm = tvm.runtime.tensor(w_np, tvm.cpu())
+    x_tvm = tvm_tirx.runtime.tensor(x_np, tvm_tirx.cpu())
+    w_tvm = tvm_tirx.runtime.tensor(w_np, tvm_tirx.cpu())
 
     result = vm["main"](x_tvm, w_tvm)
 

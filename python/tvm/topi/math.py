@@ -18,10 +18,12 @@
 
 # pylint: disable=redefined-builtin,unused-argument
 import tvm
-from tvm import DataTypeCode, te
+import tvm_tirx
+from tvm import te
+from tvm_tirx import DataTypeCode
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
 from . import cpp, tag
-from .utils import get_const_tuple
 
 
 def _require_float_tensor(op_name, x):
@@ -624,9 +626,9 @@ def clip(x, a_min, a_max):
     ----------
     x : tvm.te.Tensor
         Input argument.
-    a_min : tvm.tirx.Expr
+    a_min : tvm_tirx.tirx.Expr
         Minimum value.
-    a_max : tvm.tirx.Expr
+    a_max : tvm_tirx.tirx.Expr
         Maximum value.
 
     Returns
@@ -638,111 +640,21 @@ def clip(x, a_min, a_max):
     def _compute(*indices):
         value = x(*indices)
         const_min = (
-            tvm.tirx.Cast(value.ty, a_min)
-            if tvm.ir.is_prim_expr(a_min)
-            else tvm.tirx.const(a_min, value.ty)
+            tvm_tirx.tirx.Cast(value.ty, a_min)
+            if tvm_tirx.ir.is_prim_expr(a_min)
+            else tvm_tirx.tirx.const(a_min, value.ty)
         )
         const_max = (
-            tvm.tirx.Cast(value.ty, a_max)
-            if tvm.ir.is_prim_expr(a_max)
-            else tvm.tirx.const(a_max, value.ty)
+            tvm_tirx.tirx.Cast(value.ty, a_max)
+            if tvm_tirx.ir.is_prim_expr(a_max)
+            else tvm_tirx.tirx.const(a_max, value.ty)
         )
         return tvm.te.max(tvm.te.min(value, const_max), const_min)
 
     return te.compute(x.shape, _compute)
 
 
-@tvm.te.tag_scope(tag=tag.ELEMWISE)
-def fixed_point_multiply(x, multiplier, shift):
-    """Fixed point multiplication between data and a fixed point
-    constant expressed as multiplier * 2^(-shift), where multiplier
-    is a Q-number with 31 fractional bits
-
-    Parameters
-    ----------
-    x : tvm.te.Tensor or Expr
-        Input argument.
-    multiplier : int
-        Multiplier of a fixed floating point number described as multiplier*2^(-shift).
-    shift : int
-        Shift of a fixed floating point number described as multiplier*2^(-shift).
-
-    Returns
-    -------
-    y : tvm.te.Tensor
-        The result.
-    """
-
-    def _compute(*indices):
-        value = x(*indices)
-        return tvm.tirx.q_multiply_shift(
-            value,
-            tvm.tirx.const(multiplier, "int32"),
-            tvm.tirx.const(31, "int32"),
-            tvm.tirx.const(shift, "int32"),
-        )
-
-    return te.compute(x.shape, _compute)
-
-
-@tvm.te.tag_scope(tag=tag.BROADCAST)
-def fixed_point_multiply_per_axis(
-    x: te.Tensor,
-    y: te.Tensor,
-    lshift: te.Tensor,
-    rshift: te.Tensor,
-    is_lshift_required: int,
-    is_rshift_required: int,
-    axes,
-):
-    """Fixed point multiplication between data and a fixed point constant expressed as
-    multiplier * 2^(-shift), where multiplier is a Q-number with 31 fractional bits
-
-    Parameters
-    ----------
-    x : tvm.te.Tensor
-        Input argument.
-    y : tvm.te.Tensor
-        Multiplier of a fixed floating point number described as multiplier*2^(-shift).
-    lshift : tvm.te.Tensor
-        Left shifts of a fixed floating point number described as multiplier*2^(-shift).
-    rshift : tvm.te.Tensor
-        Right shifts of a fixed floating point number described as multiplier*2^(-shift).
-    is_lshift_required : int
-        Whether we need to do left shift or not.
-    is_rshift_required : int
-        Whether we need to do right shift or not.
-
-    Returns
-    -------
-    z : tvm.te.Tensor
-        The result.
-    """
-
-    def _compute(*indices):
-        elements = []
-        for element in get_const_tuple(axes):
-            elements += [indices[element]]
-        param_indices = tuple(elements)
-
-        value = x(*indices)
-        m = y(*param_indices)
-        l_shift = lshift(*param_indices)
-        r_shift = rshift(*param_indices)
-        return tvm.tirx.q_multiply_shift_per_axis(
-            value,
-            m,
-            l_shift,
-            r_shift,
-            tvm.tirx.const(31, "int32"),
-            tvm.tirx.const(is_lshift_required, "bool"),
-            tvm.tirx.const(is_rshift_required, "bool"),
-        )
-
-    return te.compute(x.shape, _compute)
-
-
-def cast(x, dtype, span=None):
+def cast(x, dtype, loc: Location = UNKNOWN_LOC):
     """Cast input to specified data type.
 
     Parameters
@@ -753,7 +665,7 @@ def cast(x, dtype, span=None):
     dtype : str
         Data type.
 
-    span : Optional[Span]
+    loc : Location, optional
         The location of the cast in the source.
 
     Returns
@@ -764,9 +676,9 @@ def cast(x, dtype, span=None):
     if isinstance(x, te.tensor.Tensor):
         return te.compute(x.shape, lambda *i: x(*i).astype(dtype), tag=tag.ELEMWISE)
     # pylint: disable=import-outside-toplevel
-    from tvm.ir.prim import _ffi_api
+    from tvm_tirx.ir.prim import _ffi_api
 
-    return _ffi_api._cast(dtype, x, span)
+    return _ffi_api._cast(x, dtype, loc)
 
 
 def reinterpret(x, dtype):
@@ -840,7 +752,7 @@ def fast_erf(x):
     return cpp.fast_erf(x, x.dtype, tag.ELEMWISE)
 
 
-def ceil_log2(x):
+def ceil_log2(x, *, target=None):
     """Compute integer ceil log2 with a special code path for vulkan
     SPIR-V does not support log2 on fp64. Instead, we compute integer ceil_log2 via clz
     intrinsic when the target is vulkan.
@@ -855,20 +767,18 @@ def ceil_log2(x):
     y : tvm.te.Tensor
         The result.
     """
-    if not tvm.ir.is_prim_expr(x):
-        x = tvm.tirx.const(x)
+    if not tvm_tirx.ir.is_prim_expr(x):
+        x = tvm_tirx.ir.const(x)
 
     if x.ty.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT):
-        return tvm.tirx.ceil(tvm.tirx.log2(x))
-
-    target = tvm.target.Target.current()
+        return tvm_tirx.tirx.ceil(tvm_tirx.tirx.log2(x))
 
     if target is not None:
         target_name = target.kind.name
         if "vulkan" in target_name:
-            clz = tvm.ir.prim.clz(x)
+            clz = tvm_tirx.ir.prim.clz(x)
             bits = x.ty.dtype.bits
-            res = tvm.tirx.if_then_else(x & (x - 1) == 0, bits - clz - 1, bits - clz)
+            res = tvm_tirx.tirx.if_then_else(x & (x - 1) == 0, bits - clz - 1, bits - clz)
             if res.ty != x.ty:
                 return cast(res, x.ty)
             return res
@@ -878,6 +788,6 @@ def ceil_log2(x):
             "rocm",
             "webgpu",
         ]:
-            return cast(tvm.tirx.ceil(tvm.tirx.log2(cast(x, "float32"))), x.ty)
+            return cast(tvm_tirx.tirx.ceil(tvm_tirx.tirx.log2(cast(x, "float32"))), x.ty)
 
-    return cast(tvm.tirx.ceil(tvm.tirx.log2(cast(x, "float64"))), x.ty)
+    return cast(tvm_tirx.tirx.ceil(tvm_tirx.tirx.log2(cast(x, "float64"))), x.ty)

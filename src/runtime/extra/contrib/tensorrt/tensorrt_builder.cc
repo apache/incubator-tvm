@@ -244,7 +244,7 @@ nvinfer1::Weights TensorRTBuilder::GetDLTensorAsWeights(const DLTensor* dptr,
   std::unique_ptr<float[]> values(new float[count]);
   weight.values = values.get();
   // Keep temporary storage owned until both the copy and registration succeed.
-  Tensor::CopyToBytes(dptr, values.get(), weight_bytes);
+  tvm::runtime::CopyToBytes(dptr, values.get(), weight_bytes);
   trt_weights_.push_back(weight);
   values.release();
   return weight;

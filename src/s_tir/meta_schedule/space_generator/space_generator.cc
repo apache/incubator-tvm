@@ -19,7 +19,6 @@
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/logging.h>
 
-#include "../../../target/canonicalizer/llvm/arm_aprofile.h"
 #include "../utils.h"
 
 namespace tvm {
@@ -29,7 +28,7 @@ namespace meta_schedule {
 ffi::String GetRuleKindFromTarget(const Target& target) {
   if (target->kind->name == "llvm") {
     static auto target_has_feature_fn_ptr =
-        tvm::ffi::Function::GetGlobalRequired("target.target_has_feature");
+        tvm::ffi::Function::GetGlobalRequired("codegen.target_has_feature");
     bool have_avx512vnni = target_has_feature_fn_ptr("avx512vnni", target).cast<bool>();
     bool have_avxvnni = target_has_feature_fn_ptr("avxvnni", target).cast<bool>();
     if (have_avx512vnni || have_avxvnni) {
@@ -46,13 +45,10 @@ ffi::String GetRuleKindFromTarget(const Target& target) {
       return "rvv";
     }
 
-    ffi::Map<ffi::String, ffi::Any> target_json =
-        target::canonicalizer::llvm::aprofile::Canonicalize(target->ToConfig());
-
-    if (target_json.at("feature.has_dotprod").cast<bool>()) {
+    if (target_has_feature_fn_ptr("dotprod", target).cast<bool>()) {
       return "dotprod";
     }
-    if (target_json.at("feature.has_asimd").cast<bool>()) {
+    if (target_has_feature_fn_ptr("neon", target).cast<bool>()) {
       return "asimd";
     }
     return "llvm";
@@ -60,24 +56,6 @@ ffi::String GetRuleKindFromTarget(const Target& target) {
   if (target->kind->name == "hexagon") {
     return "hexagon";
   }
-  if (target->kind->name == "cuda") {
-    if (ffi::Optional<ffi::String> opt_sm = target->GetAttr<ffi::String>("arch")) {
-      std::string sm = opt_sm.value();
-      if (support::StartsWith(sm, "sm_")) {
-        sm = sm.substr(3);
-        try {
-          if (std::stoi(sm) >= 75) {
-            return "cuda-tensorcore";
-          }
-        } catch (const std::invalid_argument& e) {
-          LOG(WARNING) << "ValueError: Unable to parse `target.arch`: " << sm
-                       << ". Details: " << e.what();
-        }
-      }
-    }
-    return "cuda";
-  }
-
   if (IsGPUTarget(target->kind->name)) {
     return "cuda";
   }
@@ -89,7 +67,7 @@ ffi::String GetRuleKindFromTarget(const Target& target) {
   throw;
 }
 
-void SpaceGeneratorNode::InitializeWithTuneContext(const TuneContext& context) {
+void SpaceGeneratorObj::InitializeWithTuneContext(const TuneContext& context) {
   if (context->target.has_value() &&  //
       !(sch_rules.has_value() &&      //
         postprocs.has_value() &&      //
@@ -107,10 +85,6 @@ void SpaceGeneratorNode::InitializeWithTuneContext(const TuneContext& context) {
       default_sch_rules = ScheduleRule::DefaultCUDA();
       default_postprocs = Postproc::DefaultCUDA();
       default_mutator_probs = Mutator::DefaultCUDA();
-    } else if (kind == "cuda-tensorcore") {
-      default_sch_rules = ScheduleRule::DefaultCUDATensorCore();
-      default_postprocs = Postproc::DefaultCUDATensorCore();
-      default_mutator_probs = Mutator::DefaultCUDATensorCore();
     } else if (kind == "hexagon") {
       default_sch_rules = ScheduleRule::DefaultHexagon();
       default_postprocs = Postproc::DefaultHexagon();
@@ -125,9 +99,9 @@ void SpaceGeneratorNode::InitializeWithTuneContext(const TuneContext& context) {
       default_mutator_probs = Mutator::DefaultLLVM();
     } else if (kind == "rvv") {
       static auto llvm_get_vector_width =
-          tvm::ffi::Function::GetGlobalRequired("target.llvm_get_vector_width");
+          tvm::ffi::Function::GetGlobalRequired("codegen.llvm_get_vector_width");
       const int vlen = llvm_get_vector_width(context->target.value()).cast<int>();
-      default_sch_rules = ScheduleRule::DefaultRISCV(vlen);
+      default_sch_rules = ScheduleRule::DefaultRISCV(context->target.value(), vlen);
       default_postprocs = Postproc::DefaultRISCV();
       default_mutator_probs = Mutator::DefaultLLVM();
     } else if (kind == "asimd") {
@@ -170,19 +144,19 @@ void SpaceGeneratorNode::InitializeWithTuneContext(const TuneContext& context) {
   }
 }
 
-void PySpaceGeneratorNode::InitializeWithTuneContext(const TuneContext& context) {
+void PySpaceGeneratorObj::InitializeWithTuneContext(const TuneContext& context) {
   TVM_FFI_ICHECK(f_initialize_with_tune_context != nullptr)
       << "PySpaceGenerator's InitializeWithTuneContext method not implemented!";
   f_initialize_with_tune_context(context);
 }
 
-ffi::Array<s_tir::Schedule> PySpaceGeneratorNode::GenerateDesignSpace(const IRModule& mod) {
+ffi::Array<s_tir::Schedule> PySpaceGeneratorObj::GenerateDesignSpace(const IRModule& mod) {
   TVM_FFI_ICHECK(f_generate_design_space != nullptr)
       << "PySpaceGenerator's GenerateDesignSpace method not implemented!";
   return f_generate_design_space(mod);
 }
 
-SpaceGenerator PySpaceGeneratorNode::Clone() const {
+SpaceGenerator PySpaceGeneratorObj::Clone() const {
   TVM_FFI_ICHECK(f_clone != nullptr) << "PySpaceGenerator's Clone method not implemented!";
   return f_clone();
 }
@@ -193,7 +167,7 @@ SpaceGenerator SpaceGenerator::PySpaceGenerator(
     ffi::Optional<ffi::Map<Mutator, FloatImm>> mutator_probs,
     FInitializeWithTuneContext f_initialize_with_tune_context,
     FGenerateDesignSpace f_generate_design_space, FClone f_clone) {
-  ffi::ObjectPtr<PySpaceGeneratorNode> n = ffi::make_object<PySpaceGeneratorNode>();
+  ffi::ObjectPtr<PySpaceGeneratorObj> n = ffi::make_object<PySpaceGeneratorObj>();
   n->sch_rules = sch_rules;
   n->postprocs = postprocs;
   n->mutator_probs = mutator_probs;
@@ -204,19 +178,19 @@ SpaceGenerator SpaceGenerator::PySpaceGenerator(
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  SpaceGeneratorNode::RegisterReflection();
-  PySpaceGeneratorNode::RegisterReflection();
+  SpaceGeneratorObj::RegisterReflection();
+  PySpaceGeneratorObj::RegisterReflection();
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
   refl::GlobalDef()
       .def_method("s_tir.meta_schedule.SpaceGeneratorInitializeWithTuneContext",
-                  &SpaceGeneratorNode::InitializeWithTuneContext)
+                  &SpaceGeneratorObj::InitializeWithTuneContext)
       .def_method("s_tir.meta_schedule.SpaceGeneratorGenerateDesignSpace",
-                  &SpaceGeneratorNode::GenerateDesignSpace)
+                  &SpaceGeneratorObj::GenerateDesignSpace)
       .def("s_tir.meta_schedule.SpaceGeneratorPySpaceGenerator", SpaceGenerator::PySpaceGenerator)
-      .def_method("s_tir.meta_schedule.SpaceGeneratorClone", &SpaceGeneratorNode::Clone);
+      .def_method("s_tir.meta_schedule.SpaceGeneratorClone", &SpaceGeneratorObj::Clone);
 }
 
 }  // namespace meta_schedule

@@ -22,6 +22,7 @@ from math import pi
 import numpy as np
 
 import tvm
+import tvm_tirx
 from tvm import te, topi
 
 from . import cpp, tag
@@ -99,7 +100,7 @@ def expand_like(a, shape_like, axis):
         axis_index = 0
         for i in range(0, len(idxs)):
             if i not in real_axis:
-                dim = tvm.tirx.if_then_else(a.shape[len(indices)] != 1, idxs[i], 0)
+                dim = tvm_tirx.tirx.if_then_else(a.shape[len(indices)] != 1, idxs[i], 0)
                 indices.append(dim)
                 axis_index += 1
         return a(*indices)
@@ -231,7 +232,7 @@ def strided_slice(a, begin, end, strides=None, axes=None, slice_mode="end", assu
         axes = []
     # axes is a list of host integers on the C++ side (Array<int64_t>); unwrap any
     # IntImm entries that callers may pass through (e.g. relax legalize pipeline).
-    axes = [int(v) if isinstance(v, tvm.tirx.IntImm) else v for v in axes]
+    axes = [int(v) if isinstance(v, tvm_tirx.ir.IntImm) else v for v in axes]
     return cpp.strided_slice(a, begin, end, strides, axes, slice_mode, assume_inbound)
 
 
@@ -314,37 +315,39 @@ def strided_set(a, v, begin, end, strides=None):
             raise TypeError("strides should be int32")
 
     def _max(a, b):
-        return tvm.tirx.Select(a > b, a, b)
+        return tvm_tirx.tirx.Select(a > b, a, b)
 
     if strides is None:
-        strides = [tvm.tirx.const(1, "int32")] * n
+        strides = [tvm_tirx.tirx.const(1, "int32")] * n
     else:
         strides = [
-            tvm.tirx.if_then_else(strides.shape[0] > i, strides[i], tvm.tirx.const(1, "int32"))
+            tvm_tirx.tirx.if_then_else(
+                strides.shape[0] > i, strides[i], tvm_tirx.tirx.const(1, "int32")
+            )
             for i in range(n)
         ]
 
     begin = [
-        tvm.tirx.if_then_else(
+        tvm_tirx.tirx.if_then_else(
             begin.shape[0] > i,
             begin[i],
-            tvm.tirx.Select(strides[i] > 0, tvm.tirx.const(0, "int32"), a.shape[i]),
+            tvm_tirx.tirx.Select(strides[i] > 0, tvm_tirx.tirx.const(0, "int32"), a.shape[i]),
         )
         for i in range(n)
     ]
     end = [
-        tvm.tirx.if_then_else(
+        tvm_tirx.tirx.if_then_else(
             end.shape[0] > i,
             end[i],
-            tvm.tirx.Select(strides[i] > 0, a.shape[i] + 1, -(a.shape[i] + 1)),
+            tvm_tirx.tirx.Select(strides[i] > 0, a.shape[i] + 1, -(a.shape[i] + 1)),
         )
         for i in range(n)
     ]
 
     # Convert negative indexes
     for i in range(n):
-        begin[i] = tvm.tirx.if_then_else(begin[i] < 0, begin[i] + a.shape[i], begin[i])
-        end[i] = tvm.tirx.if_then_else(end[i] < 0, end[i] + a.shape[i], end[i])
+        begin[i] = tvm_tirx.tirx.if_then_else(begin[i] < 0, begin[i] + a.shape[i], begin[i])
+        end[i] = tvm_tirx.tirx.if_then_else(end[i] < 0, end[i] + a.shape[i], end[i])
 
     def _select(*indices):
         from_val = []
@@ -352,7 +355,9 @@ def strided_set(a, v, begin, end, strides=None):
         for i in range(n):
             from_val.append(within_index(begin[i], end[i], strides[i], indices[i]))
             index_tuple.append(make_idx(begin[i], end[i], strides[i], a.shape[i], indices[i]))
-        return tvm.tirx.if_then_else(tvm.tirx.all(*from_val), v(*index_tuple), a(*indices))
+        return tvm_tirx.tirx.if_then_else(
+            tvm_tirx.tirx.all(*from_val), v(*index_tuple), a(*indices)
+        )
 
     return te.compute(a.shape, _select, name="strided_set")
 
@@ -1060,13 +1065,13 @@ def trilu(data, k, upper):
              [0, 0, 8]]
     """
     # Make sure datatype is consistent.
-    if k.ty != tvm.ir.PrimType("int32"):
-        k = tvm.tirx.Cast("int32", k)
+    if k.ty != tvm_tirx.ir.PrimType("int32"):
+        k = tvm_tirx.tirx.Cast("int32", k)
 
     # Check either above or below diagonal depending on upper.
-    check_op = tvm.tirx.GE
+    check_op = tvm_tirx.tirx.GE
     if upper:
-        check_op = tvm.tirx.LE
+        check_op = tvm_tirx.tirx.LE
 
     def _apply_trilu(*indices):
         row_index = indices[-2]
@@ -1075,13 +1080,13 @@ def trilu(data, k, upper):
         if row_index.ty != col_index.ty:
             target_type = (col_index + row_index).ty
             if row_index.ty != target_type:
-                row_index = tvm.tirx.Cast(target_type, row_index)
+                row_index = tvm_tirx.tirx.Cast(target_type, row_index)
             else:
-                col_index = tvm.tirx.Cast(target_type, col_index)
+                col_index = tvm_tirx.tirx.Cast(target_type, col_index)
         other_indices = indices[:-2]
         check_position = check_op(row_index, col_index - k)
         value = data(*other_indices, row_index, col_index)
-        return tvm.tirx.Select(check_position, value, tvm.tirx.const(0, data.dtype))
+        return tvm_tirx.tirx.Select(check_position, value, tvm_tirx.tirx.const(0, data.dtype))
 
     return te.compute(data.shape, _apply_trilu, name="trilu", tag=topi.tag.ELEMWISE)
 

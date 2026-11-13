@@ -23,46 +23,48 @@ as it is or serves as a basis to do further composition.
 
 # pylint: disable=unused-argument
 
-import tvm
+import tvm_tirx
 from tvm.s_tir import meta_schedule as ms
 
 from . import backend, transform
 from .backend.utils import BackendDispatcher
 
 
-def zero_pipeline(*, enable_warning: bool = False):
+def zero_pipeline(*, enable_warning: bool = False, target=None):
     """Wrapper function that returns the zero pipeline.
 
     Parameters
     ----------
     enable_warning : bool
         A boolean value indicating if to print warnings
-        * in LegalizeOps pass, for CallNode whose op's legalization function is
+        * in LegalizeOps pass, for CallObj whose op's legalization function is
         not registered,
         * in MetaScheduleApplyDatabase pass, for TIR functions now showing up in
         the database. By default we don't print warning.
     """
 
-    @tvm.transform.module_pass(opt_level=0)
-    def f_zero_pipeline(mod: tvm.ir.IRModule, ctx: tvm.transform.PassContext) -> tvm.ir.IRModule:
+    @tvm_tirx.ir.transform.module_pass(opt_level=0)
+    def f_zero_pipeline(
+        mod: tvm_tirx.ir.IRModule, ctx: tvm_tirx.ir.transform.PassContext
+    ) -> tvm_tirx.ir.IRModule:
         """Pipeline that applies pre-tuned logs.
 
         Parameters
         ----------
-        mod : tvm.ir.IRModule
+        mod : tvm_tirx.ir.IRModule
             Input IRModule.
 
-        ctx : tvm.transform.PassContext
+        ctx : tvm_tirx.ir.transform.PassContext
             The pass context
 
         Returns
         -------
-        mod: tvm.ir.IRModule
+        mod: tvm_tirx.ir.IRModule
             The result transformed module.
         """
-        seq = tvm.transform.Sequential(
+        seq = tvm_tirx.ir.transform.Sequential(
             [
-                transform.LegalizeOps(enable_warning=enable_warning),
+                transform.LegalizeOps(enable_warning=enable_warning, target=target),
                 transform.AnnotateTIROpPattern(),
                 transform.FoldConstant(),
                 transform.FuseOps(),
@@ -71,22 +73,26 @@ def zero_pipeline(*, enable_warning: bool = False):
         )
         mod = seq(mod)
         if ms.Database.current():
-            mod = transform.MetaScheduleApplyDatabase(enable_warning=enable_warning)(mod)
+            mod = transform.MetaScheduleApplyDatabase(enable_warning=enable_warning, target=target)(
+                mod
+            )
         return mod
 
     return f_zero_pipeline
 
 
-def default_build_pipeline():
+def default_build_pipeline(*, target=None):
     """The default compilation pipeline used in tvm.compile"""
 
-    @tvm.transform.module_pass(opt_level=0)
-    def _pipeline(mod: tvm.ir.IRModule, _ctx: tvm.transform.PassContext) -> tvm.ir.IRModule:
-        seq = tvm.transform.Sequential(
+    @tvm_tirx.ir.transform.module_pass(opt_level=0)
+    def _pipeline(
+        mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext
+    ) -> tvm_tirx.ir.IRModule:
+        seq = tvm_tirx.ir.transform.Sequential(
             [
-                backend.DispatchSampling(),
-                backend.DispatchSortScan(),
-                transform.LegalizeOps(),
+                backend.DispatchSampling(target=target),
+                backend.DispatchSortScan(target=target),
+                transform.LegalizeOps(target=target),
                 transform.RewriteDataflowReshape(),
                 transform.ToNonDataflow(),
                 transform.RemovePurityChecking(),
@@ -109,7 +115,7 @@ def default_build_pipeline():
 
 def static_shape_tuning_pipeline(
     total_trials: int,
-    target: str | tvm.target.Target,
+    target: str | tvm_tirx.target.Target,
     work_dir: str = "tuning_logs",
     cpu_weight_prepack: bool = False,
     max_trials_per_task: int | None = None,
@@ -121,7 +127,7 @@ def static_shape_tuning_pipeline(
     total_trials : int
         Total number of trials to run.
 
-    target : Union[str, tvm.target.Target]
+    target : Union[str, tvm_tirx.target.Target]
         The target device to tune the model.
 
     work_dir : str
@@ -158,20 +164,22 @@ def static_shape_tuning_pipeline(
         )(mod)
 
         ex = tvm.compile(mod, target=target)
-        vm = relax.VirtualMachine(ex, device=tvm.cpu())
+        vm = relax.VirtualMachine(ex, device=tvm_tirx.cpu())
 
         # Transform the params using the vm function
         # the name should be f"{func_name}_transform_params"
         params = vm["main_transform_params"](params["main"])
 
-        input_data = tvm.runtime.tensor(np.random.randn(1, 3, 224, 224).astype("float32"))
+        input_data = tvm_tirx.runtime.tensor(np.random.randn(1, 3, 224, 224).astype("float32"))
         out = vm["main"](input_data, *params).numpy()
     """
 
-    @tvm.transform.module_pass(opt_level=0)
-    def _pipeline(mod: tvm.ir.IRModule, _ctx: tvm.transform.PassContext) -> tvm.ir.IRModule:
+    @tvm_tirx.ir.transform.module_pass(opt_level=0)
+    def _pipeline(
+        mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext
+    ) -> tvm_tirx.ir.IRModule:
         if cpu_weight_prepack:
-            pre_tuning_layout_rewrite = [transform.AttachAttrLayoutFreeBuffers()]
+            pre_tuning_layout_rewrite = [transform.AttachAttrLayoutFreeTensors()]
             post_tuning_layout_rewrite = [
                 transform.SplitLayoutRewritePreproc(),
                 transform.LiftTransformParams(),
@@ -181,28 +189,28 @@ def static_shape_tuning_pipeline(
             pre_tuning_layout_rewrite = []
             post_tuning_layout_rewrite = []
 
-        with tvm.target.Target(target):
-            mod = tvm.transform.Sequential(
-                [
-                    transform.DecomposeOpsForInference(),
-                    transform.CanonicalizeBindings(),
-                    zero_pipeline(),
-                    *pre_tuning_layout_rewrite,
-                    # Skip tuning if total_trials is 0
-                    (
-                        transform.MetaScheduleTuneIRMod(
-                            params={},
-                            work_dir=work_dir,
-                            max_trials_global=total_trials,
-                            max_trials_per_task=max_trials_per_task,
-                        )
-                        if total_trials > 0
-                        else tvm.transform.Sequential([])
-                    ),
-                    transform.MetaScheduleApplyDatabase(work_dir),
-                    *post_tuning_layout_rewrite,
-                ]
-            )(mod)
+        mod = tvm_tirx.ir.transform.Sequential(
+            [
+                transform.DecomposeOpsForInference(),
+                transform.CanonicalizeBindings(),
+                zero_pipeline(target=target),
+                *pre_tuning_layout_rewrite,
+                # Skip tuning if total_trials is 0
+                (
+                    transform.MetaScheduleTuneIRMod(
+                        params={},
+                        work_dir=work_dir,
+                        max_trials_global=total_trials,
+                        max_trials_per_task=max_trials_per_task,
+                        target=target,
+                    )
+                    if total_trials > 0
+                    else tvm_tirx.ir.transform.Sequential([])
+                ),
+                transform.MetaScheduleApplyDatabase(work_dir, target=target),
+                *post_tuning_layout_rewrite,
+            ]
+        )(mod)
 
         return mod
 
@@ -218,7 +226,7 @@ PIPELINE_MAP = {
 }
 
 
-def get_pipeline(name: str = "zero", **kwargs) -> tvm.transform.Pass:
+def get_pipeline(name: str = "zero", **kwargs) -> tvm_tirx.ir.transform.Pass:
     """Get pre-build pipeline by name
 
     Parameters
@@ -230,7 +238,7 @@ def get_pipeline(name: str = "zero", **kwargs) -> tvm.transform.Pass:
 
     Returns
     -------
-    pipeline: tvm.transform.Pass
+    pipeline: tvm_tirx.ir.transform.Pass
        The transformation pipeline.
     """
 
@@ -259,7 +267,7 @@ def register_pipeline(name: str):
     return _register
 
 
-def library_dispatch_passes(target: tvm.target.Target):
+def library_dispatch_passes(target: tvm_tirx.target.Target):
     """Get the default library dispatch passes for the given target."""
     if target.kind.name == "cuda":
         return backend.cuda.library_dispatch_passes(target)
@@ -276,7 +284,7 @@ def library_dispatch_passes(target: tvm.target.Target):
     raise ValueError(f"Target {target} is not yet supported by library dispatch passes.")
 
 
-def legalize_passes(target: tvm.target.Target):
+def legalize_passes(target: tvm_tirx.target.Target):
     """Get the default legalization passes for the given target."""
     if target.kind.name == "cuda":
         return backend.cuda.legalize_passes(target)
@@ -293,7 +301,7 @@ def legalize_passes(target: tvm.target.Target):
     raise ValueError(f"Target {target} is not yet supported by legalize passes.")
 
 
-def dataflow_lower_passes(target: tvm.target.Target):
+def dataflow_lower_passes(target: tvm_tirx.target.Target):
     """Get the default legalization passes for the given target."""
     if target.kind.name == "cuda":
         return backend.cuda.dataflow_lower_passes(target)
@@ -310,7 +318,7 @@ def dataflow_lower_passes(target: tvm.target.Target):
     raise ValueError(f"Target {target} is not yet supported by dataflow lowering passes.")
 
 
-def finalize_passes(target: tvm.target.Target):
+def finalize_passes(target: tvm_tirx.target.Target):
     """Get the default legalization passes for the given target."""
     if target.kind.name == "cuda":
         return backend.cuda.finalize_passes(target)
@@ -327,7 +335,7 @@ def finalize_passes(target: tvm.target.Target):
     raise ValueError(f"Target {target} is not yet supported by finalization passes.")
 
 
-def get_default_pipeline(target: tvm.target.Target):
+def get_default_pipeline(target: tvm_tirx.target.Target):
     """Get the default Relax compilation pipeline for the given target."""
     if target.kind.name == "cuda":
         return backend.cuda.get_default_pipeline(target)

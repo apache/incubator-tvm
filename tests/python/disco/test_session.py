@@ -29,15 +29,16 @@ from tvm_ffi import Shape
 from tvm_ffi.core import String
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 
 # Imported for the side effect of registering the tests.disco.* worker functions.
 from tvm.exec import disco_worker as _  # noqa: F401  # pylint: disable=unused-import
+from tvm.relax import script as R
 from tvm.runtime import disco as di
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 if di is None:
     pytest.skip("disco runtime is not available", allow_module_level=True)
@@ -138,13 +139,13 @@ def create_socket_session(num_workers):
 
 def _numpy_to_worker_0(sess: di.Session, np_array: np.array, device):
     x_array = sess.empty(np_array.shape, "float32", device=device)
-    host_array = tvm.runtime.tensor(np_array, device=device)
+    host_array = tvm_tirx.runtime.tensor(np_array, device=device)
     sess.copy_to_worker_0(host_array, x_array)
     return x_array
 
 
 def _numpy_from_worker_0(sess: di.Session, remote_array, shape, dtype):
-    host_array = tvm.runtime.empty(shape, dtype, device=tvm.cpu())
+    host_array = tvm_tirx.runtime.empty(shape, dtype, device=tvm_tirx.cpu())
     sess.copy_from_worker_0(host_array, remote_array)
     sess.sync_worker_0()
     return host_array.numpy()
@@ -178,7 +179,7 @@ def test_float(session_kind):
 def test_tensor(session_kind):
     num_workers = 4
     sess = session_kind(num_workers=num_workers)
-    device = tvm.cpu(0)
+    device = tvm_tirx.cpu(0)
     x_np = np.arange(6).astype("float32").reshape([2, 3])
     y_np = np.arange(6).astype("float32").reshape([2, 3]) + 1
     x_disc = _numpy_to_worker_0(sess, x_np, device=device)
@@ -231,8 +232,8 @@ def test_vm_module(session_kind):
     # pylint: disable=invalid-name
     @I.ir_module
     class TestMod:
-        @Ts.prim_func
-        def transpose(A: T.Buffer((8, 16), "float32"), B: T.Buffer((16, 8), "float32")):
+        @Ts.function
+        def transpose(A: T.Tensor((8, 16), "float32"), B: T.Tensor((16, 8), "float32")):
             for i, j in T.grid(16, 8):
                 with Ts.sblock("transpose"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -242,14 +243,14 @@ def test_vm_module(session_kind):
         def main(A: R.Tensor((8, 16), dtype="float32")) -> R.Tensor((16, 8), dtype="float32"):
             cls = TestMod
             with R.dataflow():
-                B = R.call_tir(cls.transpose, (A,), out_ty=R.Tensor((16, 8), dtype="float32"))
+                B = R.call_tir(cls.transpose, (A,), ty_args=[R.Tensor((16, 8), dtype="float32")])
                 R.output(B)
             return B
 
     # pylint: enable=invalid-name
     with tempfile.TemporaryDirectory() as tmpdir:
         path = tmpdir + "/test.so"
-        device = tvm.cpu()
+        device = tvm_tirx.cpu()
         x_np = np.arange(8 * 16).astype("float32").reshape([8, 16])
         y_np = x_np.transpose()
 
@@ -275,15 +276,15 @@ def test_vm_multi_func(session_kind):
     # pylint: disable=invalid-name
     @I.ir_module
     class TestMod:
-        @Ts.prim_func
-        def t1(A: T.Buffer((8, 16), "float32"), B: T.Buffer((16, 8), "float32")):
+        @Ts.function
+        def t1(A: T.Tensor((8, 16), "float32"), B: T.Tensor((16, 8), "float32")):
             for i, j in T.grid(16, 8):
                 with Ts.sblock("t1"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
                     B[vi, vj] = A[vj, vi]
 
-        @Ts.prim_func
-        def t2(A: T.Buffer((16, 8), "float32"), B: T.Buffer((8, 16), "float32")):
+        @Ts.function
+        def t2(A: T.Tensor((16, 8), "float32"), B: T.Tensor((8, 16), "float32")):
             for i, j in T.grid(8, 16):
                 with Ts.sblock("t2"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -296,7 +297,7 @@ def test_vm_multi_func(session_kind):
             R.func_attr({"global_symbol": "transpose_1"})
             cls = TestMod
             with R.dataflow():
-                B = R.call_tir(cls.t1, (A,), out_ty=R.Tensor((16, 8), dtype="float32"))
+                B = R.call_tir(cls.t1, (A,), ty_args=[R.Tensor((16, 8), dtype="float32")])
                 R.output(B)
             return B
 
@@ -307,14 +308,14 @@ def test_vm_multi_func(session_kind):
             R.func_attr({"global_symbol": "transpose_2"})
             cls = TestMod
             with R.dataflow():
-                B = R.call_tir(cls.t2, (A,), out_ty=R.Tensor((8, 16), dtype="float32"))
+                B = R.call_tir(cls.t2, (A,), ty_args=[R.Tensor((8, 16), dtype="float32")])
                 R.output(B)
             return B
 
     # pylint: enable=invalid-name
     with tempfile.TemporaryDirectory() as tmpdir:
         path = tmpdir + "/test.so"
-        device = tvm.cpu()
+        device = tvm_tirx.cpu()
         x_np = np.arange(8 * 16).astype("float32").reshape([8, 16])
         y_np = x_np.transpose()
 
@@ -345,4 +346,4 @@ def test_num_workers(session_kind, num_workers):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

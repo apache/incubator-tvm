@@ -40,17 +40,18 @@ using namespace tvm::te;
  *
  * \param data Tensor with shape [batch, in_dim]
  * \param weight Tensor with shape [out_dim, in_dim]
- * \param bias Tensor with shape [out_dim]. Optional; to omit bias, pass Tensor()
+ * \param bias Tensor with shape [out_dim]. Optional; to omit bias, pass std::nullopt
  * \param out_dtype Output data type. Used for mixed precision.
  *
  * \return Tensor with shape [batch, out_dim]
  */
 inline tvm::te::Tensor dense(const tvm::te::Tensor& data, const tvm::te::Tensor& weight,
-                             const tvm::te::Tensor& bias, const PrimType& out_dtype) {
+                             const ffi::Optional<tvm::te::Tensor>& bias,
+                             const PrimType& out_dtype) {
   TVM_FFI_ICHECK_EQ(data->shape.size(), 2) << "dense requires 2-D data";
   TVM_FFI_ICHECK_EQ(weight->shape.size(), 2) << "dense requires 2-D weight";
-  if (bias.defined()) {
-    TVM_FFI_ICHECK_EQ(bias->shape.size(), 1) << "dense requires 1-D bias";
+  if (bias.has_value()) {
+    TVM_FFI_ICHECK_EQ(bias.value()->shape.size(), 1) << "dense requires 1-D bias";
   }
 
   auto batch = data->shape[0];
@@ -62,14 +63,16 @@ inline tvm::te::Tensor dense(const tvm::te::Tensor& data, const tvm::te::Tensor&
       {batch, out_dim},
       [&](PrimVar i, PrimVar j) {
         return tvm::prim::sum(
-            tvm::prim::cast(out_dtype, data(i, k)) * tvm::prim::cast(out_dtype, weight(j, k)), {k});
+            tvm::prim::cast(data(i, k), out_dtype) * tvm::prim::cast(weight(j, k), out_dtype), {k});
       },
       "tensor", "dense");
 
-  if (bias.defined()) {
+  if (bias.has_value()) {
     matmul = tvm::te::compute(
         {batch, out_dim},
-        [&](PrimVar i, PrimVar j) { return matmul(i, j) + tvm::prim::cast(out_dtype, bias(j)); },
+        [&](PrimVar i, PrimVar j) {
+          return matmul(i, j) + tvm::prim::cast(bias.value()(j), out_dtype);
+        },
         "tensor", kBroadcast);
   }
 

@@ -18,6 +18,7 @@
  */
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/s_tir/stmt.h>
+#include <tvm/support/gpu_thread_tag.h>
 
 #include "../utils.h"
 
@@ -25,9 +26,9 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class CrossThreadReductionNode : public ScheduleRuleNode {
+class CrossThreadReductionObj : public ScheduleRuleObj {
  public:
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   void InitializeWithTuneContext(const TuneContext& context) final {
     TVM_FFI_ICHECK(context->target.has_value());
     Target target = context->target.value();
@@ -50,7 +51,7 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
     warp_size = opt_warp_size.value_or(-1);
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ffi::Array<s_tir::Schedule> Apply(const s_tir::Schedule& sch,
                                     const s_tir::SBlockRV& block_rv) final {
     // Step 0. Check the conditions of this rule.
@@ -91,7 +92,7 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
       //   bound the innermost outer loop of `target_sblock` to threadIdx. Possibly we need to split
       //   the loop before binding.
       // - Otherwise, we search for the extent of "threadIdx.x" and use it as the split factor.
-      if (!InThreadScope(tmp_sch, target_sblock)) {
+      if (!InThreadBinding(tmp_sch, target_sblock)) {
         const ffi::Array<s_tir::LoopRV>& split_res =
             tmp_sch->Split(tgt_block_innermost_loop, {std::nullopt, thread_extent});
         tmp_sch->Bind(split_res[1], "threadIdx.x");
@@ -103,8 +104,8 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
       }
       // Step 3.2. Do the compute-at.
       tmp_sch->ComputeAt(block_rv, target_loop, /*preserve_unit_loops=*/true);
-      // Step 3.3. Set the storage scope of the output buffer to shared memory.
-      tmp_sch->SetScope(block_rv, /*buffer_index=*/0, /*storage_scope=*/"shared");
+      // Step 3.3. Set the storage scope of the output tensor to shared memory.
+      tmp_sch->SetScope(block_rv, /*tensor_index=*/0, /*storage_scope=*/"shared");
     }
 
     // Step 4. Reorder the loop axes if reduction loops are not innermost. After the reordering,
@@ -120,10 +121,10 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
     return {tmp_sch, sch};
   }
 
-  // Inherited from ScheduleRuleNode
+  // Inherited from ScheduleRuleObj
   ScheduleRule Clone() const final {
-    ffi::ObjectPtr<CrossThreadReductionNode> n = ffi::make_object<CrossThreadReductionNode>(*this);
-    return ScheduleRule(n);
+    ffi::ObjectPtr<CrossThreadReductionObj> n = ffi::make_object<CrossThreadReductionObj>(*this);
+    return ScheduleRule(ffi::UnsafeInit{}, n);
   }
 
  private:
@@ -134,11 +135,11 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
    * \param block The block to be checked
    * \return A boolean indicating whether the block is in thread scope.
    */
-  bool InThreadScope(const s_tir::Schedule& sch, const s_tir::SBlockRV& block) {
+  bool InThreadBinding(const s_tir::Schedule& sch, const s_tir::SBlockRV& block) {
     const ffi::Array<s_tir::LoopRV>& axes = sch->GetLoops(block);
     for (const s_tir::LoopRV& loop_rv : axes) {
-      const tirx::For& loop = sch->Get(loop_rv);
-      runtime::ThreadScope thread_scope = s_tir::GetThreadScope(loop.get());
+      const For& loop = sch->Get(loop_rv);
+      support::GPUThreadTag thread_scope = s_tir::GetThreadBindingTag(loop.get());
       if (s_tir::IsThreadIdx(thread_scope)) {
         return true;
       }
@@ -226,7 +227,7 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
     // - If the lowest common ancestor is a loop, the target block is also the first consumer.
     const tirx::StmtSRef& lca_sref =
         s_tir::GetSRefLowestCommonAncestor(s_tir::SBlockRVs2StmtSRefs(sch, consumers));
-    if (consumers.size() > 1 && lca_sref->StmtAs<s_tir::SBlockNode>() != nullptr) {
+    if (consumers.size() > 1 && lca_sref->StmtAs<s_tir::SBlockObj>() != nullptr) {
       return std::make_tuple(false, s_tir::LoopRV{ffi::UnsafeInit()},
                              s_tir::SBlockRV{ffi::UnsafeInit()}, s_tir::LoopRV{ffi::UnsafeInit()});
     }
@@ -262,7 +263,7 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
     int n_tgt_block_loop = static_cast<int>(tgt_block_loops.size());
 
     for (int i = 0; i < n_block_loop && i < n_tgt_block_loop; ++i) {
-      if (s_tir::GetLoopIterType(sch->GetSRef(block_loops[i])) != tirx::IterVarType::kDataPar) {
+      if (s_tir::GetLoopIterType(sch->GetSRef(block_loops[i])) != s_tir::IterVarType::kDataPar) {
         return i - 1;
       } else if (sch->GetSRef(tgt_block_loops[i]).same_as(lca_sref)) {
         // If the lowest common ancestor is a loop, the compute location of the input block should
@@ -283,25 +284,25 @@ class CrossThreadReductionNode : public ScheduleRuleNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<CrossThreadReductionNode>()
-        .def_ro("max_threads_per_block", &CrossThreadReductionNode::max_threads_per_block)
-        .def_ro("warp_size", &CrossThreadReductionNode::warp_size)
-        .def_ro("thread_extents", &CrossThreadReductionNode::thread_extents);
+    refl::ObjectDef<CrossThreadReductionObj>()
+        .def_ro("max_threads_per_block", &CrossThreadReductionObj::max_threads_per_block)
+        .def_ro("warp_size", &CrossThreadReductionObj::warp_size)
+        .def_ro("thread_extents", &CrossThreadReductionObj::thread_extents);
   }
   TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.CrossThreadReduction",
-                                    CrossThreadReductionNode, ScheduleRuleNode);
+                                    CrossThreadReductionObj, ScheduleRuleObj);
 };
 
 ScheduleRule ScheduleRule::CrossThreadReduction(ffi::Array<int64_t> thread_extents) {
   for (int64_t extent : thread_extents) {
     TVM_FFI_CHECK(extent > 0, ValueError) << "The candidates of thread extent must be positive";
   }
-  ffi::ObjectPtr<CrossThreadReductionNode> n = ffi::make_object<CrossThreadReductionNode>();
+  ffi::ObjectPtr<CrossThreadReductionObj> n = ffi::make_object<CrossThreadReductionObj>();
   n->thread_extents = std::move(thread_extents);
-  return ScheduleRule(n);
+  return ScheduleRule(ffi::UnsafeInit{}, n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { CrossThreadReductionNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { CrossThreadReductionObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

@@ -20,11 +20,12 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import assert_structural_equal_ignore_global_symbol
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # pylint: disable=no-member,invalid-name,unused-variable,unexpected-keyword-arg
 
@@ -32,35 +33,35 @@ from tvm.script import tirx as T
 def check_decompose_padding(origin, scheduled, expected, check_run=False):
     assert_structural_equal_ignore_global_symbol(scheduled, expected)
     if check_run:
-        in_buffer = origin.params[0]
-        out_buffer = origin.params[1]
-        in_shape = [int(_) for _ in in_buffer.shape]
-        out_shape = [int(_) for _ in out_buffer.shape]
-        x = tvm.runtime.tensor(np.random.uniform(0, 64, in_shape).astype(in_buffer.dtype))
-        y0 = tvm.runtime.tensor(np.zeros(out_shape).astype(out_buffer.dtype))
-        y1 = tvm.runtime.tensor(np.zeros(out_shape).astype(out_buffer.dtype))
+        in_tensor = origin.params[0]
+        out_tensor = origin.params[1]
+        in_shape = [int(_) for _ in in_tensor.shape]
+        out_shape = [int(_) for _ in out_tensor.shape]
+        x = tvm_tirx.runtime.tensor(np.random.uniform(0, 64, in_shape).astype(in_tensor.dtype))
+        y0 = tvm_tirx.runtime.tensor(np.zeros(out_shape).astype(out_tensor.dtype))
+        y1 = tvm_tirx.runtime.tensor(np.zeros(out_shape).astype(out_tensor.dtype))
         f_origin = tvm.compile(origin)
         f_scheduled = tvm.compile(scheduled)
         f_origin(x, y0)
         f_scheduled(x, y1)
-        tvm.testing.assert_allclose(y0.numpy(), y1.numpy())
+        tvm_tirx.testing.assert_allclose(y0.numpy(), y1.numpy())
 
 
 def test_int64_indices_batch_decompose_padding():
-    @Ts.prim_func
+    @Ts.function
     def before_decompose(
-        x: T.Buffer((T.int64(1), T.int64(128), T.int64(128)), "int32"),
-        y: T.Buffer((T.int64(1), T.int64(140), T.int64(128)), "int32"),
+        x: T.Tensor((T.int64(1), T.int64(128), T.int64(128)), "int32"),
+        y: T.Tensor((T.int64(1), T.int64(140), T.int64(128)), "int32"),
     ):
         for b, i, j in T.grid(T.int64(1), T.int64(140), T.int64(128)):
             with Ts.sblock("block"):
                 vb, vi, vj = Ts.axis.remap("SSS", [b, i, j])
                 y[vb, vi, vj] = T.if_then_else(vi < T.int64(128), x[vb, vi, vj], 0)
 
-    @Ts.prim_func
+    @Ts.function
     def after_decompose(
-        x: T.Buffer((T.int64(1), T.int64(128), T.int64(128)), "int32"),
-        y: T.Buffer((T.int64(1), T.int64(140), T.int64(128)), "int32"),
+        x: T.Tensor((T.int64(1), T.int64(128), T.int64(128)), "int32"),
+        y: T.Tensor((T.int64(1), T.int64(140), T.int64(128)), "int32"),
     ):
         # with Ts.sblock("root"):
         for b, i in T.grid(T.int64(1), T.int64(140)):
@@ -90,15 +91,15 @@ def test_int64_indices_batch_decompose_padding():
 
 
 def test_1d_decompose_padding():
-    @Ts.prim_func
-    def before_decompose(x: T.Buffer(128, "int32"), y: T.Buffer(140, "int32")):
+    @Ts.function
+    def before_decompose(x: T.Tensor(128, "int32"), y: T.Tensor(140, "int32")):
         for i in range(140):
             with Ts.sblock("block"):
                 vi = Ts.axis.remap("S", [i])
-                y[vi] = T.if_then_else(vi >= 6 and vi < 134, x[vi - 6], 0, dtype="int32")
+                y[vi] = T.if_then_else(vi >= 6 and vi < 134, x[vi - 6], 0)
 
-    @Ts.prim_func
-    def after_decompose(x: T.Buffer(128, "int32"), y: T.Buffer(140, "int32")):
+    @Ts.function
+    def after_decompose(x: T.Tensor(128, "int32"), y: T.Tensor(140, "int32")):
         for i in T.serial(140):
             with Ts.sblock("block_pad_const"):
                 vi = Ts.axis.spatial(140, i)
@@ -118,11 +119,11 @@ def test_1d_decompose_padding():
     check_decompose_padding(before_decompose, sch.mod["main"], after_decompose, check_run=False)
 
 
-@Ts.prim_func
+@Ts.function
 def sum_pool_2d(
-    x: T.Buffer((1, 16, 225, 225), "int8"), tensor: T.Buffer((1, 16, 225, 225), "int8")
+    x: T.Tensor((1, 16, 225, 225), "int8"), tensor: T.Tensor((1, 16, 225, 225), "int8")
 ):
-    pad_temp = Ts.sblock_alloc_buffer([1, 16, 231, 231], dtype="int8")
+    pad_temp = Ts.sblock_alloc_tensor([1, 16, 231, 231], dtype="int8")
     for i0, i1, i2, i3 in T.grid(1, 16, 231, 231):
         with Ts.sblock("pad_temp"):
             ax0, ax1, ax2, ax3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -130,7 +131,6 @@ def sum_pool_2d(
                 3 <= ax2 and ax2 < 228 and 3 <= ax3 and ax3 < 228,
                 x[ax0, ax1, ax2 - 3, ax3 - 3],
                 T.int8(0),
-                dtype="int8",
             )
     for i0, i1, i2, i3, i4, i5 in T.grid(1, 16, 225, 225, 7, 7):
         with Ts.sblock("tensor"):
@@ -145,11 +145,11 @@ def sum_pool_2d(
 def test_decompose_hw_padding_direct():
     """Case 0. direct decompose"""
 
-    @Ts.prim_func
+    @Ts.function
     def pooling_decompose_0(
-        x: T.Buffer((1, 16, 225, 225), "int8"), tensor: T.Buffer((1, 16, 225, 225), "int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), tensor: T.Tensor((1, 16, 225, 225), "int8")
     ):
-        pad_temp = Ts.sblock_alloc_buffer([1, 16, 231, 231], dtype="int8")
+        pad_temp = Ts.sblock_alloc_tensor([1, 16, 231, 231], dtype="int8")
         for i0, i1, i2, i3 in T.grid(1, 16, 231, 231):
             with Ts.sblock("pad_temp_pad_const"):
                 ax0, ax1, ax2, ax3 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -176,11 +176,11 @@ def test_decompose_hw_padding_direct():
 def test_decompose_hw_padding_tiled():
     """Case 1. tiling and then decompose"""
 
-    @Ts.prim_func
+    @Ts.function
     def pooling_decompose_1(
-        x: T.Buffer((1, 16, 225, 225), "int8"), tensor: T.Buffer((1, 16, 225, 225), "int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), tensor: T.Tensor((1, 16, 225, 225), "int8")
     ) -> None:
-        pad_temp = Ts.sblock_alloc_buffer([1, 16, 231, 231], dtype="int8")
+        pad_temp = Ts.sblock_alloc_tensor([1, 16, 231, 231], dtype="int8")
         for i0, i2_0, i3_0 in T.grid(1, 3, 3):
             for ax0, ax1, ax2 in T.grid(16, 81, 81):
                 with Ts.sblock("pad_temp_pad_const"):
@@ -236,11 +236,11 @@ def test_decompose_hw_padding_tiled():
 def test_decompose_hw_padding_tiled_and_lift_pad():
     """Case 2. tiling and then decompose, lift const pad values to outer loop"""
 
-    @Ts.prim_func
+    @Ts.function
     def pooling_decompose_2(
-        x: T.Buffer((1, 16, 225, 225), "int8"), tensor: T.Buffer((1, 16, 225, 225), "int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), tensor: T.Tensor((1, 16, 225, 225), "int8")
     ) -> None:
-        pad_temp = Ts.sblock_alloc_buffer([1, 16, 231, 231], dtype="int8")
+        pad_temp = Ts.sblock_alloc_tensor([1, 16, 231, 231], dtype="int8")
         for i0, i2_0, i3_0, ax0, ax1, ax2 in T.grid(1, 3, 3, 16, 81, 81):
             with Ts.sblock("pad_temp_pad_const"):
                 ax0_1 = Ts.axis.spatial(1, 0)
@@ -296,11 +296,11 @@ def test_decompose_hw_padding_tiled_and_lift_pad():
 def test_decompose_hw_padding_non_perfect_tiled():
     """Case 3. non-perfect tiling and then decompose"""
 
-    @Ts.prim_func
+    @Ts.function
     def pooling_decompose_3(
-        x: T.Buffer((1, 16, 225, 225), "int8"), tensor: T.Buffer((1, 16, 225, 225), "int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), tensor: T.Tensor((1, 16, 225, 225), "int8")
     ) -> None:
-        pad_temp = Ts.sblock_alloc_buffer([1, 16, 231, 231], dtype="int8")
+        pad_temp = Ts.sblock_alloc_tensor([1, 16, 231, 231], dtype="int8")
         for i0, i2_0, i3_0 in T.grid(1, 3, 3):
             for ax0, ax1, ax2 in T.grid(16, 86, 86):
                 with Ts.sblock("pad_temp_pad_const"):
@@ -360,10 +360,10 @@ def test_decompose_hw_padding_non_perfect_tiled():
 def test_decompose_wrt_single_child_subtree():
     """Test the case when the decompose position is under the single child subtree"""
 
-    @Ts.prim_func
+    @Ts.function
     def pad_op(
-        x: T.Buffer((1, 16, 225, 225), "int8"),
-        y: T.Buffer((1, 16, 231, 231), dtype="int8"),
+        x: T.Tensor((1, 16, 225, 225), "int8"),
+        y: T.Tensor((1, 16, 231, 231), dtype="int8"),
     ):
         for i0, i1, i2, i3 in T.grid(1, 16, 231, 231):
             with Ts.sblock("pad_temp"):
@@ -372,12 +372,11 @@ def test_decompose_wrt_single_child_subtree():
                     3 <= ax2 and ax2 < 228 and 3 <= ax3 and ax3 < 228,
                     x[ax0, ax1, ax2 - 3, ax3 - 3],
                     T.int8(0),
-                    dtype="int8",
                 )
 
-    @Ts.prim_func
+    @Ts.function
     def pad_op_after(
-        x: T.Buffer((1, 16, 225, 225), "int8"), y: T.Buffer((1, 16, 231, 231), "int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), y: T.Tensor((1, 16, 231, 231), "int8")
     ):
         for i0, i1 in T.grid(1, 16):
             for i2, i3 in T.grid(231, 231):
@@ -401,9 +400,9 @@ def test_decompose_wrt_single_child_subtree():
 def test_not_to_decompose_trivial_predicate():
     """Test the case when the padding condition is trivial"""
 
-    @Ts.prim_func
+    @Ts.function
     def trivial_pad(
-        x: T.Buffer((1, 16, 225, 225), "int8"), y: T.Buffer([1, 16, 225, 225], dtype="int8")
+        x: T.Tensor((1, 16, 225, 225), "int8"), y: T.Tensor([1, 16, 225, 225], dtype="int8")
     ):
         for i0, i1, i2, i3 in T.grid(1, 16, 225, 225):
             with Ts.sblock("pad_temp"):
@@ -412,7 +411,6 @@ def test_not_to_decompose_trivial_predicate():
                     0 <= ax2 and ax2 < 225 and 0 <= ax3 and ax3 < 225,
                     x[ax0, ax1, ax2, ax3],
                     T.int8(0),
-                    dtype="int8",
                 )
 
     sch = tvm.s_tir.Schedule(trivial_pad, debug_mask="all")
@@ -422,4 +420,4 @@ def test_not_to_decompose_trivial_predicate():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

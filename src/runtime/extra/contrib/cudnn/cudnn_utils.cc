@@ -28,6 +28,7 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -162,12 +163,16 @@ void ConvEntry::UpdateWorkspace(const size_t wsize) {
     workspace_size = wsize;
 
     DLDataType type_hint{kDLUInt, 8, 1};
-    workspace = cuda_api->AllocDataSpace(device, wsize, runtime::kTempAllocaAlignment, type_hint);
+    TVM_FFI_CHECK_LE(wsize, static_cast<size_t>(std::numeric_limits<int64_t>::max()), ValueError);
+    int64_t shape = static_cast<int64_t>(wsize);
+    workspace_owner = cuda_api->Empty(ffi::ShapeView(&shape, 1), type_hint, device);
+    workspace = workspace_owner.data_ptr();
   }
 }
 
 void ConvEntry::CleanWorkspace() {
-  if (workspace) cuda_api->FreeDataSpace(device, workspace);
+  workspace_owner = ffi::Tensor();
+  workspace = nullptr;
   workspace_size = 0;
 }
 

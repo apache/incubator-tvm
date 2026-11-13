@@ -21,9 +21,37 @@
  */
 import { Pointer, PtrOffset, SizeOf } from "./ctypes";
 import { Disposable } from "./types";
-import { assert, StringToUint8Array } from "./support";
+import { StringToUint8Array } from "./support";
 
 import * as ctypes from "./ctypes";
+
+const CALL_STACK_CACHE_LIMIT_BYTES = 64 * 1024;
+// TVMWasmAllocSpace takes a signed int and rounds `(size + 7) / 8` in C++.
+// Keep the input at the largest aligned value that cannot overflow that sum.
+const MAX_WASM_ALLOCATION_BYTES = 0x7ffffff8;
+
+export interface WasmByteArraySource {
+  buffer: ArrayBuffer | SharedArrayBuffer;
+  byteOffset: number;
+  byteLength: number;
+}
+
+class WasmAllocation implements Disposable {
+  private ptr: Pointer;
+  private freeSpace: ctypes.FTVMWasmFreeSpace;
+
+  constructor(ptr: Pointer, freeSpace: ctypes.FTVMWasmFreeSpace) {
+    this.ptr = ptr;
+    this.freeSpace = freeSpace;
+  }
+
+  dispose(): void {
+    if (this.ptr !== 0) {
+      this.freeSpace(this.ptr);
+      this.ptr = 0;
+    }
+  }
+}
 
 /**
  * Wasm Memory wrapper to perform JS side raw memory access.
@@ -347,6 +375,9 @@ export class CachedCallStack implements Disposable {
     this.cFreeSpace = freeSpace;
     this.buffer = new ArrayBuffer(initCallStackSize);
     this.basePtr = this.cAllocSpace(initCallStackSize);
+    if (this.basePtr === 0) {
+      throw new Error(`Cannot allocate ${initCallStackSize} bytes in Wasm memory`);
+    }
     this.viewU8 = new Uint8Array(this.buffer);
     this.viewI32 = new Int32Array(this.buffer);
     this.viewU32 = new Uint32Array(this.buffer);
@@ -355,6 +386,7 @@ export class CachedCallStack implements Disposable {
   }
 
   dispose(): void {
+    this.reset();
     if (this.basePtr != 0) {
       this.cFreeSpace(this.basePtr);
       this.basePtr = 0;
@@ -365,7 +397,7 @@ export class CachedCallStack implements Disposable {
    */
   reset(): void {
     this.stackTop = 0;
-    assert(this.addressToSetTargetValue.length === 0);
+    this.addressToSetTargetValue.length = 0;
     while (this.tempArgs.length != 0) {
       (this.tempArgs.pop() as Disposable).dispose();
     }
@@ -397,24 +429,38 @@ export class CachedCallStack implements Disposable {
    */
   allocRawBytes(nbytes: number): PtrOffset {
     // always aligns to 64bit
-    nbytes = ((nbytes + 7) >> 3) << 3;
+    nbytes = this.alignToEight(nbytes);
 
-    if (this.stackTop + nbytes > this.buffer.byteLength) {
-      const newSize = Math.max(
+    const requiredSize = this.checkedAdd(this.stackTop, nbytes);
+
+    if (requiredSize > this.buffer.byteLength) {
+      const doubledSize = Math.min(
         this.buffer.byteLength * 2,
-        this.stackTop + nbytes
+        MAX_WASM_ALLOCATION_BYTES
       );
-      const oldU8 = this.viewU8;
-      this.buffer = new ArrayBuffer(newSize);
-      this.updateViews();
-      this.viewU8.set(oldU8);
-      if (this.basePtr != 0) {
-        this.cFreeSpace(this.basePtr);
+      let newSize = Math.max(doubledSize, requiredSize);
+      if (this.buffer.byteLength < CALL_STACK_CACHE_LIMIT_BYTES &&
+          requiredSize <= CALL_STACK_CACHE_LIMIT_BYTES) {
+        newSize = Math.min(newSize, CALL_STACK_CACHE_LIMIT_BYTES);
+      } else if (this.buffer.byteLength <= CALL_STACK_CACHE_LIMIT_BYTES &&
+                 requiredSize > CALL_STACK_CACHE_LIMIT_BYTES) {
+        // Headers and non-byte arguments may cross the soft cache cap. Grow
+        // only to the requested size instead of doubling past the cap.
+        newSize = requiredSize;
       }
-      this.basePtr = this.cAllocSpace(newSize);
+      const newBuffer = new ArrayBuffer(newSize);
+      new Uint8Array(newBuffer).set(this.viewU8);
+      const newBasePtr = this.cAllocSpace(newSize);
+      if (newBasePtr === 0) {
+        throw new Error(`Cannot allocate ${newSize} bytes in Wasm memory`);
+      }
+      this.cFreeSpace(this.basePtr);
+      this.basePtr = newBasePtr;
+      this.buffer = newBuffer;
+      this.updateViews();
     }
     const retOffset = this.stackTop;
-    this.stackTop += nbytes;
+    this.stackTop = requiredSize;
     return retOffset;
   }
 
@@ -516,15 +562,99 @@ export class CachedCallStack implements Disposable {
    * @param offset The offset to set ot data pointer.
    * @param data The string content.
    */
-  allocThenSetArgBytes(offset: PtrOffset, data: Uint8Array): void {
+  allocThenSetArgBytes(
+    offset: PtrOffset,
+    data: Uint8Array,
+    wasmSource?: WasmByteArraySource
+  ): void {
+    if (wasmSource === undefined && data.buffer === this.memory.memory.buffer) {
+      wasmSource = {
+        buffer: data.buffer,
+        byteOffset: data.byteOffset,
+        byteLength: data.byteLength,
+      };
+    }
     // Note: size of size_t equals sizeof ptr.
+    const dataLength = wasmSource?.byteLength ?? data.length;
+    const headerSize = this.alignToEight(this.memory.sizeofPtr() * 2);
+    const inlineDataSize = this.alignToEight(dataLength);
+    const cacheSizeWithHeader = this.checkedAdd(this.stackTop, headerSize);
+    const keepDataInline = cacheSizeWithHeader <= CALL_STACK_CACHE_LIMIT_BYTES &&
+      inlineDataSize <= CALL_STACK_CACHE_LIMIT_BYTES - cacheSizeWithHeader;
     const headerOffset = this.allocRawBytes(this.memory.sizeofPtr() * 2);
-    const dataOffset = this.allocRawBytes(data.length);
-    this.storeRawBytes(dataOffset, data);
-    this.storeUSize(headerOffset + this.memory.sizeofPtr(), data.length);
+    this.storeUSize(headerOffset + this.memory.sizeofPtr(), dataLength);
 
     this.addressToSetTargetValue.push([offset, headerOffset]);
-    this.addressToSetTargetValue.push([headerOffset, dataOffset]);
+    if (keepDataInline) {
+      const dataOffset = this.allocRawBytes(dataLength);
+      this.storeRawBytes(dataOffset, this.resolveByteSource(data, wasmSource));
+      this.addressToSetTargetValue.push([headerOffset, dataOffset]);
+    } else {
+      const dataPtr = dataLength === 0 ? 0 : this.allocTransientBytes(data, wasmSource);
+      this.storePtr(headerOffset, dataPtr);
+    }
+  }
+
+  /** Allocate bytes directly in Wasm memory for the duration of one FFI call. */
+  private allocTransientBytes(
+    data: Uint8Array,
+    wasmSource?: WasmByteArraySource
+  ): Pointer {
+    const dataLength = wasmSource?.byteLength ?? data.length;
+    this.checkAllocationSize(dataLength);
+
+    const dataPtr = this.cAllocSpace(dataLength);
+    if (dataPtr === 0) {
+      throw new Error(`Cannot allocate ${dataLength} bytes in Wasm memory`);
+    }
+
+    const allocation = new WasmAllocation(dataPtr, this.cFreeSpace);
+    this.tempArgs.push(allocation);
+    try {
+      this.memory.storeRawBytes(dataPtr, this.resolveByteSource(data, wasmSource));
+    } catch (err) {
+      this.tempArgs.pop();
+      allocation.dispose();
+      throw err;
+    }
+    return dataPtr;
+  }
+
+  private resolveByteSource(
+    data: Uint8Array,
+    wasmSource?: WasmByteArraySource
+  ): Uint8Array {
+    if (wasmSource !== undefined && wasmSource.buffer !== this.memory.memory.buffer) {
+      return new Uint8Array(
+        this.memory.memory.buffer,
+        wasmSource.byteOffset,
+        wasmSource.byteLength
+      );
+    }
+    return data;
+  }
+
+  private alignToEight(nbytes: number): number {
+    this.checkAllocationSize(nbytes);
+    const remainder = nbytes % 8;
+    const aligned = remainder === 0 ? nbytes : nbytes + 8 - remainder;
+    this.checkAllocationSize(aligned);
+    return aligned;
+  }
+
+  private checkedAdd(lhs: number, rhs: number): number {
+    const result = lhs + rhs;
+    this.checkAllocationSize(result);
+    return result;
+  }
+
+  private checkAllocationSize(nbytes: number): void {
+    if (!Number.isSafeInteger(nbytes) || nbytes < 0 || nbytes > MAX_WASM_ALLOCATION_BYTES) {
+      throw new RangeError(
+        `Wasm allocation size must be an integer between 0 and ${MAX_WASM_ALLOCATION_BYTES}, ` +
+        `but received ${nbytes}`
+      );
+    }
   }
 
   /**

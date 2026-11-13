@@ -18,13 +18,13 @@
 
 import numpy as np
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.relax import script as R
+from tvm.s_tir import script as Ts
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 
 def test_transform_fuse_transpose_matmul():
@@ -43,11 +43,11 @@ def test_transform_fuse_transpose_matmul():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def NT_matmul(
-            x: T.Buffer((T.int64(128), T.int64(256)), "float32"),
-            w: T.Buffer((T.int64(128), T.int64(256)), "float32"),
-            NT_matmul: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+            x: T.Tensor((T.int64(128), T.int64(256)), "float32"),
+            w: T.Tensor((T.int64(128), T.int64(256)), "float32"),
+            NT_matmul: T.Tensor((T.int64(128), T.int64(128)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -66,17 +66,19 @@ def test_transform_fuse_transpose_matmul():
         ) -> R.Tensor((128, 128), dtype="float32"):
             cls = Expected
             with R.dataflow():
-                gv = R.call_tir(cls.NT_matmul, (x, w), out_ty=R.Tensor((128, 128), dtype="float32"))
+                gv = R.call_tir(
+                    cls.NT_matmul, (x, w), ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
                 R.output(gv)
             return gv
 
-    after = tvm.ir.transform.Sequential(
+    after = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.FuseTransposeMatmul(),
             relax.transform.FuseTIR(),  # Only used for remove unused primitive function
         ]
     )(Before)
-    tvm.ir.assert_structural_equal(after, Expected)
+    tvm_tirx.ir.assert_structural_equal(after, Expected)
 
 
 def test_transform_fuse_transpose_matmul_const():
@@ -96,11 +98,11 @@ def test_transform_fuse_transpose_matmul_const():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func(private=True)
+        @Ts.function(private=True)
         def NT_matmul(
-            x: T.Buffer((T.int64(128), T.int64(256)), "float32"),
-            w: T.Buffer((T.int64(128), T.int64(256)), "float32"),
-            NT_matmul: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+            x: T.Tensor((T.int64(128), T.int64(256)), "float32"),
+            w: T.Tensor((T.int64(128), T.int64(256)), "float32"),
+            NT_matmul: T.Tensor((T.int64(128), T.int64(128)), "float32"),
         ):
             T.func_attr({"tirx.noalias": True})
             # with Ts.sblock("root"):
@@ -117,18 +119,20 @@ def test_transform_fuse_transpose_matmul_const():
         def main(x: R.Tensor((128, 256), dtype="float32")) -> R.Tensor((128, 128), dtype="float32"):
             cls = Expected
             with R.dataflow():
-                gv = R.call_tir(cls.NT_matmul, (x, w), out_ty=R.Tensor((128, 128), dtype="float32"))
+                gv = R.call_tir(
+                    cls.NT_matmul, (x, w), ty_args=[R.Tensor((128, 128), dtype="float32")]
+                )
                 R.output(gv)
             return gv
 
-    after = tvm.ir.transform.Sequential(
+    after = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.FuseTransposeMatmul(),
             relax.transform.FuseTIR(),  # Only used for remove unused primitive function
         ]
     )(Before)
-    tvm.ir.assert_structural_equal(after, Expected)
+    tvm_tirx.ir.assert_structural_equal(after, Expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

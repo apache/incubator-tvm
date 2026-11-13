@@ -61,7 +61,7 @@ Each stage is a Relax transformation pass that operates on the ``IRModule``:
 3. **RunCodegen** — finds all functions with a ``Codegen`` attribute, invokes the corresponding
    backend code generator via FFI, and replaces the original calls with ``call_dps_packed``
    to externally compiled functions.
-4. **Linking** — the resulting external ``runtime.Module``\ s are attached to the ``IRModule``
+4. **Linking** — the resulting external ``tvm_ffi.Module``\ s are attached to the ``IRModule``
    as the ``external_mods`` attribute and bundled into the final executable during
    ``relax.build()``.
 
@@ -199,7 +199,7 @@ code generation:
 2. Group them by backend target name.
 3. For each backend, look up the registered codegen function via FFI key
    ``"relax.ext.<backend>"`` (e.g., ``"relax.ext.cublas"``).
-4. Call the codegen function, which returns an array of compiled ``runtime.Module``\ s.
+4. Call the codegen function, which returns an array of compiled ``tvm_ffi.Module``\ s.
 5. Replace the original function calls with ``call_dps_packed(ExternFunc(...), args)``.
 6. Attach the compiled modules to the ``IRModule`` as the ``external_mods`` attribute.
 
@@ -239,7 +239,7 @@ The codegen function receives:
 - ``options``: backend-specific compilation options.
 - ``constant_names``: mapping from constant values to their names (for weight handling).
 
-It returns an array of ``runtime.Module`` objects — one per function — that contain the
+It returns an array of ``tvm_ffi.Module`` objects — one per function — that contain the
 externally compiled code.
 
 Codegen strategies
@@ -267,7 +267,7 @@ After ``RunCodegen``, the original high-level function calls are replaced with:
    R.call_dps_packed(ExternFunc("fused_relax_matmul_cublas0"), (x, w, bias), ...)
 
 At runtime, ``call_dps_packed`` invokes the externally compiled function through the
-``PackedFunc`` interface. The external ``runtime.Module``\ s (produced by the codegen) are
+``PackedFunc`` interface. The external ``tvm_ffi.Module``\ s (produced by the codegen) are
 imported into the final executable during ``relax.build()`` and are available via the module's
 function lookup mechanism.
 

@@ -20,6 +20,8 @@
 from collections.abc import Callable
 from typing import TYPE_CHECKING
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
@@ -27,7 +29,6 @@ from typing import Literal
 
 from tvm_ffi import register_object
 
-from tvm.runtime import Object
 from tvm.s_tir.schedule import Schedule
 
 from .. import _ffi_api
@@ -37,7 +38,7 @@ if TYPE_CHECKING:
 
 
 @register_object("s_tir.meta_schedule.Postproc")
-class Postproc(Object):
+class Postproc(tvm_ffi.Object):
     """Rules to apply a postprocessor to a schedule."""
 
     def _initialize_with_tune_context(self, context: "TuneContext") -> None:
@@ -78,12 +79,12 @@ class Postproc(Object):
         return _ffi_api.PostprocClone(self)  # type: ignore # pylint: disable=no-member
 
     @staticmethod
-    def create(kind: Literal["llvm", "cuda", "cuda-tensorcore", "hexagon"]) -> list["Postproc"]:
+    def create(kind: Literal["llvm", "cuda", "hexagon"]) -> list["Postproc"]:
         """Create a list of default postprocessors.
 
         Parameters
         ----------
-        kind : Literal["llvm", "cuda", "cuda-tensorcore", "hexagon"]
+        kind : Literal["llvm", "cuda", "hexagon"]
             The kind of the postprocessors.
 
         Returns
@@ -95,7 +96,6 @@ class Postproc(Object):
             # pylint: disable=no-member
             "llvm": _ffi_api.PostprocDefaultLLVM,  # type: ignore
             "cuda": _ffi_api.PostprocDefaultCUDA,  # type: ignore
-            "cuda-tensorcore": _ffi_api.PostprocDefaultCUDATensorCore,  # type: ignore
             "hexagon": _ffi_api.PostprocDefaultHexagon,  # type: ignore
             # pylint: enable=no-member
         }

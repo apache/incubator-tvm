@@ -78,7 +78,7 @@ inline tvm::te::Tensor binarize_pack(const tvm::te::Tensor& data, int axis,
             idx.push_back(i == static_cast<size_t>(axis) ? start_idx[i] + static_cast<int>(j)
                                                          : start_idx[i]);
           }
-          auto sign = tvm::prim::cast(PrimType::UInt(32), data(idx) >= 0);
+          auto sign = tvm::prim::cast(data(idx) >= 0, PrimType::UInt(32));
           packed = (packed | sign);
           if (j == 31) {
             return packed;

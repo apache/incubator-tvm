@@ -54,9 +54,9 @@ The ``DeviceAPI`` represents a handle to a specific hardware device
 API.  (e.g. ``CUDADeviceAPI`` handles all interactions through the
 CUDA framework.)  Most ``DeviceAPI`` methods accept a ``device_id``
 parameter to specify which device should be accessed.  In Python,
-these are typically accessed using the :py:func:`tvm.runtime.device`
+these are typically accessed using the :py:func:`tvm_ffi.device`
 function, which returns a handle to a specific device, accessed
-through a specific API.  (e.g. ``tvm.runtime.device('cuda',0)`` gives
+through a specific API.  (e.g. ``tvm_ffi.device('cuda',0)`` gives
 access to physical device ``0``, accessed through the CUDA API.)
 
 .. _device_api.h: https://github.com/apache/tvm/blob/main/include/tvm/runtime/device_api.h
@@ -184,12 +184,15 @@ device, its hardware/driver limits, and its capabilities.  The
 stages.  While the same ``Target`` class is used for all runtime
 targets, each runtime target may need to add target-specific options.
 
-.. _target_kind.cc: https://github.com/apache/tvm/blob/main/src/target/target_kind.cc
+.. _target_kind.cc: https://github.com/apache/tvm/blob/main/src/backend/cuda/codegen/target_kind.cc
 
-In `target_kind.cc`_, add a new declaration of
-``TVM_REGISTER_TARGET_KIND``, passing a string name of the new target,
-and the ``TVMDeviceExtType`` or ``DLDeviceType`` enum value for the
-device on which that target should run.  Typically, the target name
+Keep generic target configuration in ``src/target/`` and register each backend's
+target kind alongside its code generator, as in CUDA's `target_kind.cc`_.
+Shared C and LLVM registrations live in ``src/codegen/c/`` and
+``src/codegen/llvm/`` respectively. In a ``TVM_FFI_STATIC_INIT_BLOCK``, construct
+``TargetKindDef`` with the target name and call ``set_default_device_type``
+with the ``TVMDeviceExtType`` or ``DLDeviceType`` enum value for the device
+on which that target should run.  Typically, the target name
 and the device name will match (e.g., the ``"cuda"`` target runs on
 the ``kDLCUDA`` device). There are exceptions, such as when multiple
 different code generation targets can run on the same physical device
@@ -197,8 +200,8 @@ different code generation targets can run on the same physical device
 device type).
 
 All options for a specific target kind are added with the
-``add_attr_option`` function, with optional default values.  A `Target`
-parser can be added with ``set_target_parser`` to process
+``def_option`` function, with optional default values.  A `Target`
+parser can be added with ``set_target_canonicalizer`` to process
 any parameters that are dynamically based on other parameters or
 queried from device properties.
 
@@ -224,10 +227,10 @@ The code generators take an optimized ``IRModule`` and converts it
 into an executable representation.  Each code generator must be
 registered in order to be used by the TVM framework.  This is done by
 registering a function named ``"target.build.foo"``, where ``foo`` is
-the same name as was used in the ``TVM_REGISTER_TARGET_KIND``
+the same name as was used in the ``TargetKindDef``
 definition above. ::
 
-  tvm::runtime::Module GeneratorFooCode(IRModule mod, Target target);
+  tvm::ffi::Module GeneratorFooCode(IRModule mod, Target target);
   TVM_FFI_STATIC_INIT_BLOCK() {
     namespace refl = tvm::ffi::reflection;
     refl::GlobalDef().def("target.build.foo", GeneratorFooCode);

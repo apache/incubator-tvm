@@ -15,11 +15,12 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.script.printer
-------------------
+tvm_tirx.script.printer
+-------------------------
 
-tvm.script.printer
-******************
-.. automodule:: tvm.script.printer
+tvm_tirx.script.printer
+*************************
+.. automodule:: tvm_tirx.script.printer
    :members:
    :imported-members:
+   :exclude-members: Scriptable

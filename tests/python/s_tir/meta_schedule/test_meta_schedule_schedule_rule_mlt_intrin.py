@@ -17,8 +17,8 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 # ruff: noqa: E501, F401, F841
 from tvm import te
-from tvm.ir import assert_structural_equal
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
@@ -27,19 +27,19 @@ from tvm.s_tir.meta_schedule.testing.space_generation import (
 from tvm.s_tir.tensor_intrin.arm_cpu import DP4A_S8S8S32_INTRIN
 from tvm.s_tir.tensor_intrin.x86 import AVX512_DOT_16x4_INTRIN as AVX512_INTRIN
 from tvm.s_tir.tensor_intrin.x86 import VNNI_DOT_16x4_INTRIN as VNNI_INTRIN
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.ir import assert_structural_equal
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def test_x86_conv2d_nchwc(
     intrin=VNNI_INTRIN, target={"kind": "llvm", "mcpu": "cascadelake", "num-cores": 4}
 ):
-    @Ts.prim_func
+    @Ts.function
     def conv2d_nchwc(
-        placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"),
-        placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"),
-        conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32"),
+        placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"),
+        placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"),
+        conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         for i0, i1, i2, i3, i4, i5, i6, i7, i8, i9 in T.grid(1, 16, 56, 56, 16, 1, 1, 4, 4, 4):
@@ -66,18 +66,19 @@ def test_x86_conv2d_nchwc(
                 conv2d_NCHWc_int8[n, oc_chunk, oh, ow, oc_block] = conv2d_NCHWc_int8[
                     n, oc_chunk, oh, ow, oc_block
                 ] + T.cast(
-                    placeholder[n, ic_outer, oh + kh, ow + kw, ic_f_inner * 4 + ic_s_inner], "int32"
+                    placeholder[n, ic_outer, oh + kh, ow + kw, ic_f_inner * 4 + ic_s_inner],
+                    ty="int32",
                 ) * T.cast(
                     placeholder_1[oc_chunk, ic_outer, kh, kw, ic_f_inner, oc_block, ic_s_inner],
-                    "int32",
+                    ty="int32",
                 )
 
     # fmt: off
-    @Ts.prim_func
-    def x86_conv2d_nchwc_0(placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32")) -> None:
+    @Ts.function
+    def x86_conv2d_nchwc_0(placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # with Ts.sblock("root"):
-        conv2d_NCHWc_int8_global = Ts.sblock_alloc_buffer((1, 16, 56, 56, 16), "int32")
+        conv2d_NCHWc_int8_global = Ts.sblock_alloc_tensor((1, 16, 56, 56, 16), "int32")
         for i0_0, i1_0, i2_0, i3_0, i4_0_0, i0_1, i1_1, i2_1, i3_1, i4_0_1 in T.grid(1, 8, 28, 56, 1, 1, 2, 1, 1, 1):
             for i5_0, i6_0, i7_0, i8_0, i9_0_0, i0_2, i1_2, i2_2, i3_2, i4_0_2, i5_1, i6_1, i7_1, i8_1, i9_0_1, i0_3, i1_3, i2_3, i3_3, i4_0_3 in T.grid(1, 1, 1, 4, 1, 1, 1, 2, 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1):
                 with Ts.sblock("conv2d_NCHWc_int8_o"):
@@ -119,11 +120,11 @@ def test_x86_conv2d_nchwc(
                     Ts.writes(conv2d_NCHWc_int8[v0, v1, v2, v3, v4])
                     conv2d_NCHWc_int8[v0, v1, v2, v3, v4] = conv2d_NCHWc_int8_global[v0, v1, v2, v3, v4]
 
-    @Ts.prim_func
-    def x86_conv2d_nchwc_1(placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32")) -> None:
+    @Ts.function
+    def x86_conv2d_nchwc_1(placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # with Ts.sblock("root"):
-        conv2d_NCHWc_int8_global = Ts.sblock_alloc_buffer((1, 16, 56, 56, 16), "int32")
+        conv2d_NCHWc_int8_global = Ts.sblock_alloc_tensor((1, 16, 56, 56, 16), "int32")
         for i0_0, i1_0, i2_0, i3_0, i4_0_0 in T.grid(1, 8, 28, 56, 1):
             for i0_1, i1_1, i2_1, i3_1, i4_0_1, i5_0, i6_0, i7_0, i8_0, i9_0_0, i0_2, i1_2, i2_2, i3_2, i4_0_2, i5_1, i6_1, i7_1, i8_1, i9_0_1, i0_3, i1_3, i2_3, i3_3, i4_0_3 in T.grid(1, 2, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1, 2, 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1):
                 with Ts.sblock("conv2d_NCHWc_int8_o"):
@@ -165,8 +166,8 @@ def test_x86_conv2d_nchwc(
                     Ts.writes(conv2d_NCHWc_int8[v0, v1, v2, v3, v4])
                     conv2d_NCHWc_int8[v0, v1, v2, v3, v4] = conv2d_NCHWc_int8_global[v0, v1, v2, v3, v4]
 
-    @Ts.prim_func
-    def x86_conv2d_nchwc_2(placeholder: T.Buffer((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Buffer((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Buffer((1, 16, 56, 56, 16), "int32")) -> None:
+    @Ts.function
+    def x86_conv2d_nchwc_2(placeholder: T.Tensor((1, 4, 56, 56, 16), "uint8"), placeholder_1: T.Tensor((16, 4, 1, 1, 4, 16, 4), "int8"), conv2d_NCHWc_int8: T.Tensor((1, 16, 56, 56, 16), "int32")) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # with Ts.sblock("root"):
         for i0_0, i1_0, i2_0, i3_0, i4_0_0, i0_1, i1_1, i2_1, i3_1, i4_0_1, i5_0, i6_0, i7_0, i8_0, i9_0_0, i0_2, i1_2, i2_2, i3_2, i4_0_2, i5_1, i6_1, i7_1, i8_1, i9_0_1, i0_3, i1_3, i2_3, i3_3, i4_0_3 in T.grid(1, 8, 28, 56, 1, 1, 2, 1, 1, 1, 1, 1, 1, 4, 1, 1, 1, 2, 1, 1, 1, 1, 4, 1, 1, 1, 1, 1, 1, 1):
@@ -275,7 +276,7 @@ def _check_dp4a_dense(m, n, k, in_dtype, out_dtype, expected_mods, expected_deci
             ),
             name="compute",
         )
-        return te.create_prim_func([X, W, matmul])
+        return te.create_function([X, W, matmul])
 
     mod = _dense(m, n, k, in_dtype, out_dtype)
     actual = generate_design_space(
@@ -304,20 +305,20 @@ def _check_dp4a_dense(m, n, k, in_dtype, out_dtype, expected_mods, expected_deci
 
 
 def test_dp4a_dense():
-    @Ts.prim_func
+    @Ts.function
     def dp4a_dense_0(
-        X: T.Buffer((128, 128), "int8"),
-        W: T.Buffer((128, 128), "int8"),
-        compute: T.Buffer((128, 128), "int32"),
+        X: T.Tensor((128, 128), "int8"),
+        W: T.Tensor((128, 128), "int8"),
+        compute: T.Tensor((128, 128), "int32"),
     ) -> None:
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
         # with Ts.sblock("root"):
-        compute_local = Ts.sblock_alloc_buffer((128, 128), "int32", scope="local")
-        X_shared = Ts.sblock_alloc_buffer((128, 128), "int8", scope="shared")
-        W_shared = Ts.sblock_alloc_buffer((128, 128), "int8", scope="shared")
-        for i_0_j_0_fused in T.thread_binding(1, thread="blockIdx.x"):
-            for i_1_j_1_fused in T.thread_binding(512, thread="vthread.x"):
-                for i_2_j_2_fused in T.thread_binding(2, thread="threadIdx.x"):
+        compute_local = Ts.sblock_alloc_tensor((128, 128), "int32", scope="local")
+        X_shared = Ts.sblock_alloc_tensor((128, 128), "int8", scope="shared")
+        W_shared = Ts.sblock_alloc_tensor((128, 128), "int8", scope="shared")
+        for i_0_j_0_fused in T.parallel(1, annotations={"thread_binding": "blockIdx.x"}):
+            for i_1_j_1_fused in T.parallel(512, annotations={"thread_binding": "vthread.x"}):
+                for i_2_j_2_fused in T.parallel(2, annotations={"thread_binding": "threadIdx.x"}):
                     for k_0_0 in range(1):
                         for ax0_ax1_fused in range(16384):
                             with Ts.sblock("X_shared"):

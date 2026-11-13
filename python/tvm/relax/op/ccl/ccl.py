@@ -16,11 +16,24 @@
 # under the License.
 """Relax Collective Communications Library (CCL) operators"""
 
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
+
 from ...expr import Expr
-from . import _ffi_api
 
 
-def allreduce(x, op_type: str = "sum", in_group: bool = True):  # pylint: disable=invalid-name
+@tvm_ffi.register_object("relax.attrs.AllReduceAttrs")
+class AllReduceAttrs(Attrs):
+    """Attributes used in allreduce operator"""
+
+
+def allreduce(
+    x, op_type: str = "sum", in_group: bool = True, *, ty=None, loc: Location = UNKNOWN_LOC
+):  # pylint: disable=invalid-name
     """Allreduce operator
 
     Parameters
@@ -45,10 +58,21 @@ def allreduce(x, op_type: str = "sum", in_group: bool = True):  # pylint: disabl
         "Allreduce only supports limited reduction operations, "
         f"including {supported_op_types}, but got {op_type}."
     )
-    return _ffi_api.allreduce(x, op_type, in_group)  # type: ignore # pylint: disable=no-member
+    return _Call(
+        "relax.ccl.allreduce",
+        [x],
+        attrs=_make_attrs("relax.attrs.AllReduceAttrs", op_type=op_type, in_group=in_group),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore # pylint: disable=no-member
 
 
-def allgather(x, num_workers: int, in_group: bool = True):  # pylint: disable=invalid-name
+@tvm_ffi.register_object("relax.attrs.AllGatherAttrs")
+class AllGatherAttrs(Attrs):
+    """Attributes used in allgather operator"""
+
+
+def allgather(x, num_workers: int, in_group: bool = True, *, ty=None, loc: Location = UNKNOWN_LOC):  # pylint: disable=invalid-name
     """AllGather operator
 
     Parameters
@@ -67,10 +91,16 @@ def allgather(x, num_workers: int, in_group: bool = True):  # pylint: disable=in
     result : relax.Expr
       The result of allgather.
     """
-    return _ffi_api.allgather(x, num_workers, in_group)  # type: ignore # pylint: disable=no-member
+    return _Call(
+        "relax.ccl.allgather",
+        [x],
+        attrs=_make_attrs("relax.attrs.AllGatherAttrs", num_workers=num_workers, in_group=in_group),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore # pylint: disable=no-member
 
 
-def broadcast_from_worker0(x: Expr) -> Expr:
+def broadcast_from_worker0(x: Expr, *, ty=None, loc: Location = UNKNOWN_LOC) -> Expr:
     """Broadcast data from worker-0 to all other workers.
 
     Parameters
@@ -83,10 +113,22 @@ def broadcast_from_worker0(x: Expr) -> Expr:
     result : relax.Expr
       The same tensor, which has been broadcast to all other workers.
     """
-    return _ffi_api.broadcast_from_worker0(x)
+    return _Call(
+        "relax.ccl.broadcast_from_worker0",
+        [x],
+        loc=loc,
+        ty=ty,
+    )
 
 
-def scatter_from_worker0(x: Expr, num_workers: int, axis: int = 0) -> Expr:
+@tvm_ffi.register_object("relax.attrs.ScatterCollectiveAttrs")
+class ScatterCollectiveAttrs(Attrs):
+    """Attributes used in scatter collective operators"""
+
+
+def scatter_from_worker0(
+    x: Expr, num_workers: int, axis: int = 0, *, ty=None, loc: Location = UNKNOWN_LOC
+) -> Expr:
     """Perform a scatter operation from worker-0, chunking the given buffer into equal parts.
 
     Parameters
@@ -105,4 +147,10 @@ def scatter_from_worker0(x: Expr, num_workers: int, axis: int = 0) -> Expr:
     result : relax.Expr
       Chunked Tensor received by different workers.
     """
-    return _ffi_api.scatter_from_worker0(x, num_workers, axis)
+    return _Call(
+        "relax.ccl.scatter_from_worker0",
+        [x],
+        attrs=_make_attrs("relax.attrs.ScatterCollectiveAttrs", num_workers=num_workers, axis=axis),
+        loc=loc,
+        ty=ty,
+    )

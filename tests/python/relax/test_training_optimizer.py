@@ -18,12 +18,12 @@
 
 import pytest
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
 from tvm.relax.training.optimizer import SGD, Adam, MomentumSGD
-from tvm.script.parser import relax as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script.parser import relax as R
 
 
 def test_optimizer_error():
@@ -601,4 +601,4 @@ def test_adam_float64():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -23,11 +23,10 @@ from typing import Any, Optional
 
 import tvm_ffi
 
-import tvm
+import tvm_tirx
 from tvm import relax as rx
-from tvm import tirx
-from tvm.ir.module import IRModule
-from tvm.runtime import Object
+from tvm_tirx import tirx
+from tvm_tirx.ir.module import IRModule
 
 from . import _ffi_api
 from .expr import BaseFunc, Binding, BindingBlock, Expr, GlobalVar, Tuple, Var
@@ -87,7 +86,7 @@ class TestingScope:
         self._bb = block_builder
         shape_vars = []
         for var in def_vars:
-            if isinstance(var, tvm.ir.Var):
+            if isinstance(var, tvm_tirx.ir.Var):
                 shape_vars.append(var)
             else:
                 raise ValueError("def_vars can only contain Vars")
@@ -105,7 +104,7 @@ class TestingScope:
 
 
 @tvm_ffi.register_object("relax.BlockBuilder")
-class BlockBuilder(Object):
+class BlockBuilder(tvm_ffi.Object):
     """A builder to build Relax IR for testing and dev.
 
     Examples
@@ -165,6 +164,9 @@ class BlockBuilder(Object):
         else:
             return None
 
+    # Set by LegalizeOps from the explicit target or the call's virtual device.
+    target: tvm_tirx.target.Target | None
+
     def __init__(self, mod: IRModule = None):
         # Which functions are currently being defined
         self._func_stack: list[FunctionScope] = []
@@ -214,7 +216,7 @@ class BlockBuilder(Object):
         self,
         name: str,
         params: Var | Tuple | list[Var] | None = None,
-        attrs: dict[str, Object] | None = None,
+        attrs: dict[str, tvm_ffi.Object] | None = None,
         pure: bool = True,
         private: bool = False,
     ) -> FunctionScope:
@@ -230,7 +232,7 @@ class BlockBuilder(Object):
             If params is None, it means deferring initialization of function parameters
             until emit_func_output.
 
-        attrs : Dict[str, Object], optional
+        attrs : Dict[str, tvm_ffi.Object], optional
             The function attrs
 
         pure : bool, optional
@@ -348,10 +350,10 @@ class BlockBuilder(Object):
             The keyword arguments passed to the function.
             Note that the following keyword args are reserved:
 
-                - 'primfunc_name_hint' for passing name hint to the PrimFunc
+                - 'function_name_hint' for passing name hint to the Function
                   that gets generated.
-                - 'primfunc_attrs' is reserved for passing func attributes to
-                  be added to the PrimFunc that gets created.
+                - 'function_attrs' is reserved for passing func attributes to
+                  be added to the Function that gets created.
 
 
         Returns
@@ -360,21 +362,21 @@ class BlockBuilder(Object):
             A newly created call node
         """
 
-        primfunc_name = kwargs.pop("primfunc_name_hint", None)
+        function_name = kwargs.pop("function_name_hint", None)
         tir_func, call_args, output_ty = gen_call_tir_inputs(func, *args, **kwargs)
 
-        if not primfunc_name:
-            primfunc_name = func.__name__
-        gvar = self.add_func(tir_func, primfunc_name)
+        if not function_name:
+            function_name = func.__name__
+        gvar = self.add_func(tir_func, function_name)
 
-        return call_tir(gvar, call_args, output_ty)
+        return call_tir(gvar, call_args, ty_args=[output_ty])
 
     def call_te_with_grad(
         self,
         func: Callable,
         *args: Any,
         te_grad_name: str,
-        te_grad_kwargs: dict[str, Object] | None = None,
+        te_grad_kwargs: dict[str, tvm_ffi.Object] | None = None,
         **kwargs: Any,
     ) -> Expr:
         """Generate a call node according to the te function.
@@ -393,7 +395,7 @@ class BlockBuilder(Object):
             The registered name of the te gradient function associated with the call_tir_with_grad
             node. Must be provided as a keyword argument.
 
-        te_grad_kwargs : Dict[str, Object], optional
+        te_grad_kwargs : Dict[str, tvm_ffi.Object], optional
             The keyword arguments passed to the te gradient function.
             Optionally provided as a keyword argument. Default: {}.
 
@@ -401,10 +403,10 @@ class BlockBuilder(Object):
             The keyword arguments passed to the function.
             Note that the following keyword args are reserved:
 
-                - 'primfunc_name_hint' for passing name hint to the PrimFunc
+                - 'function_name_hint' for passing name hint to the Function
                   that gets generated.
-                - 'primfunc_attrs' is reserved for passing func attributes to
-                  be added to the PrimFunc that gets created.
+                - 'function_attrs' is reserved for passing func attributes to
+                  be added to the Function that gets created.
 
         Returns
         -------
@@ -412,17 +414,23 @@ class BlockBuilder(Object):
             A newly created call node
         """
 
-        primfunc_name = kwargs.pop("primfunc_name_hint", None)
+        function_name = kwargs.pop("function_name_hint", None)
         tir_func, call_args, output_ty = gen_call_tir_inputs(func, *args, **kwargs)
 
         if te_grad_kwargs is None:
             te_grad_kwargs = {}
 
-        if not primfunc_name:
-            primfunc_name = func.__name__
-        gvar = self.add_func(tir_func, primfunc_name)
+        if not function_name:
+            function_name = func.__name__
+        gvar = self.add_func(tir_func, function_name)
 
-        return call_tir_with_grad(gvar, call_args, output_ty, te_grad_name, te_grad_kwargs)
+        return call_tir_with_grad(
+            gvar,
+            call_args,
+            ty_args=[output_ty],
+            te_grad_name=te_grad_name,
+            te_grad_kwargs=te_grad_kwargs,
+        )
 
     def emit_te(self, func: Callable, *args: Any, **kwargs: Any) -> Var:
         """Emit a call node according to the te function.
@@ -439,8 +447,8 @@ class BlockBuilder(Object):
 
         kwargs : Any, optional
             The keyword arguments passed to the function.
-            Note that the key "primfunc_name_hint" is reserved for passing name hint
-            to the PrimFunc that gets generated.
+            Note that the key "function_name_hint" is reserved for passing name hint
+            to the Function that gets generated.
 
         Returns
         -------
@@ -470,16 +478,16 @@ class BlockBuilder(Object):
 
         .. code-block:: python
 
-            m = T.dynamic("m")
-            n = T.dynamic("n")
+            m = T.dynamic("m", "int64")
+            n = T.dynamic("n", "int64")
 
-            @tvm.script.ir_module
+            @tvm_tirx.script.ir_module
             class Module:
-                @Ts.prim_func
+                @Ts.function
                 def te_func(
-                    rxplaceholder: T.Buffer([n, m], dtype="float32"),
-                    rxplaceholder_1: T.Buffer([n, m], dtype="float32"),
-                    compute: T.Buffer([128, 128], dtype="float32"),
+                    rxplaceholder: T.Tensor([n, m], dtype="float32"),
+                    rxplaceholder_1: T.Tensor([n, m], dtype="float32"),
+                    compute: T.Tensor([128, 128], dtype="float32"),
                 ) -> None:
                     # function attr dict
                     T.func_attr({"tirx.noalias": True})
@@ -496,7 +504,7 @@ class BlockBuilder(Object):
                 @R.function
                 def rx_func(x: Tensor((n, m), "float32"), y: Tensor((n, m), "float32")) -> Tensor:
                     # block 0
-                    gv = relax.call_tir("te_func", (x, y), R.Tensor((128, 128), "float32"))
+                    gv = relax.call_tir(te_func, (x, y), ty_args=[R.Tensor((128, 128), "float32")])
                     return gv
 
         Example
@@ -521,15 +529,15 @@ class BlockBuilder(Object):
 
         .. code-block:: python
 
-            m = T.dynamic("m")
-            n = T.dynamic("n")
+            m = T.dynamic("m", "int64")
+            n = T.dynamic("n", "int64")
 
-            @tvm.script.ir_module
+            @tvm_tirx.script.ir_module
             class Module:
-                @Ts.prim_func
+                @Ts.function
                 def te_func(
-                    rxplaceholder: T.Buffer([n + T.int64(1)], dtype="float32"),
-                    compute: T.Buffer([n + T.int64(1)], dtype="float32"),
+                    rxplaceholder: T.Tensor([n + T.int64(1)], dtype="float32"),
+                    compute: T.Tensor([n + T.int64(1)], dtype="float32"),
                     n: T.int64,
                 ) -> None:
 
@@ -546,7 +554,7 @@ class BlockBuilder(Object):
                 def rx_func(x: Tensor((n,), "float32"), y: Tensor(((n + 1),), "float32"))
                     -> Tensor(None, "float32", ndim=-1):
                     # block 0
-                    gv = relax.call_tir(te_func, (y, n), R.Tensor((n + 1,), "float32"))
+                    gv = relax.call_tir(te_func, (y, n), ty_args=[R.Tensor((n + 1,), "float32")])
                     return gv
         """
         name_hint = kwargs.pop("name_hint", "")
@@ -615,7 +623,7 @@ class BlockBuilder(Object):
 
         Returns
         -------
-        gvar: tvm.ir.GlobalVar
+        gvar: tvm_tirx.ir.GlobalVar
 
             A GlobalVar representing the function
         """
@@ -679,18 +687,18 @@ class BlockBuilder(Object):
         """
         return _ffi_api.BlockBuilderNormalize(self, expr)  # type: ignore
 
-    def get(self) -> tvm.IRModule:
+    def get(self) -> tvm_tirx.IRModule:
         """Return intermediate IRModule. For the situation where the IRModule is needed in the
         middle of a building process.
 
         Returns
         -------
-        ret : tvm.IRModule
+        ret : tvm_tirx.IRModule
             An IRModule with Relax and TIR functions being built.
         """
         return _ffi_api.BlockBuilderGetContextIRModule(self)  # type: ignore
 
-    def finalize(self) -> tvm.IRModule:
+    def finalize(self) -> tvm_tirx.IRModule:
         """Finalize the building process and return the result IRModule.
 
         Possibly rename GlobalVars in the IRModule to ensure name uniqueness and the invariant:
@@ -702,7 +710,7 @@ class BlockBuilder(Object):
 
         Returns
         -------
-        ret : tvm.IRModule
+        ret : tvm_tirx.IRModule
             An IRModule with Relax and TIR functions being built.
         """
         return _ffi_api.BlockBuilderFinalize(self)  # type: ignore
@@ -723,7 +731,7 @@ class BlockBuilder(Object):
         return _ffi_api.BlockBuilderGetUniqueName(self, name_prefix)  # type: ignore
 
     def add_func(self, func: BaseFunc, func_name: str) -> GlobalVar:
-        """Add a Relax function or a TIR PrimFunc to the IRModule being built.
+        """Add a Relax function or a TIR Function to the IRModule being built.
 
         Parameters
         ----------
@@ -741,7 +749,7 @@ class BlockBuilder(Object):
         return _ffi_api.BlockBuilderAddFunction(self, func, func_name)  # type: ignore
 
     def update_func(self, gv: GlobalVar, updated_func: BaseFunc) -> None:
-        """Add a Relax function or a TIR PrimFunc to the IRModule being built.
+        """Add a Relax function or a TIR Function to the IRModule being built.
 
         Parameters
         ----------

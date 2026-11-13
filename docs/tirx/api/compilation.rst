@@ -18,15 +18,15 @@
 Compilation
 ===========
 
-tvm.tirx.build
---------------
-.. currentmodule:: tvm.tirx
+tvm_tirx.tirx.compile
+---------------------
+.. currentmodule:: tvm_tirx.tirx
 
-.. autofunction:: build
+.. autofunction:: compile
    :no-index:
 
-tvm.tirx.compilation_pipeline
------------------------------
-.. automodule:: tvm.tirx.compilation_pipeline
+tvm_tirx.tirx.compilation_pipeline
+----------------------------------
+.. automodule:: tvm_tirx.tirx.compilation_pipeline
    :members:
    :no-index:

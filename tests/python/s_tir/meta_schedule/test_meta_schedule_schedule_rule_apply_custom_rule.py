@@ -18,21 +18,23 @@
 import tempfile
 
 import pytest
+import tvm_ffi
 
 import tvm
+import tvm_tirx
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.schedule_rule import ApplyCustomRule
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx.script import tirx as T
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Matmul:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A: T.Buffer((1024, 1024), "float32"),
-        B: T.Buffer((1024, 1024), "float32"),
-        C: T.Buffer((1024, 1024), "float32"),
+        A: T.Tensor((1024, 1024), "float32"),
+        B: T.Tensor((1024, 1024), "float32"),
+        C: T.Tensor((1024, 1024), "float32"),
     ) -> None:
         T.func_attr({"global_symbol": "main"})
 
@@ -45,7 +47,7 @@ class Matmul:
                 C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vk, vj]
 
 
-@tvm.register_global_func("s_tir.meta_schedule.cpu.test_apply_custom_rule")
+@tvm_ffi.register_global_func("s_tir.meta_schedule.cpu.test_apply_custom_rule")
 def sch_fn(sch: tvm.s_tir.Schedule, block: tvm.s_tir.SBlock) -> list[tvm.s_tir.Schedule]:
     raise ValueError("Intended for s_tir.meta_schedule.cpu.test_apply_custom_rule")
 

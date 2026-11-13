@@ -24,7 +24,7 @@ Error Handling Guide
   :depth: 2
   :local:
 
-TVM contains structured error classes to indicate specific types of error.
+TVM uses Python exception types to indicate specific types of error.
 Please raise a specific error type when possible, so that users can
 write code to handle a specific error category if necessary.
 You can directly raise the specific error object in python.
@@ -33,14 +33,14 @@ the error message(see below).
 
 .. note::
 
-   Please refer to :py:mod:`tvm.error` for the list of errors.
+   Prefer built-in Python exceptions for common error categories.
 
 Raise a Specific Error in C++
 -----------------------------
 You can add ``<ErrorType>:`` prefix to your error message to
 raise an error of the corresponding type.
 Note that you do not have to add a new type
-:py:class:`tvm.error.InternalError` will be raised by default when
+``RuntimeError`` will be raised by default when
 there is no error type prefix in the message.
 This mechanism works for both ``LOG(FATAL)`` and ``TVM_FFI_ICHECK`` macros.
 The following code gives an example on how to do so.
@@ -58,10 +58,10 @@ The following code gives an example on how to do so.
 When a C++ function registered via the FFI raises an error with a typed prefix,
 the TVM FFI system will automatically map it to the corresponding Python exception
 class. For example, a ``ValueError:`` prefix in the error message will raise a Python
-``ValueError``, and an ``InternalError:`` prefix will raise ``tvm.error.InternalError``.
+``ValueError``, and an ``InternalError:`` prefix will raise ``RuntimeError``.
 
 TVM's FFI system combines both the Python and C++ stacktraces into a single message,
-and generates the corresponding error class automatically.
+and uses ``RuntimeError`` for error kinds without a registered Python exception.
 
 
 How to choose an Error Type
@@ -72,7 +72,7 @@ We try to keep a reasonable amount of error types.
 If you feel there is a need to add a new error type, do the following steps:
 
 - Send a RFC proposal with a description and usage examples in the current codebase.
-- Add the new error type to :py:mod:`tvm.error` with clear documents.
+- Register the Python exception with ``tvm_ffi.register_error`` and document its use.
 - Update the list in this file to include the new error type.
 - Change the code to use the new error type.
 
@@ -84,10 +84,10 @@ error messages when necessary.
 
    def preferred():
        # Very clear about what is being raised and what is the error message.
-       raise OpNotImplemented("Operator relu is not implemented in the ONNX frontend")
+       raise NotImplementedError("Operator relu is not implemented in the ONNX frontend")
 
    def _op_not_implemented(op_name):
-       return OpNotImplemented("Operator {} is not implemented.").format(op_name)
+       return NotImplementedError("Operator {} is not implemented.").format(op_name)
 
    def not_preferred():
        # Introduces another level of indirection.

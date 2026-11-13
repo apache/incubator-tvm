@@ -35,13 +35,13 @@
  *
  * We can evolve this implementation as we build more LM verticals.
  */
+#include <tvm/ffi/cast.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/container/shape.h>
 #include <tvm/ffi/error.h>
 #include <tvm/ffi/memory.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/device_api.h>
-#include <tvm/runtime/memory/memory_manager.h>
 #include <tvm/runtime/tensor.h>
 #include <tvm/runtime/vm/vm.h>
 
@@ -66,7 +66,9 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
   /*!
    * \brief Underlying support data.
    */
-  Tensor data;
+  explicit AttentionKVCacheLegacyObj(ffi::Tensor data) : data(std::move(data)) {}
+
+  ffi::Tensor data;
 
   /*!
    * \brief number of slots already filled.
@@ -82,12 +84,12 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
    * \brief View all current cached values as one array.
    * \param shape The cached values.
    */
-  Tensor View(const ffi::Shape& shape) {
+  ffi::Tensor View(const ffi::Shape& shape) {
     TVM_FFI_ICHECK_EQ(shape[0], fill_count) << "Requested shape do not match the filled count";
-    for (int i = 1; i < this->data->ndim; ++i) {
-      TVM_FFI_ICHECK_EQ(shape[i], data->shape[i]) << "Dimension " << i << " mismatch";
+    for (int i = 1; i < this->data.ndim(); ++i) {
+      TVM_FFI_ICHECK_EQ(shape[i], data.shape()[i]) << "Dimension " << i << " mismatch";
     }
-    return data.CreateView(shape, data->dtype);
+    return tvm::runtime::CreateView(data, shape, data.dtype());
   }
 
   /** Clear the cache */
@@ -102,18 +104,19 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
     this->fill_count -= n;
   }
 
-  void Update(Tensor value) {
-    TVM_FFI_ICHECK(data.DataType() == value.DataType()) << "dtype mismatch";
-    TVM_FFI_ICHECK_EQ(value->shape[0], fill_count)
+  void Update(ffi::Tensor value) {
+    TVM_FFI_ICHECK(value.defined());
+    TVM_FFI_ICHECK(data.dtype() == value.dtype()) << "dtype mismatch";
+    TVM_FFI_ICHECK_EQ(value.shape()[0], fill_count)
         << "Requested shape do not match the filled count";
     TVM_FFI_ICHECK(data.IsContiguous());
     TVM_FFI_ICHECK(value.IsContiguous());
 
-    DLTensor copy_dst = *(data.operator->());
+    DLTensor copy_dst = *(data.GetDLTensorPtr());
     copy_dst.byte_offset = 0;
-    copy_dst.shape = value->shape;
-    Tensor::CopyFromTo(value.operator->(), &copy_dst);
-    this->fill_count = value->shape[0];
+    copy_dst.shape = value.GetDLTensorPtr()->shape;
+    tvm::runtime::CopyFromTo(value.GetDLTensorPtr(), &copy_dst);
+    this->fill_count = value.shape()[0];
   }
 
   /*!
@@ -122,21 +125,24 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
    * \param max_cache_size max size of the cache.
    * \param num_attention_sinks number of sinks to store (https://arxiv.org/abs/2309.17453).
    */
-  void WindowOverride(Tensor value, int64_t max_cache_size, int64_t num_attention_sinks = 0) {
-    TVM_FFI_ICHECK(data.DataType() == value.DataType()) << "dtype mismatch";
-    TVM_FFI_ICHECK_LE(value->shape[0], max_cache_size - num_attention_sinks)
+  void WindowOverride(ffi::Tensor value, int64_t max_cache_size, int64_t num_attention_sinks = 0) {
+    TVM_FFI_ICHECK(value.defined());
+    TVM_FFI_ICHECK(data.dtype() == value.dtype()) << "dtype mismatch";
+    TVM_FFI_ICHECK_LE(value.shape()[0], max_cache_size - num_attention_sinks)
         << "dim 0 of value too large";
     // reallocate cache
-    if (fill_count + value->shape[0] <= max_cache_size) {
-      int64_t reserved_slots = data->shape[0];
-      while (fill_count + value->shape[0] > reserved_slots) {
+    if (fill_count + value.shape()[0] <= max_cache_size) {
+      int64_t reserved_slots = data.shape()[0];
+      while (fill_count + value.shape()[0] > reserved_slots) {
         reserved_slots *= 2;
       }
-      if (reserved_slots != data->shape[0]) {
-        std::vector<int64_t> new_shape(data->shape, data->shape + data->ndim);
+      if (reserved_slots != data.shape()[0]) {
+        std::vector<int64_t> new_shape(data.GetDLTensorPtr()->shape,
+                                       data.GetDLTensorPtr()->shape + data.ndim());
         new_shape[0] = reserved_slots;
-        Tensor new_data = Tensor::Empty(new_shape, data->dtype, data->device);
-        new_data.CreateView(data.Shape(), data->dtype).CopyFrom(data);
+        ffi::Tensor new_data = tvm::runtime::Empty(new_shape, data.dtype(), data.device());
+        auto new_view = tvm::runtime::CreateView(new_data, data.shape(), data.dtype());
+        tvm::runtime::CopyFromTo(data, new_view);
         this->data = new_data;
       }
     }
@@ -144,53 +150,54 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
     TVM_FFI_ICHECK(data.IsContiguous());
 
     int64_t num_elements_to_copy =
-        std::min(value->shape[0], max_cache_size - window_attention_current_pos);
+        std::min(value.shape()[0], max_cache_size - window_attention_current_pos);
     int64_t num_elements_p_entry = 1;
     std::vector<int64_t> shape;
     shape.push_back(num_elements_to_copy);
-    for (int i = 1; i < data->ndim; ++i) {
-      TVM_FFI_ICHECK_EQ(value->shape[i], data->shape[i]) << "Dimension " << i << " mismatch";
-      num_elements_p_entry *= data->shape[i];
-      shape.push_back(data->shape[i]);
+    for (int i = 1; i < data.ndim(); ++i) {
+      TVM_FFI_ICHECK_EQ(value.shape()[i], data.shape()[i]) << "Dimension " << i << " mismatch";
+      num_elements_p_entry *= data.shape()[i];
+      shape.push_back(data.shape()[i]);
     }
     int64_t num_filled_elements = window_attention_current_pos * num_elements_p_entry;
-    this->fill_count = std::min(this->fill_count + value->shape[0], max_cache_size);
+    this->fill_count = std::min(this->fill_count + value.shape()[0], max_cache_size);
     this->window_attention_current_pos =
-        std::min(this->window_attention_current_pos + value->shape[0], max_cache_size);
+        std::min(this->window_attention_current_pos + value.shape()[0], max_cache_size);
 
     if (num_elements_to_copy > 0) {
-      DLTensor copy_dst = *(data.operator->());
-      copy_dst.byte_offset = num_filled_elements * ((data->dtype.bits * data->dtype.lanes + 7) / 8);
+      DLTensor copy_dst = *(data.GetDLTensorPtr());
+      copy_dst.byte_offset =
+          num_filled_elements * ((data.dtype().bits * data.dtype().lanes + 7) / 8);
       copy_dst.shape = &shape[0];
 
-      DLTensor copy_src = *(value.operator->());
+      DLTensor copy_src = *(value.GetDLTensorPtr());
       copy_src.byte_offset = 0;
       copy_src.shape = &shape[0];
 
-      Tensor::CopyFromTo(&copy_src, &copy_dst);
+      tvm::runtime::CopyFromTo(&copy_src, &copy_dst);
     }
 
     // copy the remainder to the beginning of the cache
-    if (num_elements_to_copy < value->shape[0]) {
+    if (num_elements_to_copy < value.shape()[0]) {
       TVM_FFI_ICHECK_EQ(this->fill_count, max_cache_size);
       TVM_FFI_ICHECK_EQ(this->fill_count, this->window_attention_current_pos);
 
-      shape[0] = value->shape[0] - num_elements_to_copy;
+      shape[0] = value.shape()[0] - num_elements_to_copy;
       num_filled_elements = num_elements_to_copy * num_elements_p_entry;
 
-      DLTensor copy_dst = *(data.operator->());
+      DLTensor copy_dst = *(data.GetDLTensorPtr());
       copy_dst.byte_offset = (num_attention_sinks * num_elements_p_entry) *
-                             ((data->dtype.bits * data->dtype.lanes + 7) / 8);
+                             ((data.dtype().bits * data.dtype().lanes + 7) / 8);
       copy_dst.shape = &shape[0];
 
-      DLTensor copy_src = *(value.operator->());
+      DLTensor copy_src = *(value.GetDLTensorPtr());
       copy_src.byte_offset =
-          num_filled_elements * ((value->dtype.bits * value->dtype.lanes + 7) / 8);
+          num_filled_elements * ((value.dtype().bits * value.dtype().lanes + 7) / 8);
       copy_src.shape = &shape[0];
 
-      Tensor::CopyFromTo(&copy_src, &copy_dst);
+      tvm::runtime::CopyFromTo(&copy_src, &copy_dst);
       this->window_attention_current_pos =
-          value->shape[0] - num_elements_to_copy + num_attention_sinks;
+          value.shape()[0] - num_elements_to_copy + num_attention_sinks;
     }
   }
 
@@ -198,35 +205,38 @@ class AttentionKVCacheLegacyObj : public ffi::Object {
    * \brief Append value to the cache.
    * \param value The value to be appended.
    */
-  void Append(Tensor value) {
-    TVM_FFI_ICHECK(data.DataType() == value.DataType()) << "dtype mismatch";
+  void Append(ffi::Tensor value) {
+    TVM_FFI_ICHECK(value.defined());
+    TVM_FFI_ICHECK(data.dtype() == value.dtype()) << "dtype mismatch";
     // reallocate cache
-    int64_t reserved_slots = data->shape[0];
-    while (fill_count + value->shape[0] > reserved_slots) {
+    int64_t reserved_slots = data.shape()[0];
+    while (fill_count + value.shape()[0] > reserved_slots) {
       reserved_slots *= 2;
     }
-    if (reserved_slots != data->shape[0]) {
-      std::vector<int64_t> new_shape(data->shape, data->shape + data->ndim);
+    if (reserved_slots != data.shape()[0]) {
+      std::vector<int64_t> new_shape(data.GetDLTensorPtr()->shape,
+                                     data.GetDLTensorPtr()->shape + data.ndim());
       new_shape[0] = reserved_slots;
-      Tensor new_data = Tensor::Empty(new_shape, data->dtype, data->device);
-      new_data.CreateView(data.Shape(), data->dtype).CopyFrom(data);
+      ffi::Tensor new_data = tvm::runtime::Empty(new_shape, data.dtype(), data.device());
+      auto new_view = tvm::runtime::CreateView(new_data, data.shape(), data.dtype());
+      tvm::runtime::CopyFromTo(data, new_view);
       this->data = new_data;
     }
     // copy into the fill count position.
-    TVM_FFI_ICHECK_LE(fill_count + value->shape[0], data->shape[0]);
+    TVM_FFI_ICHECK_LE(fill_count + value.shape()[0], data.shape()[0]);
     TVM_FFI_ICHECK(data.IsContiguous());
 
     int64_t num_filled_elements = fill_count;
-    for (int i = 1; i < data->ndim; ++i) {
-      TVM_FFI_ICHECK_EQ(value->shape[i], data->shape[i]) << "Dimension " << i << " mismatch";
-      num_filled_elements *= data->shape[i];
+    for (int i = 1; i < data.ndim(); ++i) {
+      TVM_FFI_ICHECK_EQ(value.shape()[i], data.shape()[i]) << "Dimension " << i << " mismatch";
+      num_filled_elements *= data.shape()[i];
     }
     // create a view of copy dest to copy the value into it.
-    DLTensor copy_dst = *(data.operator->());
-    copy_dst.byte_offset = num_filled_elements * ((data->dtype.bits * data->dtype.lanes + 7) / 8);
-    copy_dst.shape = value->shape;
-    Tensor::CopyFromTo(value.operator->(), &copy_dst);
-    this->fill_count += value->shape[0];
+    DLTensor copy_dst = *(data.GetDLTensorPtr());
+    copy_dst.byte_offset = num_filled_elements * ((data.dtype().bits * data.dtype().lanes + 7) / 8);
+    copy_dst.shape = value.GetDLTensorPtr()->shape;
+    tvm::runtime::CopyFromTo(value.GetDLTensorPtr(), &copy_dst);
+    this->fill_count += value.shape()[0];
   }
 
   static constexpr const bool _type_mutable = true;
@@ -241,21 +251,22 @@ class AttentionKVCacheLegacy : public ffi::ObjectRef {
    * \brief Create the attention kv cache.
    * \param init_data The initial reserved.
    */
-  static AttentionKVCacheLegacy Create(Tensor init_data, ffi::Shape reserve_shape,
+  static AttentionKVCacheLegacy Create(ffi::Tensor init_data, ffi::Shape reserve_shape,
                                        int init_fill_count) {
-    auto n = ffi::make_object<AttentionKVCacheLegacyObj>();
-    n->data = Tensor::Empty(reserve_shape, init_data->dtype, init_data->device);
+    TVM_FFI_ICHECK(init_data.defined());
+    auto n = ffi::make_object<AttentionKVCacheLegacyObj>(
+        tvm::runtime::Empty(reserve_shape, init_data.dtype(), init_data.device()));
     n->fill_count = 0;
     n->Append(init_data);
     if (init_fill_count >= 0) {
       n->fill_count = init_fill_count;
       n->window_attention_current_pos = init_fill_count;  // window attention only
     }
-    return AttentionKVCacheLegacy(n);
+    return ffi::GetRef<AttentionKVCacheLegacy>(n.get());
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(AttentionKVCacheLegacy, ffi::ObjectRef,
-                                             AttentionKVCacheLegacyObj);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(AttentionKVCacheLegacy, ffi::ObjectRef,
+                                                AttentionKVCacheLegacyObj);
 };
 
 //-------------------------------------------------
@@ -266,7 +277,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("vm.builtin.attention_kv_cache_create", AttentionKVCacheLegacy::Create);
 }
 
-AttentionKVCacheLegacy AttentionKVCacheUpdate(AttentionKVCacheLegacy cache, Tensor value) {
+AttentionKVCacheLegacy AttentionKVCacheUpdate(AttentionKVCacheLegacy cache, ffi::Tensor value) {
+  TVM_FFI_ICHECK(value.defined());
   cache->Update(value);
   return cache;
 }
@@ -276,7 +288,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("vm.builtin.attention_kv_cache_update", AttentionKVCacheUpdate);
 }
 
-AttentionKVCacheLegacy AttentionKVCacheAppend(AttentionKVCacheLegacy cache, Tensor value) {
+AttentionKVCacheLegacy AttentionKVCacheAppend(AttentionKVCacheLegacy cache, ffi::Tensor value) {
+  TVM_FFI_ICHECK(value.defined());
   cache->Append(value);
   return cache;
 }
@@ -286,8 +299,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("vm.builtin.attention_kv_cache_append", AttentionKVCacheAppend);
 }
 
-AttentionKVCacheLegacy AttentionKVCacheWindowOverride(AttentionKVCacheLegacy cache, Tensor value,
-                                                      int64_t max_cache_size) {
+AttentionKVCacheLegacy AttentionKVCacheWindowOverride(AttentionKVCacheLegacy cache,
+                                                      ffi::Tensor value, int64_t max_cache_size) {
+  TVM_FFI_ICHECK(value.defined());
   cache->WindowOverride(value, max_cache_size);
   return cache;
 }
@@ -299,8 +313,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 AttentionKVCacheLegacy AttentionKVCacheWindowOverrideWithSinks(AttentionKVCacheLegacy cache,
-                                                               Tensor value, int64_t max_cache_size,
+                                                               ffi::Tensor value,
+                                                               int64_t max_cache_size,
                                                                int64_t num_attention_sinks) {
+  TVM_FFI_ICHECK(value.defined());
   cache->WindowOverride(value, max_cache_size, num_attention_sinks);
   return cache;
 }
@@ -311,7 +327,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                         AttentionKVCacheWindowOverrideWithSinks);
 }
 
-Tensor AttentionKVCacheView(AttentionKVCacheLegacy cache, ffi::Shape shape) {
+ffi::Tensor AttentionKVCacheView(AttentionKVCacheLegacy cache, ffi::Shape shape) {
   return cache->View(shape);
 }
 
@@ -329,8 +345,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
         } else {
           std::vector<ffi::Shape::index_type> shape;
           shape.push_back(cache->fill_count);
-          for (int i = 1; i < cache->data->ndim; ++i) {
-            shape.push_back(cache->data->shape[i]);
+          for (int i = 1; i < cache->data.ndim(); ++i) {
+            shape.push_back(cache->data.shape()[i]);
           }
           *rv = cache->View(ffi::Shape(shape));
         }
@@ -360,23 +376,27 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 // NOTE this is a built-in highly related to LM so we put it here.
-int SampleTopPFromLogits(Tensor logits, double temperature, double top_p, double uniform_sample) {
+int SampleTopPFromLogits(ffi::Tensor logits, double temperature, double top_p,
+                         double uniform_sample) {
+  TVM_FFI_ICHECK(logits.defined());
   TVM_FFI_ICHECK(logits.IsContiguous());
-  TVM_FFI_ICHECK((logits.DataType() == DLDataType{kDLFloat, 32, 1}));
+  TVM_FFI_ICHECK((logits.dtype() == DLDataType{kDLFloat, 32, 1}));
 
-  if (logits->device.device_type != kDLCPU) {
-    logits = logits.CopyTo(DLDevice{kDLCPU, 0});
+  if (logits.device().device_type != kDLCPU) {
+    logits = tvm::runtime::CopyTo(logits, DLDevice{kDLCPU, 0});
   }
 
-  TVM_FFI_ICHECK(logits->device.device_type == kDLCPU);
+  TVM_FFI_ICHECK(logits.device().device_type == kDLCPU);
 
-  for (int i = 0; i < logits->ndim - 1; ++i) {
-    TVM_FFI_ICHECK_EQ(logits->shape[i], 1) << "The leading dimensions of logits must be 1";
+  for (int i = 0; i < logits.ndim() - 1; ++i) {
+    TVM_FFI_ICHECK_EQ(logits.shape()[i], 1) << "The leading dimensions of logits must be 1";
   }
 
   std::vector<std::pair<float, int>> data;
-  data.resize(logits->shape[logits->ndim - 1]);
-  const float* plogits = static_cast<float*>(logits->data);
+  data.resize(logits.shape()[logits.ndim() - 1]);
+  TVM_FFI_ICHECK(logits.numel() == 0 || logits.IsAligned(alignof(float)));
+  const float* plogits =
+      reinterpret_cast<float*>(static_cast<char*>(logits.data_ptr()) + logits.byte_offset());
   for (size_t i = 0; i < data.size(); ++i) {
     data[i] = std::make_pair(plogits[i], static_cast<int>(i));
   }
@@ -426,26 +446,29 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("vm.builtin.sample_top_p_from_logits", SampleTopPFromLogits);
 }
 
-int SampleTopPFromProb(Tensor prob, double top_p, double uniform_sample) {
+int SampleTopPFromProb(ffi::Tensor prob, double top_p, double uniform_sample) {
+  TVM_FFI_ICHECK(prob.defined());
   TVM_FFI_ICHECK(prob.IsContiguous());
-  TVM_FFI_ICHECK((prob.DataType() == DLDataType{kDLFloat, 32, 1}));
+  TVM_FFI_ICHECK((prob.dtype() == DLDataType{kDLFloat, 32, 1}));
 
-  if (prob->device.device_type != kDLCPU) {
-    prob = prob.CopyTo(DLDevice{kDLCPU, 0});
+  if (prob.device().device_type != kDLCPU) {
+    prob = tvm::runtime::CopyTo(prob, DLDevice{kDLCPU, 0});
   }
 
-  TVM_FFI_ICHECK(prob->device.device_type == kDLCPU);
+  TVM_FFI_ICHECK(prob.device().device_type == kDLCPU);
 
-  for (int i = 0; i < prob->ndim - 1; ++i) {
-    TVM_FFI_ICHECK_EQ(prob->shape[i], 1) << "The leading dimensions of logits must be 1";
+  for (int i = 0; i < prob.ndim() - 1; ++i) {
+    TVM_FFI_ICHECK_EQ(prob.shape()[i], 1) << "The leading dimensions of logits must be 1";
   }
 
   // Key observation: when we are doing top_p sampling
   // usually we only need to preserve some of the elements with
   // high probablities before we do sort
   std::vector<std::pair<float, int>> data;
-  int64_t ndata = prob->shape[prob->ndim - 1];
-  const float* p_prob = static_cast<float*>(prob->data);
+  int64_t ndata = prob.shape()[prob.ndim() - 1];
+  TVM_FFI_ICHECK(prob.numel() == 0 || prob.IsAligned(alignof(float)));
+  const float* p_prob =
+      reinterpret_cast<float*>(static_cast<char*>(prob.data_ptr()) + prob.byte_offset());
 
   auto sample_top_p_with_filter = [&](float cuttoff) -> int64_t {
     data.clear();
@@ -525,27 +548,33 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   refl::GlobalDef().def("vm.builtin.sample_top_p_from_prob", SampleTopPFromProb);
 }
 
-Tensor MultinomialFromUniform(Tensor prob, Tensor uniform_sample) {
+ffi::Tensor MultinomialFromUniform(ffi::Tensor prob, ffi::Tensor uniform_sample) {
+  TVM_FFI_ICHECK(prob.defined());
+  TVM_FFI_ICHECK(uniform_sample.defined());
   TVM_FFI_ICHECK(prob.IsContiguous());
   TVM_FFI_ICHECK(uniform_sample.IsContiguous());
 
-  if (prob->device.device_type != kDLCPU) {
-    prob = prob.CopyTo(DLDevice{kDLCPU, 0});
+  if (prob.device().device_type != kDLCPU) {
+    prob = tvm::runtime::CopyTo(prob, DLDevice{kDLCPU, 0});
   }
-  if (uniform_sample->device.device_type != kDLCPU) {
-    uniform_sample = uniform_sample.CopyTo(DLDevice{kDLCPU, 0});
+  if (uniform_sample.device().device_type != kDLCPU) {
+    uniform_sample = tvm::runtime::CopyTo(uniform_sample, DLDevice{kDLCPU, 0});
   }
 
-  TVM_FFI_ICHECK(prob->device.device_type == kDLCPU);
-  TVM_FFI_ICHECK(uniform_sample->device.device_type == kDLCPU);
+  TVM_FFI_ICHECK(prob.device().device_type == kDLCPU);
+  TVM_FFI_ICHECK(uniform_sample.device().device_type == kDLCPU);
 
-  int64_t batch_size = prob->shape[0];
-  int64_t vocab_size = prob->shape[prob->ndim - 1];
-  const float* pprob = static_cast<float*>(prob->data);
-  const float* psample = static_cast<float*>(uniform_sample->data);
-  Tensor new_array =
-      Tensor::Empty({batch_size, 1}, DLDataType{kDLInt, 64, 1}, uniform_sample->device);
-  int64_t* parray = static_cast<int64_t*>(new_array->data);
+  int64_t batch_size = prob.shape()[0];
+  int64_t vocab_size = prob.shape()[prob.ndim() - 1];
+  TVM_FFI_ICHECK(prob.numel() == 0 || prob.IsAligned(alignof(float)));
+  const float* pprob =
+      reinterpret_cast<float*>(static_cast<char*>(prob.data_ptr()) + prob.byte_offset());
+  TVM_FFI_ICHECK(uniform_sample.numel() == 0 || uniform_sample.IsAligned(alignof(float)));
+  const float* psample = reinterpret_cast<float*>(static_cast<char*>(uniform_sample.data_ptr()) +
+                                                  uniform_sample.byte_offset());
+  ffi::Tensor new_array =
+      tvm::runtime::Empty({batch_size, 1}, DLDataType{kDLInt, 64, 1}, uniform_sample.device());
+  int64_t* parray = static_cast<int64_t*>(new_array.data_ptr());
   for (int64_t i = 0; i < batch_size; ++i) {
     float cum_sum_prob = 0.0f;
     int64_t prob_idx = 0;
@@ -567,17 +596,23 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 // This is an inplace operation.
-void ApplyRepetitionPenalty(Tensor logits, Tensor token_ids, double penalty) {
+void ApplyRepetitionPenalty(ffi::Tensor logits, ffi::Tensor token_ids, double penalty) {
+  TVM_FFI_ICHECK(logits.defined());
+  TVM_FFI_ICHECK(token_ids.defined());
   TVM_FFI_ICHECK(logits.IsContiguous());
   TVM_FFI_ICHECK(token_ids.IsContiguous());
-  TVM_FFI_ICHECK((logits.DataType() == DLDataType{kDLFloat, 32, 1}))
+  TVM_FFI_ICHECK((logits.dtype() == DLDataType{kDLFloat, 32, 1}))
       << "Logits data type is not float32!";
-  TVM_FFI_ICHECK((token_ids.DataType() == DLDataType{kDLInt, 32, 1})) << "token ids must be int32!";
-  TVM_FFI_ICHECK(logits->device.device_type == kDLCPU) << "logits device must be CPU!";
-  TVM_FFI_ICHECK(token_ids->device.device_type == kDLCPU) << "token_ids device must be CPU!";
-  float* logits_raw_data = static_cast<float*>(logits->data);
-  int* token_ids_data = static_cast<int*>(token_ids->data);
-  size_t num_token_ids = token_ids->shape[token_ids->ndim - 1];
+  TVM_FFI_ICHECK((token_ids.dtype() == DLDataType{kDLInt, 32, 1})) << "token ids must be int32!";
+  TVM_FFI_ICHECK(logits.device().device_type == kDLCPU) << "logits device must be CPU!";
+  TVM_FFI_ICHECK(token_ids.device().device_type == kDLCPU) << "token_ids device must be CPU!";
+  TVM_FFI_ICHECK(logits.numel() == 0 || logits.IsAligned(alignof(float)));
+  float* logits_raw_data =
+      reinterpret_cast<float*>(static_cast<char*>(logits.data_ptr()) + logits.byte_offset());
+  TVM_FFI_ICHECK(token_ids.numel() == 0 || token_ids.IsAligned(alignof(int)));
+  int* token_ids_data =
+      reinterpret_cast<int*>(static_cast<char*>(token_ids.data_ptr()) + token_ids.byte_offset());
+  size_t num_token_ids = token_ids.shape()[token_ids.ndim() - 1];
   for (size_t i = 0; i < num_token_ids; ++i) {
     int token_id = token_ids_data[i];
     if (logits_raw_data[token_id] <= 0) {
@@ -602,25 +637,36 @@ TVM_FFI_STATIC_INIT_BLOCK() {
  * \param presence_penalty The penalty factor, applied if a token appeared in an one-off manner.
  * \param frequency_penalty The penalty factor, contributes more the more frequent a token appears.
  */
-void ApplyPresenceAndFrequencyPenalty(Tensor logits, Tensor token_ids, Tensor token_freqs,
-                                      double presence_penalty, double frequency_penalty) {
+void ApplyPresenceAndFrequencyPenalty(ffi::Tensor logits, ffi::Tensor token_ids,
+                                      ffi::Tensor token_freqs, double presence_penalty,
+                                      double frequency_penalty) {
+  TVM_FFI_ICHECK(logits.defined());
+  TVM_FFI_ICHECK(token_ids.defined());
+  TVM_FFI_ICHECK(token_freqs.defined());
   // See https://platform.openai.com/docs/guides/text-generation/frequency-and-presence-penalties
   TVM_FFI_ICHECK(logits.IsContiguous());
   TVM_FFI_ICHECK(token_ids.IsContiguous());
   TVM_FFI_ICHECK(token_freqs.IsContiguous());
-  TVM_FFI_ICHECK((logits.DataType() == DLDataType{kDLFloat, 32, 1}))
+  TVM_FFI_ICHECK((logits.dtype() == DLDataType{kDLFloat, 32, 1}))
       << "Logits data type is not float32!";
-  TVM_FFI_ICHECK((token_ids.DataType() == DLDataType{kDLInt, 32, 1})) << "token ids must be int32!";
-  TVM_FFI_ICHECK((token_freqs.DataType() == DLDataType{kDLInt, 32, 1}))
+  TVM_FFI_ICHECK((token_ids.dtype() == DLDataType{kDLInt, 32, 1})) << "token ids must be int32!";
+  TVM_FFI_ICHECK((token_freqs.dtype() == DLDataType{kDLInt, 32, 1}))
       << "token freqs must be int32!";
-  TVM_FFI_ICHECK(logits->device.device_type == kDLCPU) << "logits device must be CPU!";
-  TVM_FFI_ICHECK(token_ids->device.device_type == kDLCPU) << "token_ids device must be CPU!";
-  TVM_FFI_ICHECK(token_freqs->device.device_type == kDLCPU) << "token_ids device must be CPU!";
+  TVM_FFI_ICHECK(logits.device().device_type == kDLCPU) << "logits device must be CPU!";
+  TVM_FFI_ICHECK(token_ids.device().device_type == kDLCPU) << "token_ids device must be CPU!";
+  TVM_FFI_ICHECK(token_freqs.device().device_type == kDLCPU) << "token_ids device must be CPU!";
 
-  float* logits_raw_data = static_cast<float*>(logits->data);
-  int* token_ids_data = static_cast<int*>(token_ids->data);
-  int* token_freqs_data = static_cast<int*>(token_freqs->data);
-  size_t num_token_ids = token_ids->shape[token_ids->ndim - 1];
+  TVM_FFI_ICHECK(logits.numel() == 0 || logits.IsAligned(alignof(float)));
+
+  float* logits_raw_data =
+      reinterpret_cast<float*>(static_cast<char*>(logits.data_ptr()) + logits.byte_offset());
+  TVM_FFI_ICHECK(token_ids.numel() == 0 || token_ids.IsAligned(alignof(int)));
+  int* token_ids_data =
+      reinterpret_cast<int*>(static_cast<char*>(token_ids.data_ptr()) + token_ids.byte_offset());
+  TVM_FFI_ICHECK(token_freqs.numel() == 0 || token_freqs.IsAligned(alignof(int)));
+  int* token_freqs_data = reinterpret_cast<int*>(static_cast<char*>(token_freqs.data_ptr()) +
+                                                 token_freqs.byte_offset());
+  size_t num_token_ids = token_ids.shape()[token_ids.ndim() - 1];
   for (size_t i = 0; i < num_token_ids; ++i) {
     int token_id = token_ids_data[i];
     int token_freq = token_freqs_data[i];
@@ -635,13 +681,16 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 // This is an inplace operation.
-void ApplySoftmaxWithTemperature(Tensor logits, double temperature) {
+void ApplySoftmaxWithTemperature(ffi::Tensor logits, double temperature) {
+  TVM_FFI_ICHECK(logits.defined());
   TVM_FFI_ICHECK(logits.IsContiguous());
-  TVM_FFI_ICHECK((logits.DataType() == DLDataType{kDLFloat, 32, 1}))
+  TVM_FFI_ICHECK((logits.dtype() == DLDataType{kDLFloat, 32, 1}))
       << "Logits data type is not float32!";
-  TVM_FFI_ICHECK(logits->device.device_type == kDLCPU) << "logits device must be CPU!";
-  int vocab_size = logits->shape[logits->ndim - 1];
-  float* logits_raw_data = static_cast<float*>(logits->data);
+  TVM_FFI_ICHECK(logits.device().device_type == kDLCPU) << "logits device must be CPU!";
+  int vocab_size = logits.shape()[logits.ndim() - 1];
+  TVM_FFI_ICHECK(logits.numel() == 0 || logits.IsAligned(alignof(float)));
+  float* logits_raw_data =
+      reinterpret_cast<float*>(static_cast<char*>(logits.data_ptr()) + logits.byte_offset());
   float inv_temp = 1.0f / temperature;
   float m = std::numeric_limits<float>::min();
   double d = 0.0f;

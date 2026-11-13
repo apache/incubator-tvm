@@ -25,7 +25,7 @@
 #ifndef TVM_RELAX_OP_VISION_MULTIBOX_TRANSFORM_LOC_H_
 #define TVM_RELAX_OP_VISION_MULTIBOX_TRANSFORM_LOC_H_
 
-#include <tvm/relax/attrs/vision.h>
+#include <tvm/relax/op/vision.h>
 
 #include "../op_common.h"
 

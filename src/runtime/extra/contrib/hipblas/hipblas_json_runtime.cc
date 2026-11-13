@@ -32,7 +32,7 @@
 #include <string>
 #include <vector>
 
-#include "../../../../backend/rocm/runtime/rocm_common.h"
+#include "../../rocm_utils.h"
 #include "../json/json_node.h"
 #include "../json/json_runtime.h"
 #include "hipblas_utils.h"
@@ -48,7 +48,7 @@ class HipblasJSONRuntime : public JSONRuntimeBase {
                      const ffi::Array<ffi::String> const_names)
       : JSONRuntimeBase(symbol_name, graph_json, const_names) {}
 
-  void Init(const ffi::Array<Tensor>& consts) override {}
+  void Init(const ffi::Array<ffi::Tensor>& consts) override {}
 
   ffi::Optional<ffi::Function> GetFunction(const ffi::String& name) override {
     // JSONRuntimeBase::SetInputOutputBuffers(...) is not thread safe. Since HipblasJSONRuntime
@@ -76,9 +76,9 @@ class HipblasJSONRuntime : public JSONRuntimeBase {
                                            : EntryID(outputs_[i - input_var_eid_.size()]);
 
       const DLTensor* arg;
-      if (auto opt_nd = args[i].as<Tensor>()) {
-        Tensor arr = opt_nd.value();
-        arg = arr.operator->();
+      if (auto opt_nd = args[i].as<ffi::Tensor>(); opt_nd && opt_nd->defined()) {
+        ffi::Tensor arr = opt_nd.value();
+        arg = arr.GetDLTensorPtr();
       } else {
         arg = args[i].cast<DLTensor*>();
       }

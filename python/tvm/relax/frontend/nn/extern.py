@@ -27,9 +27,10 @@ from pathlib import Path
 import tvm_ffi
 
 import tvm
-from tvm import libinfo, tirx
-from tvm.runtime import Module, load_static_library
-from tvm.support import cc as _cc
+import tvm_tirx
+from tvm_tirx import libinfo
+from tvm_tirx.codegen import load_static_library
+from tvm_tirx.support import cc as _cc
 
 from ...op import call_dps_packed
 from . import core
@@ -56,12 +57,12 @@ class ExternModule:
                 if isinstance(arg, core.Tensor):
                     return arg._expr  # pylint: disable=protected-access
                 if isinstance(arg, int):
-                    return rx.prim_value(tirx.IntImm("int64", arg))
+                    return rx.prim_value(tvm_tirx.ir.IntImm("int64", arg))
                 if isinstance(arg, float):
-                    return rx.prim_value(tirx.FloatImm("float64", arg))
+                    return rx.prim_value(tvm_tirx.ir.FloatImm("float64", arg))
                 if isinstance(arg, str):
-                    return tvm.ir.StringImm(arg)
-                if tvm.ir.is_prim_expr(arg):
+                    return tvm_tirx.ir.StringImm(arg)
+                if tvm_tirx.ir.is_prim_expr(arg):
                     return rx.prim_value(arg)
                 if isinstance(arg, tuple | list):
                     return rx.Tuple([_convert(e, f"{name}_{i}") for i, e in enumerate(arg)])
@@ -69,14 +70,19 @@ class ExternModule:
 
             rx_inputs = _convert(input_args, "input")
             rx_outputs_ty = _convert(_inference_function(*input_args), "dummy").ty
-            return wrap_nested(call_dps_packed(func_name, rx_inputs, rx_outputs_ty), func_name)
+            return wrap_nested(
+                call_dps_packed(
+                    tvm.relax.ExternFunc(func_name), rx_inputs, ty_args=[rx_outputs_ty]
+                ),
+                func_name,
+            )
 
         return _call
 
-    def _load(self, path: Path) -> Module:
+    def _load(self, path: Path) -> tvm_ffi.Module:
         return load_static_library(str(path), func_names=list(self._symbols.keys()))
 
-    def load(self) -> Module:
+    def load(self) -> tvm_ffi.Module:
         """Loads the external module into a TVM runtime module."""
         raise NotImplementedError
 
@@ -99,7 +105,7 @@ class ObjectModule(ExternModule):  # pylint: disable=too-few-public-methods
         self.filepath = filepath
         super().__init__(symbols)
 
-    def load(self) -> Module:
+    def load(self) -> tvm_ffi.Module:
         return self._load(self.filepath)
 
 
@@ -160,7 +166,7 @@ class SourceModule(ExternModule):  # pylint: disable=too-few-public-methods
 
     **A compiler pass `AttachExternModules`.** It is introduced to attach a list of
     `nn.ExternModule`s into an IRModule at any stage of the compilation pipeline,
-    and attach the compiled external modules as `runtime.Module`s into IRModule's `external_mods`
+    and attach the compiled external modules as `tvm_ffi.Module`s into IRModule's `external_mods`
     attribute. It is required by linking in `tvm.compile`, but with the existence of this pass,
     source compilation can be deferred to arbitrary stage of TVM compilation.
 
@@ -272,7 +278,7 @@ class SourceModule(ExternModule):  # pylint: disable=too-few-public-methods
                 f"Using environment variable `TVM_HOME`, but it is not a directory: {tvm_path!s}"
             )
         else:
-            import tvm  # pylint: disable=import-outside-toplevel
+            import tvm
 
             tvm_path = Path(tvm.__file__).parent
             assert tvm_path.is_dir()
@@ -310,6 +316,7 @@ class SourceModule(ExternModule):  # pylint: disable=too-few-public-methods
             The list of include paths.
         """
         results = [
+            Path(tvm.libinfo.find_include_path()),
             Path(libinfo.find_include_path()),
             Path(tvm_ffi.libinfo.find_include_path()),
             Path(tvm_ffi.libinfo.find_dlpack_include_path()),
@@ -395,7 +402,7 @@ class SourceModule(ExternModule):  # pylint: disable=too-few-public-methods
             )
             shutil.move(str(object_path), str(output_path))
 
-    def load(self) -> Module:
+    def load(self) -> tvm_ffi.Module:
         with tempfile.TemporaryDirectory() as temp_dir_str:
             output_path = Path(temp_dir_str) / f"main{self.output_suffix}"
             self.compile(output_path)

@@ -20,21 +20,22 @@
 import pytest
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,unexpected-keyword-arg
 
-@Ts.prim_func
-def element_wise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), dtype="float32")
+@Ts.function
+def element_wise(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128), dtype="float32")
 
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
@@ -45,56 +46,69 @@ def element_wise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "fl
             vi, vj = Ts.axis.remap("SS", [i, j])
             C[vi, vj] = B[vi, vj] + 1.0
 
-@Ts.prim_func
-def element_wise_set_dtype(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")):
-    B = Ts.sblock_alloc_buffer((128, 128), "float16")
+@Ts.function
+def element_wise_set_dtype(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")):
+    B = Ts.sblock_alloc_tensor((128, 128), "float16")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             Ts.reads(A[vi, vj])
             Ts.writes(B[vi, vj])
-            B[vi, vj] = T.cast(A[vi, vj] * 2.0, "float16")
+            B[vi, vj] = T.cast(A[vi, vj] * 2.0, ty="float16")
     for i, j in T.grid(128, 128):
         with Ts.sblock("C"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             Ts.reads(B[vi, vj])
             Ts.writes(C[vi, vj])
-            C[vi, vj] = T.cast(B[vi, vj], "float32") + 1.0
+            C[vi, vj] = T.cast(B[vi, vj], ty="float32") + 1.0
 
-@Ts.prim_func
-def element_wise_subregion_match(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), dtype="float32")
+element_wise_subregion_match_b_subregion0_offset = T.dynamic("element_wise_subregion_match_b_subregion0_offset", "int32")
+element_wise_subregion_match_b_subregion1_offset = T.dynamic("element_wise_subregion_match_b_subregion1_offset", "int32")
+
+@Ts.function
+def element_wise_subregion_match(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128), dtype="float32")
 
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
-            B_subregion0 = Ts.match_buffer(B[vi, vj], [], offset_factor=1)
+            B_subregion0 = Ts.match_tensor(B[vi, vj], [], layout=T.TileLayout(T.S[[]] + (element_wise_subregion_match_b_subregion0_offset)))
             B_subregion0[()] = A[vi, vj] * 2.0
     for i, j in T.grid(128, 128):
         with Ts.sblock("C"):
             vi, vj = Ts.axis.remap("SS", [i, j])
-            B_subregion1 = Ts.match_buffer(B[vi, vj], [], offset_factor=1)
+            B_subregion1 = Ts.match_tensor(B[vi, vj], [], layout=T.TileLayout(T.S[[]] + (element_wise_subregion_match_b_subregion1_offset)))
             C[vi, vj] = B_subregion1[()] + 1.0
 
-@Ts.prim_func
-def element_wise_subregion_match_set_dtype(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), "float16")
+element_wise_subregion_match_set_dtype_b_subregion0_offset = T.dynamic("element_wise_subregion_match_set_dtype_b_subregion0_offset", "int32")
+element_wise_subregion_match_set_dtype_b_subregion1_offset = T.dynamic("element_wise_subregion_match_set_dtype_b_subregion1_offset", "int32")
+
+@Ts.function
+def element_wise_subregion_match_set_dtype(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128), "float16")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             Ts.reads(A[vi, vj])
             Ts.writes(B[vi, vj])
-            B_subregion0 = Ts.match_buffer(B[vi, vj], (), "float16", offset_factor=1)
-            B_subregion0[()] = T.cast(A[vi, vj] * 2.0, "float16")
+            B_subregion0 = Ts.match_tensor(B[vi, vj], (), "float16", layout=T.TileLayout(T.S[()] + (element_wise_subregion_match_set_dtype_b_subregion0_offset)))
+            B_subregion0[()] = T.cast(A[vi, vj] * 2.0, ty="float16")
     for i, j in T.grid(128, 128):
         with Ts.sblock("C"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             Ts.reads(B[vi, vj])
             Ts.writes(C[vi, vj])
-            B_subregion1 = Ts.match_buffer(B[vi, vj], (), "float16", offset_factor=1)
-            C[vi, vj] = T.cast(B_subregion1[()], "float32") + 1.0
+            B_subregion1 = Ts.match_tensor(B[vi, vj], (), "float16", layout=T.TileLayout(T.S[()] + (element_wise_subregion_match_set_dtype_b_subregion1_offset)))
+            C[vi, vj] = T.cast(B_subregion1[()], ty="float32") + 1.0
 
-use_block_name = tvm.testing.parameter(by_dict={"block_obj": False, "block_name": True})
+
+@pytest.fixture(
+    params=[pytest.param(False, id="block_obj"), pytest.param(True, id="block_name")],
+    scope="session",
+)
+def use_block_name(request):
+    return request.param
+
 
 def test_set_dtype(use_block_name):
     func = element_wise
@@ -103,7 +117,7 @@ def test_set_dtype(use_block_name):
     assert_structural_equal_ignore_global_symbol(element_wise_set_dtype, sch.mod["main"])
     verify_trace_roundtrip(sch=sch, mod=func)
 
-def test_set_dtype_fail_on_output_buffer(use_block_name):
+def test_set_dtype_fail_on_output_tensor(use_block_name):
     func = element_wise
     sch = tvm.s_tir.Schedule(func, debug_mask='all')
     with pytest.raises(tvm.s_tir.ScheduleError):
@@ -125,4 +139,4 @@ def test_set_dtype_subregion():
     verify_trace_roundtrip(sch=sch, mod=func)
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

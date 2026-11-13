@@ -64,11 +64,11 @@ language called TVMScript, which is a domain-specific dialect embedded in python
 
     @tvm.script.ir_module
     class MyModule:
-        @Ts.prim_func
-        def mm_relu(A: T.Buffer((128, 128), "float32"),
-                    B: T.Buffer((128, 128), "float32"),
-                    C: T.Buffer((128, 128), "float32")):
-            Y = T.alloc_buffer((128, 128), dtype="float32")
+        @Ts.function
+        def mm_relu(A: T.Tensor((128, 128), "float32"),
+                    B: T.Tensor((128, 128), "float32"),
+                    C: T.Tensor((128, 128), "float32")):
+            Y = T.alloc_tensor(ty_args=[T.Tensor((128, 128), "float32")])
             for i, j, k in T.grid(128, 128, 128):
                 with Ts.sblock("Y"):
                     vi = Ts.axis.spatial(128, i)
@@ -93,15 +93,15 @@ Function Parameters and Buffers
 .. code:: python
 
     # TensorIR
-    def mm_relu(A: T.Buffer((128, 128), "float32"),
-                B: T.Buffer((128, 128), "float32"),
-                C: T.Buffer((128, 128), "float32")):
+    def mm_relu(A: T.Tensor((128, 128), "float32"),
+                B: T.Tensor((128, 128), "float32"),
+                C: T.Tensor((128, 128), "float32")):
         ...
     # NumPy
     def lnumpy_mm_relu(A: np.ndarray, B: np.ndarray, C: np.ndarray):
         ...
 
-Here ``A``, ``B``, and ``C`` takes a type named ``T.Buffer``, which with shape
+Here ``A``, ``B``, and ``C`` takes a type named ``T.Tensor``, which with shape
 argument ``(128, 128)`` and data type ``float32``. This additional information
 helps possible MLC process to generate code that specializes in the shape and data
 type.
@@ -111,7 +111,7 @@ type.
 .. code:: python
 
     # TensorIR
-    Y = T.alloc_buffer((128, 128), dtype="float32")
+    Y = T.alloc_tensor(ty_args=[T.Tensor((128, 128), "float32")])
     # NumPy
     Y = np.empty((128, 128), dtype="float32")
 
@@ -239,11 +239,11 @@ So we can also write the programs as follows.
 
     @tvm.script.ir_module
     class MyModuleWithAxisRemapSugar:
-        @Ts.prim_func
-        def mm_relu(A: T.Buffer((128, 128), "float32"),
-                    B: T.Buffer((128, 128), "float32"),
-                    C: T.Buffer((128, 128), "float32")):
-            Y = T.alloc_buffer((128, 128), dtype="float32")
+        @Ts.function
+        def mm_relu(A: T.Tensor((128, 128), "float32"),
+                    B: T.Tensor((128, 128), "float32"),
+                    C: T.Tensor((128, 128), "float32")):
+            Y = T.alloc_tensor(ty_args=[T.Tensor((128, 128), "float32")])
             for i, j, k in T.grid(128, 128, 128):
                 with Ts.sblock("Y"):
                     vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])

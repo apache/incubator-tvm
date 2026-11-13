@@ -34,7 +34,7 @@ TuneContext::TuneContext(ffi::Optional<IRModule> mod, ffi::Optional<Target> targ
                          TRandState rand_state, ffi::Function logger) {
   TVM_FFI_CHECK(rand_state == -1 || rand_state >= 0, ValueError)
       << "Invalid random state: " << rand_state;
-  ffi::ObjectPtr<TuneContextNode> n = ffi::make_object<TuneContextNode>();
+  ffi::ObjectPtr<TuneContextObj> n = ffi::make_object<TuneContextObj>();
   n->mod = mod;
   n->target = target;
   n->space_generator = space_generator;
@@ -46,8 +46,8 @@ TuneContext::TuneContext(ffi::Optional<IRModule> mod, ffi::Optional<Target> targ
   data_ = std::move(n);
 }
 
-TuneContext TuneContextNode::Clone() const {
-  ffi::ObjectPtr<TuneContextNode> n = ffi::make_object<TuneContextNode>(*this);
+TuneContext TuneContextObj::Clone() const {
+  ffi::ObjectPtr<TuneContextObj> n = ffi::make_object<TuneContextObj>(*this);
   if (this->space_generator.has_value()) {
     n->space_generator = this->space_generator.value()->Clone();
   }
@@ -59,7 +59,7 @@ TuneContext TuneContextNode::Clone() const {
   return TuneContext(n);
 }
 
-void TuneContextNode::Initialize() {
+void TuneContextObj::Initialize() {
   if (this->space_generator.has_value()) {
     this->space_generator.value()->InitializeWithTuneContext(ffi::GetRef<TuneContext>(this));
   }
@@ -68,7 +68,7 @@ void TuneContextNode::Initialize() {
   }
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { TuneContextNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { TuneContextObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
@@ -82,8 +82,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                                 num_threads, rand_state, logger);
            })
       .def("s_tir.meta_schedule._SHash2Hex", SHash2Hex)
-      .def_method("s_tir.meta_schedule.TuneContextInitialize", &TuneContextNode::Initialize)
-      .def_method("s_tir.meta_schedule.TuneContextClone", &TuneContextNode::Clone);
+      .def_method("s_tir.meta_schedule.TuneContextInitialize", &TuneContextObj::Initialize)
+      .def_method("s_tir.meta_schedule.TuneContextClone", &TuneContextObj::Clone);
 }
 
 }  // namespace meta_schedule

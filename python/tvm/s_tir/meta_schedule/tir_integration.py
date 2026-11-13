@@ -23,10 +23,10 @@ from typing import Literal
 from tvm_ffi import register_global_func
 
 # isort: on
-from tvm import ir, tirx
 from tvm.s_tir.schedule import Schedule as _Schedule
-from tvm.target import Target
-from tvm.tirx.expr import IntImm
+from tvm_tirx import ir, tirx
+from tvm_tirx.ir import IntImm
+from tvm_tirx.target import Target
 
 from .builder import Builder
 from .cost_model import CostModel
@@ -43,7 +43,7 @@ from .utils import fork_seed
 
 
 def tune_tir(  # pylint: disable=too-many-locals
-    mod: ir.IRModule | tirx.PrimFunc,
+    mod: ir.IRModule | tirx.Function,
     target: str | Target,
     work_dir: str,
     max_trials_global: int,
@@ -68,7 +68,7 @@ def tune_tir(  # pylint: disable=too-many-locals
 
     Parameters
     ----------
-    mod : Union[ir.IRModule, tirx.PrimFunc]
+    mod : Union[ir.IRModule, tirx.Function]
         The TIR IRModule to tune.
     target : Union[str, Target]
         The target to tune for.
@@ -110,12 +110,12 @@ def tune_tir(  # pylint: disable=too-many-locals
     database : Database
         The database with all tuning records
     """
-    if isinstance(mod, tirx.PrimFunc):
+    if isinstance(mod, tirx.Function):
         mod = _normalize_mod(mod)
 
-    named_tasks: list[tuple[str, tirx.PrimFunc]] = []
+    named_tasks: list[tuple[str, tirx.Function]] = []
     for gv, func in mod.functions_items():  # pylint: disable=invalid-name
-        if isinstance(func, tirx.PrimFunc):
+        if isinstance(func, tirx.Function):
             named_tasks.append((gv.name_hint, func))
     named_tasks.sort(key=lambda x: x[0])
 
@@ -165,7 +165,7 @@ def tune_tir(  # pylint: disable=too-many-locals
 
 @register_global_func("tvm.s_tir.meta_schedule.tune_tir")
 def _tune_tir(
-    mod: ir.IRModule | tirx.PrimFunc,
+    mod: ir.IRModule | tirx.Function,
     target: str | Target,
     work_dir: str,
     max_trials_global: int,
@@ -186,7 +186,7 @@ def _tune_tir(
 
     Parameters
     ----------
-    mod : Union[ir.IRModule, tirx.PrimFunc]
+    mod : Union[ir.IRModule, tirx.Function]
         The TIR function to tune.
     target : Union[str, Target]
         The target to tune for.
@@ -248,7 +248,7 @@ def _tune_tir(
 
 def compile_tir(
     database: Database,
-    mod: ir.IRModule | tirx.PrimFunc,
+    mod: ir.IRModule | tirx.Function,
     target: Target | str,
 ) -> _Schedule:
     """Compile a TIR to s_tir.Schedule, according to the records in the database.
@@ -257,7 +257,7 @@ def compile_tir(
     ----------
     database : Database
         The database of tuning records.
-    mod : Union[ir.IRModule, tirx.PrimFunc]
+    mod : Union[ir.IRModule, tirx.Function]
         The TIR function to tune.
     target : Union[str, Target]
         The target to tune for.

@@ -19,18 +19,18 @@
 
 import pytest
 
-import tvm.testing
+import tvm
+import tvm_tirx.testing
 from tvm import relax, topi
-from tvm.ir.base import assert_structural_equal
+from tvm.relax import script as R
 from tvm.relax.transform import FastMathTransform
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
 
 
 def _run_pass_compare_output(Before, Expected):
     fast_mod = FastMathTransform()(Before)
-    if not relax.analysis.check_well_formed(fast_mod):
-        print("IRModule is not well-formed")
+    relax.analysis.check_well_formed(fast_mod)
     assert_structural_equal(Expected, fast_mod)
 
 
@@ -59,4 +59,4 @@ def test_optimize_transform_layout_pass_one_arg():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

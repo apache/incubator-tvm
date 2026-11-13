@@ -21,8 +21,8 @@ Note: "external modules" here refers to `relax.frontend.nn.ExternModule`.
 
 from typing import TYPE_CHECKING
 
-from tvm.ir import IRModule
-from tvm.ir.transform import PassContext, module_pass
+from tvm_tirx.ir import IRModule
+from tvm_tirx.ir.transform import PassContext, module_pass
 
 if TYPE_CHECKING:
     from tvm.relax.frontend.nn import ExternModule

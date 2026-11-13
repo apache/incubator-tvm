@@ -17,14 +17,14 @@
 # ruff: noqa: E501, F811
 """Unit tests for gradient with checkpointing."""
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
 from tvm.relax.block_builder import BlockBuilder
 from tvm.relax.testing import nn
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
 
 
 def test_sequential():
@@ -759,4 +759,4 @@ def test_checkpoint_with_intermediate_require_grads():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

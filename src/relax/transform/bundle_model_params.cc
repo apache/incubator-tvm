@@ -42,9 +42,9 @@ class ModelParamBundler : public ExprMutator {
   explicit ModelParamBundler(ffi::Optional<ffi::String> param_tuple_name)
       : param_tuple_name_(param_tuple_name) {}
 
-  Expr VisitExpr_(const FunctionNode* op) override {
+  Expr VisitExpr_(const FunctionObj* op) override {
     Function func = ffi::GetRef<Function>(op);
-    auto opt_num_input = func->attrs.GetAttr<int64_t>(attr::kNumInput);
+    auto opt_num_input = func->attrs.GetAttr(tvm::relax::attr::kNumInput);
     if (!opt_num_input) return func;
     auto signed_num_input = opt_num_input.value();
 
@@ -59,12 +59,12 @@ class ModelParamBundler : public ExprMutator {
       params.push_back(func->params[i]);
     }
 
-    std::unordered_set<const VarNode*> signature_vars;
-    for (const tirx::Var& var : DefinableTIRVarsInType(TupleType(params.Map(GetType)))) {
+    std::unordered_set<const VarObj*> signature_vars;
+    for (const tvm::Var& var : DefinableTIRVarsInType(TupleType(params.Map(GetType)))) {
       signature_vars.insert(var.get());
     }
 
-    std::unordered_set<const VarNode*> bundled_prim_params;
+    std::unordered_set<const VarObj*> bundled_prim_params;
     ffi::Array<Var> bundled_prim_params_in_order;
     for (size_t i = num_input; i < func->params.size(); i++) {
       if (func->params[i].as<PrimVar>()) {
@@ -107,7 +107,7 @@ class ModelParamBundler : public ExprMutator {
     return Function(params, body, ret_ty, func->is_pure, func->attrs);
   }
 
-  Expr VisitExpr_(const SeqExprNode* op) override {
+  Expr VisitExpr_(const SeqExprObj* op) override {
     if (pending_prim_params_.empty()) {
       return ExprMutator::VisitExpr_(op);
     }
@@ -119,7 +119,7 @@ class ModelParamBundler : public ExprMutator {
     for (const Var& var : prim_params) {
       auto it = var_to_expr_.find(var);
       TVM_FFI_ICHECK(it != var_to_expr_.end());
-      var_remap_[var] = builder_->Emit((*it).second, var->name);
+      var_remap_.insert_or_assign(var, builder_->Emit((*it).second, var->name));
     }
     BindingBlock prologue = builder_->EndBlock();
 
@@ -132,7 +132,7 @@ class ModelParamBundler : public ExprMutator {
     return SeqExpr(blocks, body->body);
   }
 
-  Expr VisitExpr_(const VarNode* op) override {
+  Expr VisitExpr_(const VarObj* op) override {
     auto var = ffi::GetRef<Var>(op);
     if (!rewrite_model_params_) {
       return ExprMutator::VisitExpr_(op);
@@ -191,7 +191,7 @@ Pass BundleModelParams(ffi::Optional<ffi::String> param_tuple_name) {
     }
     return mod;
   };
-  return CreateModulePass(pass_func, 1, "BundleModelParams", {});
+  return CreateModulePass(pass_func, 1, "BundleModelParams");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

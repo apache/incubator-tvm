@@ -20,6 +20,7 @@
 #include "manipulate.h"
 
 #include <tvm/ffi/extra/visit_error_context.h>
+#include <tvm/relax/op_attr.h>
 
 #include <algorithm>
 #include <numeric>
@@ -64,7 +65,7 @@ Type InferDistTypePermuteDims(const Call& call, const BlockBuilder& ctx) {
     return input_dtensor_tys[0];
   }
 
-  const auto* data_shape = data_ty->shape.as<ShapeExprNode>();
+  const auto* data_shape = data_ty->shape.as<ShapeExprObj>();
   if (data_shape == nullptr) {
     TVM_FFI_VISIT_THROW(ValueError, call) << "Input of distributed operator must have known shape";
   }
@@ -80,7 +81,7 @@ Type InferDistTypePermuteDims(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   // clang-format off
   OpDef("relax.permute_dims")
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder", InferDistTypePermuteDims);
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypePermuteDims);
   // clang-format on
 }
 
@@ -91,7 +92,7 @@ Type InferDistTypeReshape(const Call& call, const BlockBuilder& ctx) {
   ffi::Array<distributed::DTensorType> input_dtensor_tys = GetInputDTensorType(call, ctx);
   TensorType data_ty = input_dtensor_tys[0]->tensor_ty;
 
-  const auto* new_shape_ty = GetTypeAs<ShapeTypeNode>(call->args[1]);
+  const auto* new_shape_ty = GetTypeAs<ShapeTypeObj>(call->args[1]);
   if (!data_ty.defined()) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << "Reshape requires the input data to be Tensor. However, the given one is "
@@ -105,7 +106,7 @@ Type InferDistTypeReshape(const Call& call, const BlockBuilder& ctx) {
 
   ffi::Optional<ffi::Array<PrimExpr>> old_shape_values;
   if (data_ty->shape.has_value()) {
-    const auto* old_shape_ty = GetTypeAs<ShapeTypeNode>(data_ty->shape.value());
+    const auto* old_shape_ty = GetTypeAs<ShapeTypeObj>(data_ty->shape.value());
     TVM_FFI_ICHECK_NOTNULL(old_shape_ty);
     old_shape_values = old_shape_ty->values;
   }
@@ -124,7 +125,7 @@ Type InferDistTypeReshape(const Call& call, const BlockBuilder& ctx) {
   Expr target_shape = call->args[1];
   Type output_tensor_ty = Type::Missing();
   // If shape values are defined, use them
-  if (target_shape->IsInstance<VarNode>() && new_shape_ty->values.has_value()) {
+  if (target_shape->IsInstance<VarObj>() && new_shape_ty->values.has_value()) {
     output_tensor_ty = TensorType(ShapeExpr(new_shape_ty->values.value()), data_ty->dtype);
   } else {
     output_tensor_ty = TensorType(target_shape, data_ty->dtype);
@@ -135,7 +136,7 @@ Type InferDistTypeReshape(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   // clang-format off
   OpDef("relax.reshape")
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder", InferDistTypeReshape);
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypeReshape);
   // clang-format on
 }
 

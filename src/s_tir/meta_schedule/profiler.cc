@@ -29,7 +29,7 @@ namespace meta_schedule {
 
 /**************** Profiler ****************/
 
-ffi::Map<ffi::String, FloatImm> ProfilerNode::Get() const {
+ffi::Map<ffi::String, FloatImm> ProfilerObj::Get() const {
   ffi::Map<ffi::String, FloatImm> ret;
   for (const auto& kv : stats_sec) {
     ret.Set(kv.first, FloatImm(PrimType::Float(64), kv.second));
@@ -37,7 +37,7 @@ ffi::Map<ffi::String, FloatImm> ProfilerNode::Get() const {
   return ret;
 }
 
-ffi::String ProfilerNode::Table() const {
+ffi::String ProfilerObj::Table() const {
   TVM_FFI_CHECK(!stats_sec.empty(), ValueError)
       << "The stats are empty. Please run the profiler first.";
   TVM_FFI_CHECK(stats_sec.count("Total"), ValueError)
@@ -73,7 +73,7 @@ ffi::String ProfilerNode::Table() const {
 }
 
 Profiler::Profiler() {
-  ffi::ObjectPtr<ProfilerNode> n = ffi::make_object<ProfilerNode>();
+  ffi::ObjectPtr<ProfilerObj> n = ffi::make_object<ProfilerObj>();
   n->stats_sec.clear();
   n->total_timer = nullptr;
   data_ = n;
@@ -124,7 +124,7 @@ ffi::Optional<Profiler> Profiler::Current() {
   }
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { ProfilerNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { ProfilerObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
@@ -133,8 +133,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def_method("s_tir.meta_schedule.ProfilerEnterWithScope", &Profiler::EnterWithScope)
       .def_method("s_tir.meta_schedule.ProfilerExitWithScope", &Profiler::ExitWithScope)
       .def("s_tir.meta_schedule.ProfilerCurrent", Profiler::Current)
-      .def_method("s_tir.meta_schedule.ProfilerGet", &ProfilerNode::Get)
-      .def_method("s_tir.meta_schedule.ProfilerTable", &ProfilerNode::Table)
+      .def_method("s_tir.meta_schedule.ProfilerGet", &ProfilerObj::Get)
+      .def_method("s_tir.meta_schedule.ProfilerTable", &ProfilerObj::Table)
       .def("s_tir.meta_schedule.ProfilerTimedScope", ProfilerTimedScope);
 }
 

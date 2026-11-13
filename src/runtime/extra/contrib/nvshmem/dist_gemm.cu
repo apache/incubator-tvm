@@ -28,16 +28,17 @@
 namespace tvm {
 namespace runtime {
 
-void* get_pointer(Tensor data, ffi::Shape index) {
+void* get_pointer(ffi::Tensor data, ffi::Shape index) {
+  TVM_FFI_ICHECK(data.defined());
   TVM_FFI_ICHECK(data.IsContiguous()) << "data is not contiguous";
-  char* ptr = reinterpret_cast<char*>(data->data) + data->byte_offset;
+  char* ptr = reinterpret_cast<char*>(data.data_ptr()) + data.byte_offset();
   int64_t offset = 0;
   // stride may be null, use shape instead
   for (int i = 0; i < static_cast<int>(index.size()); i++) {
-    offset *= data->shape[i];
+    offset *= data.shape()[i];
     offset += index[i];
   }
-  return static_cast<void*>(ptr + offset * ffi::GetDataSize(1, data->dtype));
+  return static_cast<void*>(ptr + offset * ffi::GetDataSize(1, data.dtype()));
 }
 
 void cuStreamWaitValue64Wrapper(TVMStreamHandle strm, void* addr, uint64_t expected) {
@@ -87,9 +88,12 @@ void set_streaming_policy(int64_t stream, void* ptr, size_t size) {
   cudaStreamSetAttribute(strm, cudaStreamAttributeAccessPolicyWindow, &streamAttrValue);
 }
 
-void transfer_to_peers_reduce_scatter(Tensor semaphore, Tensor gemm_out, Tensor staging_buffer,
-                                      int64_t stream_handle, int32_t M, int32_t N, int32_t BLK_M,
-                                      int32_t BLK_N, int32_t WORLD_SIZE) {
+void transfer_to_peers_reduce_scatter(ffi::Tensor semaphore, ffi::Tensor gemm_out,
+                                      ffi::Tensor staging_buffer, int64_t stream_handle, int32_t M,
+                                      int32_t N, int32_t BLK_M, int32_t BLK_N, int32_t WORLD_SIZE) {
+  TVM_FFI_ICHECK(semaphore.defined());
+  TVM_FFI_ICHECK(gemm_out.defined());
+  TVM_FFI_ICHECK(staging_buffer.defined());
   TVMStreamHandle stream = stream_from_int(stream_handle);
   int my_rank = nvshmem_my_pe();
   int LOCAL_M = M / WORLD_SIZE;
@@ -112,8 +116,11 @@ void transfer_to_peers_reduce_scatter(Tensor semaphore, Tensor gemm_out, Tensor 
   }
 }
 
-void transfer_to_peers_all_gather(Tensor semaphore, Tensor A, Tensor ag_out, int64_t stream_handle,
-                                  int32_t M, int32_t K, int32_t WORLD_SIZE) {
+void transfer_to_peers_all_gather(ffi::Tensor semaphore, ffi::Tensor A, ffi::Tensor ag_out,
+                                  int64_t stream_handle, int32_t M, int32_t K, int32_t WORLD_SIZE) {
+  TVM_FFI_ICHECK(semaphore.defined());
+  TVM_FFI_ICHECK(A.defined());
+  TVM_FFI_ICHECK(ag_out.defined());
   TVMStreamHandle stream = stream_from_int(stream_handle);
   int my_rank = nvshmem_my_pe();
   int LOCAL_M = M / WORLD_SIZE;
@@ -135,8 +142,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("runtime.disco.stream_sync", stream_sync)
       .def("runtime.disco.transfer_to_peers_reduce_scatter", transfer_to_peers_reduce_scatter)
       .def("runtime.disco.transfer_to_peers_all_gather", transfer_to_peers_all_gather)
-      .def("runtime.disco.set_streaming_policy", [](int64_t stream, Tensor ptr, size_t size) {
-        set_streaming_policy(stream, ptr->data, size);
+      .def("runtime.disco.set_streaming_policy", [](int64_t stream, ffi::Tensor ptr, size_t size) {
+        TVM_FFI_ICHECK(ptr.defined());
+        set_streaming_policy(stream, ptr.data_ptr(), size);
       });
 }
 

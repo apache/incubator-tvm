@@ -15,8 +15,8 @@
     specific language governing permissions and limitations
     under the License.
 
-tvm.testing
------------
-.. automodule:: tvm.testing
+tvm_tirx.testing
+----------------
+.. automodule:: tvm_tirx.testing
    :members:
    :imported-members:

@@ -17,20 +17,20 @@
 # pylint: disable=missing-docstring
 # ruff: noqa: E501, F401
 import tvm
-from tvm.ir import IRModule, assert_structural_equal
+import tvm_tirx
 from tvm.s_tir import dlight as dl
-from tvm.script import ir as I
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm.s_tir import script as Ts
+from tvm_tirx.ir import IRModule, assert_structural_equal
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 
 def _check(mod_before: IRModule, mod_after: IRModule):
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-            dl.gpu.Transpose(),
-        )(mod_before)
+    mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+        dl.gpu.Transpose(), target=target
+    )(mod_before)
     assert_structural_equal(mod, mod_after)
 
 
@@ -38,8 +38,8 @@ def test_transpose():
     # fmt: off
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(rxplaceholder: T.Buffer((T.int64(512), T.int64(4096)), "float32"), T_transpose: T.Buffer((T.int64(4096), T.int64(512)), "float32")):
+        @Ts.function
+        def main(rxplaceholder: T.Tensor((T.int64(512), T.int64(4096)), "float32"), T_transpose: T.Tensor((T.int64(4096), T.int64(512)), "float32")):
             T.func_attr({"tirx.noalias": True})
             for ax0, ax1 in T.grid(T.int64(4096), T.int64(512)):
                 with Ts.sblock("T_transpose"):
@@ -48,26 +48,26 @@ def test_transpose():
 
     @I.ir_module
     class After:
-        @Ts.prim_func
-        def main(rxplaceholder: T.Buffer((T.int64(512), T.int64(4096)), "float32"), T_transpose: T.Buffer((T.int64(4096), T.int64(512)), "float32")):
+        @Ts.function
+        def main(rxplaceholder: T.Tensor((T.int64(512), T.int64(4096)), "float32"), T_transpose: T.Tensor((T.int64(4096), T.int64(512)), "float32")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            rxplaceholder_shared = Ts.sblock_alloc_buffer((T.int64(512), T.int64(4096)), scope="shared")
-            for ax0_0_0 in T.thread_binding(T.int64(512), thread="blockIdx.y", annotations={"pragma_auto_unroll_max_step": 256, "pragma_unroll_explicit": 1}):
-                for ax1_0 in T.thread_binding(T.int64(32), thread="blockIdx.x"):
+            rxplaceholder_shared = Ts.sblock_alloc_tensor((T.int64(512), T.int64(4096)), scope="shared")
+            for ax0_0_0 in T.parallel(T.int64(512), annotations={"thread_binding": "blockIdx.y", "tirx.auto_unroll_max_step": 256, "tirx.unroll_explicit": 1}):
+                for ax1_0 in T.parallel(T.int64(32), annotations={"thread_binding": "blockIdx.x"}):
                     for ax0_ax1_fused_0 in range(T.int64(1)):
-                        for ax0_ax1_fused_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                            for ax0_ax1_fused_2 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                        for ax0_ax1_fused_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                            for ax0_ax1_fused_2 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                                 for ax0_ax1_fused_3 in T.unroll(T.int64(1)):
                                     with Ts.sblock("rxplaceholder_shared"):
                                         v0 = Ts.axis.spatial(T.int64(512), ax1_0 * T.int64(16) + (ax0_ax1_fused_0 * T.int64(128) + ax0_ax1_fused_1 * T.int64(16) + ax0_ax1_fused_2 + ax0_ax1_fused_3) // T.int64(8))
                                         v1 = Ts.axis.spatial(T.int64(4096), ax0_0_0 * T.int64(8) + (ax0_ax1_fused_0 * T.int64(128) + ax0_ax1_fused_1 * T.int64(16) + ax0_ax1_fused_2 + ax0_ax1_fused_3) % T.int64(8))
                                         Ts.reads(rxplaceholder[v0, v1])
                                         Ts.writes(rxplaceholder_shared[v0, v1])
-                                        Ts.sblock_attr({"buffer_dim_align": [[0, 0, 32, 1]]})
+                                        Ts.sblock_attr({"tensor_dim_align": [[0, 0, 32, 1]]})
                                         rxplaceholder_shared[v0, v1] = rxplaceholder[v0, v1]
-                    for ax0_0_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                        for ax1_1 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                    for ax0_0_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                        for ax1_1 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                             for ax0_1_0 in range(T.int64(1)):
                                 for ax0_1_1 in range(T.int64(1)):
                                     with Ts.sblock("T_transpose"):
@@ -84,16 +84,16 @@ def test_decode_transpose():
     # fmt: off
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(rxplaceholder: T.Buffer((T.int64(512), T.int64(4096)), "uint32"), rxplaceholder_1: T.Buffer((T.int64(128), T.int64(4096)), "uint32"), T_transpose: T.Buffer((T.int64(4096), T.int64(4096)), "float32")):
+        @Ts.function
+        def main(rxplaceholder: T.Tensor((T.int64(512), T.int64(4096)), "uint32"), rxplaceholder_1: T.Tensor((T.int64(128), T.int64(4096)), "uint32"), T_transpose: T.Tensor((T.int64(4096), T.int64(4096)), "float32")):
             T.func_attr({"tirx.noalias": True})
-            decode = Ts.sblock_alloc_buffer((T.int64(4096), T.int64(4096)))
+            decode = Ts.sblock_alloc_tensor((T.int64(4096), T.int64(4096)))
             for i, j in T.grid(T.int64(4096), T.int64(4096)):
                 with Ts.sblock("decode"):
                     v_i, v_j = Ts.axis.remap("SS", [i, j])
                     Ts.reads(rxplaceholder[v_i // T.int64(8), v_j], rxplaceholder_1[v_i // T.int64(32), v_j])
                     Ts.writes(decode[v_i, v_j])
-                    decode[v_i, v_j] = T.Cast("float32", T.bitwise_and(T.shift_right(rxplaceholder[v_i // T.int64(8), v_j], T.Cast("uint32", v_i % T.int64(8) * T.int64(4))), T.uint32(15))) * T.reinterpret("float32", T.shift_left(T.bitwise_and(rxplaceholder_1[v_i // T.int64(32), v_j], T.uint32(65535)), T.uint32(16))) + T.reinterpret("float32", T.shift_left(T.bitwise_and(T.shift_right(rxplaceholder_1[v_i // T.int64(32), v_j], T.uint32(16)), T.uint32(65535)), T.uint32(16)))
+                    decode[v_i, v_j] = T.Cast("float32", T.bitwise_and(T.shift_right(rxplaceholder[v_i // T.int64(8), v_j], T.Cast("uint32", v_i % T.int64(8) * T.int64(4))), T.uint32(15))) * T.reinterpret( T.shift_left(T.bitwise_and(rxplaceholder_1[v_i // T.int64(32), v_j], T.uint32(65535)), T.uint32(16)), ty="float32") + T.reinterpret( T.shift_left(T.bitwise_and(T.shift_right(rxplaceholder_1[v_i // T.int64(32), v_j], T.uint32(16)), T.uint32(65535)), T.uint32(16)), ty="float32")
             for ax0, ax1 in T.grid(T.int64(4096), T.int64(4096)):
                 with Ts.sblock("T_transpose"):
                     v_ax0, v_ax1 = Ts.axis.remap("SS", [ax0, ax1])
@@ -103,25 +103,25 @@ def test_decode_transpose():
 
     @I.ir_module
     class After:
-        @Ts.prim_func
-        def main(rxplaceholder: T.Buffer((T.int64(512), T.int64(4096)), "uint32"), rxplaceholder_1: T.Buffer((T.int64(128), T.int64(4096)), "uint32"), T_transpose: T.Buffer((T.int64(4096), T.int64(4096)), "float32")):
+        @Ts.function
+        def main(rxplaceholder: T.Tensor((T.int64(512), T.int64(4096)), "uint32"), rxplaceholder_1: T.Tensor((T.int64(128), T.int64(4096)), "uint32"), T_transpose: T.Tensor((T.int64(4096), T.int64(4096)), "float32")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
-            decode_shared = Ts.sblock_alloc_buffer((T.int64(4096), T.int64(4096)), scope="shared")
-            for ax0_0_0 in T.thread_binding(T.int64(64), thread="blockIdx.y", annotations={"pragma_auto_unroll_max_step": 256, "pragma_unroll_explicit": 1}):
-                for ax1_0 in T.thread_binding(T.int64(256), thread="blockIdx.x"):
+            decode_shared = Ts.sblock_alloc_tensor((T.int64(4096), T.int64(4096)), scope="shared")
+            for ax0_0_0 in T.parallel(T.int64(64), annotations={"thread_binding": "blockIdx.y", "tirx.auto_unroll_max_step": 256, "tirx.unroll_explicit": 1}):
+                for ax1_0 in T.parallel(T.int64(256), annotations={"thread_binding": "blockIdx.x"}):
                     for ax0_ax1_fused_0 in range(T.int64(1)):
-                        for ax0_ax1_fused_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                            for ax0_ax1_fused_2 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                        for ax0_ax1_fused_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                            for ax0_ax1_fused_2 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                                 for ax0_ax1_fused_3 in T.unroll(T.int64(8)):
                                     with Ts.sblock("decode_shared"):
                                         v0 = Ts.axis.spatial(T.int64(4096), ax1_0 * T.int64(16) + (ax0_ax1_fused_0 * T.int64(1024) + ax0_ax1_fused_1 * T.int64(128) + ax0_ax1_fused_2 * T.int64(8) + ax0_ax1_fused_3) // T.int64(64))
                                         v1 = Ts.axis.spatial(T.int64(4096), ax0_0_0 * T.int64(64) + (ax0_ax1_fused_0 * T.int64(1024) + ax0_ax1_fused_1 * T.int64(128) + ax0_ax1_fused_2 * T.int64(8) + ax0_ax1_fused_3) % T.int64(64))
                                         Ts.reads(rxplaceholder[v0 // T.int64(8), v1], rxplaceholder_1[v0 // T.int64(32), v1])
                                         Ts.writes(decode_shared[v0, v1])
-                                        Ts.sblock_attr({"buffer_dim_align": [[0, 0, 32, 1]]})
-                                        decode_shared[v0, v1] = T.Cast("float32", T.bitwise_and(T.shift_right(rxplaceholder[v0 // T.int64(8), v1], T.Cast("uint32", v0 % T.int64(8) * T.int64(4))), T.uint32(15))) * T.reinterpret("float32", T.shift_left(T.bitwise_and(rxplaceholder_1[v0 // T.int64(32), v1], T.uint32(65535)), T.uint32(16))) + T.reinterpret("float32", T.shift_left(T.bitwise_and(T.shift_right(rxplaceholder_1[v0 // T.int64(32), v1], T.uint32(16)), T.uint32(65535)), T.uint32(16)))
-                    for ax0_0_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                        for ax1_1 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                                        Ts.sblock_attr({"tensor_dim_align": [[0, 0, 32, 1]]})
+                                        decode_shared[v0, v1] = T.Cast("float32", T.bitwise_and(T.shift_right(rxplaceholder[v0 // T.int64(8), v1], T.Cast("uint32", v0 % T.int64(8) * T.int64(4))), T.uint32(15))) * T.reinterpret( T.shift_left(T.bitwise_and(rxplaceholder_1[v0 // T.int64(32), v1], T.uint32(65535)), T.uint32(16)), ty="float32") + T.reinterpret( T.shift_left(T.bitwise_and(T.shift_right(rxplaceholder_1[v0 // T.int64(32), v1], T.uint32(16)), T.uint32(65535)), T.uint32(16)), ty="float32")
+                    for ax0_0_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                        for ax1_1 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                             for ax0_1_0 in range(T.int64(2)):
                                 for ax0_1_1 in T.vectorized(T.int64(4)):
                                     with Ts.sblock("T_transpose"):
@@ -138,10 +138,10 @@ def test_decode_int3_transpose():
     # fmt: off
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer((T.int64(412), T.int64(4096)), "uint32"), B: T.Buffer((T.int64(103), T.int64(4096)), "float16"), T_transpose: T.Buffer((T.int64(4096), T.int64(4096)), "float16")):
+        @Ts.function
+        def main(A: T.Tensor((T.int64(412), T.int64(4096)), "uint32"), B: T.Tensor((T.int64(103), T.int64(4096)), "float16"), T_transpose: T.Tensor((T.int64(4096), T.int64(4096)), "float16")):
             T.func_attr({"tirx.noalias": True})
-            decode_1 = Ts.sblock_alloc_buffer((T.int64(4096), T.int64(4096)), "float16")
+            decode_1 = Ts.sblock_alloc_tensor((T.int64(4096), T.int64(4096)), "float16")
             for i, j in T.grid(T.int64(4096), T.int64(4096)):
                 with Ts.sblock("decode"):
                     v_i, v_j = Ts.axis.remap("SS", [i, j])
@@ -157,16 +157,16 @@ def test_decode_int3_transpose():
 
     @I.ir_module
     class After:
-        @Ts.prim_func
-        def main(A: T.Buffer((T.int64(412), T.int64(4096)), "uint32"), B: T.Buffer((T.int64(103), T.int64(4096)), "float16"), T_transpose: T.Buffer((T.int64(4096), T.int64(4096)), "float16")):
+        @Ts.function
+        def main(A: T.Tensor((T.int64(412), T.int64(4096)), "uint32"), B: T.Tensor((T.int64(103), T.int64(4096)), "float16"), T_transpose: T.Tensor((T.int64(4096), T.int64(4096)), "float16")):
             T.func_attr({"tirx.is_scheduled": True, "tirx.noalias": True})
             # with Ts.sblock("root"):
-            decode_1_shared = Ts.sblock_alloc_buffer((T.int64(4096), T.int64(4096)), "float16", scope="shared")
-            for ax0_0_0 in T.thread_binding(T.int64(52), thread="blockIdx.y", annotations={"pragma_auto_unroll_max_step": 256, "pragma_unroll_explicit": 1}):
-                for ax1_0 in T.thread_binding(T.int64(256), thread="blockIdx.x"):
+            decode_1_shared = Ts.sblock_alloc_tensor((T.int64(4096), T.int64(4096)), "float16", scope="shared")
+            for ax0_0_0 in T.parallel(T.int64(52), annotations={"thread_binding": "blockIdx.y", "tirx.auto_unroll_max_step": 256, "tirx.unroll_explicit": 1}):
+                for ax1_0 in T.parallel(T.int64(256), annotations={"thread_binding": "blockIdx.x"}):
                     for ax0_ax1_fused_0 in range(T.int64(2)):
-                        for ax0_ax1_fused_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                            for ax0_ax1_fused_2 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                        for ax0_ax1_fused_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                            for ax0_ax1_fused_2 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                                 for ax0_ax1_fused_3 in T.unroll(T.int64(10)):
                                     with Ts.sblock("decode_1_shared"):
                                         v0 = Ts.axis.spatial(T.int64(4096), ax1_0 * T.int64(16) + (ax0_ax1_fused_0 * T.int64(1280) + ax0_ax1_fused_1 * T.int64(160) + ax0_ax1_fused_2 * T.int64(10) + ax0_ax1_fused_3) // T.int64(82))
@@ -174,10 +174,10 @@ def test_decode_int3_transpose():
                                         Ts.where(ax0_0_0 * T.int64(80) + (((ax0_ax1_fused_0 * T.int64(8) + ax0_ax1_fused_1) * T.int64(16) + ax0_ax1_fused_2) * T.int64(10) + ax0_ax1_fused_3) % T.int64(82) < T.int64(4096) and ((ax0_ax1_fused_0 * T.int64(8) + ax0_ax1_fused_1) * T.int64(16) + ax0_ax1_fused_2) * T.int64(10) + ax0_ax1_fused_3 < T.int64(1312))
                                         Ts.reads(A[v0 // T.int64(10), v1], B[v0 // T.int64(40), v1])
                                         Ts.writes(decode_1_shared[v0, v1])
-                                        Ts.sblock_attr({"buffer_dim_align": [[0, 0, 32, 1]]})
+                                        Ts.sblock_attr({"tensor_dim_align": [[0, 0, 32, 1]]})
                                         decode_1_shared[v0, v1] = (T.Cast("float16", T.bitwise_and(T.shift_right(A[v0 // T.int64(10), v1], T.Cast("uint32", v0 % T.int64(10)) * T.uint32(3)), T.uint32(7))) - T.float16(3)) * B[v0 // T.int64(40), v1]
-                    for ax0_0_1 in T.thread_binding(T.int64(8), thread="threadIdx.y"):
-                        for ax1_1 in T.thread_binding(T.int64(16), thread="threadIdx.x"):
+                    for ax0_0_1 in T.parallel(T.int64(8), annotations={"thread_binding": "threadIdx.y"}):
+                        for ax1_1 in T.parallel(T.int64(16), annotations={"thread_binding": "threadIdx.x"}):
                             for ax0_1_0 in range(T.int64(3)):
                                 for ax0_1_1 in T.vectorized(T.int64(4)):
                                     with Ts.sblock("T_transpose"):

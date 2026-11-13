@@ -16,16 +16,18 @@
 # under the License.
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 from tvm.contrib.pickle_memoize import memoize
+from tvm.relax import script as R
 from tvm.relax.dpl import make_fused_bias_activation_pattern
-from tvm.script import relax as R
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dReLUx2:
     @R.function
     def main(
@@ -41,7 +43,7 @@ class Conv2dReLUx2:
         return conv2
 
 
-has_dnnl = tvm.get_global_func("relax.ext.dnnl", True)
+has_dnnl = tvm_ffi.get_global_func("relax.ext.dnnl", True)
 
 dnnl_enabled = pytest.mark.skipif(
     not has_dnnl,
@@ -52,11 +54,11 @@ pytestmark = [dnnl_enabled]
 
 
 def build_and_run(mod, inputs, legalize=False):
-    target = tvm.target.Target("llvm")
-    dev = tvm.cpu()
-    inputs = [tvm.runtime.tensor(inp, dev) for inp in inputs]
+    target = tvm_tirx.target.Target("llvm")
+    dev = tvm_tirx.cpu()
+    inputs = [tvm_tirx.runtime.tensor(inp, dev) for inp in inputs]
 
-    with tvm.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
+    with tvm_tirx.ir.transform.PassContext(config={"relax.transform.apply_legalize_ops": legalize}):
         ex = tvm.compile(mod, target)
     vm = relax.VirtualMachine(ex, dev)
     f = vm["main"]
@@ -68,7 +70,7 @@ def test_dnnl_offload():
         "relax.nn.conv2d", with_bias=False, activation="relax.nn.relu"
     )
 
-    seq = tvm.transform.Sequential(
+    seq = tvm_tirx.ir.transform.Sequential(
         [
             relax.transform.FuseOpsByPattern([("dnnl.conv2d_relu", pat)]),
             relax.transform.MergeCompositeFunctions(),
@@ -89,7 +91,7 @@ def test_dnnl_offload():
 
     out = build_and_run(seq(Conv2dReLUx2), inputs)
 
-    tvm.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
+    tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-3, atol=1e-3)
 
 
 if __name__ == "__main__":

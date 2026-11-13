@@ -17,10 +17,10 @@
 # under the License.
 """Benchmarking dynamic shape workloads"""
 
-from .bench import benchmark, benchmark_prim_func, benchmark_relax_func
+from .bench import benchmark, benchmark_function, benchmark_relax_func
 from .extract import (
-    extract_prim_func,
+    extract_function,
     extract_from_relax,
-    extract_func_info_from_prim_func,
+    extract_func_info_from_function,
     extract_all_func_info_from_relax,
 )

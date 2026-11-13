@@ -20,14 +20,15 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.module import IRModule
+from tvm.relax import script as R
 from tvm.relax.expr_functor import PyExprVisitor, visitor
 from tvm.relax.script import ir_builder as relax_builder
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.script.ir_builder import IRBuilder
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.script import ir as I
+from tvm_tirx.script.ir_builder import IRBuilder
 
 
 def get_conv2d_batchnorm_sample():
@@ -63,21 +64,21 @@ def get_conv2d_batchnorm_sample():
 
     func = builder.get()
 
-    return tvm.IRModule({"main": func})
+    return tvm_tirx.IRModule({"main": func})
 
 
 def test_fold_batchnorm_info_conv2d():
     mod = get_conv2d_batchnorm_sample()
     mod_fold = get_conv2d_batchnorm_sample()
 
-    target = tvm.target.Target("llvm", host="llvm")
-    data_in = tvm.runtime.tensor(np.random.rand(1, 3, 224, 224).astype(np.float32))
+    target = tvm_tirx.target.Target("llvm", host="llvm")
+    data_in = tvm_tirx.runtime.tensor(np.random.rand(1, 3, 224, 224).astype(np.float32))
 
-    weight_data = tvm.runtime.tensor(np.random.rand(32, 3, 3, 3).astype(np.float32))
-    gamma_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    beta_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    mean_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    variance_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
+    weight_data = tvm_tirx.runtime.tensor(np.random.rand(32, 3, 3, 3).astype(np.float32))
+    gamma_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    beta_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    mean_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    variance_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
     params_np = {
         "weight": weight_data,
         "gamma": gamma_data,
@@ -92,17 +93,17 @@ def test_fold_batchnorm_info_conv2d():
     # Normal build
     mod = tvm.relax.transform.DecomposeOpsForInference()(mod)
     ex = tvm.compile(mod, target)
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     out = vm["main"](data_in)
 
     # Fold BN to Conv2D
     mod_fold = relax.transform.FoldBatchnormToConv2D()(mod_fold)
     mod_fold = relax.transform.FoldConstant()(mod_fold)
     ex_fold = tvm.compile(mod_fold, target)
-    vm_fold = relax.VirtualMachine(ex_fold, tvm.cpu())
+    vm_fold = relax.VirtualMachine(ex_fold, tvm_tirx.cpu())
     out_fold = vm_fold["main"](data_in)
 
-    tvm.testing.assert_allclose(out.numpy(), out_fold.numpy(), rtol=1e-5, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out.numpy(), out_fold.numpy(), rtol=1e-5, atol=1e-5)
 
 
 @visitor
@@ -122,11 +123,11 @@ class VerifyFolding(PyExprVisitor):  # pylint: disable=abstract-method
 def test_fold_batchnorm_info_conv2d_transform():
     mod = get_conv2d_batchnorm_sample()
     mod = relax.transform.FoldBatchnormToConv2D()(mod)
-    weight_data = tvm.runtime.tensor(np.random.rand(32, 3, 3, 3).astype(np.float32))
-    gamma_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    beta_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    mean_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
-    variance_data = tvm.runtime.tensor(np.random.rand(32).astype(np.float32))
+    weight_data = tvm_tirx.runtime.tensor(np.random.rand(32, 3, 3, 3).astype(np.float32))
+    gamma_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    beta_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    mean_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
+    variance_data = tvm_tirx.runtime.tensor(np.random.rand(32).astype(np.float32))
     params_np = {
         "weight": weight_data,
         "gamma": gamma_data,
@@ -142,4 +143,4 @@ def test_fold_batchnorm_info_conv2d_transform():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

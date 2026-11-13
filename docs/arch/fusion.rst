@@ -49,7 +49,7 @@ Fusion involves three passes:
         ▼  FuseOps                     ← group ops into fused Relax functions
    IRModule (with fused functions marked Primitive=True)
         │
-        ▼  FuseTIR                     ← merge TIR PrimFuncs inside each group
+        ▼  FuseTIR                     ← merge TIR Functions inside each group
    IRModule (fused TIR kernels)
 
 In the compilation pipeline, these passes appear in the backend-specific ``legalize_passes``
@@ -195,9 +195,9 @@ via ``cls.func_name``:
    @R.function
    def main(x: R.Tensor((10, 20), "float32")):
        with R.dataflow():
-           lv0 = R.call_tir(add, (x, const_1), out_ty=R.Tensor((10, 20), "float32"))
-           lv1 = R.call_tir(exp, (lv0,), out_ty=R.Tensor((10, 20), "float32"))
-           gv = R.call_tir(squeeze, (lv1,), out_ty=R.Tensor((10, 20), "float32"))
+           lv0 = R.call_tir(add, (x, const_1), ty_args=[R.Tensor((10, 20), "float32")])
+           lv1 = R.call_tir(exp, (lv0,), ty_args=[R.Tensor((10, 20), "float32")])
+           gv = R.call_tir(squeeze, (lv1,), ty_args=[R.Tensor((10, 20), "float32")])
            R.output(gv)
        return gv
 
@@ -228,7 +228,7 @@ FuseTIR: Merging TIR Functions
 ------------------------------
 
 ``FuseTIR`` (``src/relax/transform/fuse_tir.cc``) takes the grouped Relax functions produced by
-``FuseOps`` and merges their internal TIR ``PrimFunc``\ s into a single TIR function.
+``FuseOps`` and merges their internal TIR ``Function``\ s into a single TIR function.
 
 Before ``FuseTIR``, a fused group still contains multiple ``R.call_tir`` calls to separate
 TIR functions. ``FuseTIR`` inlines and merges them:
@@ -237,12 +237,12 @@ TIR functions. ``FuseTIR`` inlines and merges them:
 
    Before FuseTIR:
      fused_add_exp_squeeze:
-       call_tir(add, ...)        → separate TIR PrimFunc
-       call_tir(exp, ...)        → separate TIR PrimFunc
-       call_tir(squeeze, ...)    → separate TIR PrimFunc
+       call_tir(add, ...)        → separate TIR Function
+       call_tir(exp, ...)        → separate TIR Function
+       call_tir(squeeze, ...)    → separate TIR Function
 
    After FuseTIR:
-     fused_add_exp_squeeze:      → single merged TIR PrimFunc
+     fused_add_exp_squeeze:      → single merged TIR Function
 
 The merged function eliminates intermediate buffers — the output of ``add`` is directly consumed
 by ``exp`` without writing to and reading from global memory. This is the core performance benefit
@@ -376,7 +376,7 @@ Source Code Map
      - IndexedForwardGraph, DominatorTree, GraphPartitioner (Union-Find)
    * - ``src/relax/transform/fuse_tir.cc``
      - FuseTIR implementation, SymbolicMatcher
-   * - ``include/tvm/relax/op_attr_types.h``
+   * - ``include/tvm/relax/op_attr.h``
      - ``OpPatternKind`` enum definition
    * - ``python/tvm/relax/transform/transform.py``
      - Python API: FuseOps, FuseTIR, FuseOpsByPattern, FusionPattern

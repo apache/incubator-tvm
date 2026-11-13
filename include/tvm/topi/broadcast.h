@@ -24,6 +24,7 @@
 #ifndef TVM_TOPI_BROADCAST_H_
 #define TVM_TOPI_BROADCAST_H_
 
+#include <tvm/tirx/op/math.h>
 #include <tvm/topi/detail/broadcast.h>
 #include <tvm/topi/detail/constant_utils.h>
 #include <tvm/topi/tags.h>
@@ -55,7 +56,7 @@ inline tvm::te::Tensor broadcast_to(const tvm::te::Tensor& t,
   TVM_FFI_ICHECK_EQ(output_shape.size(), bh.common_shape.size());
   ffi::Array<PrimExpr> oshape;
   for (size_t i = 0; i < output_shape.size(); ++i) {
-    if (output_shape[i].as<IntImmNode>() == nullptr) {
+    if (output_shape[i].as<IntImmObj>() == nullptr) {
       oshape.push_back(output_shape[i]);
     } else {
       TVM_FFI_ICHECK(topi::detail::EqualCheck(output_shape[i], bh.common_shape[i]));
@@ -273,7 +274,7 @@ TOPI_DEFINE_BCAST_OP(floor_divide, {
  *
  * \return The computed log-sum-exp result.
  */
-TOPI_DEFINE_BCAST_OP(log_add_exp, { return prim::logaddexp(a, b); });
+TOPI_DEFINE_BCAST_OP(log_add_exp, { return tirx::logaddexp(a, b); });
 
 /*!
  * \fn trunc divide

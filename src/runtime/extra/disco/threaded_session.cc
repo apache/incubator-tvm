@@ -191,7 +191,7 @@ Session Session::ThreadedSession(int num_workers, int num_group) {
       << "The number of workers should be divisible by the number of worker group.";
   ffi::ObjectPtr<ThreadedSessionObj> n =
       ffi::make_object<ThreadedSessionObj>(num_workers, num_group);
-  return Session(std::move(n));
+  return Session(ffi::UnsafeInit{}, std::move(n));
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

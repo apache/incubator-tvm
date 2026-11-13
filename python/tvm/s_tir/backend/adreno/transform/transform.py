@@ -25,7 +25,7 @@ def InjectTextureAlloc():
     via alloc_nd/alloc_free calls
     Returns
     -------
-    fpass : tvm.transform.Pass
+    fpass : tvm_tirx.ir.transform.Pass
         The result pass
     """
     return _ffi_api.InjectTextureAlloc()  # type: ignore
@@ -40,7 +40,7 @@ def TextureFlatten():
 
     Returns
     -------
-    fpass : tvm.transform.Pass
+    fpass : tvm_tirx.ir.transform.Pass
         The result pass
     """
     return _ffi_api.TextureFlatten()  # type: ignore

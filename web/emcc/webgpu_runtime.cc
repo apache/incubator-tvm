@@ -31,61 +31,61 @@
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/runtime/device_api.h>
+#include <tvm/support/bytes_io.h>
 
+#include <algorithm>
 #include <iostream>
+#include <mutex>
 #include <string>
 
-#include "../../src/runtime/file_utils.h"
-#include "../../src/runtime/metadata.h"
-#include "../../src/runtime/workspace_pool.h"
-#include "../../src/support/bytes_io.h"
+#include "../../3rdparty/tvm-tirx/src/runtime/metadata.h"
 
 namespace tvm {
 namespace runtime {
 
-/*! \brief Thread local workspace */
-class WebGPUThreadEntry {
- public:
-  /*! \brief thread local pool*/
-  WorkspacePool pool;
-  /*! \brief constructor */
-  WebGPUThreadEntry();
-  // get the threadlocal workspace
-  static WebGPUThreadEntry* ThreadLocal();
-};
-
 // All the implementations are redirectly to the JS side.
 class WebGPUDeviceAPI : public DeviceAPI {
  public:
-  WebGPUDeviceAPI() {
-    auto fp = tvm::ffi::Function::GetGlobal("wasm.WebGPUDeviceAPI");
-    TVM_FFI_ICHECK(fp.has_value()) << "Cannot find wasm.WebGPUContext in the env";
-    auto getter = ffi::TypedFunction<ffi::Function(std::string)>(*fp);
-    alloc_space_ = getter("deviceAllocDataSpace");
-    free_space_ = getter("deviceFreeDataSpace");
-    copy_to_gpu_ = getter("deviceCopyToGPU");
-    copy_from_gpu_ = getter("deviceCopyFromGPU");
-    copy_within_gpu_ = getter("deviceCopyWithinGPU");
-  }
-
   void SetDevice(Device dev) final {}
-  void GetAttr(Device dev, DeviceAttrKind kind, ffi::Any* rv) final {
-    if (kind == kExist) {
-      *rv = 1;
+  ffi::Any GetAttr(Device dev, const ffi::String& name) final {
+    if (name == "exist") {
+      return dev.device_id == 0 && ffi::Function::GetGlobal("wasm.WebGPUDeviceAPI").has_value();
     }
+    return nullptr;
   }
 
-  void* AllocDataSpace(Device dev, size_t nbytes, size_t alignment, DLDataType type_hint) final {
+  ffi::Tensor Empty(ffi::ShapeView shape, DLDataType dtype, DLDevice device,
+                    ffi::Optional<MemoryScope> mem_scope = std::nullopt) final {
+    TVM_FFI_CHECK(!mem_scope.has_value() || mem_scope.value() == MemoryScope::Global(), ValueError)
+        << "Unsupported memory scope: " << mem_scope.value_or(MemoryScope::Global());
+    struct Allocator {
+      WebGPUDeviceAPI* api;
+      void AllocData(DLTensor* tensor) {
+        size_t alignment =
+            std::max(static_cast<size_t>(kAllocAlignment),
+                     static_cast<size_t>((tensor->dtype.bits / 8) * tensor->dtype.lanes));
+        tensor->data = api->AllocDataSpace(tensor->device, ffi::GetDataSize(*tensor), alignment,
+                                           tensor->dtype);
+      }
+      void FreeData(DLTensor* tensor) { api->FreeDataSpace(tensor->device, tensor->data); }
+    };
+    return ffi::Tensor::FromNDAlloc(Allocator{this}, shape, dtype, device);
+  }
+
+ private:
+  void* AllocDataSpace(Device dev, size_t nbytes, size_t alignment, DLDataType type_hint) {
+    Initialize();
     double ptr_number = alloc_space_(nbytes);
     return reinterpret_cast<void*>(static_cast<int64_t>(ptr_number));
   }
 
-  void FreeDataSpace(Device dev, void* ptr) final { return free_space_(ptr); }
+  void FreeDataSpace(Device dev, void* ptr) { return free_space_(ptr); }
 
  protected:
   void CopyDataFromTo(const void* from, size_t from_offset, void* to, size_t to_offset, size_t size,
                       Device dev_from, Device dev_to, DLDataType type_hint,
                       TVMStreamHandle stream) final {
+    Initialize();
     if (static_cast<int>(dev_from.device_type) == kDLWebGPU &&
         static_cast<int>(dev_to.device_type) == kDLWebGPU) {
       TVM_FFI_ICHECK_EQ(dev_from.device_id, dev_to.device_id);
@@ -122,20 +122,26 @@ class WebGPUDeviceAPI : public DeviceAPI {
     (*func)();
   }
 
-  void* AllocWorkspace(Device dev, size_t size, DLDataType type_hint) final {
-    return WebGPUThreadEntry::ThreadLocal()->pool.AllocWorkspace(dev, size);
-  }
-
-  void FreeWorkspace(Device dev, void* data) final {
-    WebGPUThreadEntry::ThreadLocal()->pool.FreeWorkspace(dev, data);
-  }
-
   static WebGPUDeviceAPI* Global() {
     static WebGPUDeviceAPI* inst = new WebGPUDeviceAPI();
     return inst;
   }
 
  private:
+  void Initialize() {
+    std::call_once(initialized_, [this]() {
+      auto fp = tvm::ffi::Function::GetGlobal("wasm.WebGPUDeviceAPI");
+      TVM_FFI_ICHECK(fp.has_value()) << "Cannot find wasm.WebGPUContext in the env";
+      auto getter = ffi::TypedFunction<ffi::Function(std::string)>(*fp);
+      alloc_space_ = getter("deviceAllocDataSpace");
+      free_space_ = getter("deviceFreeDataSpace");
+      copy_to_gpu_ = getter("deviceCopyToGPU");
+      copy_from_gpu_ = getter("deviceCopyFromGPU");
+      copy_within_gpu_ = getter("deviceCopyWithinGPU");
+    });
+  }
+
+  std::once_flag initialized_;
   // NOTE: js return number as double.
   ffi::TypedFunction<double(int64_t nbytes)> alloc_space_;
   ffi::TypedFunction<void(void* ptr)> free_space_;
@@ -147,18 +153,10 @@ class WebGPUDeviceAPI : public DeviceAPI {
       copy_within_gpu_;
 };
 
-WebGPUThreadEntry::WebGPUThreadEntry()
-    : pool(static_cast<DLDeviceType>(kDLWebGPU), WebGPUDeviceAPI::Global()) {}
-
-WebGPUThreadEntry* WebGPUThreadEntry::ThreadLocal() {
-  static thread_local WebGPUThreadEntry inst;
-  return &inst;
-}
-
-class WebGPUModuleNode final : public ffi::ModuleObj {
+class WebGPUModuleObj final : public ffi::ModuleObj {
  public:
-  explicit WebGPUModuleNode(std::unordered_map<std::string, std::string> smap,
-                            ffi::Map<ffi::String, FunctionInfo> fmap)
+  explicit WebGPUModuleObj(std::unordered_map<std::string, std::string> smap,
+                           ffi::Map<ffi::String, FunctionInfo> fmap)
       : smap_(smap), fmap_(fmap) {
     auto fp = tvm::ffi::Function::GetGlobal("wasm.WebGPUCreateShader");
     TVM_FFI_ICHECK(fp.has_value());
@@ -242,7 +240,7 @@ ffi::Module WebGPUModuleLoadFromBytes(const ffi::Bytes& bytes) {
   ffi::Map<ffi::String, FunctionInfo> fmap;
   TVM_FFI_ICHECK(stream.Read(&fmap));
   stream.Read(&smap);
-  return ffi::Module(ffi::make_object<WebGPUModuleNode>(smap, fmap));
+  return ffi::Module(ffi::make_object<WebGPUModuleObj>(smap, fmap));
 }
 
 // for now webgpu is hosted via a vulkan module.

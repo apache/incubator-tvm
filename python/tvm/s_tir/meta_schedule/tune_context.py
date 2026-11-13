@@ -19,6 +19,8 @@
 
 from typing import TYPE_CHECKING, Optional, Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
@@ -26,11 +28,10 @@ from tvm_ffi import register_object, register_global_func
 
 # isort: on
 
-from tvm import IRModule
-from tvm.runtime import Object
 from tvm.s_tir import Schedule
-from tvm.target import Target
-from tvm.tirx import PrimFunc
+from tvm_tirx import IRModule
+from tvm_tirx.target import Target
+from tvm_tirx.tirx import Function
 
 from . import _ffi_api
 from .logging import Logger, get_logger, get_logging_func
@@ -45,15 +46,15 @@ if TYPE_CHECKING:
 
 
 @register_global_func("tvm.s_tir.meta_schedule.normalize_mod")
-def _normalize_mod(mod: PrimFunc | IRModule) -> IRModule:
+def _normalize_mod(mod: Function | IRModule) -> IRModule:
     """Normalize the input to an IRModule"""
-    if isinstance(mod, PrimFunc):
+    if isinstance(mod, Function):
         if not (mod.attrs and "global_symbol" in mod.attrs):
             mod = mod.with_attr("global_symbol", "main")
         mod = mod.with_attr("tirx.noalias", True)
         mod = IRModule({"main": mod})
     if not isinstance(mod, IRModule):
-        raise TypeError(f"Expected `mod` to be PrimFunc or IRModule, but gets: {mod}")
+        raise TypeError(f"Expected `mod` to be Function or IRModule, but gets: {mod}")
     func_names = mod.get_global_vars()
     if len(func_names) == 1 and func_names[0].name_hint != "main":
         mod = IRModule({"main": mod[func_names[0]]})
@@ -61,7 +62,7 @@ def _normalize_mod(mod: PrimFunc | IRModule) -> IRModule:
 
 
 @register_object("s_tir.meta_schedule.TuneContext")
-class TuneContext(Object):
+class TuneContext(tvm_ffi.Object):
     """The tune context class is designed to contain all resources for a tuning task.
 
     Parameters
@@ -114,7 +115,7 @@ class TuneContext(Object):
         from .space_generator import SpaceGenerator
 
         # pylint: enable=import-outside-toplevel
-        if isinstance(mod, PrimFunc):
+        if isinstance(mod, Function):
             mod = _normalize_mod(mod)
         if target is not None:
             if not isinstance(target, Target):

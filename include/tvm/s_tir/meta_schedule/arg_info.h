@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_ARG_INFO_H_
 #define TVM_S_TIR_META_SCHEDULE_ARG_INFO_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/shape.h>
 #include <tvm/ffi/dtype.h>
 #include <tvm/ffi/reflection/registry.h>
@@ -31,20 +32,20 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The argument information. */
-class ArgInfoNode : public ffi::Object {
+class ArgInfoObj : public ffi::Object {
  public:
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.ArgInfo", ArgInfoNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.ArgInfo", ArgInfoObj, ffi::Object);
 
  public:
   /*! \brief Default destructor. */
-  virtual ~ArgInfoNode() = default;
+  virtual ~ArgInfoObj() = default;
   /*! \brief Converts the ArgInfo to its corresponding JSON representation. */
   virtual ffi::ObjectRef AsJSON() const = 0;
 };
 
 /*!
- * \brief Managed reference to ArgInfoNode
- * \sa ArgInfoNode
+ * \brief Managed reference to ArgInfoObj
+ * \sa ArgInfoObj
  */
 class ArgInfo : public ffi::ObjectRef {
  public:
@@ -55,11 +56,11 @@ class ArgInfo : public ffi::ObjectRef {
    */
   TVM_DLL static ArgInfo FromJSON(const ffi::ObjectRef& json_obj);
   /*!
-   * \brief Extract a list of the argument information from PrimFunc.
-   * \param func The PrimFunc to get argument information from.
+   * \brief Extract a list of the argument information from Function.
+   * \param func The Function to get argument information from.
    * \return An array of the argument information derived.
    */
-  TVM_DLL static ffi::Array<ArgInfo, void> FromPrimFunc(const tirx::PrimFunc& func);
+  TVM_DLL static ffi::Array<ArgInfo, void> FromFunction(const tirx::Function& func);
   /*!
    * \brief Extract a list of the argument information from the entry func of an IRModule
    * \param mod The IRModule to extract argument information from.
@@ -68,14 +69,14 @@ class ArgInfo : public ffi::ObjectRef {
    */
   TVM_DLL static ffi::Array<ArgInfo, void> FromEntryFunc(const IRModule& mod, bool remove_preproc);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ArgInfo, ffi::ObjectRef, ArgInfoNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(ArgInfo, ffi::ObjectRef, ArgInfoObj);
 
  protected:
   ArgInfo() = default;
 };
 
 /*! \brief The tensor argument information. */
-class TensorInfoNode : public ArgInfoNode {
+class TensorInfoObj : public ArgInfoObj {
  public:
   /*! \brief The data type of the tensor. */
   DLDataType dtype;
@@ -84,19 +85,19 @@ class TensorInfoNode : public ArgInfoNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TensorInfoNode>()
-        .def_ro("dtype", &TensorInfoNode::dtype)
-        .def_ro("shape", &TensorInfoNode::shape);
+    refl::ObjectDef<TensorInfoObj>()
+        .def_ro("dtype", &TensorInfoObj::dtype)
+        .def_ro("shape", &TensorInfoObj::shape);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TensorInfo", TensorInfoNode, ArgInfoNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TensorInfo", TensorInfoObj, ArgInfoObj);
 
  public:
   ffi::ObjectRef AsJSON() const;
 };
 
 /*!
- * \brief Managed reference to TensorInfoNode
- * \sa TensorInfoNode
+ * \brief Managed reference to TensorInfoObj
+ * \sa TensorInfoObj
  */
 class TensorInfo : public ArgInfo {
  public:
@@ -112,7 +113,7 @@ class TensorInfo : public ArgInfo {
    * \return The argument information parsed.
    */
   TVM_DLL static TensorInfo FromJSON(const ffi::ObjectRef& json_obj);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorInfo, ArgInfo, TensorInfoNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TensorInfo, ArgInfo, TensorInfoObj);
 };
 
 }  // namespace meta_schedule

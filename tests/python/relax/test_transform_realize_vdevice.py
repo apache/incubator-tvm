@@ -20,16 +20,17 @@
 from __future__ import annotations
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax import VDevice
 from tvm.relax.transform import RealizeVDevice
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 def verify(input, expected):
-    tvm.ir.assert_structural_equal(RealizeVDevice()(input), expected)
+    tvm_tirx.ir.assert_structural_equal(RealizeVDevice()(input), expected)
 
 
 vdevices = [
@@ -66,7 +67,7 @@ def test_dataflow_binding():
                 y1 = y
                 x2 = x1
                 y2 = y1
-                x2 = R.hint_on_device(x2, tvm.cpu())
+                x2 = R.hint_on_device(x2, device_type=1, index=0)
                 lv0 = R.add(x2, y2)
                 gv = R.multiply(lv0, z)
                 R.output(gv)
@@ -128,7 +129,7 @@ def test_binding():
             y1 = y
             x2 = x1
             y2 = y1
-            x2 = R.hint_on_device(x2, tvm.cpu())
+            x2 = R.hint_on_device(x2, device_type=1, index=0)
             s = R.add(x2, y2)
             m = R.multiply(s, z)
             return m
@@ -285,7 +286,7 @@ def test_multi_device():
         ) -> R.Tensor((2, 3), "float32", "cuda"):
             with R.dataflow():
                 lv0 = R.add(x, y)
-                lv0 = R.hint_on_device(lv0, tvm.cpu())
+                lv0 = R.hint_on_device(lv0, device_type=1, index=0)
                 lv1 = R.to_vdevice(lv0, "cuda")
                 lv2 = R.add(z, z)
                 gv = R.multiply(lv1, lv2)
@@ -346,11 +347,11 @@ def test_insert_to_vdevice():
             z: R.Tensor((2, 3), "float32"),
         ) -> R.Tensor((2, 3), "float32"):
             with R.dataflow():
-                lv0 = R.hint_on_device(y, tvm.cpu())
+                lv0 = R.hint_on_device(y, device_type=1, index=0)
                 lv1 = R.add(x, lv0)
-                lv2 = R.hint_on_device(lv1, tvm.cuda())
+                lv2 = R.hint_on_device(lv1, device_type=2, index=0)
                 lv3 = R.add(lv2, lv2)
-                lv4 = R.hint_on_device(z, tvm.cuda())
+                lv4 = R.hint_on_device(z, device_type=2, index=0)
                 gv = R.multiply(lv3, lv4)
                 R.output(gv)
             return gv
@@ -414,8 +415,8 @@ def test_input_module_is_unmodified():
     expected = make_module()
 
     RealizeVDevice()(original)
-    tvm.ir.assert_structural_equal(original, expected)
+    tvm_tirx.ir.assert_structural_equal(original, expected)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

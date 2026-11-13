@@ -23,6 +23,7 @@
 #ifndef TVM_S_TIR_STMT_FUNCTOR_H_
 #define TVM_S_TIR_STMT_FUNCTOR_H_
 
+#include <tvm/base.h>
 #include <tvm/s_tir/stmt.h>
 #include <tvm/tirx/stmt_functor.h>
 
@@ -37,18 +38,17 @@ template <typename FType>
 class StmtFunctor;
 
 template <typename R, typename... Args>
-class StmtFunctor<R(const tirx::Stmt&, Args...)>
-    : public tirx::StmtFunctor<R(const tirx::Stmt&, Args...)> {
-  using Parent = tirx::StmtFunctor<R(const tirx::Stmt&, Args...)>;
+class StmtFunctor<R(const Stmt&, Args...)> : public tirx::StmtFunctor<R(const Stmt&, Args...)> {
+  using Parent = tirx::StmtFunctor<R(const Stmt&, Args...)>;
 
  public:
   TVM_DEFINE_OBJECT_FUNCTOR_DEFAULT_CONSTRUCTOR(StmtFunctor, Parent)
   using Parent::Dispatch_;
 
-  virtual R Dispatch_(const SBlockNode* op, Args... args) {
+  virtual R Dispatch_(const SBlockObj* op, Args... args) {
     return this->DispatchDefault_(op, std::forward<Args>(args)...);
   }
-  virtual R Dispatch_(const SBlockRealizeNode* op, Args... args) {
+  virtual R Dispatch_(const SBlockRealizeObj* op, Args... args) {
     return this->DispatchDefault_(op, std::forward<Args>(args)...);
   }
 
@@ -57,21 +57,22 @@ class StmtFunctor<R(const tirx::Stmt&, Args...)>
   explicit StmtFunctor(const VTable* vtable) : Parent(vtable) {}
   static void InitVTable(VTable* vtable) {
     Parent::InitVTable(vtable);
-    Parent::template SetDispatch<StmtFunctor, SBlockNode>(vtable);
-    Parent::template SetDispatch<StmtFunctor, SBlockRealizeNode>(vtable);
+    Parent::template SetDispatch<StmtFunctor, SBlockObj>(vtable);
+    Parent::template SetDispatch<StmtFunctor, SBlockRealizeObj>(vtable);
   }
 };
 
 /*!
  * \brief Extend native TIRX traversal with schedulable block semantics.
  *
- * Block iterator binders and annotations are not expression uses. Buffer
+ * Block iterator binders and policy annotations are not expression uses. Tensor
  * definitions precede their regions; ordinary statements reuse TIRX hooks.
  * Structural traversal remains available independently with its full field walk.
  * Generic TIRX visitors traverse these nodes structurally, including whole
- * iterators and annotations. Both paths visit allocation and match-buffer
- * definitions before region uses. Only this S-TIR subclass supplies native
- * block hooks; the core TIRX table does not register dialect nodes.
+ * iterators and annotations. Both paths visit allocation and match-tensor
+ * definitions before region uses. Producer placement annotations are expression uses.
+ * Only this S-TIR subclass supplies native block hooks; the core TIRX table does not
+ * register dialect nodes.
  */
 class TVM_DLL StmtExprVisitor : public tirx::StmtExprVisitor {
  public:
@@ -79,14 +80,14 @@ class TVM_DLL StmtExprVisitor : public tirx::StmtExprVisitor {
   using tirx::StmtExprVisitor::Visit;
   using tirx::StmtExprVisitor::Visit_;
 
-  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockNode* op);
-  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeNode* op);
+  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockObj* op);
+  virtual ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* op);
 
   // Shared native traversal for specialized TIRX helpers extended by S-TIR.
-  static ffi::Optional<VisitInterrupt> VisitBlock(tirx::StmtExprVisitor* visitor,
-                                                  const SBlockNode* op);
-  static ffi::Optional<VisitInterrupt> VisitBlockRealize(tirx::StmtExprVisitor* visitor,
-                                                         const SBlockRealizeNode* op);
+  static ffi::Optional<VisitInterrupt> VisitBlock(ffi::StructuralVisitorObj* visitor,
+                                                  const SBlockObj* op);
+  static ffi::Optional<VisitInterrupt> VisitBlockRealize(ffi::StructuralVisitorObj* visitor,
+                                                         const SBlockRealizeObj* op);
 
  protected:
   explicit StmtExprVisitor(const VTable* vtable) : tirx::StmtExprVisitor(vtable) {}
@@ -96,11 +97,12 @@ class TVM_DLL StmtExprVisitor : public tirx::StmtExprVisitor {
 /*!
  * \brief Extend native TIRX mutation while preserving block iterator binders.
  *
- * Reuses inherited remapping and ownership checks. Block annotations are left
- * intact; structural mutation separately provides the full field rewrite.
+ * Reuses inherited remapping and ownership checks. Block policy annotations are left
+ * intact; producer placement annotations follow tensor remapping. Structural mutation
+ * separately provides the full field rewrite.
  * Generic TIRX mutators instead use the full structural rewrite, including
  * iterator definitions and annotations. Both paths establish allocation and
- * match-buffer remaps before visiting region uses and preserve copy-on-write.
+ * match-tensor remaps before visiting region uses and preserve copy-on-write.
  */
 class TVM_DLL StmtExprMutator : public tirx::StmtExprMutator {
  public:
@@ -108,15 +110,14 @@ class TVM_DLL StmtExprMutator : public tirx::StmtExprMutator {
   using tirx::StmtExprMutator::Mutate;
   using tirx::StmtExprMutator::Mutate_;
 
-  virtual UnchangedOr<tirx::Stmt> Mutate_(const SBlockNode* op, InplaceMode inplace_mode);
-  virtual UnchangedOr<tirx::Stmt> Mutate_(const SBlockRealizeNode* op, InplaceMode inplace_mode);
+  virtual UnchangedOr<Stmt> Mutate_(const SBlockObj* op, InplaceMode inplace_mode);
+  virtual UnchangedOr<Stmt> Mutate_(const SBlockRealizeObj* op, InplaceMode inplace_mode);
 
   // Share block ownership and binder rules with specialized TIRX helpers.
-  static UnchangedOr<tirx::Stmt> MutateBlock(tirx::StmtExprMutator* mutator, const SBlockNode* op,
-                                             InplaceMode inplace_mode);
-  static UnchangedOr<tirx::Stmt> MutateBlockRealize(tirx::StmtExprMutator* mutator,
-                                                    const SBlockRealizeNode* op,
-                                                    InplaceMode inplace_mode);
+  static UnchangedOr<Stmt> MutateBlock(ffi::StructuralMutatorObj* mutator, const SBlockObj* op,
+                                       InplaceMode inplace_mode);
+  static UnchangedOr<Stmt> MutateBlockRealize(ffi::StructuralMutatorObj* mutator,
+                                              const SBlockRealizeObj* op, InplaceMode inplace_mode);
 
  protected:
   explicit StmtExprMutator(const VTable* vtable) : tirx::StmtExprMutator(vtable) {}

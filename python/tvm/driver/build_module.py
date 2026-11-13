@@ -21,27 +21,28 @@
 from collections.abc import Callable
 
 import tvm
-from tvm.ir.module import IRModule
-from tvm.runtime import Executable
-from tvm.target import Target
-from tvm.tirx import PrimFunc
+import tvm_tirx
+from tvm_tirx.codegen import Executable
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.target import Target
+from tvm_tirx.tirx import Function
 
 
-def _contains_relax(mod: PrimFunc | IRModule) -> bool:
-    if isinstance(mod, PrimFunc):
+def _contains_relax(mod: Function | IRModule) -> bool:
+    if isinstance(mod, Function):
         return False
     if isinstance(mod, IRModule):
         return any(isinstance(func, tvm.relax.Function) for _, func in mod.functions_items())
 
-    raise ValueError(f"Function input must be a PrimFunc or IRModule, but got {type(mod)}")
+    raise ValueError(f"Function input must be a Function or IRModule, but got {type(mod)}")
 
 
 def compile(  # pylint: disable=redefined-builtin
-    mod: PrimFunc | IRModule,
+    mod: Function | IRModule,
     target: Target | None = None,
     *,
-    relax_pipeline: tvm.transform.Pass | Callable | str | None = "default",
-    tir_pipeline: tvm.transform.Pass | Callable | str | None = "default",
+    relax_pipeline: tvm_tirx.ir.transform.Pass | Callable | str | None = "default",
+    tir_pipeline: tvm_tirx.ir.transform.Pass | Callable | str | None = "default",
 ) -> Executable:
     """
     Compile an IRModule to a runtime executable.
@@ -51,15 +52,15 @@ def compile(  # pylint: disable=redefined-builtin
 
     Parameters
     ----------
-    mod : Union[PrimFunc, IRModule]
-        The input module to be compiled. Can be a PrimFunc or an IRModule containing
+    mod : Union[Function, IRModule]
+        The input module to be compiled. Can be a Function or an IRModule containing
         TIR or Relax functions.
     target : Optional[Target]
-        The target platform to compile for.
-    relax_pipeline : Optional[Union[tvm.transform.Pass, Callable, str]]
+        The target platform and its backend compilation configuration.
+    relax_pipeline : Optional[Union[tvm_tirx.ir.transform.Pass, Callable, str]]
         The compilation pipeline to use for Relax functions.
         Only used if the module contains Relax functions.
-    tir_pipeline : Optional[Union[tvm.transform.Pass, Callable, str]]
+    tir_pipeline : Optional[Union[tvm_tirx.ir.transform.Pass, Callable, str]]
         The compilation pipeline to use for TIR functions.
 
     Returns
@@ -75,5 +76,4 @@ def compile(  # pylint: disable=redefined-builtin
             relax_pipeline=relax_pipeline,
             tir_pipeline=tir_pipeline,
         )
-    lib = tvm.tirx.build(mod, target, pipeline=tir_pipeline)
-    return Executable(lib)
+    return tvm_tirx.tirx.compile(mod, target, pipeline=tir_pipeline)

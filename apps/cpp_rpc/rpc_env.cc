@@ -26,15 +26,39 @@
 #include <tvm/ffi/function.h>
 #include <tvm/runtime/logging.h>
 
+#ifndef _WIN32
+#include <sys/wait.h>
+#endif
+
+#include <array>
+#include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <string>
 #include <system_error>
 #include <vector>
 
-#include "../../src/support/utils.h"
-
 namespace {
+int Execute(std::string cmd, std::string* err_msg) {
+  std::array<char, 128> buffer;
+  cmd += " 2>&1";
+#ifdef _WIN32
+  FILE* fd = _popen(cmd.c_str(), "r");
+#else
+  FILE* fd = popen(cmd.c_str(), "r");
+#endif
+  while (fgets(buffer.data(), buffer.size(), fd) != nullptr) {
+    *err_msg += buffer.data();
+  }
+#ifdef _WIN32
+  int status = _pclose(fd);
+  return status != 3 ? status : 255;
+#else
+  int status = pclose(fd);
+  return WIFEXITED(status) ? WEXITSTATUS(status) : 255;
+#endif
+}
+
 std::string GenerateUntarCommand(const std::string& tar_file, const std::string& output_dir) {
   std::string untar_cmd;
   untar_cmd.reserve(512);
@@ -197,7 +221,7 @@ void LinuxShared(const std::string output, const std::vector<std::string>& files
   }
   cmd += " " + options;
   std::string err_msg;
-  auto executed_status = support::Execute(cmd, &err_msg);
+  auto executed_status = Execute(cmd, &err_msg);
   if (executed_status) {
     TVM_FFI_THROW(InternalError) << err_msg;
   }
@@ -222,7 +246,7 @@ void WindowsShared(const std::string& output, const std::vector<std::string>& fi
   }
   cmd += " " + options;
   std::string err_msg;
-  const auto executed_status = support::Execute(cmd, &err_msg);
+  const auto executed_status = Execute(cmd, &err_msg);
   if (executed_status) {
     TVM_FFI_THROW(InternalError) << err_msg;
   }
@@ -245,15 +269,14 @@ void CreateShared(const std::string& output, const std::vector<std::string>& fil
 }
 
 std::string BuildSharedLibrary(std::string file) {
-  if (support::EndsWith(file, ".so") || support::EndsWith(file, ".dll") ||
-      support::EndsWith(file, ".dylib")) {
+  if (file.ends_with(".so") || file.ends_with(".dll") || file.ends_with(".dylib")) {
     return file;
   }
 
   std::string file_name = file + ".so";
-  if (support::EndsWith(file, ".o")) {
+  if (file.ends_with(".o")) {
     CreateShared(file_name, {file});
-  } else if (support::EndsWith(file, ".tar")) {
+  } else if (file.ends_with(".tar")) {
     const std::string tmp_dir = "./rpc/tmp/";
     std::error_code ec;
     std::filesystem::create_directories(tmp_dir, ec);
@@ -269,7 +292,7 @@ std::string BuildSharedLibrary(std::string file) {
     const std::string cmd = GenerateUntarCommand(file, tmp_dir);
 
     std::string err_msg;
-    const int executed_status = support::Execute(cmd, &err_msg);
+    const int executed_status = Execute(cmd, &err_msg);
     if (executed_status) {
       TVM_FFI_THROW(InternalError) << err_msg;
     }

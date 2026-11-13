@@ -20,7 +20,7 @@
 import operator
 from functools import partial, reduce
 
-import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax import PyExprMutator, expr_functor, transform
 from tvm.relax.transform import PatternCheckContext
@@ -142,18 +142,18 @@ def partition_for_cudnn(mod):
 
     Parameters
     ----------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The IRModule to be partitioned.
 
     Returns
     -------
-    mod: tvm.IRModule
+    mod: tvm_tirx.IRModule
         The resulting IRModule, containing partitioned subgraphs to be
         offloaded to the cuDNN backend.
     """
 
     patterns = get_patterns_with_prefix("cudnn")
-    return tvm.transform.Sequential(
+    return tvm_tirx.ir.transform.Sequential(
         [
             transform.FuseOpsByPattern(patterns, bind_constants=False, annotate_codegen=True),
             annotate_workspace,
@@ -176,7 +176,7 @@ class WorkspaceAnnotator(PyExprMutator):
     def visit_function_(self, f):
         if "Composite" not in f.attrs:
             body = super().visit_expr(f.body)
-            new_f = relax.Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.span)
+            new_f = relax.Function(f.params, body, f.ret_ty, f.is_pure, f.attrs, f.loc)
 
             if "global_symbol" in f.attrs and "cudnn" in f.attrs["global_symbol"]:
                 composite_func = body.blocks[0].bindings[0].value
@@ -191,7 +191,7 @@ class WorkspaceAnnotator(PyExprMutator):
             out_size_1d = _shape_1d(f.ret_ty.shape)
             # This needs to be in sync with the actual value that the kernel expects.
             workspace_size_bytes = out_size_1d * {"float16": 2, "float32": 4}[out_dtype]
-            if not isinstance(workspace_size_bytes, int | tvm.tirx.expr.IntImm):
+            if not isinstance(workspace_size_bytes, int | tvm_tirx.ir.IntImm):
                 # Tempororay workaround for dynamic shape workload. Will be removed when
                 # workspace for dynamic shape workload is implemented.
                 workspace_size_bytes = 8
@@ -200,7 +200,7 @@ class WorkspaceAnnotator(PyExprMutator):
         return f
 
 
-@tvm.transform.module_pass(opt_level=0)
+@tvm_tirx.ir.transform.module_pass(opt_level=0)
 def annotate_workspace(mod, _):
     """Pass to annotate a workspace requirement for each cuDNN-offloaded function."""
     annotator = WorkspaceAnnotator(mod)

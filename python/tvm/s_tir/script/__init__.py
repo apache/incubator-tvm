@@ -14,7 +14,7 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-"""S-TIR construction namespace, exposed as ``tvm.script.s_tir``."""
+"""S-TIR construction namespace, exposed as ``tvm_tirx.script.s_tir``."""
 
 import importlib as _importlib
 import sys as _sys
@@ -29,8 +29,8 @@ def _initialize():
         return
     _initializing = True
     try:
-        from tvm.script.parser import entry, protocol_registry, register_namespace
-        from tvm.tirx import script as shared
+        from tvm_tirx.script.parser import entry, protocol_registry, register_namespace
+        from tvm_tirx.tirx import script as shared
 
         from . import ir_builder as builder
 
@@ -41,18 +41,25 @@ def _initialize():
             if name not in ("builder", "ir_builder", "jit")
         )
         for name in (
+            "CommReducer",
+            "Reduce",
+            "comm_reducer",
+            "async_copy_scope",
+            "async_commit",
+            "async_wait",
+            "manual_sync",
             "function_",
             "arg_",
             "bind_",
             "check_well_formed_",
             "sblock",
-            "match_buffer",
+            "match_tensor",
             "init",
             "where",
             "reads",
             "writes",
             "sblock_attr",
-            "sblock_alloc_buffer",
+            "sblock_alloc_tensor",
             "axis",
             "block_name_suffix_context",
         ):
@@ -70,7 +77,7 @@ def _initialize():
                 }
             )
         globals().update(
-            prim_func=entry.make_decorator(builder, namespace_path="s_tir.prim_func"),
+            function=entry.make_decorator(builder, namespace_path="s_tir.function"),
             inline=entry.make_macro_decorator(
                 builder, namespace_path="s_tir.inline", preserve_return=True, late_binding=True
             ),

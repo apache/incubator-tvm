@@ -21,7 +21,7 @@
 from collections.abc import Sequence
 
 from tvm import relax as rx
-from tvm import tirx
+from tvm_tirx import tirx
 
 from . import op
 from .core import Effect, Module, ModuleList, Parameter, Tensor, get_default_dtype

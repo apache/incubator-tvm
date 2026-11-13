@@ -24,11 +24,6 @@ import sys
 from collections import defaultdict
 from pathlib import Path
 
-REPO_ROOT = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.append(str(REPO_ROOT / "tests" / "scripts"))
-sys.path.append(str(REPO_ROOT / "tests" / "scripts" / "github"))
-sys.path.append(str(REPO_ROOT / "tests" / "scripts" / "jenkins"))
-
 # Tag dictionary used to create a mapping relation to categorize PRs owning same tag.
 TAG_DICT = {
     "metaschedule": "MetaSchedule",

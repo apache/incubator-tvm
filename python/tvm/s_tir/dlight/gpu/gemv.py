@@ -19,8 +19,11 @@
 
 from functools import reduce
 
-from tvm import s_tir, tirx
-from tvm.target import Target
+import tvm_tirx
+from tvm import s_tir
+from tvm_tirx import tirx
+from tvm_tirx.ir import Range
+from tvm_tirx.target import Target
 
 from ..analysis import (
     SBlockInfo,
@@ -28,7 +31,7 @@ from ..analysis import (
     is_broadcast_epilogue,
     is_gemv,
     normalize,
-    normalize_prim_func,
+    normalize_function,
 )
 from ..base import auto_vectorize, get_bytes, get_extent, try_inline_contiguous_spatial
 from .base import GPUScheduleRule
@@ -39,14 +42,14 @@ class GEMV(GPUScheduleRule):
 
     def apply(  # pylint: disable=too-many-locals,too-many-branches,too-many-return-statements
         self,
-        func: tirx.PrimFunc,
+        func: tirx.Function,
         target: Target,
         _: bool,
     ) -> None | s_tir.Schedule | list[s_tir.Schedule]:
-        if not isinstance(func, tirx.PrimFunc) or not self.is_target_available(target):
+        if not isinstance(func, tirx.Function) or not self.is_target_available(target):
             return None
         sch = s_tir.Schedule(func)
-        block_infos = normalize_prim_func(sch)
+        block_infos = normalize_function(sch)
         block_infos = try_inline_contiguous_spatial(sch, block_infos)
         if block_infos is None:
             return None
@@ -65,8 +68,8 @@ class GEMV(GPUScheduleRule):
             # or [S, R] = [S, R] * [R]
             return None
         block = block_info.block_rv
-        vector_input_buffers = is_gemv(sch, block_info)
-        if vector_input_buffers is None:
+        vector_input_tensors = is_gemv(sch, block_info)
+        if vector_input_tensors is None:
             return None
 
         # Step 1. Normalize the block, merge spatial and reduction iters
@@ -76,12 +79,12 @@ class GEMV(GPUScheduleRule):
         if is_inner_reduction is None:
             return None
         elif is_inner_reduction:
-            return self.sch_inner_reduction(sch, target, block, vector_input_buffers, epilogue)
+            return self.sch_inner_reduction(sch, target, block, vector_input_tensors, epilogue)
         else:
-            ret = self.sch_outer_reduction(sch, target, block, vector_input_buffers, epilogue)
+            ret = self.sch_outer_reduction(sch, target, block, vector_input_tensors, epilogue)
             if ret is None:
                 return self.sch_outer_reduction_fallback(
-                    sch, target, block, vector_input_buffers, epilogue
+                    sch, target, block, vector_input_tensors, epilogue
                 )
             return sch
 
@@ -90,7 +93,7 @@ class GEMV(GPUScheduleRule):
         sch: s_tir.Schedule,
         target: Target,
         block: s_tir.schedule.SBlockRV,
-        vector_input_buffers: list[tirx.Buffer],
+        vector_input_tensors: list[tirx.Var],
         epilogue_info: SBlockInfo | None,
     ):
         """Schedule the inner reduction block."""
@@ -145,13 +148,17 @@ class GEMV(GPUScheduleRule):
             sch.vectorize(vec_c)
 
             shared_mem_usage = 0
-            for buf in vector_input_buffers:
-                dtype_bytes = get_bytes(buf.dtype)
-                buf_size = (
-                    reduce(lambda x, y: x * y, buf.shape, tirx.IntImm(buf.shape[0].ty, 1))
+            for tensor in vector_input_tensors:
+                dtype_bytes = get_bytes(tensor.dtype)
+                tensor_size = (
+                    reduce(
+                        lambda x, y: x * y,
+                        tensor.shape,
+                        tvm_tirx.ir.IntImm(tensor.shape[0].ty, 1),
+                    )
                     * dtype_bytes
                 )
-                shared_mem_usage += buf_size
+                shared_mem_usage += tensor_size
                 if not SUPPORT_WARP_SHUFFLE:
                     # When warp shuffle is not able, cross-thread allreduce
                     # is implemented with shared memory.
@@ -160,11 +167,11 @@ class GEMV(GPUScheduleRule):
             max_smem = get_max_shared_memory_per_block(target)
             LOAD_V_SHARED = (
                 LOAD_V_SHARED
-                and isinstance(shared_mem_usage, tirx.IntImm)
+                and isinstance(shared_mem_usage, tvm_tirx.ir.IntImm)
                 and shared_mem_usage.value <= max_smem
             )
 
-            Aq_local = sch.cache_read(rf, read_buffer_index=1, storage_scope="local")
+            Aq_local = sch.cache_read(rf, read_tensor_index=1, storage_scope="local")
             num_cache_loops = len(sch.get_loops(block=Aq_local))
             sch.compute_at(Aq_local, r, preserve_unit_loops=True)
             cache_loops = sch.get_loops(block=Aq_local)[-num_cache_loops:]
@@ -180,18 +187,20 @@ class GEMV(GPUScheduleRule):
 
             # load vector into shared memory, shape should be the whole vector
             if LOAD_V_SHARED:
-                if len(vector_input_buffers) != 1:
+                if len(vector_input_tensors) != 1:
                     return None
-                V_shared = sch.cache_read(rf, read_buffer_index=0, storage_scope="shared")
+                V_shared = sch.cache_read(rf, read_tensor_index=0, storage_scope="shared")
                 sch.compute_at(V_shared, tr, preserve_unit_loops=True)
                 l = sch.get_loops(block=V_shared)[-1]
-                loop: tirx.For = sch.get(l)
-                if isinstance(loop.extent, tirx.IntImm):
+                loop: tvm_tirx.ir.For = sch.get(l)
+                if isinstance(
+                    Range.get_extent_from_begin_end(loop.begin, loop.end), tvm_tirx.ir.IntImm
+                ):
                     # avoid introducing predicates when vector length is too large
                     vec_length = max(
                         min(
                             get_max_factor(
-                                (int)(loop.extent),
+                                (int)(Range.get_extent_from_begin_end(loop.begin, loop.end)),
                                 [TS * TR * 1, TS * TR * 2, TS * TR * 4, TS * TR * 8],
                             )
                             // TS
@@ -226,7 +235,9 @@ class GEMV(GPUScheduleRule):
                 factors=[None, get_max_factor(TILE_S, [1, 2, 4, 8])],
                 preserve_unit_iters=True,
             )
-            assert sch.get(ts_o).extent.value == 1
+            assert (
+                Range.get_extent_from_begin_end(sch.get(ts_o).begin, sch.get(ts_o).end).value == 1
+            )
             ts = sch.fuse(ts_o, ts_i)
             sch.reorder(ts, tr, tile_s, vec_s, vec_c)
             sch.bind(ts, TAG_S)
@@ -240,7 +251,9 @@ class GEMV(GPUScheduleRule):
             ts_o, ts_i, tile_s = sch.split(
                 ts_tile_s, factors=[None, TS, TILE_S], preserve_unit_iters=True
             )
-            assert sch.get(ts_o).extent.value == 1
+            assert (
+                Range.get_extent_from_begin_end(sch.get(ts_o).begin, sch.get(ts_o).end).value == 1
+            )
             ts = sch.fuse(ts_o, ts_i)
             sch.reorder(tile_s, ts, tr)
             sch.bind(ts, TAG_S)
@@ -249,37 +262,34 @@ class GEMV(GPUScheduleRule):
             sch.decompose_reduction(rf, loop=sch.get_loops(block=rf)[3])
             sch.decompose_reduction(rf2, loop=sch.get_loops(block=rf2)[-1])
 
-            sch.set_scope(rf, buffer_index=0, storage_scope="local")
-            sch.set_scope(rf2, buffer_index=0, storage_scope="local")
+            sch.set_scope(rf, tensor_index=0, storage_scope="local")
+            sch.set_scope(rf2, tensor_index=0, storage_scope="local")
 
             unroll_factor = UNROLL
 
             sch.annotate(
                 block_or_loop=sch.get_loops(rf)[3],
-                ann_key="pragma_auto_unroll_max_step",
+                ann_key="tirx.auto_unroll_max_step",
                 ann_val=unroll_factor,
             )
             sch.annotate(
-                block_or_loop=sch.get_loops(rf)[3], ann_key="pragma_unroll_explicit", ann_val=1
+                block_or_loop=sch.get_loops(rf)[3], ann_key="tirx.unroll_explicit", ann_val=1
             )
 
             sch.annotate(
                 block_or_loop=sch.get_loops(rf2)[3],
-                ann_key="pragma_auto_unroll_max_step",
+                ann_key="tirx.auto_unroll_max_step",
                 ann_val=unroll_factor,
             )
             sch.annotate(
-                block_or_loop=sch.get_loops(rf2)[3], ann_key="pragma_unroll_explicit", ann_val=1
+                block_or_loop=sch.get_loops(rf2)[3], ann_key="tirx.unroll_explicit", ann_val=1
             )
 
             if LOAD_V_SHARED:
                 sch.annotate(
                     block_or_loop=sch.get_loops(V_shared)[-4],
-                    ann_key="pragma_unroll_explicit",
+                    ann_key="tirx.unroll_explicit",
                     ann_val=unroll_factor,
-                )
-                sch.annotate(
-                    block_or_loop=sch.get_loops(V_shared)[-4], ann_key="pragma_vectorize", ann_val=1
                 )
 
             # Schedule epilogue
@@ -298,7 +308,12 @@ class GEMV(GPUScheduleRule):
                     ts_o, ts_i, tile_s = sch.split(
                         ts_tile_s, factors=[None, TS, TILE_S], preserve_unit_iters=True
                     )
-                    assert sch.get(ts_o).extent.value == 1
+                    assert (
+                        Range.get_extent_from_begin_end(
+                            sch.get(ts_o).begin, sch.get(ts_o).end
+                        ).value
+                        == 1
+                    )
                     ts = sch.fuse(ts_o, ts_i)
                     sch.bind(ts, TAG_S)
                     sch.set_scope(block, 0, "local")
@@ -432,7 +447,7 @@ class GEMV(GPUScheduleRule):
         sch: s_tir.Schedule,
         target: Target,
         block: s_tir.schedule.SBlockRV,
-        vector_input_buffers: list[tirx.Buffer],
+        vector_input_tensors: list[tirx.Var],
         epilogue_info: SBlockInfo | None,
     ):
         """Schedule the outer reduction block."""
@@ -490,18 +505,18 @@ class GEMV(GPUScheduleRule):
             # decompose independent scale read to outer loop
             block_rf_stmt = sch.get(rf)
             if len(block_rf_stmt.reads) >= 3:
-                As_local = sch.cache_read(rf, read_buffer_index=2, storage_scope="local")
+                As_local = sch.cache_read(rf, read_tensor_index=2, storage_scope="local")
                 sch.compute_at(As_local, v_tile, preserve_unit_loops=True)
                 # *tile_thr, vec_s = sch.get_loops(block=As_local)
                 # sch.vectorize(vec_s)
 
-            Aq_local = sch.cache_read(rf, read_buffer_index=1, storage_scope="local")
+            Aq_local = sch.cache_read(rf, read_tensor_index=1, storage_scope="local")
             sch.compute_at(Aq_local, tile_r, preserve_unit_loops=True)
             # *tile_thr, vec_s = sch.get_loops(block=Aq_local)
             # sch.vectorize(vec_s)
 
             if LOAD_V_SHARED:
-                V_shared = sch.cache_read(rf, read_buffer_index=0, storage_scope="shared")
+                V_shared = sch.cache_read(rf, read_tensor_index=0, storage_scope="shared")
                 sch.compute_at(V_shared, r, preserve_unit_loops=True)
                 l = sch.get_loops(block=V_shared)[-1]
                 _, v_tile, ts, tr, vec = sch.split(
@@ -528,16 +543,16 @@ class GEMV(GPUScheduleRule):
             sch.decompose_reduction(rf, loop=sch.get_loops(block=rf)[2])
             sch.decompose_reduction(rf2, loop=sch.get_loops(block=rf2)[-1])
 
-            sch.set_scope(rf, buffer_index=0, storage_scope="local")
-            sch.set_scope(rf2, buffer_index=0, storage_scope="local")
+            sch.set_scope(rf, tensor_index=0, storage_scope="local")
+            sch.set_scope(rf2, tensor_index=0, storage_scope="local")
 
             sch.annotate(
                 block_or_loop=sch.get_loops(rf2)[3],
-                ann_key="pragma_auto_unroll_max_step",
+                ann_key="tirx.auto_unroll_max_step",
                 ann_val=UNROLL,
             )
             sch.annotate(
-                block_or_loop=sch.get_loops(rf2)[3], ann_key="pragma_unroll_explicit", ann_val=1
+                block_or_loop=sch.get_loops(rf2)[3], ann_key="tirx.unroll_explicit", ann_val=1
             )
 
             # Schedule epilogue
@@ -637,7 +652,7 @@ class GEMV(GPUScheduleRule):
         sch: s_tir.Schedule,
         target: Target,
         block: s_tir.schedule.SBlockRV,
-        vector_input_buffers: list[tirx.Buffer],
+        vector_input_tensors: list[tirx.Var],
         epilogue_info: SBlockInfo | None,
     ):
         """Schedule the outer reduction block."""
@@ -663,11 +678,11 @@ class GEMV(GPUScheduleRule):
         sch.bind(tx, "threadIdx.x")
         sch.reorder(bx, tx, r0, r1, c, vec)
 
-        sch.annotate(tx, ann_key="pragma_auto_unroll_max_step", ann_val=8)
-        sch.annotate(tx, ann_key="pragma_unroll_explicit", ann_val=1)
+        sch.annotate(tx, ann_key="tirx.auto_unroll_max_step", ann_val=8)
+        sch.annotate(tx, ann_key="tirx.unroll_explicit", ann_val=1)
 
         if LOAD_V_SHARED:
-            V_shared = sch.cache_read(block, vector_input_buffers[0], storage_scope="shared")
+            V_shared = sch.cache_read(block, vector_input_tensors[0], storage_scope="shared")
             sch.compute_at(V_shared, bx, preserve_unit_loops=True)
             l = sch.get_loops(block=V_shared)[-1]
             _, tx, vec_r = sch.split(l, factors=[None, tx_len, 8], preserve_unit_iters=True)

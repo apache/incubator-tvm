@@ -23,9 +23,11 @@ import math
 import numpy as np
 import pytest
 import torch
+import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
 
 DEFAULT_WORKSPACE_SIZE = 32 * 1024 * 1024
@@ -53,7 +55,7 @@ def has_flashinfer():
 
 def has_cutlass():
     """Check if CUTLASS is available for SM90+ operations"""
-    if not tvm.get_global_func("device_api.cuda", True):
+    if not tvm_ffi.get_global_func("device_api.cuda", True):
         return False
     try:
         import pynvml  # pylint: disable=import-outside-toplevel
@@ -276,7 +278,7 @@ def generate_test_data(
     scale_granularity_n: int,
     scale_granularity_k: int,
     scale_major_mode: str,
-    device: tvm.runtime.Device,
+    device: tvm_tirx.runtime.Device,
 ):
     """Generate test data for grouped GEMM operations"""
     assert batch_size == len(m_sizes), (
@@ -312,25 +314,25 @@ def generate_test_data(
     b_quantized, scale_b = quantize_fp8(b_fp32, scale_b_shape, tile_b_shape, scale_major_mode)
 
     if dtype_a == "float8_e4m3fn":
-        a_tvm = tvm.runtime.tensor(
+        a_tvm = tvm_tirx.runtime.tensor(
             a_quantized.view(torch.uint8).cpu().numpy().view(fp8_dtype), device=device
         )
     else:
-        a_tvm = tvm.runtime.from_dlpack(a_quantized)
+        a_tvm = tvm_ffi.from_dlpack(a_quantized)
 
     if dtype_b == "float8_e4m3fn":
-        b_tvm = tvm.runtime.tensor(
+        b_tvm = tvm_tirx.runtime.tensor(
             b_quantized.view(torch.uint8).cpu().numpy().view(fp8_dtype), device=device
         )
     else:
-        b_tvm = tvm.runtime.from_dlpack(b_quantized)
+        b_tvm = tvm_ffi.from_dlpack(b_quantized)
 
-    scale_a_tvm = tvm.runtime.from_dlpack(scale_a)
-    scale_b_tvm = tvm.runtime.from_dlpack(scale_b)
+    scale_a_tvm = tvm_ffi.from_dlpack(scale_a)
+    scale_b_tvm = tvm_ffi.from_dlpack(scale_b)
 
     # Create m_indptr for grouped operation
     m_indptr = torch.tensor(cum_m, device=torch_device, dtype=torch.int32)
-    m_indptr_tvm = tvm.runtime.tensor(m_indptr.cpu().numpy(), device)
+    m_indptr_tvm = tvm_tirx.runtime.tensor(m_indptr.cpu().numpy(), device)
 
     return {
         "a": a_tvm,
@@ -391,7 +393,7 @@ def test_grouped_gemm_correctness(
     test_case,
 ):
     """Test correctness of GroupedGemm operations"""
-    target = tvm.target.Target.from_device(tvm.cuda(0))
+    target = tvm_tirx.target.Target.from_device(tvm_tirx.cuda(0))
 
     # Generate the module
     mod = relax.backend.cuda.flashinfer.gen_grouped_gemm_module(target=target)[0]
@@ -400,7 +402,7 @@ def test_grouped_gemm_correctness(
     grouped_gemm_fn = mod["group_gemm_fp8_nt_groupwise"]
 
     def run_and_check():
-        device = tvm.cuda(0)
+        device = tvm_tirx.cuda(0)
         test_data = generate_test_data(
             batch_size=test_case["batch_size"],
             m_sizes=test_case["m_sizes"],
@@ -418,14 +420,16 @@ def test_grouped_gemm_correctness(
 
         output_shape = (test_data["total_m"], test_data["n"])
         if dtype_out == "bfloat16":
-            output = tvm.runtime.empty(output_shape, dtype="bfloat16", device=device)
+            output = tvm_tirx.runtime.empty(output_shape, dtype="bfloat16", device=device)
         elif dtype_out == "float16":
-            output = tvm.runtime.empty(output_shape, dtype="float16", device=device)
+            output = tvm_tirx.runtime.empty(output_shape, dtype="float16", device=device)
         else:
-            output = tvm.runtime.empty(output_shape, dtype="float32", device=device)
+            output = tvm_tirx.runtime.empty(output_shape, dtype="float32", device=device)
 
-        int_workspace = tvm.runtime.empty((DEFAULT_WORKSPACE_SIZE,), dtype="int32", device=device)
-        float_workspace = tvm.runtime.empty(
+        int_workspace = tvm_tirx.runtime.empty(
+            (DEFAULT_WORKSPACE_SIZE,), dtype="int32", device=device
+        )
+        float_workspace = tvm_tirx.runtime.empty(
             (DEFAULT_WORKSPACE_SIZE,), dtype="float32", device=device
         )
 
@@ -460,8 +464,8 @@ def test_grouped_gemm_correctness(
         diff = calc_diff(output_torch.cpu().double().numpy(), reference.cpu().double().numpy())
         assert diff < 1e-3, f"diff too large {diff}"
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

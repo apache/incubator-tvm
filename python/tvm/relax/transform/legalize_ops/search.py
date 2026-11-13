@@ -18,7 +18,7 @@
 """Default legalization function for search operators."""
 
 from tvm import topi
-from tvm.ir import Call
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr

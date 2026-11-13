@@ -23,7 +23,8 @@
 #include <tvm/runtime/disco/builtin.h>
 #include <tvm/runtime/disco/disco_worker.h>
 #include <tvm/runtime/disco/session.h>
-#include <tvm/runtime/vm/vm.h>
+#include <tvm/runtime/extra_base.h>
+#include <tvm/runtime/tensor.h>
 
 #include <sstream>
 
@@ -65,14 +66,12 @@ ffi::Module LoadVMModule(std::string path, ffi::Optional<Device> device) {
         << "File `" << path
         << "` is not built by RelaxVM, because `vm_initialization` does not exist";
   }
-  (*vm_initialization)(static_cast<int>(dev.device_type), static_cast<int>(dev.device_id),
-                       static_cast<int>(AllocatorType::kPooled), static_cast<int>(kDLCPU), 0,
-                       static_cast<int>(AllocatorType::kPooled));
+  ffi::Function::GetGlobalRequired("vm.builtin.initialize_default")(mod, dev);
   return mod;
 }
 
-Tensor DiscoEmptyTensor(ffi::Shape shape, DLDataType dtype, ffi::Optional<Device> device) {
-  return Tensor::Empty(shape, dtype, UseDefaultDeviceIfNone(device));
+ffi::Tensor DiscoEmptyTensor(ffi::Shape shape, DLDataType dtype, ffi::Optional<Device> device) {
+  return tvm::runtime::Empty(shape, dtype, UseDefaultDeviceIfNone(device));
 }
 
 ffi::Function GetCCLFunc(const char* name) {
@@ -84,37 +83,57 @@ ffi::Function GetCCLFunc(const char* name) {
   return *pf;
 }
 
-void AllReduce(Tensor send, ReduceKind reduce_kind, bool in_group, Tensor recv) {
+void AllReduce(ffi::Tensor send, ReduceKind reduce_kind, bool in_group, ffi::Tensor recv) {
+  TVM_FFI_ICHECK(send.defined());
+  TVM_FFI_ICHECK(recv.defined());
   GetCCLFunc("allreduce")(send, static_cast<int>(reduce_kind), in_group, recv);
 }
 
-void AllGather(Tensor send, bool in_group, Tensor recv) {
+void AllGather(ffi::Tensor send, bool in_group, ffi::Tensor recv) {
+  TVM_FFI_ICHECK(send.defined());
+  TVM_FFI_ICHECK(recv.defined());
   GetCCLFunc("allgather")(send, in_group, recv);
 }
 
-TVM_RUNTIME_DLL void BroadcastFromWorker0(Tensor send, bool in_group, Tensor recv) {
+TVM_RUNTIME_EXTRA_DLL void BroadcastFromWorker0(ffi::Tensor send, bool in_group, ffi::Tensor recv) {
+  TVM_FFI_ICHECK(send.defined());
+  TVM_FFI_ICHECK(recv.defined());
   GetCCLFunc("broadcast_from_worker0")(send, in_group, recv);
 }
 
-TVM_RUNTIME_DLL void ScatterFromWorker0(ffi::Optional<Tensor> send, bool in_group, Tensor recv) {
+TVM_RUNTIME_EXTRA_DLL void ScatterFromWorker0(ffi::Optional<ffi::Tensor> send, bool in_group,
+                                              ffi::Tensor recv) {
+  TVM_FFI_ICHECK(recv.defined());
   GetCCLFunc("scatter_from_worker0")(send, in_group, recv);
 }
 
-void GatherToWorker0(Tensor send, bool in_group, ffi::Optional<Tensor> recv) {
+void GatherToWorker0(ffi::Tensor send, bool in_group, ffi::Optional<ffi::Tensor> recv) {
+  TVM_FFI_ICHECK(send.defined());
   GetCCLFunc("gather_to_worker0")(send, in_group, recv);
 }
 
-void RecvFromWorker0(Tensor buffer) { GetCCLFunc("recv_from_worker0")(buffer); }
+void RecvFromWorker0(ffi::Tensor buffer) {
+  TVM_FFI_ICHECK(buffer.defined());
+  GetCCLFunc("recv_from_worker0")(buffer);
+}
 
-void SendToNextGroup(Tensor buffer) { GetCCLFunc("send_to_next_group")(buffer); }
+void SendToNextGroup(ffi::Tensor buffer) {
+  TVM_FFI_ICHECK(buffer.defined());
+  GetCCLFunc("send_to_next_group")(buffer);
+}
 
-void RecvFromPrevGroup(Tensor buffer) { GetCCLFunc("recv_from_prev_group")(buffer); }
+void RecvFromPrevGroup(ffi::Tensor buffer) {
+  TVM_FFI_ICHECK(buffer.defined());
+  GetCCLFunc("recv_from_prev_group")(buffer);
+}
 
-void SendToWorker(Tensor buffer, int receiver_id) {
+void SendToWorker(ffi::Tensor buffer, int receiver_id) {
+  TVM_FFI_ICHECK(buffer.defined());
   GetCCLFunc("send_to_worker")(buffer, receiver_id);
 }
 
-void RecvFromWorker(Tensor buffer, int sender_id) {
+void RecvFromWorker(ffi::Tensor buffer, int sender_id) {
+  TVM_FFI_ICHECK(buffer.defined());
   GetCCLFunc("recv_from_worker")(buffer, sender_id);
 }
 
@@ -132,7 +151,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .def("runtime.disco.load_vm_module", LoadVMModule)
       .def("runtime.disco.empty",
            [](ffi::Shape shape, DLDataType dtype, ffi::Optional<Device> device, bool worker0_only,
-              bool in_group) -> ffi::Optional<Tensor> {
+              bool in_group) -> ffi::Optional<ffi::Tensor> {
              int worker_id = WorkerId();
              int group_size =
                  DiscoWorker::ThreadLocal()->num_workers / DiscoWorker::ThreadLocal()->num_groups;
@@ -145,7 +164,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
              }
            })
       .def("runtime.disco.allreduce",
-           [](Tensor send, ffi::Shape reduce_kind, bool in_group, Tensor recv) {
+           [](ffi::Tensor send, ffi::Shape reduce_kind, bool in_group, ffi::Tensor recv) {
+             TVM_FFI_ICHECK(send.defined());
+             TVM_FFI_ICHECK(recv.defined());
              int kind = IntegerFromShape(reduce_kind);
              TVM_FFI_CHECK(0 <= kind && kind <= 4, ValueError) << "Unknown ReduceKind: " << kind;
              AllReduce(send, static_cast<ReduceKind>(kind), in_group, recv);

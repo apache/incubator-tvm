@@ -18,8 +18,6 @@
 
 set -euxo pipefail
 
-export PYTHONPATH="$(pwd)/python"
-
 # to avoid CI CPU thread throttling.
 export TVM_BIND_THREADS=0
 export OMP_NUM_THREADS=1
@@ -47,13 +45,10 @@ sphinx_precheck() {
     clean_files
     echo "PreCheck sphinx doc generation WARNINGS.."
 
-    # setup tvm-ffi into python folder
-    uv pip install -v --target=python ./3rdparty/tvm-ffi/
-
     pushd docs
     make clean
     TVM_TUTORIAL_EXEC_PATTERN=none make html 2>&1 | tee /tmp/$$.log.txt
-    check_sphinx_warnings "docs"
+    check_sphinx_warnings
     popd
 }
 
@@ -106,7 +101,10 @@ check_sphinx_warnings() {
     if grep --quiet -E "WARN" < /tmp/$$.logclean.txt; then
         echo "Lines with 'WARNING' found in the log, please fix them:"
         grep -E "WARN" < /tmp/$$.logclean.txt
-        echo "You can reproduce locally by running 'python tests/scripts/ci.py $1'"
+        echo "First follow the GPU wheel build steps in docs/README.md (Helper Scripts)."
+        echo "Then reproduce from the repository root with:"
+        echo "docker/bash.sh --env IS_LOCAL=1 --env PYTHON_DOCS_ONLY=1 --env TVM_TUTORIAL_EXEC_PATTERN=none ci_gpu bash -euo pipefail -c 'source tests/scripts/test_task_install_dist_wheels.sh; tests/scripts/task_python_docs.sh'"
+        echo "For tutorial failures, replace TVM_TUTORIAL_EXEC_PATTERN=none with TVM_TUTORIAL_EXEC_PATTERN=.py."
         exit 1
     fi
     echo "No WARNINGS to be fixed."
@@ -129,21 +127,16 @@ clean_files
 find . -type f -path "*.log" | xargs rm -f
 find . -type f -path "*.pyc" | xargs rm -f
 
-# setup tvm-ffi into python folder
-uv pip install -v --target=python ./3rdparty/tvm-ffi/
-
-# LLVMModule JIT execution, needed by the tutorials this build runs.
-uv pip install --no-deps apache-tvm-ffi-orcjit==0.1.2
 
 
 cd docs
-PYTHONPATH=$(pwd)/../python make htmldepoly SPHINXOPTS='-j auto' |& tee /tmp/$$.log.txt
+make htmldepoly SPHINXOPTS='-j auto' |& tee /tmp/$$.log.txt
 if grep -E "failed to execute|Segmentation fault" < /tmp/$$.log.txt; then
     echo "Some of sphinx-gallery item example failed to execute."
     exit 1
 fi
 
-check_sphinx_warnings "docs --tutorial-pattern=.*"
+check_sphinx_warnings
 
 cd ..
 

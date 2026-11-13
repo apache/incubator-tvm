@@ -25,6 +25,8 @@
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/extra/structural_equal.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/function.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/ir/transform.h>
 #include <tvm/relax/analysis.h>
 #include <tvm/relax/dataflow_matcher.h>
@@ -32,7 +34,6 @@
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/type.h>
-#include <tvm/tirx/op.h>
 
 #include <algorithm>
 
@@ -50,7 +51,7 @@ class GlobalVarReplacer : public ExprMutator {
   explicit GlobalVarReplacer(ffi::Map<GlobalVar, GlobalVar> gvar_map) : gvar_map_(gvar_map) {}
 
   using ExprMutator::VisitExpr_;
-  Expr VisitExpr_(const GlobalVarNode* op) override {
+  Expr VisitExpr_(const GlobalVarObj* op) override {
     auto gvar = ffi::GetRef<GlobalVar>(op);
     if (auto opt = gvar_map_.Get(gvar)) {
       gvar = opt.value();
@@ -217,7 +218,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
            });
 }
 
-RewriteSpec ExprPatternRewriterNode::RewriteBindings(const ffi::Array<Binding>& bindings) const {
+RewriteSpec ExprPatternRewriterObj::RewriteBindings(const ffi::Array<Binding>& bindings) const {
   ffi::Map<Var, Expr> variable_rewrites;
   ffi::Map<Var, Expr> binding_lookup;
   for (const auto& binding : bindings) {
@@ -235,8 +236,8 @@ RewriteSpec ExprPatternRewriterNode::RewriteBindings(const ffi::Array<Binding>& 
   }
 }
 
-ffi::Optional<Expr> ExprPatternRewriterNode::RewriteExpr(
-    const Expr& expr, const ffi::Map<Var, Expr>& bindings) const {
+ffi::Optional<Expr> ExprPatternRewriterObj::RewriteExpr(const Expr& expr,
+                                                        const ffi::Map<Var, Expr>& bindings) const {
   if (auto opt_matches = ExtractMatchedExpr(pattern, expr, bindings)) {
     auto matches = opt_matches.value();
     if (additional_bindings) {
@@ -273,16 +274,16 @@ ExprPatternRewriter::ExprPatternRewriter(
     DFPattern pattern,
     ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func,
     ffi::Optional<ffi::Array<DFPattern>> additional_bindings,
-    ffi::Map<GlobalVar, BaseFunc> new_subroutines) {
-  auto node = ffi::make_object<ExprPatternRewriterNode>();
-  node->pattern = std::move(pattern);
+    ffi::Map<GlobalVar, BaseFunc> new_subroutines)
+    : PatternMatchingRewriter(ffi::UnsafeInit{}) {
+  auto node = ffi::make_object<ExprPatternRewriterObj>(pattern);
   node->func = std::move(func);
   node->additional_bindings = std::move(additional_bindings);
   node->new_subroutines = std::move(new_subroutines);
   data_ = std::move(node);
 }
 
-RewriteSpec OrRewriterNode::RewriteBindings(const ffi::Array<Binding>& bindings) const {
+RewriteSpec OrRewriterObj::RewriteBindings(const ffi::Array<Binding>& bindings) const {
   auto lhs_match = lhs->RewriteBindings(bindings);
   if (!lhs_match) {
     // If no rewrites found on LHS, RHS is allowed to modify any
@@ -320,14 +321,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
                         });
 }
 
-OrRewriter::OrRewriter(PatternMatchingRewriter lhs, PatternMatchingRewriter rhs) {
-  auto node = ffi::make_object<OrRewriterNode>();
-  node->lhs = std::move(lhs);
-  node->rhs = std::move(rhs);
+OrRewriter::OrRewriter(PatternMatchingRewriter lhs, PatternMatchingRewriter rhs)
+    : PatternMatchingRewriter(ffi::UnsafeInit{}) {
+  auto node = ffi::make_object<OrRewriterObj>(std::move(lhs), std::move(rhs));
   data_ = std::move(node);
 }
 
-RewriteSpec TupleRewriterNode::RewriteBindings(const ffi::Array<Binding>& bindings) const {
+RewriteSpec TupleRewriterObj::RewriteBindings(const ffi::Array<Binding>& bindings) const {
   TVM_FFI_ICHECK_LE(patterns.size(), 3)
       << "For performance reasons, "
       << "matching of implicit tuple patterns is currently limited"
@@ -341,7 +341,7 @@ RewriteSpec TupleRewriterNode::RewriteBindings(const ffi::Array<Binding>& bindin
   }
 }
 
-ffi::Map<Var, Expr> TupleRewriterNode::GenerateVariableRewrites(
+ffi::Map<Var, Expr> TupleRewriterObj::GenerateVariableRewrites(
     const ffi::Array<Binding>& bindings) const {
   ffi::Map<Var, Expr> rewrites;
 
@@ -529,7 +529,7 @@ ffi::Map<Var, Expr> TupleRewriterNode::GenerateVariableRewrites(
   return rewrites;
 }
 
-std::optional<std::vector<Expr>> TupleRewriterNode::TryMatchByBindingIndex(
+std::optional<std::vector<Expr>> TupleRewriterObj::TryMatchByBindingIndex(
     const std::vector<VarInfo>& info_vec, const std::vector<size_t>& indices) const {
   TVM_FFI_ICHECK_GE(indices.size(), 1);
 
@@ -597,7 +597,7 @@ std::optional<std::vector<Expr>> TupleRewriterNode::TryMatchByBindingIndex(
   }
 
   std::vector<Expr> rewrites;
-  if (auto inline_tuple = rewritten.as<TupleNode>()) {
+  if (auto inline_tuple = rewritten.as<TupleObj>()) {
     const auto& fields = inline_tuple->fields;
     TVM_FFI_ICHECK_EQ(fields.size(), indices.size())
         << "Expected to receive " << indices.size() << " values to replace TuplePattern with "
@@ -625,8 +625,9 @@ TupleRewriter::TupleRewriter(
     ffi::Array<DFPattern> patterns,
     ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func,
     ffi::Optional<ffi::Array<DFPattern>> additional_bindings,
-    ffi::Map<GlobalVar, BaseFunc> new_subroutines) {
-  auto node = ffi::make_object<TupleRewriterNode>();
+    ffi::Map<GlobalVar, BaseFunc> new_subroutines)
+    : PatternMatchingRewriter(ffi::UnsafeInit{}) {
+  auto node = ffi::make_object<TupleRewriterObj>();
   node->patterns = std::move(patterns);
   node->func = std::move(func);
   node->additional_bindings = std::move(additional_bindings);
@@ -639,14 +640,14 @@ PatternMatchingRewriter PatternMatchingRewriter::FromPattern(
     ffi::TypedFunction<ffi::Optional<Expr>(Expr, ffi::Map<DFPattern, Expr>)> func,
     ffi::Optional<ffi::Array<DFPattern>> additional_bindings,
     ffi::Map<GlobalVar, BaseFunc> new_subroutines) {
-  if (auto or_pattern = pattern.as<OrPatternNode>()) {
+  if (auto or_pattern = pattern.as<OrPatternObj>()) {
     auto new_additional_bindings = additional_bindings.value_or({});
     new_additional_bindings.push_back(pattern);
     return OrRewriter(PatternMatchingRewriter::FromPattern(
                           or_pattern->left, func, new_additional_bindings, new_subroutines),
                       PatternMatchingRewriter::FromPattern(
                           or_pattern->right, func, new_additional_bindings, new_subroutines));
-  } else if (auto tuple_pattern = pattern.as<TuplePatternNode>()) {
+  } else if (auto tuple_pattern = pattern.as<TuplePatternObj>()) {
     auto new_additional_bindings = additional_bindings.value_or({});
     new_additional_bindings.push_back(pattern);
     // If the Tuple appears as a Relax binding, apply it first.  As a
@@ -666,7 +667,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
         << "a Relax function defining the pattern to be matched, "
         << "but the module did not contain a 'pattern' function.";
     auto base_func = mod->Lookup("pattern");
-    TVM_FFI_CHECK(base_func->IsInstance<FunctionNode>(), TypeError)
+    TVM_FFI_CHECK(base_func->IsInstance<FunctionObj>(), TypeError)
         << "Expected module to contain 'pattern', "
         << "a Relax function defining the pattern to be matched, "
         << "but the 'pattern' function was of type " << base_func->GetTypeKey() << ".";
@@ -678,7 +679,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
         << "a Relax function defining the replacement to be matched, "
         << "but the module did not contain a 'replacement' function.";
     auto base_func = mod->Lookup("replacement");
-    TVM_FFI_CHECK(base_func->IsInstance<FunctionNode>(), TypeError)
+    TVM_FFI_CHECK(base_func->IsInstance<FunctionObj>(), TypeError)
         << "Expected module to contain 'replacement', "
         << "a Relax function defining the replacement to be made on a successful match, "
         << "but the 'replacement' function was of type " << base_func->GetTypeKey() << ".";
@@ -688,7 +689,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
   ffi::Map<GlobalVar, BaseFunc> new_subroutines;
   for (const auto& [gvar, func] : mod->functions) {
     if (gvar->name_hint != "pattern" && gvar->name_hint != "replacement") {
-      bool is_public = func->GetAttr<ffi::String>(tvm::attr::kGlobalSymbol).has_value();
+      bool is_public = func->GetAttr(tvm::attr::kGlobalSymbol).has_value();
       TVM_FFI_CHECK(!is_public, ValueError)
           << "Expected module to have no publicly-exposed functions "
           << "other than 'pattern' and 'replacement'.  "
@@ -717,23 +718,23 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
     if (auto var = expr.as<Var>()) {
       return pattern_lookup[var.value()];
 
-    } else if (auto call = expr.as<CallNode>()) {
+    } else if (auto call = expr.as<CallObj>()) {
       auto op = make_pattern(call->op);
       auto args = call->args.Map(make_pattern);
       return CallPattern(op, args);
 
-    } else if (auto tuple = expr.as<TupleNode>()) {
+    } else if (auto tuple = expr.as<TupleObj>()) {
       auto fields = tuple->fields.Map(make_pattern);
       return TuplePattern(fields);
 
-    } else if (auto tuple_get_item = expr.as<TupleGetItemNode>()) {
+    } else if (auto tuple_get_item = expr.as<TupleGetItemObj>()) {
       auto tuple = make_pattern(tuple_get_item->tuple);
       return TupleGetItemPattern(tuple, tuple_get_item->index);
 
     } else if (auto op = expr.as<Op>()) {
       return ExprPattern(op.value());
 
-    } else if (auto func = expr.as<ExternFuncNode>()) {
+    } else if (auto func = expr.as<ExternFuncObj>()) {
       return ExternFuncPattern(func->global_symbol);
 
     } else if (auto prim = expr.as<PrimExpr>()) {
@@ -748,7 +749,7 @@ PatternMatchingRewriter PatternMatchingRewriter::FromModule(IRModule mod) {
   for (const auto& block : func_pattern->body->blocks) {
     for (const auto& binding : block->bindings) {
       auto value_pattern = make_pattern(GetBoundValue(binding));
-      if (auto match_cast = binding.as<MatchCastNode>()) {
+      if (auto match_cast = binding.as<MatchCastObj>()) {
         value_pattern = TypePattern(value_pattern, match_cast->ty);
       }
       pattern_lookup.Set(binding->var, value_pattern);
@@ -826,12 +827,12 @@ class PatternMatchingMutator : public ExprMutator {
  public:
   using ExprMutator::VisitExpr_;
 
-  explicit PatternMatchingMutator(const PatternMatchingRewriterNode* rewriter)
+  explicit PatternMatchingMutator(const PatternMatchingRewriterObj* rewriter)
       : rewriter_(rewriter) {}
 
   ffi::Map<GlobalVar, BaseFunc> GetNewSubroutines() const { return new_subroutines_; }
 
-  Expr VisitExpr_(const SeqExprNode* seq) override {
+  Expr VisitExpr_(const SeqExprObj* seq) override {
     SeqExpr prev = ExprMutator::VisitExpr_(seq).as_or_throw<SeqExpr>();
 
     ffi::StructuralEqual struct_equal;
@@ -874,7 +875,7 @@ class PatternMatchingMutator : public ExprMutator {
     // were the last variable binding of the last block.  This
     // simplifies the special handling of the SeqExpr's body.
     ffi::Optional<Var> dummy_output_var = std::nullopt;
-    if (!seq->body->IsInstance<VarNode>()) {
+    if (!seq->body->IsInstance<VarObj>()) {
       dummy_output_var = Var("dummy_output_var", GetType(seq->body));
       VarBinding dummy_binding(dummy_output_var.value(), seq->body);
 
@@ -902,7 +903,7 @@ class PatternMatchingMutator : public ExprMutator {
 
       auto bindings = orig_bindings.Map([&](Binding binding) -> Binding {
         if (auto new_expr = rewrites.variable_rewrites.Get(binding->var)) {
-          if (auto match_cast = binding.as<MatchCastNode>()) {
+          if (auto match_cast = binding.as<MatchCastObj>()) {
             return MatchCast(binding->var, new_expr.value(), match_cast->ty);
           } else {
             return VarBinding(binding->var, new_expr.value());
@@ -928,7 +929,7 @@ class PatternMatchingMutator : public ExprMutator {
     // Utility function to return the rewrites that should be applied
     // to a given block.
     auto get_rewrites = [&](BindingBlock block) -> ffi::Array<Binding> {
-      if (block.as<DataflowBlockNode>()) {
+      if (block.as<DataflowBlockObj>()) {
         // Early return for DataflowBlock.  Since neither control flow
         // nor impure functions are allowed within the dataflow block,
         // all bindings may be considered at the same time.
@@ -956,8 +957,8 @@ class PatternMatchingMutator : public ExprMutator {
 
       for (const auto& binding : block->bindings) {
         auto value = GetBoundValue(binding);
-        bool is_dataflow = (!value.as<IfNode>()) &&
-                           (!(value.as<CallNode>() && IsImpureCall(value.as_or_throw<Call>())));
+        bool is_dataflow = (!value.as<IfExprObj>()) &&
+                           (!(value.as<CallObj>() && IsImpureCall(value.as_or_throw<Call>())));
         if (is_dataflow) {
           // This binding satisfies the dataflow constraints.
           collected_bindings.push_back(binding);
@@ -985,7 +986,7 @@ class PatternMatchingMutator : public ExprMutator {
         return old_block;
       }
 
-      if (old_block.as<DataflowBlockNode>()) {
+      if (old_block.as<DataflowBlockObj>()) {
         builder_->BeginDataflowBlock();
       } else {
         builder_->BeginBindingBlock();
@@ -994,9 +995,9 @@ class PatternMatchingMutator : public ExprMutator {
       for (const auto& binding : new_bindings) {
         auto value = builder_->Normalize(GetBoundValue(binding));
 
-        if (binding.as<VarBindingNode>()) {
+        if (binding.as<VarBindingObj>()) {
           builder_->EmitNormalized(VarBinding(binding->var, value));
-        } else if (auto match_cast = binding.as<MatchCastNode>()) {
+        } else if (auto match_cast = binding.as<MatchCastObj>()) {
           builder_->EmitNormalized(MatchCast(binding->var, value, match_cast->ty));
         } else {
           TVM_FFI_THROW(InternalError) << "Binding must be either VarBinding or MatchCast";
@@ -1034,7 +1035,7 @@ class PatternMatchingMutator : public ExprMutator {
   }
 
  private:
-  const PatternMatchingRewriterNode* rewriter_;
+  const PatternMatchingRewriterObj* rewriter_;
   ffi::Map<GlobalVar, BaseFunc> new_subroutines_;
 };
 
@@ -1059,8 +1060,8 @@ Expr PatternMatchingRewriter::operator()(Expr expr) {
   return new_expr;
 }
 
-IRModule PatternMatchingRewriterNode::operator()(
-    IRModule mod, const tvm::transform::PassContext& pass_ctx) const {
+IRModule PatternMatchingRewriterObj::operator()(IRModule mod,
+                                                const tvm::transform::PassContext& pass_ctx) const {
   PatternMatchingMutator mutator(this);
 
   IRModule updates;
@@ -1081,8 +1082,8 @@ IRModule PatternMatchingRewriterNode::operator()(
 
   return mod;
 }
-tvm::transform::PassInfo PatternMatchingRewriterNode::Info() const {
-  return tvm::transform::PassInfo(0, "PatternMatchingRewriter", {}, false);
+tvm::transform::PassInfo PatternMatchingRewriterObj::Info() const {
+  return tvm::transform::PassInfo(0, "PatternMatchingRewriter");
 }
 
 Function RewriteCall(const DFPattern& pat,
@@ -1097,10 +1098,10 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
-  PatternMatchingRewriterNode::RegisterReflection();
-  ExprPatternRewriterNode::RegisterReflection();
-  OrRewriterNode::RegisterReflection();
-  TupleRewriterNode::RegisterReflection();
+  PatternMatchingRewriterObj::RegisterReflection();
+  ExprPatternRewriterObj::RegisterReflection();
+  OrRewriterObj::RegisterReflection();
+  TupleRewriterObj::RegisterReflection();
 }
 
 }  // namespace relax

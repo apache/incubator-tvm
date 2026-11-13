@@ -14,31 +14,107 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-# ruff: noqa: E501
 """
 Test the @tvm-bot merge code
 """
 
+import copy
 import json
+import os
 from pathlib import Path
 from typing import Any
 
-import tvm
+import pytest
 
-from .test_utils import GITHUB_SCRIPT_ROOT, TempGit, run_script
+from .test_ci import TempGit, run_script
 
-SUCCESS_EXPECTED_OUTPUT = """
-Dry run, would have merged with url=pulls/10786/merge and data={
-  "commit_title": "[Hexagon] 2-d allocation cleanup (#10786)",
-  "commit_message": "- Added device validity check in allocation. HexagonDeviceAPI should only be called for CPU/Hexagon types.\\n\\n- Check for \\"global.vtcm\\" scope instead of \\"vtcm\\".  The ccope of N-d allocations produced by `LowerVtcmAlloc` should be `\\"global.vtcm\\"`.  The previous check allowed unsupported scope such as `\\"local.vtcm\\"`.\\n\\n- Remove `vtcmallocs` entry after calling free.\\n\\nPreviously, the vtcm allocation map kept dangling pointers to `HexagonBuffer` objects after they had been freed.\\n\\n- Rename N-d alloc and free packed functions.  Since most of the similar device functions use snake case, renaming `*.AllocND` to `*.alloc_nd` and `*.FreeND` to `*.free_nd`.\\n\\n\\ncc someone\\n\\n\\nCo-authored-by: Adam Straw <astraw@octoml.ai>",
-  "sha": "6f04bcf57d07f915a98fd91178f04d9e92a09fcd",
-  "merge_method": "squash"
+GITHUB_SCRIPT_ROOT = Path(__file__).resolve().parents[3] / "ci" / "github"
+
+# Only the fields consumed by the bot and the mutations below are needed.
+SAMPLE_PR = {
+    "title": "Example change",
+    "body": (
+        "Example description.\r\n\r\ncc @example-user\n\n"
+        "Co-authored-by: Example Existing <existing@example.com>"
+    ),
+    "state": "OPEN",
+    "author": {"login": "abc"},
+    "authorCommits": {
+        "nodes": [
+            {
+                "commit": {
+                    "authors": {
+                        "nodes": [
+                            {"name": "Example Author", "email": "author@example.com"},
+                            {"name": "Example Existing", "email": "existing@example.com"},
+                        ]
+                    }
+                }
+            }
+        ],
+    },
+    "commits": {
+        "nodes": [
+            {
+                "commit": {
+                    "oid": "abc123",
+                    "statusCheckRollup": {
+                        "contexts": {
+                            "nodes": [
+                                {
+                                    "context": "tvm-ci/pr-head",
+                                    "state": "SUCCESS",
+                                    "targetUrl": "https://example.com/build/1",
+                                },
+                                {
+                                    "name": "Example check",
+                                    "conclusion": "SUCCESS",
+                                    "checkSuite": {"workflowRun": {"workflow": {"name": "CI"}}},
+                                    "url": "https://example.com/check/1",
+                                },
+                                {
+                                    "name": "Example automation",
+                                    "conclusion": "FAILURE",
+                                    "checkSuite": {
+                                        "workflowRun": {
+                                            "databaseId": 1,
+                                            "workflow": {"name": "Example automation"},
+                                        }
+                                    },
+                                    "url": "https://example.com/check/2",
+                                },
+                            ]
+                        }
+                    },
+                }
+            }
+        ],
+    },
+    "reviews": {
+        "nodes": [
+            {
+                "body": "Example review",
+                "authorCanPushToRepository": True,
+                "commit": {"oid": "abc123"},
+                "state": "APPROVED",
+            }
+        ]
+    },
 }
-""".strip()
+
+SUCCESS_EXPECTED_OUTPUT = (
+    "Dry run, would have merged with url=pulls/1/merge and data={\n"
+    '  "commit_title": "Example change (#1)",\n'
+    '  "commit_message": "Example description.\\n\\ncc example-user\\n\\n'
+    'Co-authored-by: Example Existing <existing@example.com>",\n'
+    '  "sha": "abc123",\n'
+    '  "merge_method": "squash"\n'
+    "}"
+)
 
 
 class _TvmBotTest:
-    NUMBER = 10786
+    NUMBER = 1
 
     def preprocess_data(self, data: dict[str, Any]):
         """
@@ -47,20 +123,22 @@ class _TvmBotTest:
         """
         return data
 
-    @tvm.testing.skip_if_wheel_test
-    def test(self, tmpdir_factory):
+    @pytest.mark.skipif(
+        os.getenv("WHEEL_TEST", "").lower() in {"true", "1", "yes"},
+        reason="Test not supported in wheel.",
+    )
+    def test_command(self, tmpdir_factory):
         """
         Run the tvm-bot script using the data from preprocess_data
         """
         mergebot_script = GITHUB_SCRIPT_ROOT / "github_tvmbot.py"
-        test_json_dir = Path(__file__).resolve().parent / "sample_prs"
-        with open(test_json_dir / f"pr{self.NUMBER}.json") as f:
-            test_data = json.load(f)
+        test_data = copy.deepcopy(SAMPLE_PR)
 
         # Update testing data with replacements / additions
         test_data = self.preprocess_data(test_data)
 
         git = TempGit(tmpdir_factory.mktemp("tmp_git_dir"))
+        git.run("remote", "set-url", "origin", "https://github.com/example/project.git")
 
         comment = {
             "body": self.COMMENT,
@@ -228,11 +306,11 @@ class TestCoAuthors(_TvmBotTest):
 
     COMMENT = "@tvm-bot merge"
     USER = "abc"
-    EXPECTED = "Co-authored-by: Some One <someone@email.com>"
+    EXPECTED = "Co-authored-by: Example Coauthor <coauthor@example.com>"
 
     def preprocess_data(self, data: dict[str, Any]) -> dict[str, Any]:
         data["authorCommits"]["nodes"][0]["commit"]["authors"]["nodes"].append(
-            {"name": "Some One", "email": "someone@email.com"}
+            {"name": "Example Coauthor", "email": "coauthor@example.com"}
         )
         return data
 
@@ -278,4 +356,4 @@ class TestIgnoreJobs(_TvmBotTest):
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    raise SystemExit(pytest.main([__file__]))

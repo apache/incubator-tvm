@@ -54,7 +54,7 @@
 
 using namespace cute;
 using ProblemShape = Shape<int, int, int, int>;
-using tvm::runtime::Tensor;
+using tvm::ffi::Tensor;
 
 template <typename TileShape, typename ClusterShape, typename ElementD, typename SchedulerType,
           int ScaleGranularityM = 1>

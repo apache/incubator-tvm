@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_SEARCH_STRATEGY_H_
 #define TVM_S_TIR_META_SCHEDULE_SEARCH_STRATEGY_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/optional.h>
@@ -76,10 +77,10 @@ class SearchStrategy;
   |                   +----  Runner Future <-------+                    |
   +---------------------------------------------------------------------+
 */
-class SearchStrategyNode : public ffi::Object {
+class SearchStrategyObj : public ffi::Object {
  public:
   /*! \brief Virtual destructor */
-  virtual ~SearchStrategyNode() = default;
+  virtual ~SearchStrategyObj() = default;
 
   /*!
    * \brief Initialize the search strategy with tuning context.
@@ -132,16 +133,20 @@ class SearchStrategyNode : public ffi::Object {
   virtual SearchStrategy Clone() const = 0;
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.SearchStrategy", SearchStrategyNode,
-                              ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.SearchStrategy", SearchStrategyObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to SearchStrategyNode.
- * \sa SearchStrategyNode
+ * \brief Managed reference to SearchStrategyObj.
+ * \sa SearchStrategyObj
  */
 class SearchStrategy : public ffi::ObjectRef {
  public:
+  explicit SearchStrategy(ffi::UnsafeInit tag, ffi::ObjectPtr<SearchStrategyObj> data)
+      : ffi::ObjectRef(tag) {
+    data_ = std::move(data);
+  }
+
   /*!
    * \brief The function type of `InitializeWithTuneContext` method.
    * \param context The tuning context for initialization.
@@ -219,11 +224,11 @@ class SearchStrategy : public ffi::ObjectRef {
                                                    int genetic_max_fail_count,  //
                                                    double eps_greedy);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(SearchStrategy, ffi::ObjectRef, SearchStrategyNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SearchStrategy, ffi::ObjectRef, SearchStrategyObj);
 };
 
 /*! \brief The python side customizable class for measure candidate generation */
-class PySearchStrategyNode : public SearchStrategyNode {
+class PySearchStrategyObj : public SearchStrategyObj {
  public:
   using FInitializeWithTuneContext = SearchStrategy::FInitializeWithTuneContext;
   using FPreTuning = SearchStrategy::FPreTuning;
@@ -253,7 +258,7 @@ class PySearchStrategyNode : public SearchStrategyNode {
     // `f_notify_runner_results` is not registered
     // `f_clone` is not registered
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PySearchStrategyNode>();
+    refl::ObjectDef<PySearchStrategyObj>();
   }
 
   void InitializeWithTuneContext(const TuneContext& context) final;
@@ -266,8 +271,8 @@ class PySearchStrategyNode : public SearchStrategyNode {
   void NotifyRunnerResults(const ffi::Array<MeasureCandidate>& measure_candidates,
                            const ffi::Array<RunnerResult>& results);
   SearchStrategy Clone() const final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PySearchStrategy", PySearchStrategyNode,
-                                    SearchStrategyNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PySearchStrategy", PySearchStrategyObj,
+                                    SearchStrategyObj);
 };
 
 }  // namespace meta_schedule

@@ -18,10 +18,10 @@
 """Dispatch sampling operators to platform dependent implementation."""
 
 from tvm import relax
-from tvm.ir import Op
-from tvm.ir.module import IRModule
-from tvm.ir.transform import PassContext, module_pass
 from tvm.relax import expr_functor
+from tvm_tirx.ir import Op
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.ir.transform import PassContext, module_pass
 
 from .utils import BackendDispatcher
 
@@ -56,14 +56,14 @@ class SamplingDispatcher(BackendDispatcher):
             if self.is_gpu_target(tgt):
                 gv = self.builder_.add_func(
                     gpu_multinomial_from_uniform(
-                        prob_dtype, sample_dtype, sample_indices_dtype, dtype
+                        prob_dtype, sample_dtype, sample_indices_dtype, dtype, target=tgt
                     ),
                     "gpu_multinomial_from_uniform",
                 )
                 return relax.call_tir(
                     gv,
                     [prob, uniform_sample, sample_indices],
-                    out_ty=call.ty,
+                    ty_args=[call.ty],
                 )
             else:
                 cumsum_prob = relax.op.cumsum(prob, axis=1, dtype=prob_dtype.dtype, exclusive=False)
@@ -74,7 +74,7 @@ class SamplingDispatcher(BackendDispatcher):
                 return relax.call_tir(
                     gv,
                     [cumsum_prob, uniform_sample, sample_indices],
-                    out_ty=call.ty,
+                    ty_args=[call.ty],
                 )
 
         return super().visit_call_(call)
@@ -84,8 +84,11 @@ class SamplingDispatcher(BackendDispatcher):
 class DispatchSampling:
     """Pass to dispatch scan and sort operators to platform dependent implementation."""
 
+    def __init__(self, target=None):
+        self.target = target
+
     def transform_module(self, mod: IRModule, ctx: PassContext) -> IRModule:
-        sampling_dispatcher = SamplingDispatcher(mod)
+        sampling_dispatcher = SamplingDispatcher(mod, self.target)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
                 func = sampling_dispatcher.visit_expr(func)

@@ -17,14 +17,13 @@
  * under the License.
  */
 #include <tvm/ffi/reflection/registry.h>
-
-#include "../../../script/printer/dialect_prefix.h"
+#include <tvm/script/printer/printer.h>
 
 namespace tvm {
 namespace script {
 namespace printer {
 
-TVM_FFI_STATIC_INIT_BLOCK() { RegisterDialectPrefix("s_tir.prefix", "Ts"); }
+TVM_FFI_STATIC_INIT_BLOCK() { RegisterNamespaceAlias("s_tir.prefix", "Ts"); }
 
 }  // namespace printer
 }  // namespace script

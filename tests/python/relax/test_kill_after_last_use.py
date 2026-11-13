@@ -19,11 +19,12 @@ import pytest
 
 import tvm
 import tvm.relax
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.transform import KillAfterLastUse
-from tvm.script import ir as I
-from tvm.script import relax as R
-from tvm.testing import env
+from tvm_tirx.script import ir as I
+from tvm_tirx.testing import env
 
 
 def test_basic():
@@ -50,7 +51,7 @@ def test_basic():
             return z
 
     After = KillAfterLastUse()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_track_usage_across_trivial_rebindings():
@@ -75,7 +76,7 @@ def test_track_usage_across_trivial_rebindings():
             return z
 
     After = KillAfterLastUse()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_track_usage_across_trivial_rebindings_in_match_cast():
@@ -102,7 +103,7 @@ def test_track_usage_across_trivial_rebindings_in_match_cast():
             return z
 
     After = KillAfterLastUse()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def test_no_kill_for_null_value():
@@ -140,7 +141,7 @@ def test_no_kill_for_null_value():
             return z
 
     After = KillAfterLastUse()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 def _assert_no_kill_of_null_value(func: tvm.relax.Function):
@@ -154,8 +155,8 @@ def _assert_no_kill_of_null_value(func: tvm.relax.Function):
     invalid kill, instead of preventing KillAfterLastUse from
     inserting it in the first place.
     """
-    null_value_op = tvm.ir.Op.get("relax.null_value")
-    kill_object_op = tvm.ir.Op.get("relax.vm.kill_object")
+    null_value_op = tvm_tirx.ir.Op.get("relax.null_value")
+    kill_object_op = tvm_tirx.ir.Op.get("relax.vm.kill_object")
 
     null_value_vars = []
     killed_args = []
@@ -200,7 +201,7 @@ def test_reapply_after_default_pipeline_builds_successfully():
             z: R.Tensor((1, 4), "float32") = R.add(y, R.const(2.0, "float32"))
             return z
 
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     preoptimized = tvm.relax.get_default_pipeline(target)(Mod)
     second_kill = KillAfterLastUse()(preoptimized)
 
@@ -211,4 +212,4 @@ def test_reapply_after_default_pipeline_builds_successfully():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

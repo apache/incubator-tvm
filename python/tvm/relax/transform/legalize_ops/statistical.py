@@ -19,8 +19,10 @@
 
 from collections.abc import Callable
 
-from tvm import te, tirx, topi
-from tvm.ir import Call
+import tvm_tirx
+from tvm import te, topi
+from tvm_tirx import tirx
+from tvm_tirx.ir import Call
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr, ShapeExpr
@@ -33,7 +35,7 @@ def _normalize_reduction_axes(axis: list[int] | None, ndim: int) -> list[int]:
 
     axes = []
     for dim in axis:
-        if isinstance(dim, tirx.IntImm):
+        if isinstance(dim, tvm_tirx.ir.IntImm):
             dim = dim.value
         dim = int(dim)
         axes.append(dim + ndim if dim < 0 else dim)
@@ -47,7 +49,7 @@ def _has_const_zero_reduction_dim(call: Call) -> bool:
 
     axes = _normalize_reduction_axes(call.attrs.axis, len(input_shape.values))
     return any(
-        isinstance(input_shape.values[dim], tirx.IntImm) and input_shape.values[dim] == 0
+        isinstance(input_shape.values[dim], tvm_tirx.ir.IntImm) and input_shape.values[dim] == 0
         for dim in axes
     )
 
@@ -134,7 +136,7 @@ def _te_median(
 @register_legalize("relax.mean")
 def _mean(bb: BlockBuilder, call: Call) -> Expr:
     return bb.call_te(
-        _te_mean, call.args[0], call.attrs.axis, call.attrs.keepdims, primfunc_name_hint="mean"
+        _te_mean, call.args[0], call.attrs.axis, call.attrs.keepdims, function_name_hint="mean"
     )
 
 
@@ -144,7 +146,7 @@ def _std(bb: BlockBuilder, call: Call) -> Expr:
         return topi.sqrt(_te_variance(x, axis, keepdims))
 
     return bb.call_te(
-        te_std, call.args[0], call.attrs.axis, call.attrs.keepdims, primfunc_name_hint="std"
+        te_std, call.args[0], call.attrs.axis, call.attrs.keepdims, function_name_hint="std"
     )
 
 
@@ -155,7 +157,7 @@ def _variance(bb: BlockBuilder, call: Call) -> Expr:
         call.args[0],
         call.attrs.axis,
         call.attrs.keepdims,
-        primfunc_name_hint="variance",
+        function_name_hint="variance",
     )
 
 
@@ -166,7 +168,7 @@ def _median(bb: BlockBuilder, call: Call) -> Expr:
         call.args[0],
         call.attrs.axis,
         call.attrs.keepdims,
-        primfunc_name_hint="median",
+        function_name_hint="median",
     )
 
 

@@ -29,6 +29,7 @@
 
 #include <algorithm>
 #include <limits>
+#include <optional>
 #include <string>
 #include <tuple>
 #include <unordered_map>
@@ -40,64 +41,64 @@ namespace tvm {
 namespace tirx {
 // (var, axis)
 using TIRVarAxis = std::pair<Var, int>;
-// (buffer, axis)
-using BufferAxis = std::pair<BufferVar, int>;
-class BufferAxisHash {
+// (tensor, axis)
+using TensorAxis = std::pair<TensorVar, int>;
+class TensorAxisHash {
  public:
-  size_t operator()(const BufferAxis& buffer_axis) const {
-    size_t const h1(ffi::ObjectPtrHash()(buffer_axis.first));
-    size_t const h2(std::hash<int>()(buffer_axis.second));
+  size_t operator()(const TensorAxis& tensor_axis) const {
+    size_t const h1(ffi::ObjectPtrHash()(tensor_axis.first));
+    size_t const h2(std::hash<int>()(tensor_axis.second));
     return h1 ^ (h2 << 1);
   }
 };
 /*!
- * \brief Suppose we want to shard a buffer along a specific dimension, we need to know how
- * to rewrite the access index of the buffer. To make it simple, we only support the case that
+ * \brief Suppose we want to shard a tensor along a specific dimension, we need to know how
+ * to rewrite the access index of the tensor. To make it simple, we only support the case that
  * the access can be rewritten by changing the extent of an iter var.
  * \param index The access index
  * \param var_range The range of each iter var
  * \param analyzer The analyzer
  * \return The iter var whose extent to be changed
  */
-Var GetShardingVarFromIndex(PrimExpr index, ffi::Map<Var, Range> var_range,
-                            const sym::Analyzer& analyzer);
+ffi::Optional<Var> GetShardingVarFromIndex(PrimExpr index, ffi::Map<Var, Range> var_range,
+                                           const sym::Analyzer& analyzer);
 
 /*!
- * \brief Construct an axis group graph from a PrimFunc. Two buffer axis are connected if they
+ * \brief Construct an axis group graph from a tirx::Function. Two tensor axis are connected if they
  * are accessed by the same index.
  */
-class BufferAxisGraphExtractor : public s_tir::StmtExprVisitor {
+class TensorAxisGraphExtractor : public s_tir::StmtExprVisitor {
  public:
-  static std::vector<std::vector<TIRVarAxis>> GetTIRVarAxisGraph(const PrimFunc& prim_func) {
-    auto extractor = ffi::make_object<BufferAxisGraphExtractor>();
-    extractor->Visit(prim_func->body);
-    ffi::Map<BufferVar, Var> inverse_buffer_map;
-    for (const Var& param : prim_func->params) {
-      if (param->ty.as<BufferTypeNode>()) {
-        inverse_buffer_map.Set(param.as_or_throw<BufferVar>(), param);
+  static std::vector<std::vector<TIRVarAxis>> GetTIRVarAxisGraph(const tirx::Function& function) {
+    auto extractor = ffi::make_object<TensorAxisGraphExtractor>();
+    extractor->Visit(function->body);
+    ffi::Map<TensorVar, Var> inverse_tensor_map;
+    for (const Var& param : function->params) {
+      if (param->ty.as<TensorTypeObj>()) {
+        inverse_tensor_map.Set(param.as_or_throw<TensorVar>(), param);
       }
     }
     std::vector<std::vector<TIRVarAxis>> tir_var_axis_group_list;
-    std::unordered_set<BufferAxis, BufferAxisHash> visited;
-    for (const Var& param : prim_func->params) {
-      if (!param->ty.as<BufferTypeNode>()) {
+    std::unordered_set<TensorAxis, TensorAxisHash> visited;
+    for (const Var& param : function->params) {
+      if (!param->ty.as<TensorTypeObj>()) {
         continue;
       }
-      BufferVar buffer = param.as_or_throw<BufferVar>();
-      for (int i = 0; i < static_cast<int>(buffer->shape.size()); i++) {
-        if (extractor->buffer_axis_graph_.count({buffer, i})) {
-          std::vector<BufferAxis> buffer_axis_group;
-          extractor->DFSGraph({buffer, i}, &visited, &buffer_axis_group);
-          if (buffer_axis_group.size() <= 1) {
+      TensorVar tensor = param.as_or_throw<TensorVar>();
+      for (int i = 0; i < static_cast<int>(tensor.shape().size()); i++) {
+        if (extractor->tensor_axis_graph_.count({tensor, i})) {
+          std::vector<TensorAxis> tensor_axis_group;
+          extractor->DFSGraph({tensor, i}, &visited, &tensor_axis_group);
+          if (tensor_axis_group.size() <= 1) {
             continue;
           }
           std::vector<TIRVarAxis> tir_var_axis_group;
-          for (const auto& buffer_axis : buffer_axis_group) {
-            if (!inverse_buffer_map.count(buffer_axis.first)) {
+          for (const auto& tensor_axis : tensor_axis_group) {
+            if (!inverse_tensor_map.count(tensor_axis.first)) {
               continue;
             }
             tir_var_axis_group.push_back(
-                {inverse_buffer_map[buffer_axis.first], buffer_axis.second});
+                {inverse_tensor_map[tensor_axis.first], tensor_axis.second});
           }
           tir_var_axis_group_list.push_back(tir_var_axis_group);
         }
@@ -106,84 +107,88 @@ class BufferAxisGraphExtractor : public s_tir::StmtExprVisitor {
     return tir_var_axis_group_list;
   }
 
-  void DFSGraph(BufferAxis cur, std::unordered_set<BufferAxis, BufferAxisHash>* visited,
-                std::vector<BufferAxis>* buffer_axis_group) {
+  void DFSGraph(TensorAxis cur, std::unordered_set<TensorAxis, TensorAxisHash>* visited,
+                std::vector<TensorAxis>* tensor_axis_group) {
     if (visited->count(cur)) {
       return;
     }
     visited->insert(cur);
-    buffer_axis_group->push_back(cur);
-    for (const auto& next : buffer_axis_graph_[cur]) {
-      DFSGraph(next, visited, buffer_axis_group);
+    tensor_axis_group->push_back(cur);
+    for (const auto& next : tensor_axis_graph_[cur]) {
+      DFSGraph(next, visited, tensor_axis_group);
     }
   }
 
  private:
-  ffi::Optional<VisitInterrupt> Visit_(const BufferStoreNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorStoreObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
-    buffer_access_indices_.push_back({op->buffer, op->indices});
+    tensor_access_indices_.push_back({op->dest.as_or_throw<tvm::tirx::TensorVar>(), op->indices});
 
     return std::nullopt;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const TensorLoadObj* op) final {
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
-    buffer_access_indices_.push_back({op->source.as_or_throw<tvm::tirx::BufferVar>(), op->indices});
+    tensor_access_indices_.push_back({op->source.as_or_throw<tvm::tirx::TensorVar>(), op->indices});
 
     return std::nullopt;
   }
 
-  bool Match(PrimExpr a, PrimExpr buffer_shape_a, PrimExpr b, PrimExpr buffer_shape_b,
+  bool Match(PrimExpr a, PrimExpr tensor_shape_a, PrimExpr b, PrimExpr tensor_shape_b,
              const sym::Analyzer& analyzer) {
     if (b.as<PrimVar>()) {
       std::swap(a, b);
-      std::swap(buffer_shape_a, buffer_shape_b);
+      std::swap(tensor_shape_a, tensor_shape_b);
     }
     auto prim_var = a.as<PrimVar>();
     if (!prim_var) {
       return false;
     }
     Var var = *prim_var;
-    analyzer->Bind(iter_var_range_);
     b = analyzer->Simplify(b);
-    // index var `a` must access whole range of a specific buffer dimension
+    // index var `a` must access whole range of a specific tensor dimension
     sym::IntSet intset_b = sym::EvalSet(b, sym::AsIntSet(iter_var_range_));
-    if (!analyzer->CanProveEqual(buffer_shape_a, iter_var_range_[var]->extent) ||
-        !intset_b.MatchRange(Range::FromMinExtent(0, buffer_shape_b))) {
+    if (!analyzer->CanProveEqual(tensor_shape_a, iter_var_range_[var]->extent) ||
+        !intset_b.MatchRange(Range::FromMinExtent(0, tensor_shape_b))) {
       return false;
     }
-    Var matched_var = GetShardingVarFromIndex(b, iter_var_range_, analyzer);
-    if (!matched_var.same_as(var)) {
+    auto matched_var = GetShardingVarFromIndex(b, iter_var_range_, analyzer);
+    if (!matched_var.has_value() || !matched_var.value().same_as(var)) {
       return false;
     }
     return true;
   }
 
-  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockNode* op) final {
+  ffi::Optional<VisitInterrupt> Visit_(const s_tir::SBlockObj* op) final {
     if (op->name_hint == "root") {
       return s_tir::StmtExprVisitor::Visit_(op);
     }
-    buffer_access_indices_.clear();
+    tensor_access_indices_.clear();
     TVM_FFI_S_VISIT_MAYBE_EARLY_RETURN(s_tir::StmtExprVisitor::Visit_(op));
     iter_var_range_.clear();
     for (const auto& iter_var : op->iter_vars) {
-      iter_var_range_.Set(iter_var->var, iter_var->dom);
+      iter_var_range_.Set(iter_var->var, iter_var->dom.value());
     }
     sym::Analyzer analyzer;
-    for (const auto& access_pr : buffer_access_indices_) {
-      BufferVar buffer = access_pr.first;
+    sym::ConstraintContext context;
+    for (const auto& [var, range] : iter_var_range_) {
+      context->Append(sym::RangeConstraint(var, range));
+    }
+    analyzer->SyncConstraintContext(context);
+    for (const auto& access_pr : tensor_access_indices_) {
+      TensorVar tensor = access_pr.first;
       ffi::Array<PrimExpr> indices = access_pr.second;
       for (int i = 0; i < static_cast<int>(indices.size()); i++) {
-        for (const auto& another_access_pr : buffer_access_indices_) {
-          if (another_access_pr.first.same_as(buffer)) {
+        for (const auto& another_access_pr : tensor_access_indices_) {
+          if (another_access_pr.first.same_as(tensor)) {
             continue;
           }
-          BufferVar another_buffer = another_access_pr.first;
+          TensorVar another_tensor = another_access_pr.first;
           ffi::Array<PrimExpr> another_indices = another_access_pr.second;
           for (int j = 0; j < static_cast<int>(another_indices.size()); j++) {
-            if (Match(indices[i], buffer->shape[i], another_indices[j], another_buffer->shape[j],
+            if (Match(indices[i], tensor.shape()[i], another_indices[j], another_tensor.shape()[j],
                       analyzer)) {
-              JoinBufferAxis({buffer, i}, {another_buffer, j});
+              JoinTensorAxis({tensor, i}, {another_tensor, j});
             }
           }
         }
@@ -193,19 +198,19 @@ class BufferAxisGraphExtractor : public s_tir::StmtExprVisitor {
     return std::nullopt;
   }
 
-  void JoinBufferAxis(BufferAxis axis1, BufferAxis axis2) {
-    if (!buffer_axis_graph_.count(axis1)) {
-      buffer_axis_graph_[axis1] = {};
+  void JoinTensorAxis(TensorAxis axis1, TensorAxis axis2) {
+    if (!tensor_axis_graph_.count(axis1)) {
+      tensor_axis_graph_[axis1] = {};
     }
-    if (!buffer_axis_graph_.count(axis2)) {
-      buffer_axis_graph_[axis2] = {};
+    if (!tensor_axis_graph_.count(axis2)) {
+      tensor_axis_graph_[axis2] = {};
     }
-    buffer_axis_graph_[axis1].push_back(axis2);
-    buffer_axis_graph_[axis2].push_back(axis1);
+    tensor_axis_graph_[axis1].push_back(axis2);
+    tensor_axis_graph_[axis2].push_back(axis1);
   }
 
-  std::vector<std::pair<BufferVar, ffi::Array<PrimExpr>>> buffer_access_indices_;
-  std::unordered_map<BufferAxis, std::vector<BufferAxis>, BufferAxisHash> buffer_axis_graph_;
+  std::vector<std::pair<TensorVar, ffi::Array<PrimExpr>>> tensor_access_indices_;
+  std::unordered_map<TensorAxis, std::vector<TensorAxis>, TensorAxisHash> tensor_axis_graph_;
   ffi::Map<Var, Range> iter_var_range_;
   std::string func_name;
 };
@@ -218,13 +223,13 @@ namespace distributed {
 
 /*! \brief tensor axis*/
 struct Axis {
-  const ExprNode* tensor;
+  const ExprObj* tensor;
   int dim = 0;
   int tuple_index = 0;
 
-  Axis(const ExprNode* tensor, int dim, int tuple_index = 0)
+  Axis(const ExprObj* tensor, int dim, int tuple_index = 0)
       : tensor(tensor), dim(dim), tuple_index(tuple_index) {
-    TVM_FFI_ICHECK(tensor->IsInstance<GenericConstNode>() || tensor->IsInstance<VarNode>());
+    TVM_FFI_ICHECK(tensor->IsInstance<GenericConstObj>() || tensor->IsInstance<VarObj>());
   }
 
   bool operator==(const Axis& other) const {
@@ -235,7 +240,7 @@ struct Axis {
 class AxisHash {
  public:
   size_t operator()(const Axis& axis) const {
-    size_t const h1(std::hash<const ExprNode*>()(axis.tensor));
+    size_t const h1(std::hash<const ExprObj*>()(axis.tensor));
     size_t const h2(std::hash<int>()(axis.dim));
     size_t const h3(std::hash<int>()(axis.tuple_index));
     return h1 ^ (h2 << 1) ^ (h3 << 2);
@@ -369,7 +374,7 @@ class AxisGroupGraph {
    * \param spec The axis's sharding spec
    */
   void AddSrcShardingPoint(Axis axis, AxisShardingSpec spec) {
-    src_axis_sharding_spec_[axis] = spec;
+    src_axis_sharding_spec_.insert_or_assign(axis, spec);
   }
 
   /*!
@@ -391,7 +396,7 @@ class AxisGroupGraph {
    * \param spec The spec to stop propagation
    */
   void AddPropagationCutPoint(Axis axis, AxisShardingSpec spec) {
-    cutpoint_axis_sharding_spec_[axis] = spec;
+    cutpoint_axis_sharding_spec_.insert_or_assign(axis, spec);
   }
 
   /*!
@@ -399,13 +404,13 @@ class AxisGroupGraph {
    *
    * \param axis the specified axis
    * \return if a sharding spec is found, return (axis_sharding_spec, true)
-   *         otherwise, return (null axis_sharding_spec, false)
+   *         otherwise, return (std::nullopt, false)
    */
-  std::tuple<AxisShardingSpec, bool> GetAxisShardingSpec(Axis axis) {
+  std::tuple<std::optional<AxisShardingSpec>, bool> GetAxisShardingSpec(Axis axis) {
     if (axis_sharding_specs_priority_.count(axis)) {
       return {axis_sharding_specs_priority_[axis].begin()->first, true};
     } else {
-      return {{DeviceMesh(), -1}, false};
+      return {std::nullopt, false};
     }
   }
 
@@ -421,7 +426,7 @@ class AxisGroupGraph {
                              std::unordered_set<Axis, AxisHash>* visited) {
     if (cutpoint_axis_sharding_spec_.count(axis) ||
         (src_axis_sharding_spec_.count(axis) &&
-         !AxisShardingSpecEqual()(src_axis_sharding_spec_[axis], spec)) ||
+         !AxisShardingSpecEqual()(src_axis_sharding_spec_.at(axis), spec)) ||
         visited->count(axis)) {
       return;
     }
@@ -481,7 +486,7 @@ void BuildAxisGraphPermuteDims(const Var& output_var, const Call& call,
                                distributed::AxisGroupGraph* axis_group_graph);
 void BuildAxisGraphReshape(const Var& output_var, const Call& call,
                            distributed::AxisGroupGraph* axis_group_graph);
-void BuildAxisGraphCallTIR(const Var& output_var, const Call& call, const tirx::PrimFunc& func,
+void BuildAxisGraphCallTIR(const Var& output_var, const Call& call, const tirx::Function& func,
                            distributed::AxisGroupGraph* axis_group_graph);
 
 }  // namespace distributed

@@ -35,7 +35,7 @@ class Object;
 namespace runtime {
 
 /*! \brief The current RPC procotol version. */
-constexpr const char* kRPCProtocolVer = "0.8.0";
+constexpr const char* kRPCProtocolVer = "0.9.0";
 
 // When tvm.rpc.server.GetCRTMaxPacketSize global function is not registered.
 const uint64_t kRPCMaxTransferSizeBytesDefault = UINT64_MAX;
@@ -57,7 +57,7 @@ enum class RPCCode : int {
   kFreeHandle,
   kDevSetDevice,
   kDevGetAttr,
-  kDevAllocData,
+  kDevAllocData,  // Reserved: byte allocation was removed in protocol 0.9.0.
   kDevFreeData,
   kDevStreamSync,
   kCopyAmongRemote,

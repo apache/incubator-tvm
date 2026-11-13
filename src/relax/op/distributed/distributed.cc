@@ -26,7 +26,8 @@
 
 #include <tvm/ffi/extra/visit_error_context.h>
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/relax/attrs/ccl.h>
+#include <tvm/relax/op/ccl.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/topi/einsum.h>
 
 #include <algorithm>
@@ -39,18 +40,26 @@ namespace tvm {
 namespace relax {
 using namespace tvm::prim;
 
+void DistributionAttrs::RegisterReflection() {
+  namespace refl = tvm::ffi::reflection;
+  refl::ObjectDef<DistributionAttrs>()
+      .def_ro("device_mesh", &DistributionAttrs::device_mesh,
+              "The device mesh of a tensor's distribution plan")
+      .def_ro("placement", &DistributionAttrs::placement,
+              "The placement of a tensor's distribution plan");
+}
+
 TVM_FFI_STATIC_INIT_BLOCK() { DistributionAttrs::RegisterReflection(); }
 
 /* relax.dist.annotate_sharding */
 
 Expr annotate_sharding(Expr input, distributed::DeviceMesh device_mesh,
                        distributed::Placement placement) {
-  ffi::ObjectPtr<DistributionAttrs> attrs = ffi::make_object<DistributionAttrs>();
-  attrs->device_mesh = device_mesh;
-  attrs->placement = placement;
+  ffi::ObjectPtr<DistributionAttrs> attrs =
+      ffi::make_object<DistributionAttrs>(device_mesh, placement);
 
   static const Op op = Op::Get("relax.dist.annotate_sharding");
-  return Call::Unchecked(Type::Missing(), op, {std::move(input)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(input)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -65,22 +74,20 @@ Type InferTypeAnnotateSharding(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.dist.annotate_sharding")
       .signature(sig::arg("input", "The input tensor."), sig::call_attrs<DistributionAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeAnnotateSharding)
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder",
-                                       InferTypeAnnotateSharding)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeAnnotateSharding)
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferTypeAnnotateSharding)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 /* relax.dist.redistribute */
 
 Expr redistribute(Expr input, distributed::DeviceMesh device_mesh,
                   distributed::Placement placement) {
-  ffi::ObjectPtr<DistributionAttrs> attrs = ffi::make_object<DistributionAttrs>();
-  attrs->device_mesh = device_mesh;
-  attrs->placement = placement;
+  ffi::ObjectPtr<DistributionAttrs> attrs =
+      ffi::make_object<DistributionAttrs>(device_mesh, placement);
 
   static const Op op = Op::Get("relax.dist.redistribute");
-  return Call::Unchecked(Type::Missing(), op, {std::move(input)}, Attrs(attrs), {});
+  return Call(Type::Missing(), op, {std::move(input)}, Attrs(attrs), {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -90,7 +97,7 @@ TVM_FFI_STATIC_INIT_BLOCK() {
 
 Type InferDistTypeRedistribute(const Call& call, const BlockBuilder& ctx) {
   const auto* attrs = call->attrs.as<DistributionAttrs>();
-  const auto* ty = GetTypeAs<distributed::DTensorTypeNode>(call->args[0]);
+  const auto* ty = GetTypeAs<distributed::DTensorTypeObj>(call->args[0]);
   TVM_FFI_ICHECK(ty);
   return distributed::DTensorType(ty->tensor_ty, attrs->device_mesh, attrs->placement);
 }
@@ -98,18 +105,17 @@ Type InferDistTypeRedistribute(const Call& call, const BlockBuilder& ctx) {
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.dist.redistribute")
       .signature(sig::arg("input", "The input tensor."), sig::call_attrs<DistributionAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder",
-                                       InferDistTypeRedistribute)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypeRedistribute)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 Type InferTypeCallTIRLocalView(const Call& call, const BlockBuilder& ctx) {
   if (call->ty_args.size() != 1) {
     TVM_FFI_VISIT_THROW(InternalError, call) << "ty_args should have exactly 1 output type.";
   }
-  TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarNode>())
+  TVM_FFI_ICHECK(call->args[0]->IsInstance<GlobalVarObj>())
       << "call_tir_local_view expects the first argument to be a GlobalVar referring to a TIR "
-         "PrimFunc. "
+         "tirx::Function. "
       << "However, gets " << call->args[0];
   return call->ty_args[0];
 }
@@ -119,13 +125,13 @@ TVM_FFI_STATIC_INIT_BLOCK() {
       .signature(sig::arg("func", "The destination-passing-style function."),
                  sig::arg("args", "The input arguments."),
                  sig::ty_arg("out_type", "The output type."))
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeCallTIRLocalView)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeCallTIRLocalView)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 Expr MakeCallTIRLocalView(Expr func, Tuple args, ffi::Array<distributed::DTensorType> out_ty_list) {
   for (const distributed::DTensorType& ty : out_ty_list) {
-    const auto* shape = ty->tensor_ty->shape.as<ShapeExprNode>();
+    const auto* shape = ty->tensor_ty->shape.as<ShapeExprObj>();
     TVM_FFI_ICHECK(shape != nullptr)
         << "out_ty of call_tir_local_view should have defined ShapeExpr as shape. "
            "However, one given type information is "
@@ -140,7 +146,7 @@ Expr MakeCallTIRLocalView(Expr func, Tuple args, ffi::Array<distributed::DTensor
   }
 
   static const Op op = Op::Get("relax.dist.call_tir_local_view");
-  return Call::Unchecked(Type::Missing(), op, {func, args}, {}, {out_ty});
+  return Call(Type::Missing(), op, {func, args}, {}, {out_ty});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -212,7 +218,7 @@ Expr redistribute_replica_to_shard(Expr input, int num_workers, int axis) {
   attrs->axis = std::move(axis);
   static const Op op = Op::Get("relax.dist.redistribute_replica_to_shard");
 
-  return Call::Unchecked(Type::Missing(), op, {std::move(input)}, Attrs{attrs}, {});
+  return Call(Type::Missing(), op, {std::move(input)}, Attrs{attrs}, {});
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
@@ -223,9 +229,9 @@ TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("relax.dist.redistribute_replica_to_shard")
       .signature(sig::arg("input", "The buffer to be sliced."),
                  sig::call_attrs<ScatterCollectiveAttrs>())
-      .set_attr<FInferTypeWithBuilder>("relax.FInferTypeWithBuilder", InferTypeRtoS)
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder", InferDistTypeRtoS)
-      .set_attr<bool>("FPurity", true);
+      .set_attr(tvm::relax::op_attr::kInferTypeWithBuilder, InferTypeRtoS)
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypeRtoS)
+      .set_attr(tvm::relax::op_attr::kPurity, true);
 }
 
 }  // namespace relax

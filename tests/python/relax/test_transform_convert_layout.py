@@ -17,11 +17,12 @@
 # ruff: noqa: E501, F841
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.transform import ConvertLayout, Normalize
-from tvm.script.parser import ir as I
-from tvm.script.parser import relax as R
-from tvm.script.parser import tirx as T
+from tvm_tirx.script.parser import ir as I
+from tvm_tirx.script.parser import relax as R
+from tvm_tirx.script.parser import tirx as T
 
 
 def verify(input, expected, extra_ops={}, cb=None):
@@ -29,7 +30,7 @@ def verify(input, expected, extra_ops={}, cb=None):
     desired_layouts.update(extra_ops)
     mod = ConvertLayout(desired_layouts, cb)(input)
     mod = Normalize()(mod)
-    tvm.ir.assert_structural_equal(mod, expected)
+    tvm_tirx.ir.assert_structural_equal(mod, expected)
 
 
 def test_conv2d():
@@ -118,10 +119,10 @@ def test_conv2d_onlydim():
 
 
 def test_conv2d_symbolic():
-    N = T.dynamic("N")
-    C = T.dynamic("C")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
+    N = T.dynamic("N", "int64")
+    C = T.dynamic("C", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
 
     @I.ir_module
     class Input:
@@ -135,10 +136,10 @@ def test_conv2d_symbolic():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    C = T.dynamic("C")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
+    N = T.dynamic("N", "int64")
+    C = T.dynamic("C", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
 
     @I.ir_module
     class Expected:
@@ -172,10 +173,10 @@ def test_conv2d_symbolic():
 
 
 def test_conv2d_matchcast_bias():
-    N = T.dynamic("N")
-    C = T.dynamic("C")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
+    N = T.dynamic("N", "int64")
+    C = T.dynamic("C", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
 
     @I.ir_module
     class Input:
@@ -190,10 +191,10 @@ def test_conv2d_matchcast_bias():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    C = T.dynamic("C")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    C = T.dynamic("C", "int64")
 
     @I.ir_module
     class Expected:
@@ -286,7 +287,7 @@ def test_relu_conv2d_relu():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def main(
@@ -1529,7 +1530,7 @@ def test_conv2d_unknown_bias_dim():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def main(
@@ -1577,7 +1578,7 @@ def test_binary_broadcast():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected:
         @R.function
         def main(
@@ -1919,11 +1920,11 @@ def test_conv2d_NHWC_sub_indexed():
 
 
 def test_conv2d_symbolic_sub_indexed():
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
 
     @I.ir_module
     class Input:
@@ -1940,11 +1941,11 @@ def test_conv2d_symbolic_sub_indexed():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
 
     @I.ir_module
     class Expected:
@@ -1999,15 +2000,15 @@ def test_conv2d_symbolic_sub_indexed():
 
 
 def test_conv2d_matchcast_bias_sub_indexed():
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
-    Nb = T.dynamic("Nb")
-    Cb = T.dynamic("Cb")
-    Hb = T.dynamic("Hb")
-    Wb = T.dynamic("Wb")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
+    Nb = T.dynamic("Nb", "int64")
+    Cb = T.dynamic("Cb", "int64")
+    Hb = T.dynamic("Hb", "int64")
+    Wb = T.dynamic("Wb", "int64")
 
     @I.ir_module
     class Input:
@@ -2026,15 +2027,15 @@ def test_conv2d_matchcast_bias_sub_indexed():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
-    Nb = T.dynamic("Nb")
-    Cb = T.dynamic("Cb")
-    Hb = T.dynamic("Hb")
-    Wb = T.dynamic("Wb")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
+    Nb = T.dynamic("Nb", "int64")
+    Cb = T.dynamic("Cb", "int64")
+    Hb = T.dynamic("Hb", "int64")
+    Wb = T.dynamic("Wb", "int64")
 
     @I.ir_module
     class Expected_NHWC4c:
@@ -2101,15 +2102,15 @@ def test_conv2d_matchcast_bias_sub_indexed():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
-    Nb = T.dynamic("Nb")
-    Cb = T.dynamic("Cb")
-    Hb = T.dynamic("Hb")
-    Wb = T.dynamic("Wb")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
+    Nb = T.dynamic("Nb", "int64")
+    Cb = T.dynamic("Cb", "int64")
+    Hb = T.dynamic("Hb", "int64")
+    Wb = T.dynamic("Wb", "int64")
 
     @I.ir_module
     class Expected_NCHW4c:
@@ -2177,15 +2178,15 @@ def test_conv2d_matchcast_bias_sub_indexed():
 
 
 def test_conv2d_layout_incompatible_fallback():
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
-    Nb = T.dynamic("Nb")
-    Cb = T.dynamic("Cb")
-    Hb = T.dynamic("Hb")
-    Wb = T.dynamic("Wb")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
+    Nb = T.dynamic("Nb", "int64")
+    Cb = T.dynamic("Cb", "int64")
+    Hb = T.dynamic("Hb", "int64")
+    Wb = T.dynamic("Wb", "int64")
 
     @I.ir_module
     class Input:
@@ -2204,15 +2205,15 @@ def test_conv2d_layout_incompatible_fallback():
                 R.output(gv)
             return gv
 
-    N = T.dynamic("N")
-    H = T.dynamic("H")
-    W = T.dynamic("W")
-    Hw = T.dynamic("Hw")
-    Ww = T.dynamic("Ww")
-    Nb = T.dynamic("Nb")
-    Cb = T.dynamic("Cb")
-    Hb = T.dynamic("Hb")
-    Wb = T.dynamic("Wb")
+    N = T.dynamic("N", "int64")
+    H = T.dynamic("H", "int64")
+    W = T.dynamic("W", "int64")
+    Hw = T.dynamic("Hw", "int64")
+    Ww = T.dynamic("Ww", "int64")
+    Nb = T.dynamic("Nb", "int64")
+    Cb = T.dynamic("Cb", "int64")
+    Hb = T.dynamic("Hb", "int64")
+    Wb = T.dynamic("Wb", "int64")
 
     @I.ir_module
     class Expected:
@@ -2359,7 +2360,7 @@ def test_relu_conv2d_relu_sub_indexed():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected_NCHW4c:
         @R.function
         def main(
@@ -2398,7 +2399,7 @@ def test_relu_conv2d_relu_sub_indexed():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected_NHWC4c:
         @R.function
         def main(
@@ -4434,7 +4435,7 @@ def test_conv2d_unknown_bias_dim_sub_indexed():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected_NCHW4c:
         @R.function
         def main(
@@ -4491,7 +4492,7 @@ def test_binary_broadcast_sub_indexed():
                 R.output(gv2)
             return gv2
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Expected_NCHW4c:
         @R.function
         def main(
@@ -5584,4 +5585,4 @@ def test_layout_cb():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

@@ -48,15 +48,17 @@ tutorial we will
 # - **Build and Universal Deployment**: Build the optimized model to a deployable module to the
 #   universal runtime, and execute it on different devices, such as CPU, GPU, or other accelerators.
 #
-
 import os
 import tempfile
 
 import numpy as np
+import tvm_ffi
 
 import tvm
-from tvm import IRModule, relax
+import tvm_tirx
+from tvm import relax
 from tvm.relax.frontend import nn
+from tvm_tirx import IRModule
 
 ######################################################################
 # Composable IRModule Optimization
@@ -119,11 +121,11 @@ except ImportError as e:
 
 
 # Define a new pass for CUBLAS dispatch
-@tvm.transform.module_pass(opt_level=0, name="CublasDispatch")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="CublasDispatch")
 class CublasDispatch:
-    def transform_module(self, mod: IRModule, _ctx: tvm.transform.PassContext) -> IRModule:
+    def transform_module(self, mod: IRModule, _ctx: tvm_tirx.ir.transform.PassContext) -> IRModule:
         # Check if CUBLAS is enabled
-        if not tvm.get_global_func("relax.ext.cublas", True):
+        if not tvm_ffi.get_global_func("relax.ext.cublas", True):
             raise Exception("CUBLAS is not enabled.")
 
         # Get interested patterns
@@ -163,16 +165,18 @@ mod.show()
 #   To save CI time and avoid flakiness, we skip the tuning process in CI environment.
 #
 
-device = tvm.cuda(0)
-target = tvm.target.Target.from_device(device)
+device = tvm_tirx.cuda(0)
+target = tvm_tirx.target.Target.from_device(device)
 if os.getenv("CI", "") != "true":
     trials = 2000
-    with target, tempfile.TemporaryDirectory() as tmp_dir:
-        mod = tvm.ir.transform.Sequential(
+    with tempfile.TemporaryDirectory() as tmp_dir:
+        mod = tvm_tirx.ir.transform.Sequential(
             [
-                relax.get_pipeline("zero"),
-                relax.transform.MetaScheduleTuneTIR(work_dir=tmp_dir, max_trials_global=trials),
-                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir),
+                relax.get_pipeline("zero", target=target),
+                relax.transform.MetaScheduleTuneTIR(
+                    work_dir=tmp_dir, max_trials_global=trials, target=target
+                ),
+                relax.transform.MetaScheduleApplyDatabase(work_dir=tmp_dir, target=target),
             ]
         )(mod)
 
@@ -189,19 +193,19 @@ if os.getenv("CI", "") != "true":
 from tvm.s_tir import dlight as dl
 
 # Apply DLight rules
-with target:
-    mod = tvm.ir.transform.Sequential(
-        [
-            relax.get_pipeline("zero"),
-            dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            ),
-        ]
-    )(mod)
+mod = tvm_tirx.ir.transform.Sequential(
+    [
+        relax.get_pipeline("zero", target=target),
+        dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        ),
+    ]
+)(mod)
 
 mod.show()
 
@@ -218,11 +222,13 @@ mod.show()
 # We can build and deploy the optimized model to the TVM runtime.
 
 ex = tvm.compile(mod, target="cuda")
-dev = tvm.cuda(0)
+dev = tvm_tirx.cuda(0)
 vm = relax.VirtualMachine(ex, dev)
 # Need to allocate data and params on GPU device
-data = tvm.runtime.tensor(np.random.rand(*input_shape).astype("float32"), dev)
-gpu_params = [tvm.runtime.tensor(np.random.rand(*p.shape).astype(p.dtype), dev) for _, p in params]
+data = tvm_tirx.runtime.tensor(np.random.rand(*input_shape).astype("float32"), dev)
+gpu_params = [
+    tvm_tirx.runtime.tensor(np.random.rand(*p.shape).astype(p.dtype), dev) for _, p in params
+]
 gpu_out = vm["forward"](data, *gpu_params).numpy()
 print(gpu_out)
 

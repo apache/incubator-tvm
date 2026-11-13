@@ -41,7 +41,7 @@ def package_lib_paths() -> list[Path]:
     covers the wheel-install layout (``python/tvm/lib/``) and the in-tree dev
     build layouts (``<worktree>/build/lib/`` and ``<worktree>/lib/``).
     ``TVM_LIBRARY_PATH`` is prepended when set so it takes priority. Callers
-    pick the basenames they want (e.g. ``libtvm_runtime.so``) and the load
+    pick the basenames they want (e.g. ``libtvm_runtime_extra.so``) and the load
     mode; this function only returns the search path.
     """
     pkg = _rel_top_directory()  # python/tvm/
@@ -56,8 +56,8 @@ def package_lib_paths() -> list[Path]:
     return paths
 
 
-def find_libtvm_runtime() -> str:
-    """Return the path to the ``libtvm_runtime`` shared library.
+def find_libtvm_runtime_extra() -> str:
+    """Return the path to the ``libtvm_runtime_extra`` shared library.
 
     Returns
     -------
@@ -70,11 +70,11 @@ def find_libtvm_runtime() -> str:
         If the runtime library cannot be found.
     """
     candidate = tvm_ffi_libinfo._find_library_by_basename(
-        "tvm", "tvm_runtime", extra_lib_paths=package_lib_paths()
+        "tvm", "tvm_runtime_extra", extra_lib_paths=package_lib_paths()
     )
     if ret := tvm_ffi_libinfo._resolve_and_validate([candidate], cond=lambda _: True):
         return ret
-    raise RuntimeError("Cannot find libtvm_runtime")
+    raise RuntimeError("Cannot find libtvm_runtime_extra")
 
 
 def find_include_path() -> str:
@@ -84,7 +84,7 @@ def find_include_path() -> str:
             _rel_top_directory() / "include",
             _dev_top_directory() / "include",
         ],
-        cond=lambda p: (p / "tvm" / "runtime").is_dir(),
+        cond=lambda p: (p / "tvm" / "runtime" / "vm").is_dir(),
     ):
         return ret
     raise RuntimeError("Cannot find TVM include path.")

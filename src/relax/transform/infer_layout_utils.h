@@ -28,16 +28,16 @@
 #define TVM_RELAX_TRANSFORM_INFER_LAYOUT_UTILS_H_
 
 #include <tvm/ffi/reflection/registry.h>
-#include <tvm/relax/attrs/create.h>
-#include <tvm/relax/attrs/datatype.h>
-#include <tvm/relax/attrs/image.h>
-#include <tvm/relax/attrs/linear_algebra.h>
-#include <tvm/relax/attrs/manipulate.h>
-#include <tvm/relax/attrs/nn.h>
-#include <tvm/relax/attrs/statistical.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/nested_msg.h>
-#include <tvm/relax/op_attr_types.h>
+#include <tvm/relax/op/create.h>
+#include <tvm/relax/op/datatype.h>
+#include <tvm/relax/op/image.h>
+#include <tvm/relax/op/linear_algebra.h>
+#include <tvm/relax/op/manipulate.h>
+#include <tvm/relax/op/nn.h>
+#include <tvm/relax/op/statistical.h>
+#include <tvm/relax/op_attr.h>
 #include <tvm/s_tir/data_layout.h>
 
 #include <array>
@@ -55,27 +55,30 @@ using tirx::SLayout;
  * \brief A layout decision node that holds the layout decision of the tensor.
  * \param layout The layout of the tensor.
  */
-class LayoutDecisionNode : public ffi::Object {
+class LayoutDecisionObj : public ffi::Object {
  public:
   /*! \brief The layout decision of the tensor. */
-  SLayout layout;
+  ffi::Optional<SLayout> layout;
   /*! \brief Whether the dim of tensor is unknown. */
   bool is_unknown_dim = false;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<LayoutDecisionNode>()
-        .def_ro("layout", &LayoutDecisionNode::layout)
-        .def_ro("is_unknown_dim", &LayoutDecisionNode::is_unknown_dim);
+    refl::ObjectDef<LayoutDecisionObj>()
+        .def_ro("layout", &LayoutDecisionObj::layout)
+        .def_ro("is_unknown_dim", &LayoutDecisionObj::is_unknown_dim);
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.transform.LayoutDecision", LayoutDecisionNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.transform.LayoutDecision", LayoutDecisionObj, ffi::Object);
 };
 
 class LayoutDecision : public ffi::ObjectRef {
  public:
-  LayoutDecision(SLayout layout, bool is_unknown_dim = false) {  // NOLINT(*)
-    auto n = ffi::make_object<LayoutDecisionNode>();
+  LayoutDecision(SLayout layout, bool is_unknown_dim = false)  // NOLINT(*)
+      : LayoutDecision(ffi::Optional<SLayout>(std::move(layout)), is_unknown_dim) {}
+
+  LayoutDecision(ffi::Optional<SLayout> layout, bool is_unknown_dim = false) {  // NOLINT(*)
+    auto n = ffi::make_object<LayoutDecisionObj>();
     n->layout = std::move(layout);
     n->is_unknown_dim = is_unknown_dim;
     data_ = n;
@@ -87,10 +90,10 @@ class LayoutDecision : public ffi::ObjectRef {
     if (operator->()->is_unknown_dim) {
       return "unknown_dim";
     }
-    return operator->()->layout.name();
+    return operator->()->layout.has_value() ? operator->()->layout.value().name() : "__undef__";
   }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(LayoutDecision, ffi::ObjectRef, LayoutDecisionNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(LayoutDecision, ffi::ObjectRef, LayoutDecisionObj);
 };
 
 using NLayout = NestedMsg<LayoutDecision>;
@@ -101,39 +104,39 @@ using NLayout = NestedMsg<LayoutDecision>;
  * \param output_layouts Inferred output layouts.
  * \param new_attrs Updated attributes consistent with inferred layouts.
  */
-class InferLayoutOutputNode : public ffi::Object {
+class InferLayoutOutputObj : public ffi::Object {
  public:
   ffi::Array<NLayout> input_layouts;
   ffi::Array<NLayout> output_layouts;
-  Attrs new_attrs;
+  ffi::Optional<Attrs> new_attrs;
   ffi::Map<IntImm, Expr> new_args;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<InferLayoutOutputNode>()
-        .def_ro("input_layouts", &InferLayoutOutputNode::input_layouts)
-        .def_ro("output_layouts", &InferLayoutOutputNode::output_layouts)
-        .def_ro("new_attrs", &InferLayoutOutputNode::new_attrs)
-        .def_ro("new_args", &InferLayoutOutputNode::new_args);
+    refl::ObjectDef<InferLayoutOutputObj>()
+        .def_ro("input_layouts", &InferLayoutOutputObj::input_layouts)
+        .def_ro("output_layouts", &InferLayoutOutputObj::output_layouts)
+        .def_ro("new_attrs", &InferLayoutOutputObj::new_attrs)
+        .def_ro("new_args", &InferLayoutOutputObj::new_args);
   }
 
-  TVM_FFI_DECLARE_OBJECT_INFO("relax.transform.InferLayoutOutput", InferLayoutOutputNode,
+  TVM_FFI_DECLARE_OBJECT_INFO("relax.transform.InferLayoutOutput", InferLayoutOutputObj,
                               ffi::Object);
 };
 
 class InferLayoutOutput : public ffi::ObjectRef {
  public:
   explicit InferLayoutOutput(ffi::Array<NLayout> input_layouts, ffi::Array<NLayout> output_layouts,
-                             Attrs new_attrs, ffi::Map<IntImm, Expr> new_args = {}) {
-    auto n = ffi::make_object<InferLayoutOutputNode>();
+                             ffi::Optional<Attrs> new_attrs, ffi::Map<IntImm, Expr> new_args = {}) {
+    auto n = ffi::make_object<InferLayoutOutputObj>();
     n->input_layouts = std::move(input_layouts);
     n->output_layouts = std::move(output_layouts);
     n->new_attrs = std::move(new_attrs);
     n->new_args = std::move(new_args);
     data_ = n;
   }
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(InferLayoutOutput, ffi::ObjectRef,
-                                             InferLayoutOutputNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(InferLayoutOutput, ffi::ObjectRef,
+                                                InferLayoutOutputObj);
 };
 
 struct NLayoutEqual {
@@ -150,15 +153,8 @@ struct NLayoutEqual {
 
 using VarLayoutMap = ffi::Map<Var, NLayout>;
 
-/*!
- * \brief SLayout conversion interface.
- * \param call The call node.
- * \param desired_layouts The desired layouts of the operator.
- * \param var_layout_map The layout of the variables.
- */
-using FRelaxInferLayout = ffi::TypedFunction<InferLayoutOutput(
-    const Call& call, const ffi::Map<ffi::String, ffi::Array<ffi::String>>& desired_layouts,
-    const VarLayoutMap& var_layout_map)>;
+// Compatibility names; new callers can deduce the value type from the key.
+using FRelaxInferLayout = decltype(op_attr::kInferLayout)::ValueType;
 
 /*!
  * \brief Initialize a layout given the number of dimensions.
@@ -195,7 +191,8 @@ NLayout InitialNLayout(const Expr& expr);
  * \param dst The destination layout.
  * \return The transposed dst layout.
  */
-SLayout TransposeSubLayoutLike(const SLayout& ref, const SLayout& src, const SLayout& desired);
+ffi::Optional<SLayout> TransposeSubLayoutLike(const SLayout& ref, const SLayout& src,
+                                              const SLayout& desired);
 
 /*!
  * \brief Transposing given layout in string format with subindexing
@@ -214,7 +211,8 @@ std::string TransposeSubLayoutStrLike(const std::string ref_str, const std::stri
  * \param dst The destination layout.
  * \return The transposed input layout.
  */
-SLayout TransposeLike(const SLayout& input, const SLayout& src, const SLayout& dst);
+SLayout TransposeLike(const ffi::Optional<SLayout>& input, const ffi::Optional<SLayout>& src,
+                      const ffi::Optional<SLayout>& dst);
 
 /*!
  * \brief Transpose the input string like the src layout to the dst layout.
@@ -223,7 +221,8 @@ SLayout TransposeLike(const SLayout& input, const SLayout& src, const SLayout& d
  * \param dst The destination layout.
  * \return The transposed input str.
  */
-ffi::String TransposeStrLike(const ffi::String& input, const SLayout& src, const SLayout& dst);
+ffi::String TransposeStrLike(const ffi::String& input, const ffi::Optional<SLayout>& src,
+                             const ffi::Optional<SLayout>& dst);
 
 /*!
  * \brief Find axis in the dst layout. 0 represents the first axis, 1 represents the second axis,

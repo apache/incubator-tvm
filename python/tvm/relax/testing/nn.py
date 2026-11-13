@@ -24,7 +24,8 @@ from typing import Any
 import numpy as np  # type: ignore
 
 import tvm
-from tvm import relax, tirx, topi
+import tvm_tirx
+from tvm import relax, topi
 from tvm.relax.op.grad.grad import end_checkpoint, start_checkpoint
 
 
@@ -277,7 +278,7 @@ def _unpack_params(value: object) -> list[relax.Var]:
     return []
 
 
-def init_params(mod: tvm.IRModule) -> list[tvm.runtime.Tensor]:
+def init_params(mod: tvm_tirx.IRModule) -> list[tvm_tirx.runtime.Tensor]:
     """Utility function to initialize model's parameters."""
     shape_dict = {v.name: v.ty.shape for v in mod["main"].params}
     params = []
@@ -287,11 +288,11 @@ def init_params(mod: tvm.IRModule) -> list[tvm.runtime.Tensor]:
         if isinstance(v, relax.ShapeExpr):
             shape = []
             for i in v:
-                if isinstance(i, tirx.IntImm):
+                if isinstance(i, tvm_tirx.ir.IntImm):
                     shape.append(int(i))
                 else:
                     raise TypeError("cannot initialize for unknown-shape parameters.")
-            params.append(tvm.runtime.tensor(np.zeros(shape).astype(np.float32)))
+            params.append(tvm_tirx.runtime.tensor(np.zeros(shape).astype(np.float32)))
         else:
             raise TypeError("cannot initialize for unknown-shape parameters.")
     return params

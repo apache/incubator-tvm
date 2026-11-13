@@ -18,18 +18,18 @@
 
 from typing import Any
 
+import tvm_ffi
 from tvm_ffi import Shape, register_object
 
-from tvm.ir import IRModule
-from tvm.runtime import DataType, Object
-from tvm.tirx import PrimFunc
+from tvm_tirx.ir import IRModule
+from tvm_tirx.tirx import Function
 
 from . import _ffi_api
 from .utils import _json_de_tvm
 
 
 @register_object("s_tir.meta_schedule.ArgInfo")
-class ArgInfo(Object):
+class ArgInfo(tvm_ffi.Object):
     """Argument information"""
 
     def as_json(self) -> Any:
@@ -53,20 +53,20 @@ class ArgInfo(Object):
         return _ffi_api.ArgInfoFromJSON(json_obj)  # type: ignore # pylint: disable=no-member
 
     @staticmethod
-    def from_prim_func(func: PrimFunc) -> list["ArgInfo"]:
-        """Extract a list of the argument information from PrimFunc.
+    def from_function(func: Function) -> list["ArgInfo"]:
+        """Extract a list of the argument information from Function.
 
         Parameters
         ----------
-        func : PrimFunc
-            The PrimFunc to get argument information from.
+        func : Function
+            The Function to get argument information from.
 
         Returns
         -------
         extracted : List[ArgInfo]
             An array of the argument information derived.
         """
-        return _ffi_api.ArgInfoFromPrimFunc(func)  # type: ignore # pylint: disable=no-member
+        return _ffi_api.ArgInfoFromFunction(func)  # type: ignore # pylint: disable=no-member
 
     @staticmethod
     def from_entry_func(mod: IRModule, remove_preproc: bool = True) -> list["ArgInfo"]:
@@ -93,25 +93,25 @@ class TensorInfo(ArgInfo):
 
     Parameters
     ----------
-    dtype : DataType
+    dtype : tvm_ffi.dtype
         The data type of the tensor.
     shape : Shape
         The shape of the tensor.
     """
 
-    dtype: DataType
+    dtype: tvm_ffi.dtype
     shape: Shape
 
     def __init__(
         self,
-        dtype: DataType,
+        dtype: tvm_ffi.dtype,
         shape: Shape | list[int],
     ) -> None:
         """Constructor
 
         Parameters
         ----------
-        dtype : DataType
+        dtype : tvm_ffi.dtype
             The data type of the tensor.
         shape : Shape
             The shape of the tensor.

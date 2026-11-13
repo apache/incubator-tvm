@@ -47,13 +47,9 @@ inline PrimExpr RavelIndex(ffi::Array<PrimExpr> indices, ffi::Array<PrimExpr> sh
   if (indices.size() == 0U) {
     return 0;
   }
-  PrimExpr idx;
-  for (size_t i = 0; i < indices.size(); ++i) {
-    if (i == 0) {
-      idx = indices[i];
-    } else {
-      idx = idx * shape[i] + indices[i];
-    }
+  PrimExpr idx = indices[0];
+  for (size_t i = 1; i < indices.size(); ++i) {
+    idx = idx * shape[i] + indices[i];
   }
   return idx;
 }

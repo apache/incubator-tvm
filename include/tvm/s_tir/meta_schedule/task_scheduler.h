@@ -19,6 +19,7 @@
 #ifndef TVM_S_TIR_META_SCHEDULE_TASK_SCHEDULER_H_
 #define TVM_S_TIR_META_SCHEDULE_TASK_SCHEDULER_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/container/array.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/optional.h>
@@ -39,7 +40,7 @@ namespace tvm {
 namespace s_tir {
 namespace meta_schedule {
 
-class TaskRecordNode : public ffi::Object {
+class TaskRecordObj : public ffi::Object {
  public:
   /*! \brief The tune context of the task. */
   TuneContext ctx{ffi::UnsafeInit()};
@@ -64,32 +65,32 @@ class TaskRecordNode : public ffi::Object {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TaskRecordNode>()
-        .def_ro("ctx", &TaskRecordNode::ctx)
-        .def_ro("task_weight", &TaskRecordNode::task_weight)
-        .def_ro("flop", &TaskRecordNode::flop)
-        .def_ro("is_terminated", &TaskRecordNode::is_terminated)
-        .def_ro("build_error_count", &TaskRecordNode::build_error_count)
-        .def_ro("run_error_count", &TaskRecordNode::run_error_count)
-        .def_ro("measure_candidates", &TaskRecordNode::measure_candidates)
-        .def_ro("builder_results", &TaskRecordNode::builder_results)
-        .def_ro("runner_futures", &TaskRecordNode::runner_futures);
+    refl::ObjectDef<TaskRecordObj>()
+        .def_ro("ctx", &TaskRecordObj::ctx)
+        .def_ro("task_weight", &TaskRecordObj::task_weight)
+        .def_ro("flop", &TaskRecordObj::flop)
+        .def_ro("is_terminated", &TaskRecordObj::is_terminated)
+        .def_ro("build_error_count", &TaskRecordObj::build_error_count)
+        .def_ro("run_error_count", &TaskRecordObj::run_error_count)
+        .def_ro("measure_candidates", &TaskRecordObj::measure_candidates)
+        .def_ro("builder_results", &TaskRecordObj::builder_results)
+        .def_ro("runner_futures", &TaskRecordObj::runner_futures);
   }
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TaskRecord", TaskRecordNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.TaskRecord", TaskRecordObj, ffi::Object);
 };
 
 /*!
- * \brief Managed reference to TaskRecordNode.
- * \sa TaskRecordNode
+ * \brief Managed reference to TaskRecordObj.
+ * \sa TaskRecordObj
  */
 class TaskRecord : public ffi::ObjectRef {
  public:
   /*! \brief Constructor */
   explicit TaskRecord(TuneContext task, double task_weight);
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TaskRecord, ffi::ObjectRef, TaskRecordNode);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TaskRecord, ffi::ObjectRef, TaskRecordObj);
 };
 
 /*!
@@ -128,7 +129,7 @@ class TaskRecord : public ffi::ObjectRef {
   |                   +----  Runner Future <-------+                    |
   +---------------------------------------------------------------------+
 */
-class TaskSchedulerNode : public ffi::Object {
+class TaskSchedulerObj : public ffi::Object {
  public:
   /*! \brief The tuning task's logging function. */
   ffi::Function logger;
@@ -144,16 +145,16 @@ class TaskSchedulerNode : public ffi::Object {
   int remaining_tasks_;
 
   /*! \brief The default destructor. */
-  virtual ~TaskSchedulerNode() = default;
+  virtual ~TaskSchedulerObj() = default;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<TaskSchedulerNode>()
-        .def_ro("tasks_", &TaskSchedulerNode::tasks_)
-        .def_ro("measure_callbacks_", &TaskSchedulerNode::measure_callbacks_)
-        .def_ro("database_", &TaskSchedulerNode::database_)
-        .def_ro("cost_model_", &TaskSchedulerNode::cost_model_)
-        .def_ro("remaining_tasks_", &TaskSchedulerNode::remaining_tasks_);
+    refl::ObjectDef<TaskSchedulerObj>()
+        .def_ro("tasks_", &TaskSchedulerObj::tasks_)
+        .def_ro("measure_callbacks_", &TaskSchedulerObj::measure_callbacks_)
+        .def_ro("database_", &TaskSchedulerObj::database_)
+        .def_ro("cost_model_", &TaskSchedulerObj::cost_model_)
+        .def_ro("remaining_tasks_", &TaskSchedulerObj::remaining_tasks_);
   }
 
   /*!
@@ -204,13 +205,13 @@ class TaskSchedulerNode : public ffi::Object {
   void PrintTuningStatistics();
 
   static constexpr const bool _type_mutable = true;
-  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.TaskScheduler", TaskSchedulerNode, ffi::Object);
+  TVM_FFI_DECLARE_OBJECT_INFO("s_tir.meta_schedule.TaskScheduler", TaskSchedulerObj, ffi::Object);
 };
 
 class TaskScheduler;
 
 /*! \brief The task scheduler with customized methods on the python-side. */
-class PyTaskSchedulerNode : public TaskSchedulerNode {
+class PyTaskSchedulerObj : public TaskSchedulerObj {
  public:
   /*!
    * \brief The function type of `NextTaskId` method.
@@ -243,7 +244,7 @@ class PyTaskSchedulerNode : public TaskSchedulerNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<PyTaskSchedulerNode>();
+    refl::ObjectDef<PyTaskSchedulerObj>();
   }
 
   int NextTaskId() final;
@@ -252,17 +253,17 @@ class PyTaskSchedulerNode : public TaskSchedulerNode {
             int max_trials_per_task, int num_trials_per_iter, Builder builder, Runner runner,
             ffi::Array<MeasureCallback> measure_callbacks, ffi::Optional<Database> database,
             ffi::Optional<CostModel> cost_model) final;
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyTaskScheduler", PyTaskSchedulerNode,
-                                    TaskSchedulerNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.PyTaskScheduler", PyTaskSchedulerObj,
+                                    TaskSchedulerObj);
 };
 
 /*!
- * \brief Managed reference to TaskSchedulerNode.
- * \sa TaskSchedulerNode
+ * \brief Managed reference to TaskSchedulerObj.
+ * \sa TaskSchedulerObj
  */
 class TaskScheduler : public ffi::ObjectRef {
  public:
-  explicit TaskScheduler(ffi::ObjectPtr<TaskSchedulerNode> data) : ffi::ObjectRef(data) {
+  explicit TaskScheduler(ffi::ObjectPtr<TaskSchedulerObj> data) : ffi::ObjectRef(data) {
     TVM_FFI_ICHECK(data != nullptr);
   }
   /*!
@@ -290,9 +291,9 @@ class TaskScheduler : public ffi::ObjectRef {
    * \return The task scheduler created.
    */
   TVM_DLL static TaskScheduler PyTaskScheduler(
-      ffi::Function logger, PyTaskSchedulerNode::FNextTaskId f_next_task_id,
-      PyTaskSchedulerNode::FJoinRunningTask f_join_running_task, PyTaskSchedulerNode::FTune f_tune);
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TaskScheduler, ffi::ObjectRef, TaskSchedulerNode);
+      ffi::Function logger, PyTaskSchedulerObj::FNextTaskId f_next_task_id,
+      PyTaskSchedulerObj::FJoinRunningTask f_join_running_task, PyTaskSchedulerObj::FTune f_tune);
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(TaskScheduler, ffi::ObjectRef, TaskSchedulerObj);
 };
 
 }  // namespace meta_schedule

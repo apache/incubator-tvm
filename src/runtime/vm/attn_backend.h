@@ -33,6 +33,7 @@
 #include <tvm/runtime/logging.h>
 
 #include <memory>
+#include <optional>
 #include <tuple>
 #include <utility>
 #include <vector>
@@ -59,28 +60,29 @@ enum class AttnBackendKind : int {
  * a shared workspace and therefore carry a non-zero `byte_offset`. Passing them
  * as-is makes FlashInfer read the wrong addresses; this helper rebases them.
  */
-inline ffi::Tensor ZeroByteOffsetView(const Tensor& t) {
-  if (t->byte_offset == 0) return t;
-  auto* holder = new Tensor(t);  // keep the underlying storage alive
+inline ffi::Tensor ZeroByteOffsetView(const ffi::Tensor& t) {
+  TVM_FFI_ICHECK(t.defined());
+  if (t.byte_offset() == 0) return t;
+  auto* holder = new ffi::Tensor(t);  // keep the underlying storage alive
   auto* managed = new DLManagedTensor();
   managed->manager_ctx = holder;
   managed->deleter = [](DLManagedTensor* self) {
     delete[] self->dl_tensor.shape;
     delete[] self->dl_tensor.strides;
-    delete static_cast<Tensor*>(self->manager_ctx);
+    delete static_cast<ffi::Tensor*>(self->manager_ctx);
     delete self;
   };
   DLTensor& dl = managed->dl_tensor;
-  dl.data = static_cast<void*>(static_cast<char*>(t->data) + t->byte_offset);
-  dl.device = t->device;
-  dl.ndim = t->ndim;
-  dl.dtype = t->dtype;
-  dl.shape = new int64_t[t->ndim];
+  dl.data = static_cast<void*>(static_cast<char*>(t.data_ptr()) + t.byte_offset());
+  dl.device = t.device();
+  dl.ndim = t.ndim();
+  dl.dtype = t.dtype();
+  dl.shape = new int64_t[t.ndim()];
   dl.strides = nullptr;
-  for (int i = 0; i < t->ndim; ++i) dl.shape[i] = t->shape[i];
-  if (t->strides != nullptr) {
-    dl.strides = new int64_t[t->ndim];
-    for (int i = 0; i < t->ndim; ++i) dl.strides[i] = t->strides[i];
+  for (int i = 0; i < t.ndim(); ++i) dl.shape[i] = t.shape()[i];
+  if (t.GetDLTensorPtr()->strides != nullptr) {
+    dl.strides = new int64_t[t.ndim()];
+    for (int i = 0; i < t.ndim(); ++i) dl.strides[i] = t.strides()[i];
   }
   dl.byte_offset = 0;
   return tvm::ffi::Tensor::FromDLPack(managed, /*require_alignment=*/0,
@@ -95,31 +97,32 @@ inline ffi::Tensor ZeroByteOffsetView(const Tensor& t) {
  * `pages`. FlashInfer 0.6.3 takes separate key/value paged caches and reads the
  * tensor strides, so a strided view avoids an explicit split/copy.
  */
-inline ffi::Tensor PagedKVCacheView(const Tensor& pages, int64_t which) {
-  TVM_FFI_ICHECK_EQ(pages->ndim, 5);
-  TVM_FFI_ICHECK_EQ(pages->shape[1], 2);
-  int64_t num_pages = pages->shape[0];
-  int64_t num_heads = pages->shape[2];
-  int64_t page_size = pages->shape[3];
-  int64_t head_dim = pages->shape[4];
+inline ffi::Tensor PagedKVCacheView(const ffi::Tensor& pages, int64_t which) {
+  TVM_FFI_ICHECK(pages.defined());
+  TVM_FFI_ICHECK_EQ(pages.ndim(), 5);
+  TVM_FFI_ICHECK_EQ(pages.shape()[1], 2);
+  int64_t num_pages = pages.shape()[0];
+  int64_t num_heads = pages.shape()[2];
+  int64_t page_size = pages.shape()[3];
+  int64_t head_dim = pages.shape()[4];
   int64_t inner = num_heads * page_size * head_dim;
-  int64_t elem_bytes = (pages->dtype.bits * pages->dtype.lanes + 7) / 8;
+  int64_t elem_bytes = (pages.dtype().bits * pages.dtype().lanes + 7) / 8;
 
-  auto* holder = new Tensor(pages);  // keep the underlying storage alive
+  auto* holder = new ffi::Tensor(pages);  // keep the underlying storage alive
   auto* managed = new DLManagedTensor();
   managed->manager_ctx = holder;
   managed->deleter = [](DLManagedTensor* self) {
     delete[] self->dl_tensor.shape;
     delete[] self->dl_tensor.strides;
-    delete static_cast<Tensor*>(self->manager_ctx);
+    delete static_cast<ffi::Tensor*>(self->manager_ctx);
     delete self;
   };
   DLTensor& dl = managed->dl_tensor;
-  dl.data = static_cast<void*>(static_cast<char*>(pages->data) + pages->byte_offset +
+  dl.data = static_cast<void*>(static_cast<char*>(pages.data_ptr()) + pages.byte_offset() +
                                which * inner * elem_bytes);
-  dl.device = pages->device;
+  dl.device = pages.device();
   dl.ndim = 4;
-  dl.dtype = pages->dtype;
+  dl.dtype = pages.dtype();
   dl.shape = new int64_t[4]{num_pages, num_heads, page_size, head_dim};
   dl.strides = new int64_t[4]{2 * inner, page_size * head_dim, head_dim, 1};
   dl.byte_offset = 0;
@@ -137,38 +140,39 @@ inline ffi::Tensor PagedKVCacheView(const Tensor& pages, int64_t which) {
  * `ckv_cache`/`kpe_cache`. FlashInfer reads tensor strides and ignores
  * `byte_offset`, so a strided slice avoids a copy.
  */
-inline ffi::Tensor SliceLastDimView(const Tensor& t, int64_t start, int64_t length) {
-  int ndim = t->ndim;
-  int64_t elem_bytes = (t->dtype.bits * t->dtype.lanes + 7) / 8;
+inline ffi::Tensor SliceLastDimView(const ffi::Tensor& t, int64_t start, int64_t length) {
+  TVM_FFI_ICHECK(t.defined());
+  int ndim = t.ndim();
+  int64_t elem_bytes = (t.dtype().bits * t.dtype().lanes + 7) / 8;
   std::vector<int64_t> in_strides(ndim);
-  if (t->strides != nullptr) {
-    for (int i = 0; i < ndim; ++i) in_strides[i] = t->strides[i];
+  if (t.GetDLTensorPtr()->strides != nullptr) {
+    for (int i = 0; i < ndim; ++i) in_strides[i] = t.strides()[i];
   } else {
     int64_t s = 1;
     for (int i = ndim - 1; i >= 0; --i) {
       in_strides[i] = s;
-      s *= t->shape[i];
+      s *= t.shape()[i];
     }
   }
-  auto* holder = new Tensor(t);  // keep the underlying storage alive
+  auto* holder = new ffi::Tensor(t);  // keep the underlying storage alive
   auto* managed = new DLManagedTensor();
   managed->manager_ctx = holder;
   managed->deleter = [](DLManagedTensor* self) {
     delete[] self->dl_tensor.shape;
     delete[] self->dl_tensor.strides;
-    delete static_cast<Tensor*>(self->manager_ctx);
+    delete static_cast<ffi::Tensor*>(self->manager_ctx);
     delete self;
   };
   DLTensor& dl = managed->dl_tensor;
-  dl.data = static_cast<void*>(static_cast<char*>(t->data) + t->byte_offset +
+  dl.data = static_cast<void*>(static_cast<char*>(t.data_ptr()) + t.byte_offset() +
                                start * in_strides[ndim - 1] * elem_bytes);
-  dl.device = t->device;
+  dl.device = t.device();
   dl.ndim = ndim;
-  dl.dtype = t->dtype;
+  dl.dtype = t.dtype();
   dl.shape = new int64_t[ndim];
   dl.strides = new int64_t[ndim];
   for (int i = 0; i < ndim; ++i) {
-    dl.shape[i] = t->shape[i];
+    dl.shape[i] = t.shape()[i];
     dl.strides[i] = in_strides[i];
   }
   dl.shape[ndim - 1] = length;
@@ -201,26 +205,50 @@ class PagedPrefillFunc : public AttnBackendFunc {
                             AttnBackendKind backend_kind)
       : AttnBackendFunc(std::move(attn_func), attn_kind, backend_kind) {}
 
-  virtual void MHA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-                   Tensor page_indices, Tensor length_info, Tensor q_rope_position,
-                   Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode, double rotary_scale,
-                   double rotary_theta, double sm_scale, Tensor attn_output, Tensor attn_lse,
-                   TVMStreamHandle compute_stream) {
+  virtual void MHA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+                   ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info,
+                   ffi::Tensor q_rope_position, ffi::Tensor k_rope_pos_offset, bool causal,
+                   RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
+                   ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MHA computation is not supported by the current backend";
   }
 
-  virtual void MLA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-                   Tensor page_indices, Tensor length_info, bool causal, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MLA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+                   ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info,
+                   bool causal, double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+                   TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MLA computation is not supported by the current backend";
   }
 
-  virtual void BeginForward(int depth, Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                            Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
-                            HostMemoryVector* page_indptr, HostMemoryVector* last_page_len,
-                            int64_t batch_size, int64_t total_qo_len, int64_t page_size,
-                            int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
-                            int64_t v_head_dim, bool causal, TVMStreamHandle copy_stream) {
+  virtual void BeginForward(int depth, ffi::Tensor float_workspace_buffer,
+                            ffi::Tensor int_workspace_buffer,
+                            ffi::Tensor page_locked_int_workspace_buffer,
+                            HostMemoryVector* qo_indptr, HostMemoryVector* page_indptr,
+                            HostMemoryVector* last_page_len, int64_t batch_size,
+                            int64_t total_qo_len, int64_t page_size, int64_t num_qo_heads,
+                            int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
+                            bool causal, TVMStreamHandle copy_stream) {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // Do nothing. Subclasses can override to customize behavior.
   }
 };
@@ -231,20 +259,39 @@ class TIRPagedPrefillFunc : public PagedPrefillFunc {
   explicit TIRPagedPrefillFunc(ffi::Function attn_func, AttnKind attn_kind)
       : PagedPrefillFunc(std::move(attn_func), attn_kind, AttnBackendKind::kTIR) {}
 
-  void MHA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-           Tensor page_indices, Tensor length_info, Tensor q_rope_position,
-           Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode, double rotary_scale,
-           double rotary_theta, double sm_scale, Tensor attn_output, Tensor attn_lse,
-           TVMStreamHandle compute_stream) final {
+  void MHA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+           ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info,
+           ffi::Tensor q_rope_position, ffi::Tensor k_rope_pos_offset, bool causal,
+           RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
+           ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, qo_indptr, pages, page_indptr, page_indices, length_info, k_rope_pos_offset,
                q_rope_position, attn_output, attn_lse, static_cast<int64_t>(causal),
                /*rotary_mode=*/static_cast<int64_t>(rope_mode == RoPEMode::kInline), rotary_scale,
                rotary_theta, sm_scale);
   }
 
-  void MLA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-           Tensor page_indices, Tensor length_info, bool causal, double sm_scale,
-           Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MLA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+           ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info, bool causal,
+           double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+           TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, qo_indptr, pages, page_indptr, page_indices, length_info, attn_output, attn_lse,
                static_cast<int64_t>(causal), sm_scale);
   }
@@ -258,13 +305,23 @@ class FlashInferPagedPrefillFunc : public PagedPrefillFunc {
       : PagedPrefillFunc(std::move(attn_func), attn_kind, AttnBackendKind::kFlashInfer),
         plan_func_(std::move(plan_func)) {}
 
-  void MHA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-           Tensor page_indices, Tensor length_info, Tensor q_rope_position,
-           Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode, double rotary_scale,
-           double rotary_theta, double sm_scale, Tensor attn_output, Tensor attn_lse,
-           TVMStreamHandle compute_stream) final {
+  void MHA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+           ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info,
+           ffi::Tensor q_rope_position, ffi::Tensor k_rope_pos_offset, bool causal,
+           RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
+           ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     auto [float_workspace_buffer, int_workspace_buffer, page_locked_int_workspace_buffer,
-          plan_info_vec] = cached_buffers_[depth];
+          plan_info_vec] = cached_buffers_[depth].value();
     double rope_rcp_scale = 1 / rotary_scale;
     double rope_rcp_theta = 1 / rotary_theta;
     attn_func_(
@@ -276,11 +333,20 @@ class FlashInferPagedPrefillFunc : public PagedPrefillFunc {
         /*rope_rcp_scale=*/rope_rcp_scale, /*rope_rcp_theta=*/rope_rcp_theta);
   }
 
-  void MLA(int depth, Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-           Tensor page_indices, Tensor length_info, bool causal, double sm_scale,
-           Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MLA(int depth, ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages,
+           ffi::Tensor page_indptr, ffi::Tensor page_indices, ffi::Tensor length_info, bool causal,
+           double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+           TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     auto [float_workspace_buffer, int_workspace_buffer, page_locked_int_workspace_buffer,
-          plan_info_vec] = cached_buffers_[depth];
+          plan_info_vec] = cached_buffers_[depth].value();
     // FlashInfer's MLA run takes the query split into its compressed (nope) and
     // positional-embedding (pe) parts, and the paged cache split into the
     // compressed-kv cache (ckv) and key-positional-embedding cache (kpe). Both
@@ -296,19 +362,22 @@ class FlashInferPagedPrefillFunc : public PagedPrefillFunc {
                SliceLastDimView(pages, 0, head_dim_ckv),
                SliceLastDimView(pages, head_dim_ckv, head_dim_kpe),
                ZeroByteOffsetView(page_indices), attn_output, attn_lse,
-               /*mask_mode_code=*/static_cast<int64_t>(causal), /*num_heads=*/q->shape[1],
-               /*page_size=*/pages->shape[1], sm_scale, /*return_lse_base_on_e=*/false);
+               /*mask_mode_code=*/static_cast<int64_t>(causal), /*num_heads=*/q.shape()[1],
+               /*page_size=*/pages.shape()[1], sm_scale, /*return_lse_base_on_e=*/false);
   }
 
-  void BeginForward(int depth, Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                    Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
+  void BeginForward(int depth, ffi::Tensor float_workspace_buffer, ffi::Tensor int_workspace_buffer,
+                    ffi::Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
                     HostMemoryVector* page_indptr, HostMemoryVector* last_page_len,
                     int64_t batch_size, int64_t total_qo_len, int64_t page_size,
                     int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
                     int64_t v_head_dim, bool causal, TVMStreamHandle copy_stream) final {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // FlashInfer expects kv_len as an (int32) tensor rather than a shape tuple.
     HostMemoryVector kv_len_arr(batch_size, DLDataType{kDLInt, 32, 1},
-                                qo_indptr->as_tensor()->device);
+                                qo_indptr->as_tensor().device());
     for (int i = 0; i < static_cast<int>(batch_size); ++i) {
       kv_len_arr.push_back(static_cast<int32_t>(
           (*page_indptr)[i + 1] != (*page_indptr)[i]
@@ -349,7 +418,8 @@ class FlashInferPagedPrefillFunc : public PagedPrefillFunc {
 
  private:
   ffi::Function plan_func_;
-  std::vector<std::tuple<Tensor, Tensor, Tensor, ffi::Array<int64_t>>> cached_buffers_;
+  std::vector<std::optional<std::tuple<ffi::Tensor, ffi::Tensor, ffi::Tensor, ffi::Array<int64_t>>>>
+      cached_buffers_;
   // MLA-only: the compressed-kv and key-positional-embedding head dims, used to
   // split q/pages in the run. Set during BeginForward for the kMLA attn kind.
   int64_t mla_head_dim_ckv_ = -1;
@@ -363,18 +433,32 @@ class RaggedPrefillFunc : public AttnBackendFunc {
                              AttnBackendKind backend_kind)
       : AttnBackendFunc(std::move(attn_func), attn_kind, backend_kind) {}
 
-  virtual void MHA(Tensor q, Tensor k, Tensor v, Tensor qo_indptr, Tensor kv_indptr,
-                   Tensor q_rope_position, Tensor k_rope_pos_offset, bool causal,
-                   RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MHA(ffi::Tensor q, ffi::Tensor k, ffi::Tensor v, ffi::Tensor qo_indptr,
+                   ffi::Tensor kv_indptr, ffi::Tensor q_rope_position,
+                   ffi::Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode,
+                   double rotary_scale, double rotary_theta, double sm_scale,
+                   ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(k.defined());
+    TVM_FFI_ICHECK(v.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MHA computation is not supported by the current backend";
   }
 
-  virtual void BeginForward(Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                            Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
-                            HostMemoryVector* kv_indptr, int64_t batch_size, int64_t total_qo_len,
-                            int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
-                            int64_t v_head_dim, bool causal, TVMStreamHandle copy_stream) {
+  virtual void BeginForward(ffi::Tensor float_workspace_buffer, ffi::Tensor int_workspace_buffer,
+                            ffi::Tensor page_locked_int_workspace_buffer,
+                            HostMemoryVector* qo_indptr, HostMemoryVector* kv_indptr,
+                            int64_t batch_size, int64_t total_qo_len, int64_t num_qo_heads,
+                            int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
+                            bool causal, TVMStreamHandle copy_stream) {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // Do nothing. Subclasses can override to customize behavior.
   }
 };
@@ -385,10 +469,20 @@ class TIRRaggedPrefillFunc : public RaggedPrefillFunc {
   explicit TIRRaggedPrefillFunc(ffi::Function attn_func, AttnKind attn_kind)
       : RaggedPrefillFunc(std::move(attn_func), attn_kind, AttnBackendKind::kTIR) {}
 
-  void MHA(Tensor q, Tensor k, Tensor v, Tensor qo_indptr, Tensor kv_indptr, Tensor q_rope_position,
-           Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode, double rotary_scale,
-           double rotary_theta, double sm_scale, Tensor attn_output, Tensor attn_lse,
+  void MHA(ffi::Tensor q, ffi::Tensor k, ffi::Tensor v, ffi::Tensor qo_indptr,
+           ffi::Tensor kv_indptr, ffi::Tensor q_rope_position, ffi::Tensor k_rope_pos_offset,
+           bool causal, RoPEMode rope_mode, double rotary_scale, double rotary_theta,
+           double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
            TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(k.defined());
+    TVM_FFI_ICHECK(v.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, qo_indptr, k, v, kv_indptr, q_rope_position, k_rope_pos_offset, attn_output,
                attn_lse, static_cast<int64_t>(causal),
                /*rotary_mode=*/static_cast<int64_t>(rope_mode == RoPEMode::kInline), rotary_scale,
@@ -407,25 +501,39 @@ class FlashInferRaggedPrefillFunc : public RaggedPrefillFunc {
         qk_head_dim_override_(qk_head_dim_override),
         v_head_dim_override_(v_head_dim_override) {}
 
-  void MHA(Tensor q, Tensor k, Tensor v, Tensor qo_indptr, Tensor kv_indptr, Tensor q_rope_position,
-           Tensor k_rope_pos_offset, bool causal, RoPEMode rope_mode, double rotary_scale,
-           double rotary_theta, double sm_scale, Tensor attn_output, Tensor attn_lse,
+  void MHA(ffi::Tensor q, ffi::Tensor k, ffi::Tensor v, ffi::Tensor qo_indptr,
+           ffi::Tensor kv_indptr, ffi::Tensor q_rope_position, ffi::Tensor k_rope_pos_offset,
+           bool causal, RoPEMode rope_mode, double rotary_scale, double rotary_theta,
+           double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
            TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(k.defined());
+    TVM_FFI_ICHECK(v.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     double rope_rcp_scale = 1 / rotary_scale;
     double rope_rcp_theta = 1 / rotary_theta;
-    attn_func_(float_workspace_buffer_, int_workspace_buffer_, plan_info_vec_, q, k, v,
-               ZeroByteOffsetView(qo_indptr), ZeroByteOffsetView(kv_indptr), attn_output, attn_lse,
+    attn_func_(float_workspace_buffer_.value(), int_workspace_buffer_.value(), plan_info_vec_, q, k,
+               v, ZeroByteOffsetView(qo_indptr), ZeroByteOffsetView(kv_indptr), attn_output,
+               attn_lse,
                /*mask_mode_code=*/static_cast<int64_t>(causal),
                /*layout(NHD)=*/0, /*window_left=*/-1, /*enable_pdl=*/false, sm_scale,
                /*rope_rcp_scale=*/rope_rcp_scale,
                /*rope_rcp_theta=*/rope_rcp_theta);
   }
 
-  void BeginForward(Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                    Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
+  void BeginForward(ffi::Tensor float_workspace_buffer, ffi::Tensor int_workspace_buffer,
+                    ffi::Tensor page_locked_int_workspace_buffer, HostMemoryVector* qo_indptr,
                     HostMemoryVector* kv_indptr, int64_t batch_size, int64_t total_qo_len,
                     int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
                     int64_t v_head_dim, bool causal, TVMStreamHandle copy_stream) final {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // For MLA self-attention the ragged kernel operates on different head dims
     // than the (compressed) MLA cache, so they are supplied per-function via the
     // backend spec and override the cache-derived dims passed by the caller. MLA
@@ -438,7 +546,7 @@ class FlashInferRaggedPrefillFunc : public RaggedPrefillFunc {
     }
     // FlashInfer expects kv_len as an (int32) tensor rather than a shape tuple.
     HostMemoryVector kv_len_arr(batch_size, DLDataType{kDLInt, 32, 1},
-                                qo_indptr->as_tensor()->device);
+                                qo_indptr->as_tensor().device());
     for (int i = 0; i < static_cast<int>(batch_size); ++i) {
       kv_len_arr.push_back(static_cast<int32_t>((*kv_indptr)[i + 1] - (*kv_indptr)[i]));
     }
@@ -458,9 +566,9 @@ class FlashInferRaggedPrefillFunc : public RaggedPrefillFunc {
 
  private:
   ffi::Function plan_func_;
-  Tensor float_workspace_buffer_;
-  Tensor int_workspace_buffer_;
-  Tensor page_locked_int_workspace_buffer_;
+  ffi::Optional<ffi::Tensor> float_workspace_buffer_;
+  ffi::Optional<ffi::Tensor> int_workspace_buffer_;
+  ffi::Optional<ffi::Tensor> page_locked_int_workspace_buffer_;
   ffi::Array<int64_t> plan_info_vec_;
   // MLA self-attention head dims supplied via the backend spec; -1 means use the
   // dims passed by the caller (the regular MHA case).
@@ -475,25 +583,46 @@ class PagedDecodeFunc : public AttnBackendFunc {
                            AttnBackendKind backend_kind)
       : AttnBackendFunc(std::move(attn_func), attn_kind, backend_kind) {}
 
-  virtual void MHA(int depth, Tensor q, Tensor pages, Tensor page_indptr, Tensor page_indices,
-                   Tensor length_info, Tensor k_rope_pos_offset, Tensor q_rope_position,
-                   RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MHA(int depth, ffi::Tensor q, ffi::Tensor pages, ffi::Tensor page_indptr,
+                   ffi::Tensor page_indices, ffi::Tensor length_info, ffi::Tensor k_rope_pos_offset,
+                   ffi::Tensor q_rope_position, RoPEMode rope_mode, double rotary_scale,
+                   double rotary_theta, double sm_scale, ffi::Tensor attn_output,
+                   ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MHA computation is not supported by the current backend";
   }
 
-  virtual void MLA(int depth, Tensor q, Tensor pages, Tensor page_indptr, Tensor page_indices,
-                   Tensor length_info, double sm_scale, Tensor attn_output, Tensor attn_lse,
-                   TVMStreamHandle compute_stream) {
+  virtual void MLA(int depth, ffi::Tensor q, ffi::Tensor pages, ffi::Tensor page_indptr,
+                   ffi::Tensor page_indices, ffi::Tensor length_info, double sm_scale,
+                   ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MLA computation is not supported by the current backend";
   }
 
-  virtual void BeginForward(int depth, Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                            Tensor page_locked_int_workspace_buffer, HostMemoryVector* page_indptr,
-                            int64_t batch_size, int64_t page_size, int64_t num_qo_heads,
-                            int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
-                            RoPEMode rope_mode, DLDataType q_dtype, DLDataType kv_dtype,
-                            TVMStreamHandle copy_stream) {
+  virtual void BeginForward(int depth, ffi::Tensor float_workspace_buffer,
+                            ffi::Tensor int_workspace_buffer,
+                            ffi::Tensor page_locked_int_workspace_buffer,
+                            HostMemoryVector* page_indptr, int64_t batch_size, int64_t page_size,
+                            int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
+                            int64_t v_head_dim, RoPEMode rope_mode, DLDataType q_dtype,
+                            DLDataType kv_dtype, TVMStreamHandle copy_stream) {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // Do nothing. Subclasses can override to customize behavior.
   }
 };
@@ -504,19 +633,36 @@ class TIRPagedDecodeFunc : public PagedDecodeFunc {
   explicit TIRPagedDecodeFunc(ffi::Function attn_func, AttnKind attn_kind)
       : PagedDecodeFunc(std::move(attn_func), attn_kind, AttnBackendKind::kTIR) {}
 
-  void MHA(int depth, Tensor q, Tensor pages, Tensor page_indptr, Tensor page_indices,
-           Tensor length_info, Tensor k_rope_pos_offset, Tensor q_rope_position, RoPEMode rope_mode,
-           double rotary_scale, double rotary_theta, double sm_scale, Tensor attn_output,
-           Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MHA(int depth, ffi::Tensor q, ffi::Tensor pages, ffi::Tensor page_indptr,
+           ffi::Tensor page_indices, ffi::Tensor length_info, ffi::Tensor k_rope_pos_offset,
+           ffi::Tensor q_rope_position, RoPEMode rope_mode, double rotary_scale,
+           double rotary_theta, double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+           TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, pages, page_indptr, page_indices, length_info, k_rope_pos_offset, q_rope_position,
                attn_output, attn_lse,
                /*rotary_mode=*/static_cast<int64_t>(rope_mode == RoPEMode::kInline), rotary_scale,
                rotary_theta, sm_scale);
   }
 
-  void MLA(int depth, Tensor q, Tensor pages, Tensor page_indptr, Tensor page_indices,
-           Tensor length_info, double sm_scale, Tensor attn_output, Tensor attn_lse,
-           TVMStreamHandle compute_stream) final {
+  void MLA(int depth, ffi::Tensor q, ffi::Tensor pages, ffi::Tensor page_indptr,
+           ffi::Tensor page_indices, ffi::Tensor length_info, double sm_scale,
+           ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, pages, page_indptr, page_indices, length_info, attn_output, attn_lse, sm_scale);
   }
 };
@@ -529,12 +675,22 @@ class FlashInferPagedDecodeFunc : public PagedDecodeFunc {
       : PagedDecodeFunc(std::move(attn_func), attn_kind, AttnBackendKind::kFlashInfer),
         plan_func_(std::move(plan_func)) {}
 
-  void MHA(int depth, Tensor q, Tensor pages, Tensor page_indptr, Tensor page_indices,
-           Tensor length_info, Tensor k_rope_pos_offset, Tensor q_rope_position, RoPEMode rope_mode,
-           double rotary_scale, double rotary_theta, double sm_scale, Tensor attn_output,
-           Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MHA(int depth, ffi::Tensor q, ffi::Tensor pages, ffi::Tensor page_indptr,
+           ffi::Tensor page_indices, ffi::Tensor length_info, ffi::Tensor k_rope_pos_offset,
+           ffi::Tensor q_rope_position, RoPEMode rope_mode, double rotary_scale,
+           double rotary_theta, double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+           TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     auto [float_workspace_buffer, int_workspace_buffer, page_locked_int_workspace_buffer,
-          plan_info_vec] = cached_buffers_[depth];
+          plan_info_vec] = cached_buffers_[depth].value();
     double rope_rcp_scale = 1 / rotary_scale;
     double rope_rcp_theta = 1 / rotary_theta;
     attn_func_(float_workspace_buffer, int_workspace_buffer, plan_info_vec, q,
@@ -545,19 +701,22 @@ class FlashInferPagedDecodeFunc : public PagedDecodeFunc {
                /*rope_rcp_scale=*/rope_rcp_scale, /*rope_rcp_theta=*/rope_rcp_theta);
   }
 
-  void BeginForward(int depth, Tensor float_workspace_buffer, Tensor int_workspace_buffer,
-                    Tensor page_locked_int_workspace_buffer, HostMemoryVector* page_indptr,
+  void BeginForward(int depth, ffi::Tensor float_workspace_buffer, ffi::Tensor int_workspace_buffer,
+                    ffi::Tensor page_locked_int_workspace_buffer, HostMemoryVector* page_indptr,
                     int64_t batch_size, int64_t page_size, int64_t num_qo_heads,
                     int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
                     RoPEMode rope_mode, DLDataType q_dtype, DLDataType kv_dtype,
                     TVMStreamHandle copy_stream) final {
+    TVM_FFI_ICHECK(float_workspace_buffer.defined());
+    TVM_FFI_ICHECK(int_workspace_buffer.defined());
+    TVM_FFI_ICHECK(page_locked_int_workspace_buffer.defined());
     // Todo(tvm-team): enable cuda graph
     // FlashInfer's decode plan takes empty q/kv tensors (used only for dtype
     // dispatch) instead of dtype scalars, adds a logits_soft_cap argument, and
     // no longer takes the pos-encoding mode or an explicit stream.
-    DLDevice device = float_workspace_buffer->device;
-    Tensor empty_q_data = Tensor::Empty(ffi::Shape({0}), q_dtype, device);
-    Tensor empty_kv_data = Tensor::Empty(ffi::Shape({0}), kv_dtype, device);
+    DLDevice device = float_workspace_buffer.device();
+    ffi::Tensor empty_q_data = tvm::runtime::Empty(ffi::Shape({0}), q_dtype, device);
+    ffi::Tensor empty_kv_data = tvm::runtime::Empty(ffi::Shape({0}), kv_dtype, device);
     ffi::Array<int64_t> plan_info_vec =
         plan_func_(float_workspace_buffer, int_workspace_buffer, page_locked_int_workspace_buffer,
                    page_indptr->as_tensor(), batch_size, num_qo_heads, num_kv_heads, page_size,
@@ -575,7 +734,8 @@ class FlashInferPagedDecodeFunc : public PagedDecodeFunc {
 
  private:
   ffi::Function plan_func_;
-  std::vector<std::tuple<Tensor, Tensor, Tensor, ffi::Array<int64_t>>> cached_buffers_;
+  std::vector<std::optional<std::tuple<ffi::Tensor, ffi::Tensor, ffi::Tensor, ffi::Array<int64_t>>>>
+      cached_buffers_;
 };
 
 /*! \brief The paged prefill with tree mask attention function base class. */
@@ -585,26 +745,52 @@ class PagedPrefillTreeMaskFunc : public AttnBackendFunc {
                                     AttnBackendKind backend_kind)
       : AttnBackendFunc(std::move(attn_func), attn_kind, backend_kind) {}
 
-  virtual void MHA(Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-                   Tensor page_indices, Tensor length_info, Tensor k_rope_pos_offset,
-                   Tensor q_rope_position, Tensor tree_attn_mn_indptr, Tensor tree_attn_mask,
-                   RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MHA(ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages, ffi::Tensor page_indptr,
+                   ffi::Tensor page_indices, ffi::Tensor length_info, ffi::Tensor k_rope_pos_offset,
+                   ffi::Tensor q_rope_position, ffi::Tensor tree_attn_mn_indptr,
+                   ffi::Tensor tree_attn_mask, RoPEMode rope_mode, double rotary_scale,
+                   double rotary_theta, double sm_scale, ffi::Tensor attn_output,
+                   ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MHA computation is not supported by the current backend";
   }
 
-  virtual void MLA(Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr,
-                   Tensor page_indices, Tensor length_info, Tensor tree_attn_mn_indptr,
-                   Tensor tree_attn_mask, double sm_scale, Tensor attn_output, Tensor attn_lse,
-                   TVMStreamHandle compute_stream) {
+  virtual void MLA(ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages, ffi::Tensor page_indptr,
+                   ffi::Tensor page_indices, ffi::Tensor length_info,
+                   ffi::Tensor tree_attn_mn_indptr, ffi::Tensor tree_attn_mask, double sm_scale,
+                   ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MLA computation is not supported by the current backend";
   }
 
-  virtual void BeginForward(Tensor temp_float_attn_workspace, Tensor temp_int_attn_workspace,
-                            HostMemoryVector* page_indptr, HostMemoryVector* last_page_len,
-                            HostMemoryVector* qo_indptr, int64_t batch_size, int64_t page_size,
-                            int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
-                            int64_t v_head_dim, RoPEMode rope_mode, TVMStreamHandle copy_stream) {
+  virtual void BeginForward(ffi::Tensor temp_float_attn_workspace,
+                            ffi::Tensor temp_int_attn_workspace, HostMemoryVector* page_indptr,
+                            HostMemoryVector* last_page_len, HostMemoryVector* qo_indptr,
+                            int64_t batch_size, int64_t page_size, int64_t num_qo_heads,
+                            int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
+                            RoPEMode rope_mode, TVMStreamHandle copy_stream) {
+    TVM_FFI_ICHECK(temp_float_attn_workspace.defined());
+    TVM_FFI_ICHECK(temp_int_attn_workspace.defined());
     // Do nothing. Subclasses can override to customize behavior.
   }
 };
@@ -615,11 +801,23 @@ class TIRPagedPrefillTreeMaskFunc : public PagedPrefillTreeMaskFunc {
   explicit TIRPagedPrefillTreeMaskFunc(ffi::Function attn_func, AttnKind attn_kind)
       : PagedPrefillTreeMaskFunc(std::move(attn_func), attn_kind, AttnBackendKind::kTIR) {}
 
-  void MHA(Tensor q, Tensor qo_indptr, Tensor pages, Tensor page_indptr, Tensor page_indices,
-           Tensor length_info, Tensor k_rope_pos_offset, Tensor q_rope_position,
-           Tensor tree_attn_mn_indptr, Tensor tree_attn_mask, RoPEMode rope_mode,
-           double rotary_scale, double rotary_theta, double sm_scale, Tensor attn_output,
-           Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MHA(ffi::Tensor q, ffi::Tensor qo_indptr, ffi::Tensor pages, ffi::Tensor page_indptr,
+           ffi::Tensor page_indices, ffi::Tensor length_info, ffi::Tensor k_rope_pos_offset,
+           ffi::Tensor q_rope_position, ffi::Tensor tree_attn_mn_indptr, ffi::Tensor tree_attn_mask,
+           RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
+           ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(pages.defined());
+    TVM_FFI_ICHECK(page_indptr.defined());
+    TVM_FFI_ICHECK(page_indices.defined());
+    TVM_FFI_ICHECK(length_info.defined());
+    TVM_FFI_ICHECK(k_rope_pos_offset.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, qo_indptr, pages, page_indptr, page_indices, length_info, k_rope_pos_offset,
                q_rope_position, attn_output, attn_lse,
                /*rotary_mode=*/static_cast<int64_t>(rope_mode == RoPEMode::kInline), rotary_scale,
@@ -634,24 +832,48 @@ class RaggedPrefillTreeMaskFunc : public AttnBackendFunc {
                                      AttnBackendKind backend_kind)
       : AttnBackendFunc(std::move(attn_func), attn_kind, backend_kind) {}
 
-  virtual void MHA(Tensor q, Tensor k, Tensor v, Tensor qo_indptr, Tensor kv_indptr,
-                   Tensor q_rope_position, Tensor tree_attn_mn_indptr, Tensor tree_attn_mask,
-                   RoPEMode rope_mode, double rotary_scale, double rotary_theta, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MHA(ffi::Tensor q, ffi::Tensor k, ffi::Tensor v, ffi::Tensor qo_indptr,
+                   ffi::Tensor kv_indptr, ffi::Tensor q_rope_position,
+                   ffi::Tensor tree_attn_mn_indptr, ffi::Tensor tree_attn_mask, RoPEMode rope_mode,
+                   double rotary_scale, double rotary_theta, double sm_scale,
+                   ffi::Tensor attn_output, ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(k.defined());
+    TVM_FFI_ICHECK(v.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MHA computation is not supported by the current backend";
   }
 
-  virtual void MLA(Tensor q, Tensor compressed_kv, Tensor k_pe, Tensor qo_indptr, Tensor kv_indptr,
-                   Tensor tree_attn_mn_indptr, Tensor tree_attn_mask, double sm_scale,
-                   Tensor attn_output, Tensor attn_lse, TVMStreamHandle compute_stream) {
+  virtual void MLA(ffi::Tensor q, ffi::Tensor compressed_kv, ffi::Tensor k_pe,
+                   ffi::Tensor qo_indptr, ffi::Tensor kv_indptr, ffi::Tensor tree_attn_mn_indptr,
+                   ffi::Tensor tree_attn_mask, double sm_scale, ffi::Tensor attn_output,
+                   ffi::Tensor attn_lse, TVMStreamHandle compute_stream) {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(compressed_kv.defined());
+    TVM_FFI_ICHECK(k_pe.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     TVM_FFI_THROW(InternalError) << "MLA computation is not supported by the current backend";
   }
 
-  virtual void BeginForward(Tensor temp_float_attn_workspace, Tensor temp_int_attn_workspace,
-                            HostMemoryVector* page_indptr, HostMemoryVector* last_page_len,
-                            HostMemoryVector* qo_indptr, int64_t batch_size, int64_t page_size,
-                            int64_t num_qo_heads, int64_t num_kv_heads, int64_t qk_head_dim,
-                            int64_t v_head_dim, RoPEMode rope_mode, TVMStreamHandle copy_stream) {
+  virtual void BeginForward(ffi::Tensor temp_float_attn_workspace,
+                            ffi::Tensor temp_int_attn_workspace, HostMemoryVector* page_indptr,
+                            HostMemoryVector* last_page_len, HostMemoryVector* qo_indptr,
+                            int64_t batch_size, int64_t page_size, int64_t num_qo_heads,
+                            int64_t num_kv_heads, int64_t qk_head_dim, int64_t v_head_dim,
+                            RoPEMode rope_mode, TVMStreamHandle copy_stream) {
+    TVM_FFI_ICHECK(temp_float_attn_workspace.defined());
+    TVM_FFI_ICHECK(temp_int_attn_workspace.defined());
     // Do nothing. Subclasses can override to customize behavior.
   }
 };
@@ -662,10 +884,21 @@ class TIRRaggedPrefillTreeMaskFunc : public RaggedPrefillTreeMaskFunc {
   explicit TIRRaggedPrefillTreeMaskFunc(ffi::Function attn_func, AttnKind attn_kind)
       : RaggedPrefillTreeMaskFunc(std::move(attn_func), attn_kind, AttnBackendKind::kTIR) {}
 
-  void MHA(Tensor q, Tensor k, Tensor v, Tensor qo_indptr, Tensor kv_indptr, Tensor q_rope_position,
-           Tensor tree_attn_mn_indptr, Tensor tree_attn_mask, RoPEMode rope_mode,
-           double rotary_scale, double rotary_theta, double sm_scale, Tensor attn_output,
-           Tensor attn_lse, TVMStreamHandle compute_stream) final {
+  void MHA(ffi::Tensor q, ffi::Tensor k, ffi::Tensor v, ffi::Tensor qo_indptr,
+           ffi::Tensor kv_indptr, ffi::Tensor q_rope_position, ffi::Tensor tree_attn_mn_indptr,
+           ffi::Tensor tree_attn_mask, RoPEMode rope_mode, double rotary_scale, double rotary_theta,
+           double sm_scale, ffi::Tensor attn_output, ffi::Tensor attn_lse,
+           TVMStreamHandle compute_stream) final {
+    TVM_FFI_ICHECK(q.defined());
+    TVM_FFI_ICHECK(k.defined());
+    TVM_FFI_ICHECK(v.defined());
+    TVM_FFI_ICHECK(qo_indptr.defined());
+    TVM_FFI_ICHECK(kv_indptr.defined());
+    TVM_FFI_ICHECK(q_rope_position.defined());
+    TVM_FFI_ICHECK(tree_attn_mn_indptr.defined());
+    TVM_FFI_ICHECK(tree_attn_mask.defined());
+    TVM_FFI_ICHECK(attn_output.defined());
+    TVM_FFI_ICHECK(attn_lse.defined());
     attn_func_(q, qo_indptr, k, v, kv_indptr, q_rope_position, tree_attn_mn_indptr, tree_attn_mask,
                attn_output, attn_lse,
                /*rotary_mode=*/static_cast<int64_t>(rope_mode == RoPEMode::kInline), rotary_scale,

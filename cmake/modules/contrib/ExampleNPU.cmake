@@ -16,26 +16,30 @@
 # under the License.
 
 # Example NPU Codegen
-if(USE_EXAMPLE_NPU_CODEGEN)
+if(TVM_USE_EXAMPLE_NPU_CODEGEN)
     message(STATUS "Build with Example NPU codegen")
 
-    tvm_file_glob(GLOB COMPILER_EXAMPLE_NPU_SRCS src/relax/backend/contrib/example_npu/*.cc)
+    file(GLOB COMPILER_EXAMPLE_NPU_SRCS CONFIGURE_DEPENDS src/relax/backend/contrib/example_npu/*.cc)
     list(APPEND COMPILER_SRCS ${COMPILER_EXAMPLE_NPU_SRCS})
 
-    tvm_file_glob(GLOB RUNTIME_EXAMPLE_NPU_SRCS src/runtime/extra/contrib/example_npu/*.cc)
-    if(NOT USE_EXAMPLE_NPU_RUNTIME)
-        list(APPEND COMPILER_SRCS ${RUNTIME_EXAMPLE_NPU_SRCS})
+    file(GLOB RUNTIME_EXAMPLE_NPU_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/example_npu/*.cc)
+    if(NOT TVM_USE_EXAMPLE_NPU_RUNTIME)
+        add_library(tvm_example_npu_objs OBJECT ${RUNTIME_EXAMPLE_NPU_SRCS})
+        tvm_configure_target(tvm_example_npu_objs)
+        target_link_libraries(tvm_example_npu_objs PRIVATE tvm_runtime_extra_defs)
+        target_link_libraries(tvm_runtime_extra PRIVATE tvm_example_npu_objs)
     endif()
 endif()
 
 # Example NPU Runtime — goes into libtvm_runtime_extra.
-if(USE_EXAMPLE_NPU_RUNTIME)
+if(TVM_USE_EXAMPLE_NPU_RUNTIME)
     message(STATUS "Build with Example NPU runtime")
 
-    tvm_file_glob(GLOB RUNTIME_EXAMPLE_NPU_SRCS src/runtime/extra/contrib/example_npu/*.cc)
+    file(GLOB RUNTIME_EXAMPLE_NPU_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/example_npu/*.cc)
     add_library(tvm_example_npu_objs OBJECT ${RUNTIME_EXAMPLE_NPU_SRCS})
+    tvm_configure_target(tvm_example_npu_objs)
     target_link_libraries(tvm_example_npu_objs PRIVATE tvm_runtime_extra_defs)
     target_link_libraries(tvm_runtime_extra PRIVATE tvm_example_npu_objs)
 
-    add_definitions(-DTVM_GRAPH_EXECUTOR_EXAMPLE_NPU)
+    target_compile_definitions(tvm_example_npu_objs PRIVATE TVM_GRAPH_EXECUTOR_EXAMPLE_NPU)
 endif()

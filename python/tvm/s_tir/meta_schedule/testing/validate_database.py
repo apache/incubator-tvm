@@ -30,16 +30,17 @@ import tvm_ffi
 from tvm_ffi import get_global_func, register_global_func
 
 import tvm
-from tvm.ir import IRModule
+import tvm_tirx
 from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
 from tvm.s_tir.meta_schedule.testing.tune_utils import generate_input_data
 from tvm.s_tir.meta_schedule.utils import remove_build_dir
 from tvm.s_tir.schedule import Trace
 from tvm.s_tir.tensor_intrin import *  # type: ignore # pylint: disable=wildcard-import,unused-wildcard-import
+from tvm.s_tir.testing import strtobool
 from tvm.support import describe
-from tvm.target import Target
-from tvm.testing.utils import strtobool
+from tvm_tirx.ir import IRModule
+from tvm_tirx.target import Target
 
 DELIMITOR = "\n" + "-" * 30 + "\n"
 
@@ -115,7 +116,7 @@ def _parse_args():
         default="tvm.s_tir.meta_schedule.testing.default_check_metric",
     )
     parsed = args.parse_args()
-    parsed.target = tvm.target.Target(parsed.target)
+    parsed.target = tvm_tirx.target.Target(parsed.target)
     if parsed.rpc_host is not None and parsed.rpc_port is not None and parsed.rpc_key is not None:
         parsed.rpc_config = ms.runner.RPCConfig(
             tracker_host=parsed.rpc_host,
@@ -163,7 +164,7 @@ def get_device_type(target: Target) -> str:
         raise RuntimeError(f"Unsupported target kind for device type: {target.kind.name}")
 
 
-def get_runtime_device(target: Target) -> tvm.runtime.Device:
+def get_runtime_device(target: Target) -> tvm_tirx.runtime.Device:
     """Get the runtime device from a target.
 
     Parameters
@@ -173,13 +174,13 @@ def get_runtime_device(target: Target) -> tvm.runtime.Device:
 
     Returns
     -------
-    device : tvm.runtime.Device
+    device : tvm_tirx.runtime.Device
         The runtime device.
     """
     if target.kind.name == "llvm":
-        return tvm.cpu()
+        return tvm_tirx.cpu()
     elif target.kind.name == "cuda":
-        return tvm.cuda()
+        return tvm_tirx.cuda()
     else:
         raise RuntimeError(f"Unsupported target kind for runtime device: {target.kind.name}")
 
@@ -209,16 +210,16 @@ def initializer() -> None:
 
     @register_global_func("tvm.s_tir.meta_schedule.testing.default_check_metric")
     def default_check_metric(  # pylint: disable=unused-variable,unreachable-code
-        lhs: list[tvm.runtime.Tensor], rhs: list[tvm.runtime.Tensor]
+        lhs: list[tvm_tirx.runtime.Tensor], rhs: list[tvm_tirx.runtime.Tensor]
     ) -> bool:
         """Check if the outputs are equal
 
         Parameters
         ----------
-        lhs : List[tvm.runtime.Tensor]
+        lhs : List[tvm_tirx.runtime.Tensor]
             The first list of Tensors to compare.
 
-        rhs : List[tvm.runtime.Tensor]
+        rhs : List[tvm_tirx.runtime.Tensor]
             The second list of Tensors to compare.
 
         Returns
@@ -236,7 +237,7 @@ def initializer() -> None:
 @register_global_func("tvm.s_tir.meta_schedule.testing.default_input_generator")
 def default_input_generator(  # pylint: disable=unused-variable
     mod: IRModule,
-) -> list[tvm.runtime.Tensor]:
+) -> list[tvm_tirx.runtime.Tensor]:
     """Default input generator function
 
     Parameters
@@ -246,13 +247,13 @@ def default_input_generator(  # pylint: disable=unused-variable
 
     Returns
     -------
-    inputs : List[tvm.runtime.Tensor]
+    inputs : List[tvm_tirx.runtime.Tensor]
         The generated input data.
     """
 
-    args_info = ms.arg_info.TensorInfo.from_prim_func(mod["main"])
+    args_info = ms.arg_info.TensorInfo.from_function(mod["main"])
     inputs = [
-        tvm.runtime.tensor(
+        tvm_tirx.runtime.tensor(
             generate_input_data(input_shape=arg_info.shape, input_dtype=arg_info.dtype)
         )
         for arg_info in args_info
@@ -260,12 +261,12 @@ def default_input_generator(  # pylint: disable=unused-variable
     return inputs
 
 
-def to_numpy(a: list[tvm.runtime.Tensor]) -> list[np.ndarray]:
+def to_numpy(a: list[tvm_tirx.runtime.Tensor]) -> list[np.ndarray]:
     """Convert a list of TVM Tensor to a list of numpy array
 
     Parameters
     ----------
-    a : List[tvm.runtime.Tensor]
+    a : List[tvm_tirx.runtime.Tensor]
         The list of TVM Tensor to be converted
 
     Returns
@@ -277,7 +278,7 @@ def to_numpy(a: list[tvm.runtime.Tensor]) -> list[np.ndarray]:
     return [x.numpy() for x in a]
 
 
-def to_tvm_tensor(a: list[np.ndarray]) -> list[tvm.runtime.Tensor]:
+def to_tvm_tensor(a: list[np.ndarray]) -> list[tvm_tirx.runtime.Tensor]:
     """Convert a list of numpy array to a list of TVM Tensor
 
     Parameters
@@ -287,11 +288,11 @@ def to_tvm_tensor(a: list[np.ndarray]) -> list[tvm.runtime.Tensor]:
 
     Returns
     -------
-    b : List[tvm.runtime.Tensor]
+    b : List[tvm_tirx.runtime.Tensor]
         The list of TVM Tensor.
     """
     assert a is not None, "Empty result cannot be converted to TVM Tensor"
-    return [tvm.runtime.tensor(x) for x in a]
+    return [tvm_tirx.runtime.tensor(x) for x in a]
 
 
 def is_failed_record(record: ms.database.TuningRecord) -> bool:
@@ -420,7 +421,7 @@ def make_alloc_arg_and_check(
     """
 
     def f_with_args_alloc_argument_common(
-        device: tvm.runtime.Device,
+        device: tvm_tirx.runtime.Device,
         args_info: ms.runner.rpc_runner.T_ARG_INFO_JSON_OBJ_LIST,  # pylint: disable=unused-argument
         alloc_repeat: int,
     ) -> list[ms.runner.rpc_runner.T_ARGUMENT_LIST]:
@@ -443,12 +444,13 @@ def make_alloc_arg_and_check(
             The list of argument lists.
         """
         return [
-            [tvm.runtime.tensor(arg, device=device) for arg in inputs] for _ in range(alloc_repeat)
+            [tvm_tirx.runtime.tensor(arg, device=device) for arg in inputs]
+            for _ in range(alloc_repeat)
         ]
 
     def f_with_args_run_evaluator_common(
-        rt_mod: tvm.runtime.Module,
-        device: tvm.runtime.Device,
+        rt_mod: tvm_ffi.Module,
+        device: tvm_tirx.runtime.Device,
         evaluator_config: ms.runner.EvaluatorConfig,
         repeated_args: list[ms.runner.rpc_runner.T_ARGUMENT_LIST],
     ) -> list[float]:
@@ -472,14 +474,15 @@ def make_alloc_arg_and_check(
         costs: List[float]
             The evaluator results
         """
-        evaluator = rt_mod.time_evaluator(
+        evaluator = tvm.runtime.time_evaluator(
+            rt_mod,
             func_name=rt_mod.entry_name,
-            dev=device,
+            device=device,
             number=evaluator_config.number,
             repeat=evaluator_config.repeat,
             min_repeat_ms=evaluator_config.min_repeat_ms,
             f_preproc=(
-                "cache_flush_cpu_non_first_arg" if evaluator_config.enable_cpu_cache_flush else ""
+                "runtime.CacheFlushCPUArguments" if evaluator_config.enable_cpu_cache_flush else ""
             ),
         )
 
@@ -515,16 +518,16 @@ def make_alloc_arg_and_check(
 
     def f_with_args_alloc_argument_rpc(
         rpc_session: ms.runner.rpc_runner.RPCSession,  # pylint: disable=unused-argument
-        device: tvm.runtime.Device,
+        device: tvm_tirx.runtime.Device,
         args_info: ms.runner.rpc_runner.T_ARG_INFO_JSON_OBJ_LIST,
         alloc_repeat: int,
     ) -> list[ms.runner.rpc_runner.T_ARGUMENT_LIST]:
-        return f_with_args_alloc_argument_common(device, args_info, alloc_repeat)
+        return [[device.tensor(arg) for arg in inputs] for _ in range(alloc_repeat)]
 
     def f_with_args_run_evaluator_rpc(
         rpc_session: ms.runner.rpc_runner.RPCSession,  # pylint: disable=unused-argument
-        rt_mod: tvm.runtime.Module,
-        device: tvm.runtime.Device,
+        rt_mod: tvm_ffi.Module,
+        device: tvm_tirx.runtime.Device,
         evaluator_config: ms.runner.EvaluatorConfig,
         repeated_args: list[ms.runner.rpc_runner.T_ARGUMENT_LIST],
     ) -> list[float]:
@@ -539,7 +542,7 @@ def make_alloc_arg_and_check(
 def local_build_and_run(
     mod: IRModule,
     target: Target,
-    device: tvm.runtime.Device,
+    device: tvm_tirx.runtime.Device,
     inputs: list[np.ndarray],
 ) -> tuple[list[np.ndarray], list[float]]:
     """Build and run the module locally.
@@ -563,10 +566,12 @@ def local_build_and_run(
         The running time of running the module
     """
     # potential memory leak https://github.com/apache/tvm/issues/11096
-    lib = tvm.compile(mod, target=target)
-    tvm_inputs = [tvm.runtime.tensor(inp, device=device) for inp in inputs]
+    lib = tvm.compile(mod, target=target).jit()
+    tvm_inputs = [tvm_tirx.runtime.tensor(inp, device=device) for inp in inputs]
     device.sync()
-    func = lib.time_evaluator(lib.entry_name, dev=device, number=ARGS.number, repeat=ARGS.repeat)
+    func = tvm.runtime.time_evaluator(
+        lib, lib.entry_name, device=device, number=ARGS.number, repeat=ARGS.repeat
+    )
     benchmark_res = func(*tvm_inputs)
     device.sync()
     return [arg.numpy() for arg in tvm_inputs], list(benchmark_res.results)

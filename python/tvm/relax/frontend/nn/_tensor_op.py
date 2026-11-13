@@ -17,7 +17,7 @@
 # ruff: noqa: F821
 """Adding member operators to nn.Tensor."""
 
-from tvm import tirx
+import tvm_tirx
 
 
 def _op():
@@ -31,7 +31,7 @@ def _convert_scalar(scalar, ref) -> "Tensor":
 
     if isinstance(scalar, Tensor):
         return scalar
-    if isinstance(scalar, tirx.FloatImm | tirx.IntImm):
+    if isinstance(scalar, tvm_tirx.ir.FloatImm | tvm_tirx.ir.IntImm):
         return Tensor.from_scalar(scalar.value, dtype=ref.dtype)
     if isinstance(scalar, int | float):
         return Tensor.from_scalar(scalar, dtype=ref.dtype)

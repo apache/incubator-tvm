@@ -26,6 +26,7 @@
 #define TVM_RUNTIME_CONTRIB_DNNL_DNNL_TENSOR_REQUISITE_H_
 
 #include <dlpack/dlpack.h>
+#include <tvm/tirx/op/memory.h>
 
 #include <algorithm>
 #include <cstdint>

@@ -22,8 +22,8 @@ import torch
 import tvm_ffi
 from tvm_ffi import Shape
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.relax.frontend.nn.llm.kv_cache import (
     AttnKind,
     RopeMode,
@@ -35,7 +35,7 @@ from tvm.relax.frontend.nn.llm.kv_cache import (
     _merge_state_inplace,
 )
 from tvm.s_tir import dlight as dl
-from tvm.testing import env
+from tvm_tirx.testing import env
 
 reserved_nseq = 32
 maximum_total_seq_length = 2048
@@ -80,7 +80,7 @@ w_uv = None
 
 
 # Register a dumb function for testing purpose.
-@tvm.register_global_func("test.dumb_function", override=True)
+@tvm_ffi.register_global_func("test.dumb_function", override=True)
 def _dumb_function():
     raise RuntimeError("Dumb function isn't supposed to be accessed.")
 
@@ -93,21 +93,21 @@ def set_global_func(dtype, target):
     global ftranspose_append, fcopy_cache, fmla_prefill, fmla_prefill_ragged
     global fmerge_state, fmerge_state_additional, fcopy_single_page
 
-    fclear = tvm.get_global_func("vm.builtin.kv_state_clear")
-    fadd_sequence = tvm.get_global_func("vm.builtin.kv_state_add_sequence")
-    fremove_sequence = tvm.get_global_func("vm.builtin.kv_state_remove_sequence")
-    ffork_sequence = tvm.get_global_func("vm.builtin.kv_state_fork_sequence")
-    fpopn = tvm.get_global_func("vm.builtin.kv_state_popn")
-    fbegin_forward = tvm.get_global_func("vm.builtin.kv_state_begin_forward")
-    fend_forward = tvm.get_global_func("vm.builtin.kv_state_end_forward")
-    fself_attn = tvm.get_global_func("vm.builtin.attention_kv_cache_self_attention")
-    fcross_attn = tvm.get_global_func("vm.builtin.attention_kv_cache_cross_attention")
-    fappend_mla_kv = tvm.get_global_func("vm.builtin.attention_kv_cache_append_mla_kv")
-    fkv_merge_attn_output = tvm.get_global_func(
+    fclear = tvm_ffi.get_global_func("vm.builtin.kv_state_clear")
+    fadd_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_add_sequence")
+    fremove_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_remove_sequence")
+    ffork_sequence = tvm_ffi.get_global_func("vm.builtin.kv_state_fork_sequence")
+    fpopn = tvm_ffi.get_global_func("vm.builtin.kv_state_popn")
+    fbegin_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_begin_forward")
+    fend_forward = tvm_ffi.get_global_func("vm.builtin.kv_state_end_forward")
+    fself_attn = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_self_attention")
+    fcross_attn = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_cross_attention")
+    fappend_mla_kv = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_append_mla_kv")
+    fkv_merge_attn_output = tvm_ffi.get_global_func(
         "vm.builtin.attention_kv_cache_merge_attn_output_inplace"
     )
-    fis_empty = tvm.get_global_func("vm.builtin.attention_kv_cache_empty")
-    fdebug_get_kv = tvm.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv_mla")
+    fis_empty = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_empty")
+    fdebug_get_kv = tvm_ffi.get_global_func("vm.builtin.attention_kv_cache_debug_get_kv_mla")
 
     builts = []
     for tir_func in [
@@ -129,10 +129,9 @@ def set_global_func(dtype, target):
         _merge_state_inplace(num_attention_heads, v_head_dim, dtype, target),
         _copy_single_page_mla(page_size, kv_lora_rank + qk_rope_head_dim, dtype, target),
     ]:
-        mod = tvm.IRModule({"main": tir_func})
-        with target:
-            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
-        f = tvm.tirx.build(mod["main"], target=target)
+        mod = tvm_tirx.IRModule({"main": tir_func})
+        mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
+        f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
         builts.append(f.main)
 
     (
@@ -147,8 +146,8 @@ def set_global_func(dtype, target):
 
 
 def create_kv_cache(dtype):
-    fcreate = tvm.get_global_func("vm.builtin.paged_attention_kv_cache_create")
-    fdumb = tvm.get_global_func("test.dumb_function")
+    fcreate = tvm_ffi.get_global_func("vm.builtin.paged_attention_kv_cache_create")
+    fdumb = tvm_ffi.get_global_func("test.dumb_function")
     cache = fcreate(
         tvm_ffi.Shape(
             [
@@ -170,7 +169,7 @@ def create_kv_cache(dtype):
         1,
         10000,
         None,  # rope_ext_factors
-        tvm.runtime.empty((), dtype, device=device),
+        tvm_tirx.runtime.empty((), dtype, device=device),
         None,  # f_transpose_append_mha
         ftranspose_append,
         ["tirx", fmla_prefill_ragged],  # fattn_prefill_ragged
@@ -197,9 +196,9 @@ def kv_cache_and_config(request):
     dtype_torch = getattr(torch, dtype)
 
     def run_and_check():
-        return tvm.target.Target.from_device(tvm.cuda())
+        return tvm_tirx.target.Target.from_device(tvm_tirx.cuda())
 
-    target = tvm.testing.run_with_gpu_lock(run_and_check)
+    target = tvm_tirx.testing.run_with_gpu_lock(run_and_check)
     set_global_func(dtype, target)
     return request.param
 
@@ -208,7 +207,7 @@ def verify_cached_kv(kv_cache, seq_ids, expected_kv):
     for seq_id in seq_ids:
         kv_expected = expected_kv[seq_id]
         seq_length = expected_kv[seq_id].shape[1]
-        kv_actual = tvm.runtime.empty(kv_expected.shape, dtype=dtype, device=device)
+        kv_actual = tvm_tirx.runtime.empty(kv_expected.shape, dtype=dtype, device=device)
         fdebug_get_kv(kv_cache, seq_id, 0, seq_length, kv_actual)
         torch.testing.assert_close(
             torch.from_numpy(kv_actual.numpy()).to(device_torch), kv_expected, rtol=1e-3, atol=1e-3
@@ -291,17 +290,21 @@ def apply_attention(
             is_decode_request = False
 
     for layer_id in range(num_layers):
-        queries = tvm.runtime.tensor(global_new_q[layer_id].cpu().numpy(), device)
-        key_value = tvm.runtime.tensor(global_new_kv[layer_id].cpu().numpy(), device)
+        queries = tvm_tirx.runtime.tensor(global_new_q[layer_id].cpu().numpy(), device)
+        key_value = tvm_tirx.runtime.tensor(global_new_kv[layer_id].cpu().numpy(), device)
         total_seq_length = global_new_q[layer_id].shape[0]
-        outputs1 = tvm.runtime.empty(
+        outputs1 = tvm_tirx.runtime.empty(
             (total_seq_length, num_attention_heads, v_head_dim), dtype, device=device
         )
-        lse1 = tvm.runtime.empty((total_seq_length, num_attention_heads), "float32", device=device)
-        outputs2 = tvm.runtime.empty(
+        lse1 = tvm_tirx.runtime.empty(
+            (total_seq_length, num_attention_heads), "float32", device=device
+        )
+        outputs2 = tvm_tirx.runtime.empty(
             (total_seq_length, num_attention_heads, kv_lora_rank), dtype, device=device
         )
-        lse2 = tvm.runtime.empty((total_seq_length, num_attention_heads), "float32", device=device)
+        lse2 = tvm_tirx.runtime.empty(
+            (total_seq_length, num_attention_heads), "float32", device=device
+        )
 
         fappend_mla_kv(kv_cache, layer_id, key_value)
         if not is_decode_request:
@@ -318,8 +321,8 @@ def apply_attention(
                 total_seq_length, num_attention_heads, qk_rope_head_dim
             )
             keys = torch.cat([keys, k_pe_expanded], dim=2)
-            keys_tvm = tvm.runtime.tensor(keys.cpu().numpy(), device)
-            values_tvm = tvm.runtime.tensor(values.cpu().numpy(), device)
+            keys_tvm = tvm_tirx.runtime.tensor(keys.cpu().numpy(), device)
+            values_tvm = tvm_tirx.runtime.tensor(values.cpu().numpy(), device)
             fself_attn(kv_cache, layer_id, sm_scale, queries, keys_tvm, values_tvm, outputs1, lse1)
 
         if not all_new_sequences or is_decode_request:
@@ -330,9 +333,9 @@ def apply_attention(
             queries_lora_np = torch.cat(
                 [torch.bmm(queries_lora_np.permute(1, 0, 2), w_uk).permute(1, 0, 2), q_pe], dim=2
             )
-            queries_lora = tvm.runtime.tensor(queries_lora_np.cpu().numpy(), device)
+            queries_lora = tvm_tirx.runtime.tensor(queries_lora_np.cpu().numpy(), device)
             fcross_attn(kv_cache, layer_id, sm_scale, queries_lora, outputs2, lse2)
-            cross_attn_output = tvm.runtime.tensor(
+            cross_attn_output = tvm_tirx.runtime.tensor(
                 torch.bmm(
                     torch.from_numpy(outputs2.numpy()).to(device_torch).permute(1, 0, 2), w_uv
                 )
@@ -407,7 +410,7 @@ def apply_attention(
 def test_paged_attention_kv_cache_prefill_and_decode(kv_cache_and_config):
     def run_and_check():
         global device, w_kv, w_uk, w_uv
-        device = tvm.cuda()
+        device = tvm_tirx.cuda()
         (dtype,) = kv_cache_and_config
         try:
             w_kv = torch.empty(
@@ -454,7 +457,7 @@ def test_paged_attention_kv_cache_prefill_and_decode(kv_cache_and_config):
             w_uk = None
             w_uv = None
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -462,7 +465,7 @@ def test_paged_attention_kv_cache_prefill_and_decode(kv_cache_and_config):
 def test_paged_attention_kv_cache_remove_sequence(kv_cache_and_config):
     def run_and_check():
         global device, w_kv, w_uk, w_uv
-        device = tvm.cuda()
+        device = tvm_tirx.cuda()
         (dtype,) = kv_cache_and_config
         try:
             w_kv = torch.empty(
@@ -502,7 +505,7 @@ def test_paged_attention_kv_cache_remove_sequence(kv_cache_and_config):
             w_uk = None
             w_uv = None
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -510,7 +513,7 @@ def test_paged_attention_kv_cache_remove_sequence(kv_cache_and_config):
 def test_paged_attention_kv_cache_fork_sequence(kv_cache_and_config):
     def run_and_check():
         global device, w_kv, w_uk, w_uv
-        device = tvm.cuda()
+        device = tvm_tirx.cuda()
         (dtype,) = kv_cache_and_config
         try:
             w_kv = torch.empty(
@@ -597,7 +600,7 @@ def test_paged_attention_kv_cache_fork_sequence(kv_cache_and_config):
             w_uk = None
             w_uv = None
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 @pytest.mark.gpu
@@ -605,7 +608,7 @@ def test_paged_attention_kv_cache_fork_sequence(kv_cache_and_config):
 def test_paged_attention_kv_cache_popn(kv_cache_and_config):
     def run_and_check():
         global device, w_kv, w_uk, w_uv
-        device = tvm.cuda()
+        device = tvm_tirx.cuda()
         (dtype,) = kv_cache_and_config
         try:
             w_kv = torch.empty(
@@ -652,8 +655,8 @@ def test_paged_attention_kv_cache_popn(kv_cache_and_config):
             w_uk = None
             w_uv = None
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

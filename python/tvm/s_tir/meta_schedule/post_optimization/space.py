@@ -27,7 +27,7 @@ from tvm.s_tir import Schedule
 from tvm.s_tir import meta_schedule as ms
 from tvm.s_tir.meta_schedule.database import TuningRecord, Workload
 from tvm.s_tir.meta_schedule.utils import remove_build_dir
-from tvm.target import Target
+from tvm_tirx.target import Target
 
 from .utils import write_file
 
@@ -123,7 +123,7 @@ class Space:
                     interval = self.power_of_two(5, 9)
                 elif ann_key == ["meta_schedule.vectorize"]:
                     interval = self.power_of_two(4, 8)
-                elif ann_key == ["pragma_auto_unroll_max_step"]:
+                elif ann_key == ["tirx.auto_unroll_max_step"]:
                     interval = self.power_of_two(7, 11)
                 elif ann_key == ["meta_schedule.thread_extent_low_inclusive"]:
                     interval = self.power_of_two(5, 6)
@@ -244,7 +244,7 @@ class Space:
                 inp = ms.runner.RunnerInput(
                     builder_res[i].artifact_path,
                     device_type=self.dev,
-                    args_info=ms.arg_info.TensorInfo.from_prim_func(mods[i]["main"]),
+                    args_info=ms.arg_info.TensorInfo.from_function(mods[i]["main"]),
                 )
                 runner_res = runner.run([inp])[0].result()
                 results[i] = [v.value for v in runner_res.run_secs]  # type: ignore

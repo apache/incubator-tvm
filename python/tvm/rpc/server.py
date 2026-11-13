@@ -42,9 +42,8 @@ from pathlib import Path
 
 import tvm_ffi
 
-from tvm.runtime.module import load_module as _load_module
-from tvm.support import utils
-from tvm.support.popen_pool import PopenWorker
+from tvm_tirx.support import utils
+from tvm_tirx.support.popen_pool import PopenWorker
 
 # pylint: disable=unused-import
 from . import _ffi_api, base, testing
@@ -60,6 +59,19 @@ console_handler.setFormatter(
 logger.addHandler(console_handler)
 logger.setLevel(logging.INFO)
 logger.propagate = False
+
+
+def _link_module(path):
+    """Link uploaded object files or archives before loading or downloading them."""
+    if path.endswith((".o", ".tar")):
+        # Compilation belongs to the RPC server, not the FFI module loader.
+        from tvm_tirx.support import cc, tar  # pylint: disable=import-outside-toplevel
+
+        with utils.tempdir() as temp:
+            files = tar.normalize_file_list_by_unpacking_tars(temp, [path])
+            cc.create_shared(path + ".so", files)
+        return path + ".so"
+    return path
 
 
 def _server_env(load_library, work_path=None):
@@ -78,36 +90,17 @@ def _server_env(load_library, work_path=None):
     def load_module(file_name):
         """Load module from remote side."""
         path = temp.relpath(file_name)
-        m = _load_module(path)
+        m = tvm_ffi.load_module(_link_module(path))
         logger.info("load_module %s", path)
         return m
 
     @tvm_ffi.register_global_func("tvm.rpc.server.download_linked_module", override=True)
     def download_linked_module(file_name):
         """Load module from remote side."""
-        # pylint: disable=import-outside-toplevel
         path = temp.relpath(file_name)
-
-        if path.endswith(".o"):
-            # Extra dependencies during runtime.
-            from tvm.support import cc as _cc
-
-            _cc.create_shared(path + ".so", path)
-            path += ".so"
-        elif path.endswith(".tar"):
-            # Extra dependencies during runtime.
-            from tvm.support import cc as _cc
-            from tvm.support import tar as _tar
-
-            tar_temp = utils.tempdir(custom_path=path.replace(".tar", ""))
-            _tar.untar(path, tar_temp.temp_dir)
-            files = [tar_temp.relpath(x) for x in tar_temp.listdir()]
-            _cc.create_shared(path + ".so", files)
-            path += ".so"
-        elif path.endswith(".dylib") or path.endswith(".so"):
-            pass
-        else:
+        if not path.endswith((".o", ".tar", ".dylib", ".so")):
             raise RuntimeError(f"Do not know how to link {file_name}")
+        path = _link_module(path)
         logger.info("Send linked module %s to client", path)
         return bytearray(open(path, "rb").read())
 
@@ -492,11 +485,11 @@ class Server:
     .. code:: python
 
         def server_init_callback():
-            import tvm
+            import tvm, tvm_tirx
             # must import mypackage here
             import mypackage
 
-            tvm.register_global_func("function", mypackage.func)
+            tvm_ffi.register_global_func("function", mypackage.func)
 
         server = rpc.Server(host, server_init_callback=server_init_callback)
     """
@@ -519,9 +512,9 @@ class Server:
     ):
         try:
             if _ffi_api.ServerLoop is None:
-                raise RuntimeError("Please compile with USE_RPC=1")
+                raise RuntimeError("Please compile with TVM_USE_RPC=1")
         except NameError:
-            raise RuntimeError("Please compile with USE_RPC=1")
+            raise RuntimeError("Please compile with TVM_USE_RPC=1")
         self.proc = PopenWorker()
         # send the function
         self.proc.send(

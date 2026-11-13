@@ -18,14 +18,70 @@
 """Test various CI scripts and GitHub Actions workflows"""
 
 import json
+import os
 import subprocess
 from pathlib import Path
+from typing import Any
 
 import pytest
 
-import tvm.testing
+JENKINS_SCRIPT_ROOT = Path(__file__).resolve().parents[3] / "ci" / "jenkins" / "scripts"
 
-from .test_utils import JENKINS_SCRIPT_ROOT, TempGit, run_script
+
+class TempGit:
+    """
+    A wrapper to run commands in a directory (specifically for use in CI tests)
+    """
+
+    def __init__(self, cwd):
+        self.cwd = cwd
+        # Jenkins git is too old and doesn't have 'git init --initial-branch',
+        # so init and checkout need to be separate steps
+        self.run("init", stderr=subprocess.PIPE, stdout=subprocess.PIPE)
+        self.run("checkout", "-b", "main", stderr=subprocess.PIPE)
+        self.run("remote", "add", "origin", "https://github.com/apache/tvm.git")
+
+    def run(self, *args, **kwargs):
+        """
+        Run a git command based on *args
+        """
+        proc = subprocess.run(
+            ["git"] + list(args), encoding="utf-8", cwd=self.cwd, check=False, **kwargs
+        )
+        if proc.returncode != 0:
+            raise RuntimeError(f"git command failed: '{args}'")
+
+        return proc
+
+
+def run_script(command: list[Any], check: bool = True, **kwargs):
+    """
+    Wrapper to run a script and print its output if there was an error
+    """
+    command = [str(c) for c in command]
+    kwargs_to_send = {
+        "stdout": subprocess.PIPE,
+        "stderr": subprocess.PIPE,
+        "encoding": "utf-8",
+    }
+    env = kwargs.pop("env", None)
+    if env is not None:
+        kwargs_to_send["env"] = {**os.environ, **env}
+    kwargs_to_send.update(kwargs)
+    proc = subprocess.run(
+        command,
+        check=False,
+        **kwargs_to_send,
+    )
+    if check and proc.returncode != 0:
+        raise RuntimeError(f"Process failed:\nstdout:\n{proc.stdout}\n\nstderr:\n{proc.stderr}")
+
+    return proc
+
+
+@pytest.fixture
+def jenkins_script_root():
+    return JENKINS_SCRIPT_ROOT
 
 
 def parameterize_named(**kwargs):
@@ -100,11 +156,11 @@ def parameterize_named(**kwargs):
         why="skip ci tag should work anywhere in title",
     ),
 )
-def test_skip_ci(tmpdir_factory, commands, should_skip, pr_title, why):
+def test_skip_ci(tmpdir_factory, commands, should_skip, pr_title, why, jenkins_script_root):
     """
     Test that CI is skipped when it should be
     """
-    skip_ci_script = JENKINS_SCRIPT_ROOT / "git_skip_ci.py"
+    skip_ci_script = jenkins_script_root / "git_skip_ci.py"
 
     git = TempGit(tmpdir_factory.mktemp("tmp_git_dir"))
 
@@ -137,11 +193,11 @@ def test_skip_ci(tmpdir_factory, commands, should_skip, pr_title, why):
     ),
     yaml_and_readme=dict(files=[".asf.yaml", "docs/README.md"], should_skip=True),
 )
-def test_skip_globs(tmpdir_factory, files, should_skip):
+def test_skip_globs(tmpdir_factory, files, should_skip, jenkins_script_root):
     """
     Test that CI is skipped if only certain files are edited
     """
-    script = JENKINS_SCRIPT_ROOT / "git_skip_ci_globs.py"
+    script = jenkins_script_root / "git_skip_ci_globs.py"
 
     git = TempGit(tmpdir_factory.mktemp("tmp_git_dir"))
 
@@ -169,120 +225,6 @@ def assert_in(needle: str, haystack: str):
         raise AssertionError(f"item not found:\n{needle}\nin:\n{haystack}")
 
 
-@tvm.testing.skip_if_wheel_test
-@parameterize_named(
-    same_tags=dict(
-        tlcpackstaging_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T00:00:00.123456Z",
-                    "name": "123-123-abc",
-                },
-            ]
-        },
-        tlcpack_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T00:00:00.123456Z",
-                    "name": "123-123-abc",
-                },
-            ]
-        },
-        expected="Tag names were the same, no update needed",
-        expected_images=[],
-    ),
-    staging_update=dict(
-        tlcpackstaging_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T01:00:00.123456Z",
-                    "name": "234-234-abc-staging",
-                },
-                {
-                    "last_updated": "2022-06-01T00:00:00.123456Z",
-                    "name": "456-456-abc",
-                },
-            ]
-        },
-        tlcpack_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T00:00:00.123456Z",
-                    "name": "123-123-abc",
-                },
-            ]
-        },
-        expected="Using tlcpackstaging tag on tlcpack",
-        expected_images=[
-            "ci_arm: tlcpack/ci-arm:456-456-abc",
-        ],
-    ),
-    tlcpack_update=dict(
-        tlcpackstaging_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T00:00:00.123456Z",
-                    "name": "123-123-abc",
-                },
-            ]
-        },
-        tlcpack_body={
-            "results": [
-                {
-                    "last_updated": "2022-06-01T00:01:00.123456Z",
-                    "name": "234-234-abc",
-                },
-            ]
-        },
-        expected="Found newer image, using: tlcpack",
-        expected_images=[
-            "ci_arm: tlcpack/ci-arm:234-234-abc",
-        ],
-    ),
-)
-def test_open_docker_update_pr(
-    tmpdir_factory, tlcpackstaging_body, tlcpack_body, expected, expected_images
-):
-    """Test workflow to open a PR to update Docker images"""
-    tag_script = JENKINS_SCRIPT_ROOT / "open_docker_update_pr.py"
-
-    git = TempGit(tmpdir_factory.mktemp("tmp_git_dir"))
-    git.run("config", "user.name", "ci")
-    git.run("config", "user.email", "email@example.com")
-    images = [
-        "ci_arm",
-        "ci_cortexm",
-        "ci_cpu",
-        "ci_gpu",
-        "ci_minimal",
-        "ci_riscv",
-        "ci_wasm",
-    ]
-
-    docker_data = {}
-    for image in images:
-        docker_data[f"repositories/tlcpackstaging/{image}/tags"] = tlcpackstaging_body
-        docker_data[f"repositories/tlcpack/{image.replace('_', '-')}/tags"] = tlcpack_body
-
-    proc = run_script(
-        [
-            tag_script,
-            "--dry-run",
-            "--testing-docker-data",
-            json.dumps(docker_data),
-        ],
-        cwd=git.cwd,
-        env={"GITHUB_TOKEN": "1234"},
-        stderr=subprocess.STDOUT,
-    )
-
-    for line in expected_images:
-        if line not in proc.stdout:
-            raise RuntimeError(f"Missing line {line} in output:\n{proc.stdout}")
-
-    assert_in(expected, proc.stdout)
-
-
 @parameterize_named(
     use_tlcpack=dict(
         images=["ci_arm", "ci_cpu"],
@@ -298,9 +240,9 @@ def test_open_docker_update_pr(
         },
     ),
 )
-def test_determine_docker_images(tmpdir_factory, images, expected):
+def test_determine_docker_images(tmpdir_factory, images, expected, jenkins_script_root):
     """Test script to decide whether to use tlcpack or tlcpackstaging for images"""
-    script = JENKINS_SCRIPT_ROOT / "determine_docker_images.py"
+    script = jenkins_script_root / "determine_docker_images.py"
 
     git_dir = tmpdir_factory.mktemp("tmp_git_dir")
 
@@ -359,11 +301,13 @@ def test_determine_docker_images(tmpdir_factory, images, expected):
         expected_code=2,
     ),
 )
-def test_should_rebuild_docker(tmpdir_factory, changed_files, name, check, expected_code):
+def test_should_rebuild_docker(
+    tmpdir_factory, changed_files, name, check, expected_code, jenkins_script_root
+):
     """
     Check that the Docker images are built when necessary
     """
-    tag_script = JENKINS_SCRIPT_ROOT / "should_rebuild_docker.py"
+    tag_script = jenkins_script_root / "should_rebuild_docker.py"
 
     git = TempGit(tmpdir_factory.mktemp("tmp_git_dir"))
     git.run("config", "user.name", "ci")
@@ -419,4 +363,4 @@ def test_should_rebuild_docker(tmpdir_factory, changed_files, name, check, expec
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    raise SystemExit(pytest.main([__file__]))

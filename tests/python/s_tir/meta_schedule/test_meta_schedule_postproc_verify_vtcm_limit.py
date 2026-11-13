@@ -17,11 +17,12 @@
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
 # ruff: noqa: E501, F401, F841
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.s_tir import meta_schedule as ms
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm.s_tir import script as Ts
+from tvm_tirx import tirx
+from tvm_tirx.script import tirx as T
 
 
 def _create_context(mod, target) -> ms.TuneContext:
@@ -41,14 +42,14 @@ def _create_context(mod, target) -> ms.TuneContext:
 # fmt: off
 
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Conv2dNCHWcVTCM:
-    @Ts.prim_func
-    def main(p0: T.Buffer((T.int64(1), T.int64(2), T.int64(56), T.int64(56), T.int64(32)), "uint8"), p1: T.Buffer((T.int64(2), T.int64(2), T.int64(3), T.int64(3), T.int64(8), T.int64(32), T.int64(4)), "uint8"), conv2d_NCHWc_int8: T.Buffer((T.int64(1), T.int64(2), T.int64(54), T.int64(54), T.int64(32)), "int32")):
+    @Ts.function
+    def main(p0: T.Tensor((T.int64(1), T.int64(2), T.int64(56), T.int64(56), T.int64(32)), "uint8"), p1: T.Tensor((T.int64(2), T.int64(2), T.int64(3), T.int64(3), T.int64(8), T.int64(32), T.int64(4)), "uint8"), conv2d_NCHWc_int8: T.Tensor((T.int64(1), T.int64(2), T.int64(54), T.int64(54), T.int64(32)), "int32")):
         T.func_attr({"tirx.noalias": True, "global_symbol": "main"})
-        p0_global_vtcm = Ts.sblock_alloc_buffer([T.int64(1), T.int64(2), T.int64(56), T.int64(56), T.int64(32)], dtype="uint8", scope="global.vtcm")
-        p1_global_vtcm = Ts.sblock_alloc_buffer([T.int64(2), T.int64(2), T.int64(3), T.int64(3), T.int64(8), T.int64(32), T.int64(4)], dtype="uint8", scope="global.vtcm")
-        for n_0 in T.serial(T.int64(1), annotations={"pragma_auto_unroll_max_step":16, "pragma_unroll_explicit":1}):
+        p0_global_vtcm = Ts.sblock_alloc_tensor([T.int64(1), T.int64(2), T.int64(56), T.int64(56), T.int64(32)], dtype="uint8", scope="global.vtcm")
+        p1_global_vtcm = Ts.sblock_alloc_tensor([T.int64(2), T.int64(2), T.int64(3), T.int64(3), T.int64(8), T.int64(32), T.int64(4)], dtype="uint8", scope="global.vtcm")
+        for n_0 in T.serial(T.int64(1), annotations={"tirx.auto_unroll_max_step":16, "tirx.unroll_explicit":1}):
             for oc_chunk_0, oh_0, ow_0, oc_block_0_0 in T.grid(T.int64(2), T.int64(2), T.int64(2), T.int64(1)):
                 for oc_chunk_1_init, oh_1_init, ow_1_init, oc_chunk_2_init, oh_2_init, ow_2_init in T.grid(T.int64(1), T.int64(27), T.int64(3), T.int64(1), T.int64(1), T.int64(9)):
                     with Ts.sblock("conv2d_NCHWc_int8_o_init"):
@@ -113,13 +114,13 @@ class Conv2dNCHWcVTCM:
 
 def test_conv2d_vtcm():
     def get_target(vtcm_cap):
-        target = tvm.target.Target({
+        target = tvm_tirx.target.Target({
             "kind": "hexagon", "mtriple": "hexagon", "mcpu": "hexagonv68",
             "mattr": ["+hvxv68", "+hvx-length128b", "+hvx-qfloat", "-hvx-ieee-fp"],
             "num-cores": 4, "vtcm-capacity": vtcm_cap,
             "llvm-options": ["-force-hvx-float"],
         })
-        return tvm.target.Target(target, host=target)
+        return tvm_tirx.target.Target(target, host=target)
 
     sch = tvm.s_tir.Schedule(Conv2dNCHWcVTCM, debug_mask="all")
 
@@ -131,4 +132,4 @@ def test_conv2d_vtcm():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

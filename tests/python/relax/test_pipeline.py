@@ -19,18 +19,19 @@ import pytest
 import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.script import relax as R
-from tvm.script import tirx as T
-from tvm.testing import env
+from tvm.relax import script as R
+from tvm_tirx.script import tirx as T
+from tvm_tirx.testing import env
 
 
-def test_pipeline_compile():
-    target = tvm.target.Target("llvm", host="llvm")
+def test_pipeline_compile(capsys):
+    target = tvm_tirx.target.Target("llvm", host="llvm")
     pipeline = relax.pipeline.get_default_pipeline(target)
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def main(x: R.Tensor((3, 4), "float32"), y: R.Tensor((3, 4), "float32")):
@@ -38,28 +39,35 @@ def test_pipeline_compile():
             return lv0
 
     mod = Mod
-    mod = pipeline(mod)
+    from tvm_tirx.ir.transform.instrument import PrintAfterAll, PrintBeforeAll
+
+    with tvm_tirx.ir.transform.PassContext(instruments=[PrintBeforeAll(), PrintAfterAll()]):
+        mod = pipeline(mod)
+    output = capsys.readouterr().out
+    assert "Before Running Pass:" in output
+    assert "After Running Pass:" in output
+    assert 'name="_pipeline"' in output
 
     ex = tvm.compile(mod, target)
     x_np = np.random.rand(3, 4).astype(np.float32)
     y_np = np.random.rand(3, 4).astype(np.float32)
-    x = tvm.runtime.tensor(x_np)
-    y = tvm.runtime.tensor(y_np)
+    x = tvm_tirx.runtime.tensor(x_np)
+    y = tvm_tirx.runtime.tensor(y_np)
 
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
     z = vm["main"](x, y)
-    tvm.testing.assert_allclose(z.numpy(), x_np + y_np, rtol=1e-7, atol=1e-7)
+    tvm_tirx.testing.assert_allclose(z.numpy(), x_np + y_np, rtol=1e-7, atol=1e-7)
 
 
 def test_pipeline_with_kv_cache():
     """A dummy pipline that simulates KV update."""
-    target = tvm.target.Target("llvm", host="llvm")
+    target = tvm_tirx.target.Target("llvm", host="llvm")
     pipeline = relax.pipeline.get_default_pipeline(target)
 
-    m = T.dynamic("m")
-    L = T.dynamic("L")
+    m = T.dynamic("m", "int64")
+    L = T.dynamic("L", "int64")
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def create_kv_cache(reserve_slots: R.Shape([m])):
@@ -103,20 +111,22 @@ def test_pipeline_with_kv_cache():
 
     num_steps = 8
     cache_np = np.empty((num_steps, 4), dtype="float32")
-    vm = relax.VirtualMachine(ex, tvm.cpu())
+    vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
 
     kv_cache = vm["create_kv_cache"](tvm_ffi.Shape([1]))
 
     for i in range(num_steps):
         x_np = np.random.rand(1, 4).astype(np.float32)
         y_np = np.random.rand(1, 4).astype(np.float32)
-        x = tvm.runtime.tensor(x_np)
-        y = tvm.runtime.tensor(y_np)
+        x = tvm_tirx.runtime.tensor(x_np)
+        y = tvm_tirx.runtime.tensor(y_np)
         np_shape = (i + 1, 4)
         kv, kv_cache = vm["main"](x, y, tvm_ffi.Shape(np_shape), kv_cache)
 
         cache_np[i, :] = x_np + y_np
-        tvm.testing.assert_allclose(kv.numpy(), cache_np[: np_shape[0], :], rtol=1e-7, atol=1e-7)
+        tvm_tirx.testing.assert_allclose(
+            kv.numpy(), cache_np[: np_shape[0], :], rtol=1e-7, atol=1e-7
+        )
 
 
 @pytest.mark.parametrize("target_name", ["vulkan", "webgpu"])
@@ -131,7 +141,7 @@ def test_pipeline_with_kv_cache():
     ],
 )
 def test_gpu_generic_fallback(target_name, pipeline_func):
-    target = tvm.target.Target(target_name)
+    target = tvm_tirx.target.Target(target_name)
     result = pipeline_func(target)
     assert result is not None
 
@@ -148,17 +158,17 @@ def test_gpu_generic_fallback(target_name, pipeline_func):
     ],
 )
 def test_non_gpu_target_raises_error(target_name, pipeline_func):
-    target = tvm.target.Target(target_name)
+    target = tvm_tirx.target.Target(target_name)
     with pytest.raises(ValueError, match="not yet supported"):
         pipeline_func(target)
 
 
 # An elementwise binary op with a scalar constant operand. `R.power(x, const)`
-# legalizes to a single elementwise TIR PrimFunc, which the default GPU pipeline
+# legalizes to a single elementwise TIR Function, which the default GPU pipeline
 # must schedule (bind to GPU threads). Without a thread binding the kernel
 # access memory from the host and `VerifyMemory` rejects it at build time
 # ("... is directly accessed by the host memory ... Did you forget to bind?").
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class PowerModule:
     @R.function
     def main(x: R.Tensor((1, 2, 1, 1), dtype="float32")) -> R.Tensor((1, 2, 1, 1), dtype="float32"):
@@ -168,13 +178,13 @@ class PowerModule:
         return y
 
 
-def _has_thread_binding(func: tvm.tirx.PrimFunc) -> bool:
-    """Whether the PrimFunc body contains a GPU thread-binding loop."""
+def _has_thread_binding(func: tvm_tirx.tirx.Function) -> bool:
+    """Whether the Function body contains a GPU thread-binding loop."""
     found = False
 
     def _visit(node):
         nonlocal found
-        if isinstance(node, tvm.tirx.For) and node.kind == tvm.tirx.ForKind.THREAD_BINDING:
+        if isinstance(node, tvm_tirx.ir.For) and node.annotations.get("thread_binding") is not None:
             found = True
 
     tvm_ffi.structural_walk(func.body, _visit)
@@ -193,7 +203,7 @@ def test_default_cuda_pipeline_schedules_power():
     (test_power_cuda_build_and_run). This test focuses on Layer 2: backend-specific
     pipeline composition (DLight scheduling application).
     """
-    target = tvm.target.Target({"kind": "cuda", "arch": "sm_86"})
+    target = tvm_tirx.target.Target({"kind": "cuda", "arch": "sm_86"})
 
     # Verify: Target must be recognized as GPU (Layer 1 prerequisite)
     assert "gpu" in target.keys, "CUDA target must be marked as GPU for proper pipeline selection"
@@ -205,10 +215,12 @@ def test_default_cuda_pipeline_schedules_power():
     # Verify: At least one compute kernel has thread binding.
     # (Using any() avoids false-fail from host-side shape helper kernels
     # that may be generated by finalize_passes but don't need GPU binding)
-    prim_funcs = [func for _, func in mod.functions.items() if isinstance(func, tvm.tirx.PrimFunc)]
-    assert prim_funcs, "expected at least one TIR PrimFunc after pipeline"
+    functions = [
+        func for _, func in mod.functions.items() if isinstance(func, tvm_tirx.tirx.Function)
+    ]
+    assert functions, "expected at least one TIR Function after pipeline"
 
-    has_bound_kernel = any(_has_thread_binding(f) for f in prim_funcs)
+    has_bound_kernel = any(_has_thread_binding(f) for f in functions)
     assert has_bound_kernel, (
         "At least one compute kernel must have GPU thread binding; "
         "shape helper kernels may not be bound"
@@ -224,16 +236,16 @@ def test_power_cuda_build_and_run():
     target-specific default pipeline (with DLight scheduling), then executes the
     kernel and checks the result.
     """
-    dev = tvm.cuda(0)
-    target = tvm.target.Target.from_device(dev)
+    dev = tvm_tirx.cuda(0)
+    target = tvm_tirx.target.Target.from_device(dev)
 
     ex = tvm.compile(PowerModule, target=target)
     vm = relax.VirtualMachine(ex, dev)
 
     x_np = np.random.rand(1, 2, 1, 1).astype(np.float32)
-    out = vm["main"](tvm.runtime.tensor(x_np, dev))
-    tvm.testing.assert_allclose(out.numpy(), x_np**2, rtol=1e-6, atol=1e-6)
+    out = vm["main"](tvm_tirx.runtime.tensor(x_np, dev))
+    tvm_tirx.testing.assert_allclose(out.numpy(), x_np**2, rtol=1e-6, atol=1e-6)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

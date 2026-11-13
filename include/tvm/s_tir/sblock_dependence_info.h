@@ -18,9 +18,9 @@
  */
 /*!
  * \file tvm/s_tir/sblock_dependence_info.h
- * \brief Define SBlockDependenceInfoNode that uses the SBlockScope and StmtSRef objects to
+ * \brief Define SBlockDependenceInfoObj that uses the SBlockScope and StmtSRef objects to
  * store the block level dependences
- * \sa SBlockDependenceInfoNode
+ * \sa SBlockDependenceInfoObj
  */
 
 /**
@@ -31,6 +31,7 @@
 #ifndef TVM_S_TIR_SBLOCK_DEPENDENCE_INFO_H_
 #define TVM_S_TIR_SBLOCK_DEPENDENCE_INFO_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/s_tir/sblock_scope.h>
 
@@ -51,7 +52,7 @@ namespace tirx {
  * dependences. This provides the advantage that the scope block (parent block) for a given block
  * sref can be directly accessed using the sref->parent member
  */
-class SBlockDependenceInfoNode : public ffi::Object {
+class SBlockDependenceInfoObj : public ffi::Object {
  public:
   /*!
    * \brief Mapping from a block sref to its corresponding SBlockScope,
@@ -59,13 +60,13 @@ class SBlockDependenceInfoNode : public ffi::Object {
    */
   std::unordered_map<StmtSRef, SBlockScope, ffi::ObjectPtrHash, ffi::ObjectPtrEqual> sref2scope;
   /*! \brief The reverse mapping from block/for-loop to their corresponding srefs */
-  std::unordered_map<const StmtNode*, StmtSRef> stmt2ref;
+  std::unordered_map<const StmtObj*, StmtSRef> stmt2ref;
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<SBlockDependenceInfoNode>();
+    refl::ObjectDef<SBlockDependenceInfoObj>();
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockDependenceInfo", SBlockDependenceInfoNode,
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.SBlockDependenceInfo", SBlockDependenceInfoObj,
                                     ffi::Object);
 
   /*!
@@ -83,7 +84,7 @@ class SBlockDependenceInfoNode : public ffi::Object {
 };
 
 /*!
- * \brief Managed reference to SBlockDependenceInfoNode
+ * \brief Managed reference to SBlockDependenceInfoObj
  * \sa SBlockDependenceInfo
  */
 class SBlockDependenceInfo : public ffi::ObjectRef {
@@ -97,7 +98,7 @@ class SBlockDependenceInfo : public ffi::ObjectRef {
   TVM_DLL SBlockDependenceInfo(IRModule mod);
 
   TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(SBlockDependenceInfo, ffi::ObjectRef,
-                                                SBlockDependenceInfoNode);
+                                                SBlockDependenceInfoObj);
 };
 
 }  // namespace tirx

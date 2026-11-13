@@ -15,11 +15,11 @@
 # specific language governing permissions and limitations
 # under the License.
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.relax import script as R
 from tvm.relax.transform import LowerAllocTensor
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm_tirx.script import ir as I
 
 
 def test_basic():
@@ -39,8 +39,8 @@ def test_basic():
             return x
 
     After = LowerAllocTensor()(Before)
-    tvm.ir.assert_structural_equal(Expected, After)
+    tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

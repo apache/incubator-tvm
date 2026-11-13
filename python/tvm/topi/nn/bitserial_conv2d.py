@@ -18,7 +18,7 @@
 # pylint: disable=unused-argument, redefined-builtin
 """Bitserial Conv2D operators"""
 
-import tvm
+import tvm_tirx
 from tvm import te
 
 from ..utils import get_const_tuple
@@ -113,11 +113,11 @@ def bitserial_conv2d_nchw(
             return te.sum(
                 (
                     (
-                        tvm.tirx.popcount(
+                        tvm_tirx.tirx.popcount(
                             PadInput_q[nn, rc, b1, yy * stride_h + ry, xx * stride_w + rx]
                             & Filter_q[ff, rc, ry, rx, b2]
                         )
-                        - tvm.tirx.popcount(
+                        - tvm_tirx.tirx.popcount(
                             PadInput_q[nn, rc, b1, yy * stride_h + ry, xx * stride_w + rx]
                             & ~Filter_q[ff, rc, ry, rx, b2]
                         )
@@ -133,7 +133,7 @@ def bitserial_conv2d_nchw(
             b1b2 = (b1 + b2).astype(out_dtype)
             return te.sum(
                 (
-                    tvm.tirx.popcount(
+                    tvm_tirx.tirx.popcount(
                         PadInput_q[nn, rc, b1, yy * stride_h + ry, xx * stride_w + rx]
                         & Filter_q[ff, rc, ry, rx, b2]
                     )
@@ -237,11 +237,11 @@ def bitserial_conv2d_nhwc(
             return te.sum(
                 (
                     (
-                        tvm.tirx.popcount(
+                        tvm_tirx.tirx.popcount(
                             PadInput_q[nn, yy * stride_h + ry, xx * stride_w + rx, rc, b1]
                             & Filter_q[ry, rx, rc, ff, b2]
                         )
-                        - tvm.tirx.popcount(
+                        - tvm_tirx.tirx.popcount(
                             PadInput_q[nn, yy * stride_h + ry, xx * stride_w + rx, rc, b1]
                             & ~Filter_q[ry, rx, rc, ff, b2]
                         )
@@ -257,7 +257,7 @@ def bitserial_conv2d_nhwc(
             b1b2 = (b1 + b2).astype(out_dtype)
             return te.sum(
                 (
-                    tvm.tirx.popcount(
+                    tvm_tirx.tirx.popcount(
                         PadInput_q[nn, yy * stride_h + ry, xx * stride_w + rx, rc, b1]
                         & Filter_q[ry, rx, rc, ff, b2]
                     )

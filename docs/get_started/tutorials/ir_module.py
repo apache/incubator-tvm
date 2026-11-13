@@ -42,6 +42,7 @@ from torch import nn
 from torch.export import export
 
 import tvm
+import tvm_tirx
 from tvm import relax
 from tvm.relax.frontend.torch import from_exported_program
 
@@ -118,8 +119,8 @@ mod_from_relax.show()
 # directly output the IRModule in the TVMScript syntax, or alternatively,
 # parse the TVMScript to obtain an IRModule.
 
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.script import ir as I
 
 
 @I.ir_module
@@ -234,11 +235,11 @@ mod.show()
 # We can deploy the IRModule on CPU by specifying the target as ``llvm``.
 
 exec = tvm.compile(mod, target="llvm")
-dev = tvm.cpu()
+dev = tvm_tirx.cpu()
 vm = relax.VirtualMachine(exec, dev)
 
 raw_data = np.random.rand(1, 784).astype("float32")
-data = tvm.runtime.tensor(raw_data, dev)
+data = tvm_tirx.runtime.tensor(raw_data, dev)
 cpu_out = vm["main"](data, *params_from_torch["main"]).numpy()
 print(cpu_out)
 
@@ -255,21 +256,19 @@ print(cpu_out)
 
 from tvm.s_tir import dlight as dl
 
-with tvm.target.Target("cuda"):
-    gpu_mod = dl.ApplyDefaultSchedule(
-        dl.gpu.Matmul(),
-        dl.gpu.Fallback(),
-    )(mod)
+gpu_mod = dl.ApplyDefaultSchedule(
+    dl.gpu.Matmul(), dl.gpu.Fallback(), target=tvm_tirx.target.Target("cuda")
+)(mod)
 
 ######################################################################
 # Now we can compile the IRModule on GPU, the similar way as we did on CPU.
 
 exec = tvm.compile(gpu_mod, target="cuda")
-dev = tvm.cuda(0)
+dev = tvm_tirx.cuda(0)
 vm = relax.VirtualMachine(exec, dev)
 # Need to allocate data and params on GPU device
-data = tvm.runtime.tensor(raw_data, dev)
-gpu_params = [tvm.runtime.tensor(p, dev) for p in params_from_torch["main"]]
+data = tvm_tirx.runtime.tensor(raw_data, dev)
+gpu_params = [tvm_tirx.runtime.tensor(p, dev) for p in params_from_torch["main"]]
 gpu_out = vm["main"](data, *gpu_params).numpy()
 print(gpu_out)
 

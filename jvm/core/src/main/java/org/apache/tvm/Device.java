@@ -19,7 +19,6 @@ package org.apache.tvm;
 
 import java.util.HashMap;
 import java.util.Map;
-import org.apache.tvm.rpc.RPC;
 
 public class Device {
   /**
@@ -174,7 +173,7 @@ public class Device {
     TVMValue ret = APIInternal.get("runtime.GetDeviceAttr")
                        .pushArg(deviceType)
                        .pushArg(deviceId)
-                       .pushArg(0)
+                       .pushArg("exist")
                        .invoke();
     return ((TVMValueLong) ret).value != 0;
   }
@@ -187,7 +186,7 @@ public class Device {
     TVMValue ret = APIInternal.get("runtime.GetDeviceAttr")
                        .pushArg(deviceType)
                        .pushArg(deviceId)
-                       .pushArg(1)
+                       .pushArg("max_threads_per_block")
                        .invoke();
     return ((TVMValueLong) ret).value;
   }
@@ -200,7 +199,7 @@ public class Device {
     TVMValue ret = APIInternal.get("runtime.GetDeviceAttr")
                        .pushArg(deviceType)
                        .pushArg(deviceId)
-                       .pushArg(2)
+                       .pushArg("warp_size")
                        .invoke();
     return ret.asLong();
   }
@@ -228,11 +227,6 @@ public class Device {
 
   @Override
   public String toString() {
-    if (deviceType >= RPC.RPC_SESS_MASK) {
-      int tblId = deviceType / RPC.RPC_SESS_MASK - 1;
-      int devType = deviceType % RPC.RPC_SESS_MASK;
-      return String.format("remote[%d]:%s(%d)", tblId, DEVICE_TYPE_TO_NAME.get(devType), deviceId);
-    }
     return String.format("%s(%d)", DEVICE_TYPE_TO_NAME.get(deviceType), deviceId);
   }
 }

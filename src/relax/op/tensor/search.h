@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_SEARCH_H_
 #define TVM_RELAX_OP_TENSOR_SEARCH_H_
 
-#include <tvm/relax/attrs/search.h>
+#include <tvm/relax/op/search.h>
 
 #include "../op_common.h"
 

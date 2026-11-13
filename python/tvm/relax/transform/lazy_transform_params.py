@@ -18,9 +18,10 @@
 # ruff: noqa: RUF005
 """Relax LazyTransformParams pass."""
 
-import tvm
-from tvm import IRModule, relax
+import tvm_tirx
+from tvm import relax
 from tvm.relax.expr_functor import PyExprMutator, PyExprVisitor, mutator, visitor
+from tvm_tirx import IRModule
 
 
 @visitor
@@ -216,7 +217,7 @@ class LazyTransformParamsFuncCreator:
             # direct iterate over the type annotation
             for param in func.params[num_input:]:
                 for ty in unpack_ty(param.ty):
-                    if isinstance(ty, tvm.ir.PrimType | relax.ShapeType):
+                    if isinstance(ty, tvm_tirx.ir.PrimType | relax.ShapeType):
                         params.append(relax.Var("symbolic_var_holder", ty))
 
         return relax.Function(
@@ -253,7 +254,7 @@ class LazyInputMutator(PyExprMutator):
             func.ret_ty,
             is_pure=False,
             attrs=func.attrs,
-            span=func.span,
+            loc=func.loc,
         ).without_attr("relax.force_pure")
         output = super().visit_function_(func)
         self.tuple_param = None
@@ -340,7 +341,7 @@ class LazyOutputMutator(PyExprMutator):
                     )
 
 
-@tvm.transform.module_pass(opt_level=0, name="LazyTransformParams")
+@tvm_tirx.ir.transform.module_pass(opt_level=0, name="LazyTransformParams")
 class LazyTransformParams:
     """
     Convert transform_params functions into a lazy version.
@@ -379,7 +380,7 @@ class LazyTransformParams:
         self.fset_item = fset_item
         self.extra_set_item_params = [] if extra_set_item_params is None else extra_set_item_params
 
-    def transform_module(self, mod: IRModule, ctx: tvm.transform.PassContext) -> IRModule:
+    def transform_module(self, mod: IRModule, ctx: tvm_tirx.ir.transform.PassContext) -> IRModule:
         lazy_mutator = LazyTransformParamsFuncCreator(
             self.fget_item,
             self.fset_item,

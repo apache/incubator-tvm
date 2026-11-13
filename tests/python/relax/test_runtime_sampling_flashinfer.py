@@ -18,16 +18,17 @@ import random
 
 import numpy as np
 import pytest
+import tvm_ffi
 
-import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.support import utils
+from tvm_tirx.support import utils
 
 
 @pytest.mark.skip(reason="Requires FlashInfer enabled and proper setup")
 def test_sampling():
-    def load_module(name: str, static_modules: list[tvm.runtime.Module]):
+    def load_module(name: str, static_modules: list[tvm_ffi.Module]):
         assert len(static_modules) > 0
         if len(static_modules) == 1:
             return static_modules[0]
@@ -36,8 +37,8 @@ def test_sampling():
             static_mod.import_module(mod)
         temp = utils.tempdir()
         mod_path = temp.relpath(f"{name}.so")
-        static_mod.export_library(mod_path)
-        return tvm.runtime.load_module(mod_path)
+        tvm_tirx.codegen.Executable(static_mod).export_library(mod_path)
+        return tvm_tirx.runtime.load_module(mod_path)
 
     # Test configuration
     batch_size = 10
@@ -49,7 +50,9 @@ def test_sampling():
     # Probability tensor (each row sums to 1)
     probs_np = np.array([[0.1, 0.2, 0.3, 0.2, 0.2] for _ in range(batch_size)], dtype="float32")
 
-    target = tvm.testing.run_with_gpu_lock(lambda: tvm.target.Target.from_device(tvm.cuda()))
+    target = tvm_tirx.testing.run_with_gpu_lock(
+        lambda: tvm_tirx.target.Target.from_device(tvm_tirx.cuda())
+    )
     sampling_mod = load_module(
         "flashinfer_sampling",
         relax.backend.cuda.flashinfer.gen_sampling_module(
@@ -59,9 +62,9 @@ def test_sampling():
     sampling_func = sampling_mod["sampling_from_probs"]
 
     def run_and_check():
-        dev = tvm.cuda(0)
-        prob_tvm = tvm.runtime.tensor(probs_np, device=dev)
-        output_tvm = tvm.runtime.empty((batch_size,), "int32", device=dev)
+        dev = tvm_tirx.cuda(0)
+        prob_tvm = tvm_tirx.runtime.tensor(probs_np, device=dev)
+        output_tvm = tvm_tirx.runtime.empty((batch_size,), "int32", device=dev)
         counts = np.zeros((batch_size, vocab_size), dtype="int32")
 
         for _ in range(num_iterations):
@@ -78,11 +81,11 @@ def test_sampling():
 
         frequencies = counts / float(num_iterations)
         for row in range(batch_size):
-            tvm.testing.assert_allclose(
+            tvm_tirx.testing.assert_allclose(
                 frequencies[row], probs_np[row], rtol=tol_rtol, atol=tol_atol
             )
 
-    tvm.testing.run_with_gpu_lock(run_and_check)
+    tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 if __name__ == "__main__":

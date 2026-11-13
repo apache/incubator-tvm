@@ -16,13 +16,29 @@
 # under the License.
 """Sortings operators."""
 
-from tvm.ir import GenericConst
+import tvm_ffi
+
+from tvm_tirx.ir import Attrs, GenericConst
+from tvm_tirx.ir import Call as _Call
+from tvm_tirx.ir.attrs import make_node as _make_attrs
+from tvm_tirx.ir.location import UNKNOWN_LOC, Location
 
 from ..expr import Expr
-from . import _ffi_api
 
 
-def sort(x: Expr, axis: int = -1, descending: bool = False):
+@tvm_ffi.register_object("relax.attrs.SortAttrs")
+class SortAttrs(Attrs):
+    """Attributes for sort operator"""
+
+
+def sort(
+    x: Expr,
+    axis: int = -1,
+    descending: bool = False,
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+):
     """Performs sorting along the given axis and returns an array
     in sorted order.
 
@@ -44,10 +60,29 @@ def sort(x: Expr, axis: int = -1, descending: bool = False):
         Sorted tensor.
 
     """
-    return _ffi_api.sort(x, axis, descending)  # type: ignore
+    return _Call(
+        "relax.sort",
+        [x],
+        attrs=_make_attrs("relax.attrs.SortAttrs", axis=axis, descending=descending),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
 
 
-def argsort(data: Expr, axis: int = -1, descending: bool = False, dtype: str = "int32"):
+@tvm_ffi.register_object("relax.attrs.ArgsortAttrs")
+class ArgsortAttrs(Attrs):
+    """Attributes for argsort operator"""
+
+
+def argsort(
+    data: Expr,
+    axis: int = -1,
+    descending: bool = False,
+    dtype: str = "int32",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
+):
     """Performs sorting along the given axis and returns an array of indices
     having same shape as an input array that index data in sorted order.
 
@@ -70,7 +105,20 @@ def argsort(data: Expr, axis: int = -1, descending: bool = False, dtype: str = "
     out : relax.Expr
         Tensor with same shape as data.
     """
-    return _ffi_api.argsort(data, axis, descending, dtype)  # type: ignore
+    return _Call(
+        "relax.argsort",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.ArgsortAttrs", axis=axis, descending=descending, dtype=dtype
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore
+
+
+@tvm_ffi.register_object("relax.attrs.TopKAttrs")
+class TopKAttrs(Attrs):
+    """Attributes for topk operators"""
 
 
 def topk(
@@ -80,6 +128,9 @@ def topk(
     ret_type: str = "both",
     largest: bool = True,
     dtype: str = "int32",
+    *,
+    ty=None,
+    loc: Location = UNKNOWN_LOC,
 ):
     """Get the top k elements in an input tensor along the given axis.
 
@@ -116,4 +167,12 @@ def topk(
     """
     if isinstance(k, GenericConst):
         k = k.value.numpy().item()
-    return _ffi_api.topk(data, k, axis, ret_type, largest, dtype)  # type: ignore
+    return _Call(
+        "relax.topk",
+        [data],
+        attrs=_make_attrs(
+            "relax.attrs.TopKAttrs", k=k, axis=axis, ret_type=ret_type, largest=largest, dtype=dtype
+        ),
+        loc=loc,
+        ty=ty,
+    )  # type: ignore

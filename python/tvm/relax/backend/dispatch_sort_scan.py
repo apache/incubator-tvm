@@ -20,13 +20,15 @@
 from functools import reduce
 from operator import mul
 
-from tvm import DataType, relax, topi
+import tvm_ffi
+
+from tvm import relax, topi
 from tvm.contrib.thrust import can_use_thrust
-from tvm.ir import GlobalVar, Op
-from tvm.ir.module import IRModule
-from tvm.ir.transform import PassContext, module_pass
 from tvm.relax import expr_functor
-from tvm.target import Target
+from tvm_tirx.ir import GlobalVar, Op
+from tvm_tirx.ir.module import IRModule
+from tvm_tirx.ir.transform import PassContext, module_pass
+from tvm_tirx.target import Target
 
 from .utils import BackendDispatcher
 
@@ -37,8 +39,8 @@ class SortScanDispatcher(BackendDispatcher):
 
     calls_to_update: dict[GlobalVar, Target]
 
-    def __init__(self, mod, index_bits: int | None = None):
-        super().__init__(mod)
+    def __init__(self, mod, index_bits: int | None = None, target: Target | None = None):
+        super().__init__(mod, target)
         self.calls_to_update = {}
         self.index_bits = index_bits
 
@@ -83,34 +85,38 @@ class SortScanDispatcher(BackendDispatcher):
             right = call.attrs.right
             tgt = self._get_target(call.ty)
             te_func = topi.searchsorted
-            with tgt:
-                if self.is_gpu_target(tgt):
-                    te_func = topi.gpu.searchsorted
+            if self.is_gpu_target(tgt):
+                te_func = topi.gpu.searchsorted
             out_dtype = "int32" if call.attrs.out_int32 else "int64"
-            return self.builder_.call_te(te_func, boundaries, input_tensor, right, out_dtype)
+            return self.builder_.call_te(
+                te_func,
+                boundaries,
+                input_tensor,
+                right,
+                out_dtype,
+                **({"target": tgt} if self.is_gpu_target(tgt) else {}),
+            )
         if call.op.name == "relax.sort":
             tgt = self._get_target(call.ty)
             te_func = topi.sort
-            kwargs = {}
-            with tgt:
-                if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
-                    te_func = topi.gpu.sort_thrust
-                    kwargs["workspace"] = self.allocate_workspace(call)
-                elif self.is_gpu_target(tgt):
-                    te_func = topi.gpu.sort
+            kwargs = {"target": tgt} if self.is_gpu_target(tgt) else {}
+            if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
+                te_func = topi.gpu.sort_thrust
+                kwargs["workspace"] = self.allocate_workspace(call)
+            elif self.is_gpu_target(tgt):
+                te_func = topi.gpu.sort
             return self.builder_.call_te(
                 te_func, call.args[0], call.attrs.axis, not call.attrs.descending, **kwargs
             )
         if call.op.name == "relax.argsort":
             tgt = self._get_target(call.ty)
             te_func = topi.argsort
-            kwargs = {}
-            with tgt:
-                if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
-                    te_func = topi.gpu.argsort_thrust
-                    kwargs["workspace"] = self.allocate_workspace(call)
-                elif self.is_gpu_target(tgt):
-                    te_func = topi.gpu.argsort
+            kwargs = {"target": tgt} if self.is_gpu_target(tgt) else {}
+            if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
+                te_func = topi.gpu.argsort_thrust
+                kwargs["workspace"] = self.allocate_workspace(call)
+            elif self.is_gpu_target(tgt):
+                te_func = topi.gpu.argsort
             return self.builder_.call_te(
                 te_func,
                 call.args[0],
@@ -122,7 +128,7 @@ class SortScanDispatcher(BackendDispatcher):
         if call.op.name == "relax.topk":
             tgt = self._get_target(call.ty)
             te_func = topi.topk
-            kwargs = {}
+            kwargs = {"target": tgt} if self.is_gpu_target(tgt) else {}
             if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
                 te_func = topi.gpu.topk_thrust
                 kwargs["workspace"] = self.allocate_workspace(call)
@@ -148,7 +154,7 @@ class SortScanDispatcher(BackendDispatcher):
             if shape is None:
                 raise ValueError("non-symbolic shape is not supported for now")
             shape_values = [shape[i] for i in range(len(shape))]
-            kwargs = {}
+            kwargs = {"target": tgt} if self.is_gpu_target(tgt) else {}
             normalized_axis = axis
             if normalized_axis is not None and normalized_axis < 0:
                 normalized_axis += len(shape)
@@ -204,7 +210,7 @@ class SortScanDispatcher(BackendDispatcher):
                 cumsum = relax.call_tir(
                     gv,
                     reshape,
-                    out_ty=relax.TensorType(kernel_shape, out_dtype, vdevice=call.ty.vdevice),
+                    ty_args=[relax.TensorType(kernel_shape, out_dtype, vdevice=call.ty.vdevice)],
                 )
                 return relax.call_pure_packed(
                     "vm.builtin.reshape",
@@ -213,23 +219,22 @@ class SortScanDispatcher(BackendDispatcher):
                     ty_args=call.ty,
                 )
 
-            with tgt:
-                if call.op.name == "relax.cumsum":
-                    te_func = topi.gpu.cumsum if self.is_gpu_target(tgt) else topi.cumsum
-                    if can_use_thrust(tgt, "tvm.contrib.thrust.sum_scan"):
-                        kwargs["workspace"] = self.allocate_workspace(call)
-                elif call.op.name == "relax.cumprod":
-                    te_func = topi.gpu.cumprod if self.is_gpu_target(tgt) else topi.cumprod
-                else:
-                    raise ValueError(f"Unsupported op: {call.op.name}")
-                tir_call = self.builder_.call_te(
-                    te_func,
-                    call.args[0],
-                    axis,
-                    call.attrs.dtype,
-                    call.attrs.exclusive,
-                    **kwargs,
-                )
+            if call.op.name == "relax.cumsum":
+                te_func = topi.gpu.cumsum if self.is_gpu_target(tgt) else topi.cumsum
+                if can_use_thrust(tgt, "tvm.contrib.thrust.sum_scan"):
+                    kwargs["workspace"] = self.allocate_workspace(call)
+            elif call.op.name == "relax.cumprod":
+                te_func = topi.gpu.cumprod if self.is_gpu_target(tgt) else topi.cumprod
+            else:
+                raise ValueError(f"Unsupported op: {call.op.name}")
+            tir_call = self.builder_.call_te(
+                te_func,
+                call.args[0],
+                axis,
+                call.attrs.dtype,
+                call.attrs.exclusive,
+                **kwargs,
+            )
             self._append_calls_to_update(tir_call, tgt)
             return tir_call
         return super().visit_call_(call)
@@ -239,9 +244,9 @@ class SortScanDispatcher(BackendDispatcher):
         Estimate the workspace size for thrust sort/argsort/topk/cumsum
         """
         input_shape = call.args[0].ty.shape
-        input_byte_per_elem = DataType(call.args[0].ty.dtype.dtype).bits // 8
-        int64_byte_per_elem = DataType("int64").bits // 8
-        int32_byte_per_elem = DataType("int32").bits // 8
+        input_byte_per_elem = tvm_ffi.dtype(call.args[0].ty.dtype.dtype).bits // 8
+        int64_byte_per_elem = tvm_ffi.dtype("int64").bits // 8
+        int32_byte_per_elem = tvm_ffi.dtype("int32").bits // 8
         num_elem = reduce(mul, input_shape, 1)
         input_size = num_elem * input_byte_per_elem
         # Most GPU algorithms take O(n) space or less, we choose 8N + 8MB as a safe estimation
@@ -285,13 +290,14 @@ class DispatchSortScan:
         affect other sort/scan implementations.
     """
 
-    def __init__(self, index_bits: int | None = None):
+    def __init__(self, index_bits: int | None = None, *, target: Target | None = None):
         if index_bits not in (None, 32, 64):
             raise ValueError("index_bits must be either 32 or 64")
         self.index_bits = index_bits
+        self.target = target
 
     def transform_module(self, mod: IRModule, ctx: PassContext) -> IRModule:
-        sort_scan_dispater = SortScanDispatcher(mod, self.index_bits)
+        sort_scan_dispater = SortScanDispatcher(mod, self.index_bits, self.target)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
                 func = sort_scan_dispater.visit_expr(func)

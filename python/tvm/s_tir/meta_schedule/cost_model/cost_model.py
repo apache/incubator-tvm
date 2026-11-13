@@ -21,6 +21,8 @@ import ctypes
 from collections.abc import Callable
 from typing import Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
@@ -29,8 +31,6 @@ from typing import Literal
 import numpy as np  # type: ignore
 from tvm_ffi import register_object
 
-from tvm.runtime import Object
-
 from .. import _ffi_api
 from ..runner import RunnerResult
 from ..search_strategy import MeasureCandidate
@@ -38,7 +38,7 @@ from ..tune_context import TuneContext
 
 
 @register_object("s_tir.meta_schedule.CostModel")
-class CostModel(Object):
+class CostModel(tvm_ffi.Object):
     """Cost model."""
 
     CostModelType = Union["CostModel", Literal["xgb", "mlp", "random"]]

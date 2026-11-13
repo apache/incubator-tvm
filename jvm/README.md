@@ -39,24 +39,30 @@ TVM4J contains three modules:
 - core
     * It contains all the Java interfaces.
 - native
-    * The JNI native library is compiled in this module. Need to expose libtvm_runtime to LD_LIBRARY_PATH
+    * The JNI native library is compiled in this module using the installed TIRx and FFI packages.
 - assembly
     * It assembles Java interfaces (core), JNI library (native) and TVM runtime library together. The simplest way to integrate tvm4j in your project is to rely on this module. It automatically extracts the native library to a tempfile and load it.
 
 ### Build
 
-First please refer to [Installation Guide](https://tvm.apache.org/docs/install/) and build runtime shared library from the C++ codes (libtvm\_runtime.so for Linux and libtvm\_runtime.dylib for OSX).
-
-Then you can compile tvm4j by
+Build the FFI, TIRx, and TVM wheels for your platform first; the
+[contributor guide](../docs/contribute/pull_request.rst) has the CI Docker build
+commands. From the repository root, install the wheels from `dist/` and compile
+tvm4j in the same shell:
 
 ```bash
+source tests/scripts/test_task_install_dist_wheels.sh
 bash tests/scripts/task_jvm_build.sh
 ```
 
-(Optional) run unit test by
+The build discovers native headers and libraries through `tvm_tirx.config`
+and `tvm_ffi.config`. The sourced helper sets `PYTHONPATH` to the installed
+packages in `.local/python`.
+
+To run the Java CI task in that shell:
 
 ```bash
-sh tests/scripts/task_java_unittest.sh
+bash tests/scripts/task_java_unittest.sh
 ```
 
 After it is compiled and packaged, you can install tvm4j in your local maven repository,

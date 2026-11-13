@@ -20,11 +20,13 @@ import tempfile
 
 import numpy as np
 import pytest
+import tvm_ffi
 
 import tvm
-import tvm.testing
+import tvm_tirx
+import tvm_tirx.testing
 from tvm import relax
-from tvm.support import ndk
+from tvm_tirx.support import ndk
 
 # Test Infra
 
@@ -44,11 +46,11 @@ class run_time_check:
 
         # Tests that can run on generic targets too
         elif self.device == "opencl":
-            return tvm.opencl().exist
+            return tvm_tirx.opencl().exist
         elif self.device == "vulkan":
-            return tvm.vulkan().exist
+            return tvm_tirx.vulkan().exist
         elif self.device == "any":
-            return tvm.opencl().exist or tvm.vulkan().exist
+            return tvm_tirx.opencl().exist or tvm_tirx.vulkan().exist
         else:
             return False
 
@@ -67,7 +69,7 @@ skip_unless_adreno_opencl_vulkan = pytest.mark.skipif(
 
 # CLML Codegen
 skip_unless_adreno_clml = pytest.mark.skipif(
-    tvm.get_global_func("relax.is_openclml_runtime_enabled", allow_missing=True) is None,
+    tvm_ffi.get_global_func("relax.is_openclml_runtime_enabled", allow_missing=True) is None,
     reason="need adreno openclml",
 )
 
@@ -133,7 +135,7 @@ def run_local(mod, inputs, target):
 
     Parameters
     ----------
-    mod : tvm.IRModule
+    mod : tvm_tirx.IRModule
         The Relax IRModule to execute.
     inputs : list of numpy.ndarray
         The input data for the module.
@@ -142,13 +144,13 @@ def run_local(mod, inputs, target):
 
     Returns
     -------
-    tvm.runtime.NDArray or tuple of tvm.runtime.NDArray
+    tvm_tirx.runtime.NDArray or tuple of tvm_tirx.runtime.NDArray
         The output from the module execution.
     """
     ex = relax.build(mod, target)
-    dev = tvm.cpu()
+    dev = tvm_tirx.cpu()
     vm = relax.VirtualMachine(ex, dev)
-    inputs = [tvm.runtime.tensor(inp, dev) for inp in inputs]
+    inputs = [tvm_tirx.runtime.tensor(inp, dev) for inp in inputs]
     vm.set_input("main", *inputs)
     vm.invoke_stateful("main")
     tvm_output = vm.get_outputs("main")
@@ -161,12 +163,12 @@ def run_local(mod, inputs, target):
 
 def build_and_run(mod, inputs, tgt):
     if SessionManager.is_target_rpc():
-        tgt = tvm.target.Target(tgt, host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
+        tgt = tvm_tirx.target.Target(tgt, host={"kind": "llvm", "mtriple": "aarch64-linux-gnu"})
     else:
-        tgt = tvm.target.Target(tgt, host={"kind": "llvm"})
+        tgt = tvm_tirx.target.Target(tgt, host={"kind": "llvm"})
 
     relax_pipeline = relax.pipeline.get_default_pipeline(tgt)
-    tir_pipeline = tvm.tirx.get_default_tir_pipeline(tgt)
+    tir_pipeline = tvm_tirx.tirx.get_default_tir_pipeline(tgt)
     mod = relax_pipeline(mod)
 
     ex = tvm.compile(mod, tgt, tir_pipeline=tir_pipeline)
@@ -180,8 +182,12 @@ def build_and_run(mod, inputs, tgt):
                 device_arr = [dev for _ in range(len(mod.global_infos["vdevice"]))]
             else:
                 device_arr = [dev]
-            vm = relax.VirtualMachine(rexec, device_arr)
-            device_inputs = [tvm.runtime.tensor(ip, dev) for ip in inputs]
+            if SessionManager.is_target_rpc():
+                vm = tvm.rpc.virtual_machine(rexec, device_arr)
+                device_inputs = [dev.tensor(ip) for ip in inputs]
+            else:
+                vm = relax.VirtualMachine(rexec, device_arr)
+                device_inputs = [tvm_tirx.runtime.tensor(ip, dev) for ip in inputs]
             vm.set_input("main", *device_inputs)
             vm.invoke_stateful("main")
             tvm_output = vm.get_outputs("main")
@@ -191,7 +197,7 @@ def build_and_run(mod, inputs, tgt):
 
     if SessionManager.is_target_rpc():
         return run_and_check()
-    return tvm.testing.run_with_gpu_lock(run_and_check)
+    return tvm_tirx.testing.run_with_gpu_lock(run_and_check)
 
 
 def verify_results(mod, target, ref_target):
@@ -215,4 +221,4 @@ def verify_results(mod, target, ref_target):
     rs_org = build_and_run(mod_org, inputs, target)
 
     for vl_org, vl_ref in zip(rs_org, rs_ref):
-        tvm.testing.assert_allclose(vl_org, vl_ref, rtol=1e-3, atol=1e-3)
+        tvm_tirx.testing.assert_allclose(vl_org, vl_ref, rtol=1e-3, atol=1e-3)

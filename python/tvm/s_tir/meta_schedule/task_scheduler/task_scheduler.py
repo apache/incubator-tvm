@@ -20,14 +20,14 @@
 from collections.abc import Callable
 from typing import Union
 
+import tvm_ffi
+
 # isort: off
 from typing import Literal
 
 # isort: on
 
 from tvm_ffi import register_object
-
-from tvm.runtime import Object
 
 from .. import _ffi_api
 from ..builder import Builder, BuilderResult
@@ -43,7 +43,7 @@ logger = get_logger(__name__)  # pylint: disable=invalid-name
 
 
 @register_object("s_tir.meta_schedule.TaskRecord")
-class TaskRecord(Object):
+class TaskRecord(tvm_ffi.Object):
     """The running record of a task."""
 
     ctx: TuneContext
@@ -58,7 +58,7 @@ class TaskRecord(Object):
 
 
 @register_object("s_tir.meta_schedule.TaskScheduler")
-class TaskScheduler(Object):
+class TaskScheduler(tvm_ffi.Object):
     """The abstract task scheduler interface."""
 
     tasks_: list[TaskRecord]

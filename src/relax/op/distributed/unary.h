@@ -26,6 +26,7 @@
 #define TVM_RELAX_OP_DISTRIBUTED_UNARY_H_
 
 #include <tvm/ffi/extra/visit_error_context.h>
+#include <tvm/relax/op_attr.h>
 
 #include "utils.h"
 
@@ -48,7 +49,7 @@ Type InferDistTypeUnary(const Call& call, const BlockBuilder& ctx, FType f_compu
         << " requires the input tensor to have float dtype. However, the given input dtype is "
         << input_tensor_ty->dtype;
   }
-  auto output_ty = ffi::make_object<TensorTypeNode>(*input_tensor_ty.get());
+  auto output_ty = ffi::make_object<TensorTypeObj>(*input_tensor_ty.get());
   ffi::Optional<PrimType> computed_dtype = f_compute_out_dtype(input_tensor_ty);
   output_ty->dtype = computed_dtype;
   TensorType out_tensor_ty(output_ty);
@@ -67,11 +68,11 @@ Type InferDistTypeUnaryCheck(const Call& call, const BlockBuilder& ctx);
 // clang-format off
 #define RELAX_REGISTER_UNARY_ARITH_DIST_INFER_TYPE(OpName, RequireFloatDtype) \
   OpDef("relax." #OpName)                                                     \
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder", InferDistTypeUnaryArith<RequireFloatDtype>)
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypeUnaryArith<RequireFloatDtype>)
 
 #define RELAX_REGISTER_UNARY_CHECK_DIST_INFER_TYPE(OpName) \
   OpDef("relax." #OpName)                              \
-      .set_attr<FInferTypeWithBuilder>("relax.dist.FInferTypeWithBuilder", InferDistTypeUnaryCheck)
+      .set_attr(tvm::relax::distributed::op_attr::kInferTypeWithBuilder, InferDistTypeUnaryCheck)
 // clang-format on
 
 }  // namespace distributed

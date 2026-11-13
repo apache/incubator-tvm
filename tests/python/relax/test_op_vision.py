@@ -19,30 +19,32 @@ import numpy as np
 import pytest
 
 import tvm
-import tvm.testing
-from tvm.testing import env
+import tvm_tirx
+import tvm_tirx.testing
+from tvm_tirx.testing import env
 
 pytest.importorskip("scipy")  # tvm.topi.testing imports scipy
 
 import tvm.topi.testing
-from tvm import relax, tirx
-from tvm.ir import Op
+from tvm import relax
+from tvm.relax import script as R
 from tvm.relax.transform import LegalizeOps
-from tvm.script import relax as R
+from tvm_tirx import tirx
+from tvm_tirx.ir import Op
 
 
 def _check_inference(bb: relax.BlockBuilder, call: relax.Call, expected_ty: relax.Type):
     ret = bb.normalize(call)
-    tvm.ir.assert_structural_equal(ret.ty, expected_ty)
+    tvm_tirx.ir.assert_structural_equal(ret.ty, expected_ty)
 
 
-def _assert_relax_op_legalized(mod: tvm.IRModule, op_name: str) -> None:
+def _assert_relax_op_legalized(mod: tvm_tirx.IRModule, op_name: str) -> None:
     seen_call_tir = False
     seen_original_op = False
 
     def _visit(expr):
         nonlocal seen_call_tir, seen_original_op
-        if isinstance(expr, relax.Call) and isinstance(expr.op, tvm.ir.Op):
+        if isinstance(expr, relax.Call) and isinstance(expr.op, tvm_tirx.ir.Op):
             if expr.op.name == "relax.call_tir":
                 seen_call_tir = True
             if expr.op.name == op_name:
@@ -139,7 +141,7 @@ def test_roi_align_wrong_layout():
 
 
 def test_roi_align_legalize():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ROIAlign:
         @R.function
         def main(
@@ -159,14 +161,14 @@ def test_roi_align_legalize():
 
     mod = LegalizeOps()(ROIAlign)
     assert "call_tir" in str(mod)
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TensorType((2, 2, 3, 3), "float32"),
     )
 
 
 def test_roi_align_legalize_aligned():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ROIAlign:
         @R.function
         def main(
@@ -187,14 +189,14 @@ def test_roi_align_legalize_aligned():
 
     mod = LegalizeOps()(ROIAlign)
     assert "call_tir" in str(mod)
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TensorType((1, 1, 1, 1), "float32"),
     )
 
 
 def test_roi_align_legalize_sample_ratio_zero():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ROIAlign:
         @R.function
         def main(
@@ -214,7 +216,7 @@ def test_roi_align_legalize_sample_ratio_zero():
 
     mod = LegalizeOps()(ROIAlign)
     assert "call_tir" in str(mod)
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TensorType((1, 2, 2, 2), "float32"),
     )
@@ -424,7 +426,7 @@ def test_nms_invalid_indices():
 
 
 def test_get_valid_counts_legalize():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GVC:
         @R.function
         def main(
@@ -439,7 +441,7 @@ def test_get_valid_counts_legalize():
 
     mod = LegalizeOps()(GVC)
     _assert_relax_op_legalized(mod, "relax.vision.get_valid_counts")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TupleType(
             [
@@ -452,7 +454,7 @@ def test_get_valid_counts_legalize():
 
 
 def test_nms_legalize():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class NMS:
         @R.function
         def main(
@@ -480,7 +482,7 @@ def test_nms_legalize():
 
     mod = LegalizeOps()(NMS)
     _assert_relax_op_legalized(mod, "relax.vision.non_max_suppression")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TupleType(
             [
@@ -492,7 +494,7 @@ def test_nms_legalize():
 
 
 def test_nms_legalize_soft_nms():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class NMS:
         @R.function
         def main(
@@ -524,7 +526,7 @@ def test_nms_legalize_soft_nms():
 
     mod = LegalizeOps()(NMS)
     _assert_relax_op_legalized(mod, "relax.vision.non_max_suppression")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TupleType(
             [
@@ -537,7 +539,7 @@ def test_nms_legalize_soft_nms():
 
 
 def test_nms_legalize_return_data():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class NMS:
         @R.function
         def main(
@@ -565,7 +567,7 @@ def test_nms_legalize_return_data():
 
     mod = LegalizeOps()(NMS)
     _assert_relax_op_legalized(mod, "relax.vision.non_max_suppression")
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TensorType((1, 5, 6), "float32"),
     )
@@ -575,7 +577,7 @@ def test_nms_legalize_return_data():
 def test_get_valid_counts_e2e():
     """Run get_valid_counts through legalization and compare with the numpy reference."""
 
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class GVCModule:
         @R.function
         def main(
@@ -612,12 +614,12 @@ def test_get_valid_counts_e2e():
 
     mod = LegalizeOps()(GVCModule)
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
-    result = vm["main"](tvm.runtime.tensor(data_np, tvm.cpu()))
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
+    result = vm["main"](tvm_tirx.runtime.tensor(data_np, tvm_tirx.cpu()))
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_valid_count)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_out_data)
-    tvm.testing.assert_allclose(result[2].numpy(), ref_out_indices)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_valid_count)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_out_data)
+    tvm_tirx.testing.assert_allclose(result[2].numpy(), ref_out_indices)
 
 
 def _prepare_nms_inputs(raw_data: np.ndarray):
@@ -678,11 +680,11 @@ def _run_nms_e2e(
 
     mod = LegalizeOps()(bb.get())
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
     return vm["main"](
-        tvm.runtime.tensor(data_np, tvm.cpu()),
-        tvm.runtime.tensor(valid_count_np, tvm.cpu()),
-        tvm.runtime.tensor(indices_np, tvm.cpu()),
+        tvm_tirx.runtime.tensor(data_np, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(valid_count_np, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(indices_np, tvm_tirx.cpu()),
     )
 
 
@@ -725,8 +727,8 @@ def test_nms_e2e_return_indices():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
@@ -775,9 +777,9 @@ def test_nms_e2e_soft_nms_reorders_by_decayed_score():
     )
 
     np.testing.assert_array_equal(ref_indices[0, :3], np.array([0, 2, 1], dtype="int32"))
-    tvm.testing.assert_allclose(result[0].numpy(), ref_out_data)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[2].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_out_data)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[2].numpy(), ref_valid_box_count)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
@@ -819,8 +821,8 @@ def test_nms_e2e_return_indices_with_invalid_to_bottom():
         invalid_to_bottom=True,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
@@ -864,8 +866,8 @@ def test_nms_e2e_top_k():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
     np.testing.assert_array_equal(ref_indices, np.array([[1, 2, -1, -1, -1, -1]], dtype="int32"))
     np.testing.assert_array_equal(ref_valid_box_count, np.array([[2]], dtype="int32"))
 
@@ -909,8 +911,8 @@ def test_nms_e2e_force_suppress():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
     np.testing.assert_array_equal(ref_indices, np.array([[0, 2, -1, -1]], dtype="int32"))
     np.testing.assert_array_equal(ref_valid_box_count, np.array([[2]], dtype="int32"))
 
@@ -955,8 +957,8 @@ def test_nms_e2e_max_output_size():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
     np.testing.assert_array_equal(ref_indices, np.array([[0, 1, -1, -1]], dtype="int32"))
     np.testing.assert_array_equal(ref_valid_box_count, np.array([[2]], dtype="int32"))
 
@@ -1005,8 +1007,8 @@ def test_nms_e2e_multi_batch():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
     np.testing.assert_array_equal(
         ref_indices,
         np.array([[0, 2, -1, -1], [0, 1, 2, -1]], dtype="int32"),
@@ -1065,8 +1067,8 @@ def test_nms_e2e_invalid_to_bottom():
         dtype="float32",
     )
 
-    tvm.testing.assert_allclose(result.numpy(), ref_out_data)
-    tvm.testing.assert_allclose(result.numpy(), expected_out_data)
+    tvm_tirx.testing.assert_allclose(result.numpy(), ref_out_data)
+    tvm_tirx.testing.assert_allclose(result.numpy(), expected_out_data)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
@@ -1120,8 +1122,8 @@ def test_nms_e2e_return_data_without_compaction():
         dtype="float32",
     )
 
-    tvm.testing.assert_allclose(result.numpy(), ref_out_data)
-    tvm.testing.assert_allclose(result.numpy(), expected_out_data)
+    tvm_tirx.testing.assert_allclose(result.numpy(), ref_out_data)
+    tvm_tirx.testing.assert_allclose(result.numpy(), expected_out_data)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
@@ -1164,8 +1166,8 @@ def test_nms_e2e_index_remap():
         invalid_to_bottom=False,
     )
 
-    tvm.testing.assert_allclose(result[0].numpy(), ref_indices)
-    tvm.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
+    tvm_tirx.testing.assert_allclose(result[0].numpy(), ref_indices)
+    tvm_tirx.testing.assert_allclose(result[1].numpy(), ref_valid_box_count)
     np.testing.assert_array_equal(ref_indices, np.array([[3, 5, 1, -1, -1, -1]], dtype="int32"))
     np.testing.assert_array_equal(ref_valid_box_count, np.array([[3]], dtype="int32"))
 
@@ -1238,7 +1240,7 @@ def test_roi_pool_wrong_layout():
 
 
 def test_roi_pool_legalize():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class ROIPool:
         @R.function
         def main(
@@ -1256,7 +1258,7 @@ def test_roi_pool_legalize():
 
     mod = LegalizeOps()(ROIPool)
     assert "call_tir" in str(mod)
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TensorType((2, 2, 3, 2), "float32"),
     )
@@ -1319,7 +1321,7 @@ def test_all_class_non_max_suppression_infer_ty_shape_var():
 
 
 def test_all_class_non_max_suppression_legalize_dynamic_trim():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class NMSModule:
         @R.function
         def main(
@@ -1339,7 +1341,7 @@ def test_all_class_non_max_suppression_legalize_dynamic_trim():
     assert "dynamic_strided_slice" in str(mod)
 
     ret_ty = mod["main"].ret_ty
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         ret_ty,
         relax.TupleType(
             [
@@ -1352,7 +1354,7 @@ def test_all_class_non_max_suppression_legalize_dynamic_trim():
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
 def test_all_class_non_max_suppression_legalize_e2e():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class NMSModule:
         @R.function
         def main(
@@ -1386,7 +1388,7 @@ def test_all_class_non_max_suppression_legalize_e2e():
     mod = LegalizeOps()(NMSModule)
 
     # Check type
-    tvm.ir.assert_structural_equal(
+    tvm_tirx.ir.assert_structural_equal(
         mod["main"].ret_ty,
         relax.TupleType(
             [
@@ -1398,15 +1400,15 @@ def test_all_class_non_max_suppression_legalize_e2e():
 
     # Check runtime execution
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
     result = vm["main"](
-        tvm.runtime.tensor(boxes_data, tvm.cpu()),
-        tvm.runtime.tensor(scores_data, tvm.cpu()),
+        tvm_tirx.runtime.tensor(boxes_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(scores_data, tvm_tirx.cpu()),
     )
 
     selected_indices = result[0].numpy()
     num_total_detections = int(result[1].numpy()[0])
-    tvm.testing.assert_allclose(selected_indices.shape, (num_total_detections, 3))
+    tvm_tirx.testing.assert_allclose(selected_indices.shape, (num_total_detections, 3))
 
 
 def test_multibox_transform_loc_op_correctness():
@@ -1547,7 +1549,7 @@ def _multibox_ref_numpy(
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
 def test_multibox_transform_loc_legalize_e2e():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def main(
@@ -1582,20 +1584,20 @@ def test_multibox_transform_loc_legalize_e2e():
 
     mod = LegalizeOps()(Mod)
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
     ref_b, ref_s = _multibox_ref_numpy(cls_data, loc_data, anc_data, (1.0, 1.0, 1.0, 1.0))
     out = vm["main"](
-        tvm.runtime.tensor(cls_data, tvm.cpu()),
-        tvm.runtime.tensor(loc_data, tvm.cpu()),
-        tvm.runtime.tensor(anc_data, tvm.cpu()),
+        tvm_tirx.runtime.tensor(cls_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(loc_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(anc_data, tvm_tirx.cpu()),
     )
-    tvm.testing.assert_allclose(out[0].numpy(), ref_b, rtol=1e-4, atol=1e-5)
-    tvm.testing.assert_allclose(out[1].numpy(), ref_s, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out[0].numpy(), ref_b, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out[1].numpy(), ref_s, rtol=1e-4, atol=1e-5)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
 def test_multibox_transform_loc_legalize_e2e_nonunity_variances():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def main(
@@ -1630,20 +1632,20 @@ def test_multibox_transform_loc_legalize_e2e_nonunity_variances():
 
     mod = LegalizeOps()(Mod)
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
     ref_b, ref_s = _multibox_ref_numpy(cls_data, loc_data, anc_data, (0.1, 0.1, 0.2, 0.2))
     out = vm["main"](
-        tvm.runtime.tensor(cls_data, tvm.cpu()),
-        tvm.runtime.tensor(loc_data, tvm.cpu()),
-        tvm.runtime.tensor(anc_data, tvm.cpu()),
+        tvm_tirx.runtime.tensor(cls_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(loc_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(anc_data, tvm_tirx.cpu()),
     )
-    tvm.testing.assert_allclose(out[0].numpy(), ref_b, rtol=1e-4, atol=1e-5)
-    tvm.testing.assert_allclose(out[1].numpy(), ref_s, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out[0].numpy(), ref_b, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(out[1].numpy(), ref_s, rtol=1e-4, atol=1e-5)
 
 
 @pytest.mark.skipif(not env.has_llvm(), reason="need llvm")
 def test_multibox_transform_loc_legalize_attr_branches():
-    @tvm.script.ir_module
+    @tvm_tirx.script.ir_module
     class Mod:
         @R.function
         def main(
@@ -1677,7 +1679,7 @@ def test_multibox_transform_loc_legalize_attr_branches():
 
     mod = LegalizeOps()(Mod)
     exe = tvm.compile(mod, target="llvm")
-    vm = relax.VirtualMachine(exe, tvm.cpu())
+    vm = relax.VirtualMachine(exe, tvm_tirx.cpu())
     ref_b, ref_s = _multibox_ref_numpy(
         cls_data,
         loc_data,
@@ -1689,17 +1691,17 @@ def test_multibox_transform_loc_legalize_attr_branches():
         apply_softmax=False,
     )
     out = vm["main"](
-        tvm.runtime.tensor(cls_data, tvm.cpu()),
-        tvm.runtime.tensor(loc_data, tvm.cpu()),
-        tvm.runtime.tensor(anc_data, tvm.cpu()),
+        tvm_tirx.runtime.tensor(cls_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(loc_data, tvm_tirx.cpu()),
+        tvm_tirx.runtime.tensor(anc_data, tvm_tirx.cpu()),
     )
     boxes = out[0].numpy()
     scores = out[1].numpy()
-    tvm.testing.assert_allclose(boxes, ref_b, rtol=1e-4, atol=1e-5)
-    tvm.testing.assert_allclose(scores, ref_s, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(boxes, ref_b, rtol=1e-4, atol=1e-5)
+    tvm_tirx.testing.assert_allclose(scores, ref_s, rtol=1e-4, atol=1e-5)
     assert np.all(boxes >= 0.0) and np.all(boxes <= 1.0)
-    tvm.testing.assert_allclose(scores[:, 0, :], np.zeros_like(scores[:, 0, :]))
+    tvm_tirx.testing.assert_allclose(scores[:, 0, :], np.zeros_like(scores[:, 0, :]))
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

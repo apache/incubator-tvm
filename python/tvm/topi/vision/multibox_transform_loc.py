@@ -17,7 +17,7 @@
 # pylint: disable=invalid-name
 """Multibox location transform (SSD / TFLite DetectionPostProcess decode)."""
 
-import tvm
+import tvm_tirx
 from tvm import te, topi
 
 
@@ -67,14 +67,14 @@ def multibox_transform_loc(
     num_anchors = cls_pred.shape[2]
     loc_reshaped = topi.reshape(loc_pred, [B, num_anchors, 4])
 
-    vx = tvm.tirx.const(float(variances[0]), dtype)
-    vy = tvm.tirx.const(float(variances[1]), dtype)
-    vw = tvm.tirx.const(float(variances[2]), dtype)
-    vh = tvm.tirx.const(float(variances[3]), dtype)
-    half = tvm.tirx.const(0.5, dtype)
-    zero = tvm.tirx.const(0.0, dtype)
-    one = tvm.tirx.const(1.0, dtype)
-    th = tvm.tirx.const(float(threshold), dtype)
+    vx = tvm_tirx.tirx.const(float(variances[0]), dtype)
+    vy = tvm_tirx.tirx.const(float(variances[1]), dtype)
+    vw = tvm_tirx.tirx.const(float(variances[2]), dtype)
+    vh = tvm_tirx.tirx.const(float(variances[3]), dtype)
+    half = tvm_tirx.tirx.const(0.5, dtype)
+    zero = tvm_tirx.tirx.const(0.0, dtype)
+    one = tvm_tirx.tirx.const(1.0, dtype)
+    th = tvm_tirx.tirx.const(float(threshold), dtype)
 
     def decode_bbox(b, a, k):
         left = anchor[0, a, 0]
@@ -102,10 +102,10 @@ def multibox_transform_loc(
             xmin = te.max(zero, te.min(one, xmin))
             ymax = te.max(zero, te.min(one, ymax))
             xmax = te.max(zero, te.min(one, xmax))
-        return tvm.tirx.Select(
+        return tvm_tirx.tirx.Select(
             k == 0,
             ymin,
-            tvm.tirx.Select(k == 1, xmin, tvm.tirx.Select(k == 2, ymax, xmax)),
+            tvm_tirx.tirx.Select(k == 1, xmin, tvm_tirx.tirx.Select(k == 2, ymax, xmax)),
         )
 
     boxes = te.compute((B, num_anchors, 4), decode_bbox, name="multibox_boxes")

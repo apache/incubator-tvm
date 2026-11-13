@@ -23,12 +23,12 @@
  */
 #include <tvm/ffi/cast.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/runtime/device_api.h>
 #include <tvm/s_tir/stmt_functor.h>
 #include <tvm/s_tir/transform.h>
 #include <tvm/sym/analyzer.h>
 #include <tvm/tirx/function.h>
-#include <tvm/tirx/op.h>
 
 #include <utility>
 
@@ -46,38 +46,39 @@ class LoopCanonicalizer : public StmtExprMutator {
   LoopCanonicalizer() = default;
 
  private:
-  UnchangedOr<Stmt> Mutate_(const ForNode* op, InplaceMode inplace_mode) final {
-    if (is_zero(op->min) && op->HasTrivialStep()) {
+  UnchangedOr<Stmt> Mutate_(const ForObj* op, InplaceMode inplace_mode) final {
+    if (IsZero(op->begin) && op->HasTrivialStep()) {
       return StmtExprMutator::Mutate_(op, inplace_mode);
     }
-    const auto* loop_var = op->loop_var.get();
+    const auto* loop_var = op->var.get();
     PrimType loop_var_ty = loop_var->ty.as_or_throw<PrimType>();
-    PrimExpr step = op->step.value_or(IntImm(loop_var_ty, 1));
+    PrimExpr step = op->step;
 
     // report warning for negative step, since it would be a forever loop
     if (!analyzer_->CanProveGreaterEqual(step, 1)) {
       // TODO(tvm): prove dynamic shaped step
       TVM_FFI_THROW(InternalError)
-          << "Loop step for " << op->loop_var << " may not be positive: " << step;
+          << "Loop step for " << op->var << " may not be positive: " << step;
     }
 
-    VarRemapSet(op->loop_var, op->loop_var.as_or_throw<PrimExpr>() * step + op->min);
+    VarRemapSet(op->var, op->var.as_or_throw<PrimExpr>() * step + op->begin);
     Stmt body = Mutate(op->body, inplace_mode).ValueOrUnchanged(op->body);
     PrimExpr min = IntImm(loop_var_ty, 0);
-    PrimExpr extent = analyzer_->Simplify(ceildiv(op->extent, step));
+    PrimExpr extent =
+        analyzer_->Simplify(ceildiv(Range::GetExtentFromBeginEnd(op->begin, op->end), step));
     if (inplace_mode == InplaceMode::kAllow) {
-      auto* writable = const_cast<ForNode*>(op);
+      auto* writable = const_cast<ForObj*>(op);
       writable->body = std::move(body);
-      writable->min = std::move(min);
-      writable->extent = std::move(extent);
-      writable->step = std::nullopt;
+      writable->begin = std::move(min);
+      writable->end = std::move(extent);
+      writable->step = IntImm(loop_var_ty, 1);
       return ffi::Unchanged();
     } else {
-      auto copy = ffi::make_object<ForNode>(*op);
+      auto copy = ffi::make_object<ForObj>(*op);
       copy->body = std::move(body);
-      copy->min = std::move(min);
-      copy->extent = std::move(extent);
-      copy->step = std::nullopt;
+      copy->begin = std::move(min);
+      copy->end = std::move(extent);
+      copy->step = IntImm(loop_var_ty, 1);
       return For(std::move(copy));
     }
   }
@@ -88,14 +89,14 @@ class LoopCanonicalizer : public StmtExprMutator {
 namespace transform {
 
 Pass CanonicalizeLoop() {
-  auto pass_func = [=](PrimFunc func, IRModule m, PassContext ctx) {
-    PrimFuncNode* fptr = func.CopyOnWrite();
+  auto pass_func = [=](Function func, IRModule m, PassContext ctx) {
+    FunctionObj* fptr = func.CopyOnWrite();
     fptr->body = ffi::make_object<LoopCanonicalizer>()
                      ->Mutate(fptr->body, InplaceMode::kAllow)
                      .ValueOrUnchanged(std::move(fptr->body));
     return func;
   };
-  return CreatePrimFuncPass(pass_func, 0, "s_tir.CanonicalizeLoop", {});
+  return CreateFunctionPass(pass_func, 0, "s_tir.CanonicalizeLoop");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

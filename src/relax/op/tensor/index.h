@@ -24,7 +24,7 @@
 #ifndef TVM_RELAX_OP_TENSOR_INDEX_H_
 #define TVM_RELAX_OP_TENSOR_INDEX_H_
 
-#include <tvm/relax/attrs/index.h>
+#include <tvm/relax/op/index.h>
 
 #include "../op_common.h"
 

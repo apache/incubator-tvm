@@ -24,23 +24,28 @@ import pytest
 pytest.importorskip("tornado")  # tvm.rpc.tracker (LocalRPC) requires tornado
 
 import tvm
-import tvm.testing
-from tvm.ir.utils import derived_object
+import tvm_tirx
+import tvm_tirx.testing
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.custom_builder_runner import run_module_via_rpc
 from tvm.s_tir.meta_schedule.testing.local_rpc import LocalRPC
 from tvm.s_tir.schedule import SBlockRV, Schedule
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
-from tvm.testing import env
+from tvm.s_tir.utils import derived_object
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
+from tvm_tirx.testing import env
 
 logging.basicConfig()
 logging.getLogger("tvm.s_tir.meta_schedule").setLevel(logging.DEBUG)
 
 
-@Ts.prim_func
-def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 128])) -> None:
+@Ts.function
+def matmul(
+    A: T.Tensor([128, 128], "float32"),
+    B: T.Tensor([128, 128], "float32"),
+    C: T.Tensor([128, 128], "float32"),
+) -> None:
     for i, j, k in T.grid(128, 128, 128):
         with Ts.sblock("update"):
             vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
@@ -49,9 +54,9 @@ def matmul(A: T.Buffer([128, 128]), B: T.Buffer([128, 128]), C: T.Buffer([128, 1
             C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vj, vk]
 
 
-@Ts.prim_func
-def two_step(A: T.Buffer((1024, 1024), "float32"), C: T.Buffer((1024, 1024), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((1024, 1024), "float32")
+@Ts.function
+def two_step(A: T.Tensor((1024, 1024), "float32"), C: T.Tensor((1024, 1024), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((1024, 1024), "float32")
 
     for i, j in T.grid(1024, 1024):
         with Ts.sblock("A"):
@@ -106,7 +111,7 @@ def test_tune_matmul_cuda():
 
 @pytest.mark.skip("Integration test")
 def test_tune_run_module_via_rpc():
-    target = tvm.target.Target("llvm")
+    target = tvm_tirx.target.Target("llvm")
     rt_mod = tvm.compile(matmul, target)
 
     # construct the input
@@ -144,7 +149,7 @@ def test_tune_run_module_via_rpc():
             args=input_data,
             continuation=f_timer,
         )
-        tvm.testing.assert_allclose(result.numpy(), c_np, rtol=1e-3)
+        tvm_tirx.testing.assert_allclose(result.numpy(), c_np, rtol=1e-3)
 
 
 @pytest.mark.skip("Integration test")

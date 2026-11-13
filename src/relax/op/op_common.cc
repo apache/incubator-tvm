@@ -89,7 +89,7 @@ ffi::Array<TensorType> GetInputTensorType(const Call& call) {
 }
 
 ffi::Array<TensorType> GetTensorTypeFromTuple(const Call& call, const Expr& tup) {
-  const auto* tuple_ty = GetTypeAs<TupleTypeNode>(tup);
+  const auto* tuple_ty = GetTypeAs<TupleTypeObj>(tup);
   if (tuple_ty == nullptr) {
     TVM_FFI_VISIT_THROW(TypeError, call)
         << call->op << " expects the input to be a Tuple of Tensors. However, the given input is "
@@ -99,7 +99,7 @@ ffi::Array<TensorType> GetTensorTypeFromTuple(const Call& call, const Expr& tup)
   ffi::Array<TensorType> tensor_ty;
   tensor_ty.reserve(tuple_ty->fields.size());
   for (Type field_ty : tuple_ty->fields) {
-    const auto* field_tensor_ty = field_ty.as<TensorTypeNode>();
+    const auto* field_tensor_ty = field_ty.as<TensorTypeObj>();
     if (field_tensor_ty == nullptr) {
       TVM_FFI_VISIT_THROW(TypeError, call)
           << call->op << " expects the input to be a Tuple of Tensors. However, the given input is "
@@ -125,8 +125,8 @@ BinaryBroadcastShapeInferResult InferBinaryBroadcastShape(sym::AnalyzerObj* anal
   for (; i <= std::min(x1_ndim, x2_ndim); ++i) {
     const PrimExpr& dim0 = x1_shape[x1_ndim - i];
     const PrimExpr& dim1 = x2_shape[x2_ndim - i];
-    const auto* int_dim0 = dim0.as<IntImmNode>();
-    const auto* int_dim1 = dim1.as<IntImmNode>();
+    const auto* int_dim0 = dim0.as<IntImmObj>();
+    const auto* int_dim1 = dim1.as<IntImmObj>();
     if (int_dim0 != nullptr && int_dim0->value == 1) {
       output_shape.push_back(dim1);
     } else if (int_dim1 != nullptr && int_dim1->value == 1) {
@@ -210,19 +210,21 @@ InferLayoutOutput InferLayoutUnaryEwise(
     const VarLayoutMap& var_layout_map) {
   TVM_FFI_ICHECK(NoDesiredLayout(call, desired_layouts));
   LayoutDecision layout = GetLayoutDecision(var_layout_map, call->args[0]);
-  return InferLayoutOutput({layout}, {layout}, Attrs(call->attrs));
+  return InferLayoutOutput({layout}, {layout}, call->attrs);
 }
 
-bool CanProveLayoutTransform(const SLayout& input_layout, const SLayout& desired_layout,
+bool CanProveLayoutTransform(const ffi::Optional<SLayout>& input_layout,
+                             const ffi::Optional<SLayout>& desired_layout,
                              ffi::Array<PrimExpr> shape) {
+  if (!input_layout.has_value() || !desired_layout.has_value()) return false;
   bool can_prove = true;
   try {
-    tirx::SBijectiveLayout todesired(input_layout, desired_layout);
+    tirx::SBijectiveLayout todesired(input_layout.value(), desired_layout.value());
     ffi::Array<PrimExpr> desired_shape = todesired.ForwardShape(shape);
     ffi::Array<PrimExpr> back_shape = todesired.BackwardShape(desired_shape);
     sym::Analyzer analyzer;
     for (size_t i = 0; i < shape.size(); ++i) {
-      if (tvm::prim::is_const_int(shape[i])) {
+      if (tvm::prim::IsConstInt(shape[i])) {
         if (!analyzer->CanProveEqual(shape[i], back_shape[i])) {
           can_prove = false;
           break;

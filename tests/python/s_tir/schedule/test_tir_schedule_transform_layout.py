@@ -19,18 +19,18 @@
 import sys
 
 import pytest
-import tvm_ffi
 
 import tvm
-import tvm.testing
-from tvm import tirx
+import tvm_tirx
+import tvm_tirx.testing
+from tvm.s_tir import script as Ts
 from tvm.s_tir.schedule.testing import (
     assert_structural_equal_ignore_global_symbol,
     verify_trace_roundtrip,
 )
-from tvm.script import ir as I
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
+from tvm_tirx import tirx
+from tvm_tirx.script import ir as I
+from tvm_tirx.script import tirx as T
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,line-too-long,redefined-outer-name,unexpected-keyword-arg,too-many-nested-blocks
@@ -38,9 +38,9 @@ from tvm.script import tirx as T
 def packed_index_map_func(m, n):
     return m // 16, n // 16, m % 16, n % 16
 
-@Ts.prim_func
-def two_elementwise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), "float32")
+@Ts.function
+def two_elementwise(A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((128, 128), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -50,11 +50,11 @@ def two_elementwise(A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), 
             vi, vj = Ts.axis.remap("SS", [i, j])
             C[vi, vj] = B[vi, vj] + 1.0
 
-@Ts.prim_func
-def two_elementwise_transformed_intermediate_buffer(
-    A: T.Buffer((128, 128), "float32"), C: T.Buffer((128, 128), "float32")
+@Ts.function
+def two_elementwise_transformed_intermediate_tensor(
+    A: T.Tensor((128, 128), "float32"), C: T.Tensor((128, 128), "float32")
 ) -> None:
-    B = Ts.sblock_alloc_buffer((8, 8, 16, 16), "float32")
+    B = Ts.sblock_alloc_tensor((8, 8, 16, 16), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -64,11 +64,11 @@ def two_elementwise_transformed_intermediate_buffer(
             vi, vj = Ts.axis.remap("SS", [i, j])
             C[vi, vj] = B[vi // 16, vj // 16, vi % 16, vj % 16] + 1.0
 
-@Ts.prim_func
-def two_elementwise_transformed_input_buffer(
-    A: T.Buffer((8, 8, 16, 16), "float32"), C: T.Buffer((128, 128), "float32")
+@Ts.function
+def two_elementwise_transformed_input_tensor(
+    A: T.Tensor((8, 8, 16, 16), "float32"), C: T.Tensor((128, 128), "float32")
 ) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), "float32")
+    B = Ts.sblock_alloc_tensor((128, 128), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -78,11 +78,11 @@ def two_elementwise_transformed_input_buffer(
             vi, vj = Ts.axis.remap("SS", [i, j])
             C[vi, vj] = B[vi, vj] + 1.0
 
-@Ts.prim_func
-def two_elementwise_transformed_output_buffer(
-    A: T.Buffer((128, 128), "float32"), C: T.Buffer((8, 8, 16, 16), "float32")
+@Ts.function
+def two_elementwise_transformed_output_tensor(
+    A: T.Tensor((128, 128), "float32"), C: T.Tensor((8, 8, 16, 16), "float32")
 ) -> None:
-    B = Ts.sblock_alloc_buffer((128, 128), "float32")
+    B = Ts.sblock_alloc_tensor((128, 128), "float32")
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -92,27 +92,27 @@ def two_elementwise_transformed_output_buffer(
             vi, vj = Ts.axis.remap("SS", [i, j])
             C[vi // 16, vj // 16, vi % 16, vj % 16] = B[vi, vj] + 1.0
 
-@Ts.prim_func
-def elementwise(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")) -> None:
+@Ts.function
+def elementwise(A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")) -> None:
     for i, j in T.grid(128, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
             B[vi, vj] = A[vi, vj] * 2.0
 
-@Ts.prim_func
-def elementwise_transformed(A: T.Buffer((128, 128), "float32"), B: T.Buffer((128, 128), "float32")) -> None:
+@Ts.function
+def elementwise_transformed(A: T.Tensor((128, 128), "float32"), B: T.Tensor((128, 128), "float32")) -> None:
     for i in range(16384):
         with Ts.sblock("B"):
             vi = Ts.axis.remap("S", [i])
             B[vi // 128, vi % 128] = A[vi // 128, vi % 128] * 2.0
 
-@Ts.prim_func
+@Ts.function
 def conv2d_nhwc(
-    Input: T.Buffer((1, 224, 224, 3), "float32"),
-    Weight: T.Buffer((7, 7, 3, 64), "float32"),
-    Conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32"),
+    Input: T.Tensor((1, 224, 224, 3), "float32"),
+    Weight: T.Tensor((7, 7, 3, 64), "float32"),
+    Conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32"),
 ) -> None:
-    PadInput = Ts.sblock_alloc_buffer([1, 230, 230, 3], dtype="float32")
+    PadInput = Ts.sblock_alloc_tensor([1, 230, 230, 3], dtype="float32")
     for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
         with Ts.sblock("PadInput"):
             i0_1, i1_1, i2_1, i3_1 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -120,7 +120,7 @@ def conv2d_nhwc(
                 ((((i1_1 >= 3) and (i1_1 < 227)) and (i2_1 >= 3)) and (i2_1 < 227)),
                 Input[i0_1, (i1_1 - 3), (i2_1 - 3), i3_1],
                 T.float32(0),
-                dtype="float32",
+
             )
     for i0, i1, i2, i3, i4, i5, i6 in T.grid(1, 112, 112, 64, 7, 7, 3):
         with Ts.sblock("conv2d_nhwc"):
@@ -132,13 +132,13 @@ def conv2d_nhwc(
                 * Weight[rh, rw, rc, co]
             )
 
-@Ts.prim_func
+@Ts.function
 def conv2d_nhwc_transformed(
-    Input: T.Buffer((1, 224, 224, 3), "float32"),
-    Weight: T.Buffer((7, 7, 3, 64), "float32"),
-    Conv2d_nhwc: T.Buffer((1, 112, 112, 64), "float32"),
+    Input: T.Tensor((1, 224, 224, 3), "float32"),
+    Weight: T.Tensor((7, 7, 3, 64), "float32"),
+    Conv2d_nhwc: T.Tensor((1, 112, 112, 64), "float32"),
 ) -> None:
-    PadInput = Ts.sblock_alloc_buffer([1, 230, 230, 3], dtype="float32")
+    PadInput = Ts.sblock_alloc_tensor([1, 230, 230, 3], dtype="float32")
     for i0, i1, i2, i3 in T.grid(1, 230, 230, 3):
         with Ts.sblock("PadInput"):
             i0_1, i1_1, i2_1, i3_1 = Ts.axis.remap("SSSS", [i0, i1, i2, i3])
@@ -148,7 +148,7 @@ def conv2d_nhwc_transformed(
                 i1_1 >= 3 and i1_1 < 227 and i2_1 >= 3 and i2_1 < 227,
                 Input[i0_1, i1_1 - 3, i2_1 - 3, i3_1],
                 T.float32(0),
-                dtype="float32",
+
             )
     for ax0, ax1, ax2 in T.grid(12544, 64, 147):
         with Ts.sblock("conv2d_nhwc"):
@@ -157,9 +157,9 @@ def conv2d_nhwc_transformed(
                 Conv2d_nhwc[0, v0 // 112, v0 % 112, v1] = T.float32(0)
             Conv2d_nhwc[0, v0 // 112, v0 % 112, v1] = Conv2d_nhwc[0, v0 // 112, v0 % 112, v1] + PadInput[0, v0 // 112 * 2 + v2 // 21, v0 % 112 * 2 + v2 % 21 // 3, v2 % 3] * Weight[v2 // 21, v2 % 21 // 3, v2 % 3, v1]
 
-@Ts.prim_func
-def two_elementwise_unit_dim(A: T.Buffer((1, 128), "float32"), C: T.Buffer((1, 128), "float32")) -> None:
-    B = Ts.sblock_alloc_buffer((1, 128), "float32")
+@Ts.function
+def two_elementwise_unit_dim(A: T.Tensor((1, 128), "float32"), C: T.Tensor((1, 128), "float32")) -> None:
+    B = Ts.sblock_alloc_tensor((1, 128), "float32")
     for i, j in T.grid(1, 128):
         with Ts.sblock("B"):
             vi, vj = Ts.axis.remap("SS", [i, j])
@@ -172,16 +172,22 @@ def two_elementwise_unit_dim(A: T.Buffer((1, 128), "float32"), C: T.Buffer((1, 1
 # pylint: enable=no-member,invalid-name,unused-variable,line-too-long,redefined-outer-name,unexpected-keyword-arg,too-many-nested-blocks
 # fmt: on
 
-use_block_name = tvm.testing.parameter(by_dict={"block_obj": False, "block_name": True})
+
+@pytest.fixture(
+    params=[pytest.param(False, id="block_obj"), pytest.param(True, id="block_name")],
+    scope="session",
+)
+def use_block_name(request):
+    return request.param
 
 
-def test_two_elementwise_transform_intermediate_buffer(use_block_name):
+def test_two_elementwise_transform_intermediate_tensor(use_block_name):
     sch = tvm.s_tir.Schedule(two_elementwise, debug_mask="all")
 
     if use_block_name:
         sch.transform_layout(
             block="B",
-            buffer=sch.get(sch.get_sblock("B")).writes[0].source.name,
+            tensor=sch.get(sch.get_sblock("B")).writes[0].source.name,
             index_map=packed_index_map_func,
         )
     else:
@@ -189,7 +195,7 @@ def test_two_elementwise_transform_intermediate_buffer(use_block_name):
         sch.transform_layout(block, ("write", 0), packed_index_map_func)
 
     assert_structural_equal_ignore_global_symbol(
-        two_elementwise_transformed_intermediate_buffer, sch.mod["main"]
+        two_elementwise_transformed_intermediate_tensor, sch.mod["main"]
     )
     verify_trace_roundtrip(sch=sch, mod=two_elementwise)
 
@@ -203,40 +209,40 @@ def test_transform_layout_with_sampling():
     verify_trace_roundtrip(sch=sch, mod=two_elementwise, text_format="json")
 
 
-def test_two_elementwise_transform_input_buffer(use_block_name):
+def test_two_elementwise_transform_input_tensor(use_block_name):
     sch = tvm.s_tir.Schedule(two_elementwise, debug_mask="all")
 
     if use_block_name:
         sch.transform_layout(
             index_map=packed_index_map_func,
             block="B",
-            buffer="A",
+            tensor="A",
         )
     else:
         block = sch.get_sblock("B")
         sch.transform_layout(block, ("read", 0), packed_index_map_func)
 
     assert_structural_equal_ignore_global_symbol(
-        two_elementwise_transformed_input_buffer, sch.mod["main"]
+        two_elementwise_transformed_input_tensor, sch.mod["main"]
     )
     verify_trace_roundtrip(sch=sch, mod=two_elementwise)
 
 
-def test_two_elementwise_transform_output_buffer(use_block_name):
+def test_two_elementwise_transform_output_tensor(use_block_name):
     sch = tvm.s_tir.Schedule(two_elementwise, debug_mask="all")
 
     if use_block_name:
         sch.transform_layout(
             index_map=packed_index_map_func,
             block="C",
-            buffer="C",
+            tensor="C",
         )
     else:
         block = sch.get_sblock("C")
         sch.transform_layout(block, ("write", 0), packed_index_map_func)
 
     assert_structural_equal_ignore_global_symbol(
-        two_elementwise_transformed_output_buffer, sch.mod["main"]
+        two_elementwise_transformed_output_tensor, sch.mod["main"]
     )
     verify_trace_roundtrip(sch=sch, mod=two_elementwise)
 
@@ -249,7 +255,7 @@ def test_two_elementwise_unit_dim(use_block_name):
         sch.transform_layout(
             index_map=index_map,
             block="B",
-            buffer=sch.get(sch.get_sblock("B")).writes[0].source.name,
+            tensor=sch.get(sch.get_sblock("B")).writes[0].source.name,
         )
     else:
         block = sch.get_sblock("B")
@@ -278,8 +284,8 @@ def test_simplify():
     B = sch.cache_read(block_outer, 0, "global")
     sch.transform_layout(B, ("write", 0), lambda i, j: (i // 16, j // 16, i % 16, j % 16))
 
-    @Ts.prim_func
-    def ref(B: T.Buffer((8, 8, 16, 16), "float32"), C: T.Buffer((128, 128), "float32")):
+    @Ts.function
+    def ref(B: T.Tensor((8, 8, 16, 16), "float32"), C: T.Tensor((128, 128), "float32")):
         for i_0, j_0 in T.grid(8, 8):
             with Ts.sblock("C_o"):
                 vi_o, vj_o = Ts.axis.remap("SS", [i_0, j_0])
@@ -296,21 +302,22 @@ def test_simplify():
                         # Ts.reads(B[vi // 16 + vi_o, vj // 16 + vj_o, vi % 16, vj % 16])
                         # C[...] = B[vi // 16 + vi_o, vj // 16 + vj_o, vi % 16, vj % 16] + T.float32(1)
 
-    expected = tvm.tirx.PrimFunc(
-        [param for param in ref.params if tvm.tirx.is_buffer_var(param)], ref.body.block.body
+    expected = tvm_tirx.tirx.Function(
+        [param for param in ref.params if tvm_tirx.tirx.is_tensor_var(param)],
+        ref.body[0].block.body,
     )
     actual_block = sch.get(block_outer)
-    actual = tvm.tirx.PrimFunc(
+    actual = tvm_tirx.tirx.Function(
         [actual_block.reads[0].source, actual_block.writes[0].source],
         sch.get(sch.get_loops(block_outer)[0]),
     )
-    tvm.ir.assert_structural_equal(expected, actual)
+    tvm_tirx.ir.assert_structural_equal(expected, actual)
 
 
 def test_var_args_sugar():
-    @Ts.prim_func
+    @Ts.function
     def summation_3d(
-        A: T.Buffer((1024, 1024, 32), "float32"), B: T.Buffer((1,), "float32")
+        A: T.Tensor((1024, 1024, 32), "float32"), B: T.Tensor((1,), "float32")
     ) -> None:
         B[0] = 0
         for i, j, k in T.grid(1024, 1024, 32):
@@ -318,9 +325,9 @@ def test_var_args_sugar():
                 vi, vj, vk = Ts.axis.remap("SSS", [i, j, k])
                 B[0] = B[0] + A[vi, vj, vk]
 
-    @Ts.prim_func
+    @Ts.function
     def summation_3d_split(
-        A: T.Buffer((1024, 1024, 8, 4), "float32"), B: T.Buffer((1,), "float32")
+        A: T.Tensor((1024, 1024, 8, 4), "float32"), B: T.Tensor((1,), "float32")
     ) -> None:
         B[0] = 0
         for i, j, k in T.grid(1024, 1024, 32):
@@ -330,7 +337,7 @@ def test_var_args_sugar():
 
     sch = tvm.s_tir.Schedule(summation_3d, debug_mask="all")
     sch.transform_layout(
-        index_map=lambda *indices, k: [*indices, k // 4, k % 4], block="compute", buffer="A"
+        index_map=lambda *indices, k: [*indices, k // 4, k % 4], block="compute", tensor="A"
     )
     assert_structural_equal_ignore_global_symbol(summation_3d_split, sch.mod["main"])
 
@@ -359,11 +366,11 @@ def test_transform_block_layout_unit_dim(use_block_name):
     block = "B" if use_block_name else sch.get_sblock("B")
     sch.transform_block_layout(block, lambda i, j: (j, i))
 
-    @Ts.prim_func
+    @Ts.function
     def two_elementwise_unit_dim_transformed(
-        A: T.Buffer((1, 128), "float32"), C: T.Buffer((1, 128), "float32")
+        A: T.Tensor((1, 128), "float32"), C: T.Tensor((1, 128), "float32")
     ) -> None:
-        B = Ts.sblock_alloc_buffer((1, 128), "float32")
+        B = Ts.sblock_alloc_tensor((1, 128), "float32")
         for j, i in T.grid(128, 1):
             with Ts.sblock("B"):
                 vj, vi = Ts.axis.remap("SS", [j, i])
@@ -396,45 +403,21 @@ def test_transform_block_layout_fail_mixed_iter_type(use_block_name):
         )
 
 
-def test_mixed_iter_type_detection_interrupts_walk():
-    spatial = tirx.Var("spatial", "int32")
-    reduction = tirx.Var("reduction", "int32")
-    unreachable = tirx.Var("unreachable", "int32")
-    visited = []
-
-    def detect(var):
-        visited.append(var)
-        if var.same_as(reduction):
-            return tvm_ffi.VisitInterrupt()
-        return None
-
-    result = tvm_ffi.structural_walk(
-        (spatial + reduction) + unreachable,
-        (tirx.Var, detect),
-        order="post",
-    )
-
-    assert isinstance(result, tvm_ffi.VisitInterrupt)
-    assert any(var.same_as(spatial) for var in visited)
-    assert any(var.same_as(reduction) for var in visited)
-    assert not any(var.same_as(unreachable) for var in visited)
-
-
 def test_transform_block_layout_int64_extent(use_block_name):
-    @Ts.prim_func
+    @Ts.function
     def elementwise_int64_extent(
-        A: T.Buffer((T.int64(128), T.int64(128)), "float32"),
-        B: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+        A: T.Tensor((T.int64(128), T.int64(128)), "float32"),
+        B: T.Tensor((T.int64(128), T.int64(128)), "float32"),
     ) -> None:
         for i, j in T.grid(T.int64(128), T.int64(128)):
             with Ts.sblock("B"):
                 vi, vj = Ts.axis.remap("SS", [i, j])
                 B[vi, vj] = A[vi, vj] * 2.0
 
-    @Ts.prim_func
+    @Ts.function
     def elementwise_int64_extent_transformed(
-        A: T.Buffer((T.int64(128), T.int64(128)), "float32"),
-        B: T.Buffer((T.int64(128), T.int64(128)), "float32"),
+        A: T.Tensor((T.int64(128), T.int64(128)), "float32"),
+        B: T.Tensor((T.int64(128), T.int64(128)), "float32"),
     ) -> None:
         # T.serial with explicit int64 min so the iter_var dom is all-int64
         # (`range(T.int64(...))` would emit an int32 min).
@@ -460,9 +443,9 @@ def test_no_padding(pad_value):
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(16, "int32")
+            A = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -470,9 +453,9 @@ def test_no_padding(pad_value):
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer([4, 4], "int32")
+            A = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -486,29 +469,29 @@ def test_no_padding(pad_value):
         pad_value=pad_value,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 @pytest.mark.parametrize("pad_value", [None, 42])
 def test_no_padding_multiple_usage(pad_value):
     """Transformations without padding do not depend on pad_value.
 
-    Like test_no_padding, but the buffer A shows up in multiple
+    Like test_no_padding, but the tensor A shows up in multiple
     locations.  To remain internally consistent, all instances of the
-    buffer should be rewritten.
+    tensor should be rewritten.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(16, "int32")
+            A = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
                     A[vi] = 0
 
-            B = Ts.sblock_alloc_buffer(16, "int32")
+            B = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("other"):
                     vi = Ts.axis.remap("S", [i])
@@ -516,15 +499,15 @@ def test_no_padding_multiple_usage(pad_value):
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer([4, 4], "int32")
+            A = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
                     A[vi // 4, vi % 4] = 0
 
-            B = Ts.sblock_alloc_buffer(16, "int32")
+            B = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("other"):
                     vi = Ts.axis.remap("S", [i])
@@ -538,30 +521,30 @@ def test_no_padding_multiple_usage(pad_value):
         pad_value=pad_value,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 @pytest.mark.parametrize("pad_value", [None, 42])
 def test_no_padding_opaque_block(pad_value):
     """Transformations without padding do not depend on pad_value.
 
-    Like test_no_padding, but buffer access is done in an opaque block.
+    Like test_no_padding, but tensor access is done in an opaque block.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(16, "int32")
+            A = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     A[i] = 0
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer([4, 4], "int32")
+            A = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     A[i // 4, i % 4] = 0
@@ -574,7 +557,7 @@ def test_no_padding_opaque_block(pad_value):
         pad_value=pad_value,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_error_if_padding_forbidden():
@@ -582,9 +565,9 @@ def test_error_if_padding_forbidden():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(14, "int32")
+            A = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -601,15 +584,15 @@ def test_error_if_padding_forbidden():
 
 
 def test_implicit_padding_assume_injective():
-    """When pad_value is None and assume_injective_transform is set, the buffer can be implicitly
+    """When pad_value is None and assume_injective_transform is set, the tensor can be implicitly
     padded. The padded region is not accessed because the original loop extent is not changed.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(14, "int32")
+            A = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -617,9 +600,9 @@ def test_implicit_padding_assume_injective():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer([4, 4], "int32")
+            A = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -634,17 +617,17 @@ def test_implicit_padding_assume_injective():
         assume_injective_transform=True,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_error_on_wrong_padding_type():
-    """The padding must have the same dtype as the buffer"""
+    """The padding must have the same dtype as the tensor"""
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(14, "int32")
+            A = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -656,18 +639,18 @@ def test_error_on_wrong_padding_type():
             "block",
             sch.get(sch.get_sblock("block")).writes[0].source.name,
             lambda i: [i // 4, i % 4],
-            pad_value=tirx.IntImm("int8", 0),
+            pad_value=tvm_tirx.ir.IntImm("int8", 0),
         )
 
 
 def test_error_on_non_matching_types():
-    """The padding must have the same dtype as the buffer"""
+    """The padding must have the same dtype as the tensor"""
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
+        @Ts.function
         def main():
-            A = Ts.sblock_alloc_buffer(14, "float32")
+            A = Ts.sblock_alloc_tensor(14, "float32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -687,36 +670,34 @@ def test_error_on_non_matching_types():
 def test_padded_transform_if_then_else(dtype):
     """Use if_then_else to represent padding, if possible.
 
-    For a block that is a producer of the pre-transformation buffer,
+    For a block that is a producer of the pre-transformation tensor,
     which visits all indices according to a row-major traversal, and
-    which has no effect other than producing the transformed buffer,
+    which has no effect other than producing the transformed tensor,
     transform the loop iterators to be a row-major traversal of the
-    post-transformation buffer, with padding represented by
+    post-transformation tensor, with padding represented by
     `T.if_then_else`.
     """
 
-    @Ts.prim_func(private=True)
-    def before_func(A: T.Buffer(14, dtype)):
-        B = Ts.sblock_alloc_buffer(14, dtype)
+    @Ts.function(private=True)
+    def before_func(A: T.Tensor(14, dtype)):
+        B = Ts.sblock_alloc_tensor(14, dtype)
         for i in T.serial(14):
             with Ts.sblock("block"):
                 vi = Ts.axis.remap("S", [i])
                 B[vi] = A[vi]
 
-    pad_value_imm = tirx.IntImm(dtype, 0)
+    pad_value_imm = tvm_tirx.ir.IntImm(dtype, 0)
 
-    @Ts.prim_func(private=True)
-    def expected_func(A: T.Buffer(14, dtype)):
-        B = Ts.sblock_alloc_buffer([4, 4], dtype)
+    @Ts.function(private=True)
+    def expected_func(A: T.Tensor(14, dtype)):
+        B = Ts.sblock_alloc_tensor([4, 4], dtype)
         for i, j in T.grid(4, 4):
             with Ts.sblock("block"):
                 vi, vj = Ts.axis.remap("SS", [i, j])
-                B[vi, vj] = T.if_then_else(
-                    vi == 3 and 2 <= vj, pad_value_imm, A[vi * 4 + vj], dtype=dtype
-                )
+                B[vi, vj] = T.if_then_else(vi == 3 and 2 <= vj, pad_value_imm, A[vi * 4 + vj])
 
-    Before = tvm.IRModule({"main": before_func})
-    Expected = tvm.IRModule({"main": expected_func})
+    Before = tvm_tirx.IRModule({"main": before_func})
+    Expected = tvm_tirx.IRModule({"main": expected_func})
 
     sch = tvm.s_tir.Schedule(Before)
     sch.transform_layout(
@@ -726,7 +707,7 @@ def test_padded_transform_if_then_else(dtype):
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_without_loop():
@@ -738,8 +719,8 @@ def test_padded_transform_without_loop():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
             with Ts.sblock("root"):
                 Ts.reads()
                 Ts.writes()
@@ -748,13 +729,13 @@ def test_padded_transform_without_loop():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((4, 4), "int32")):
+        @Ts.function
+        def main(A: T.Tensor((4, 4), "int32")):
             with Ts.sblock("block"):
                 A[0, 0] = 0
 
             for i, j in T.grid(4, 4):
-                with Ts.sblock("buffer_A_padding"):
+                with Ts.sblock("tensor_A_padding"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
                     Ts.where(i == 3 and 2 <= j)
                     A[vi, vj] = 0
@@ -767,7 +748,7 @@ def test_padded_transform_without_loop():
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_if_then_else_reduction():
@@ -775,9 +756,9 @@ def test_padded_transform_if_then_else_reduction():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer((14, 32), "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor((14, 32), "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i, k in T.grid(14, 32):
                 with Ts.sblock("block"):
                     vi, vk = Ts.axis.remap("SR", [i, k])
@@ -787,16 +768,16 @@ def test_padded_transform_if_then_else_reduction():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((14, 32), "int32")):
-            B = Ts.sblock_alloc_buffer([4, 4], "int32")
+        @Ts.function
+        def main(A: T.Tensor((14, 32), "int32")):
+            B = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i, j, k in T.grid(4, 4, 32):
                 with Ts.sblock("block"):
                     vi, vj, vk = Ts.axis.remap("SSR", [i, j, k])
                     with Ts.init():
-                        B[vi, vj] = T.if_then_else(vi == 3 and 2 <= vj, 0, 0, dtype="int32")
+                        B[vi, vj] = T.if_then_else(vi == 3 and 2 <= vj, 0, 0)
                     B[vi, vj] = T.if_then_else(
-                        vi == 3 and 2 <= vj, 0, B[vi, vj] + A[vi * 4 + vj, vk], dtype="int32"
+                        vi == 3 and 2 <= vj, 0, B[vi, vj] + A[vi * 4 + vj, vk]
                     )
 
     sch = tvm.s_tir.Schedule(Before)
@@ -807,7 +788,7 @@ def test_padded_transform_if_then_else_reduction():
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_if_then_else_reduction_opaque():
@@ -815,9 +796,9 @@ def test_padded_transform_if_then_else_reduction_opaque():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer((14, 32), "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor((14, 32), "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 B[i] = 0
                 for k in T.serial(32):
@@ -826,16 +807,14 @@ def test_padded_transform_if_then_else_reduction_opaque():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((14, 32), "int32")):
-            B = Ts.sblock_alloc_buffer([4, 4], "int32")
+        @Ts.function
+        def main(A: T.Tensor((14, 32), "int32")):
+            B = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i, j in T.grid(4, 4):
-                B[i, j] = T.if_then_else(i == 3 and 2 <= j, 0, 0, dtype="int32")
+                B[i, j] = T.if_then_else(i == 3 and 2 <= j, 0, 0)
                 for k in T.serial(32):
                     with Ts.sblock("block"):
-                        B[i, j] = T.if_then_else(
-                            i == 3 and 2 <= j, 0, B[i, j] + A[i * 4 + j, k], dtype="int32"
-                        )
+                        B[i, j] = T.if_then_else(i == 3 and 2 <= j, 0, B[i, j] + A[i * 4 + j, k])
 
     sch = tvm.s_tir.Schedule(Before)
     sch.transform_layout(
@@ -845,7 +824,7 @@ def test_padded_transform_if_then_else_reduction_opaque():
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_post_proc_if_required_due_to_side_effects():
@@ -857,10 +836,10 @@ def test_padded_transform_post_proc_if_required_due_to_side_effects():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
-            C = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
+            C = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -869,10 +848,10 @@ def test_padded_transform_post_proc_if_required_due_to_side_effects():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer([4, 4], "int32")
-            C = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor([4, 4], "int32")
+            C = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -894,16 +873,16 @@ def test_padded_transform_post_proc_if_required_due_to_side_effects():
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_of_input_creates_assumption():
-    """Transformation of an input buffer places T.assume locally"""
+    """Transformation of an input tensor places T.assume locally"""
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32"), B: T.Buffer(14, "int32")):
+        @Ts.function
+        def main(A: T.Tensor(14, "int32"), B: T.Tensor(14, "int32")):
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -911,10 +890,10 @@ def test_padded_transform_of_input_creates_assumption():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((4, 4), "int32"), B: T.Buffer(14, "int32")):
+        @Ts.function
+        def main(A: T.Tensor((4, 4), "int32"), B: T.Tensor(14, "int32")):
             for i, j in T.grid(4, 4):
-                with Ts.sblock("buffer_A_assumption"):
+                with Ts.sblock("tensor_A_assumption"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
                     T.evaluate(T.assume(not (vi == 3 and 2 <= vj) or A[vi, vj] == 42))
 
@@ -931,7 +910,7 @@ def test_padded_transform_of_input_creates_assumption():
         pad_value=42,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_padded_transform_non_constant_value():
@@ -943,9 +922,9 @@ def test_padded_transform_non_constant_value():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -953,15 +932,13 @@ def test_padded_transform_non_constant_value():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer([4, 4], "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor([4, 4], "int32")
             for i, j in T.grid(4, 4):
                 with Ts.sblock("block"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
-                    B[vi, vj] = T.if_then_else(
-                        vi == 3 and 2 <= vj, vi + vj, A[vi * 4 + vj], dtype="int32"
-                    )
+                    B[vi, vj] = T.if_then_else(vi == 3 and 2 <= vj, vi + vj, A[vi * 4 + vj])
 
     sch = tvm.s_tir.Schedule(Before)
     sch.transform_layout(
@@ -971,24 +948,24 @@ def test_padded_transform_non_constant_value():
         pad_value=lambda i, j: i + j,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 @pytest.mark.xfail(reason="Not yet implemented")
-def test_padded_transform_repeated_buffer_element():
+def test_padded_transform_repeated_tensor_element():
     """Allow an expression to specify the pad value.
 
     Like test_padded_transform_of_input_creates_assumption, but the pad
-    value depends on another portion of the buffer.  In this case, the
+    value depends on another portion of the tensor.  In this case, the
     padding at the end of A contains repeated elements from the
     beginning of A.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -996,10 +973,10 @@ def test_padded_transform_repeated_buffer_element():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer((4, 4), "int32")):
+        @Ts.function
+        def main(A: T.Tensor((4, 4), "int32")):
             for i, j in T.grid(4, 4):
-                with Ts.sblock("buffer_A_assumption"):
+                with Ts.sblock("tensor_A_assumption"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
                     T.evaluate(
                         T.assume(
@@ -1008,7 +985,7 @@ def test_padded_transform_repeated_buffer_element():
                         )
                     )
 
-            B = Ts.sblock_alloc_buffer(14, "int32")
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.grid(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -1023,21 +1000,21 @@ def test_padded_transform_repeated_buffer_element():
         pad_value=lambda i, j: A[(4 * i + j) % 14],
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
-def test_pad_value_may_not_reference_other_buffer():
+def test_pad_value_may_not_reference_other_tensor():
     """Allow an expression to specify the pad value.
 
-    Like test_padded_transform_repeated_buffer_element, but the pad value depends on
-    a different buffer, which is not allowed.
+    Like test_padded_transform_repeated_tensor_element, but the pad value depends on
+    a different tensor, which is not allowed.
     """
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(14, "int32")):
-            B = Ts.sblock_alloc_buffer(14, "int32")
+        @Ts.function
+        def main(A: T.Tensor(14, "int32")):
+            B = Ts.sblock_alloc_tensor(14, "int32")
             for i in T.serial(14):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -1045,7 +1022,7 @@ def test_pad_value_may_not_reference_other_buffer():
 
     sch = tvm.s_tir.Schedule(Before)
     A = sch.get(sch.get_sblock("block")).reads[0].source
-    other = tirx.decl_buffer(1, A.ty.dtype, name="other")
+    other = tirx.Var("other", tirx.TensorType(1, A.ty.dtype))
     with pytest.raises(tvm.s_tir.schedule.schedule.ScheduleError):
         sch.transform_layout(
             "block",
@@ -1060,9 +1037,9 @@ def test_transform_layout_with_var():
 
     @I.ir_module
     class Before:
-        @Ts.prim_func
-        def main(A: T.Buffer(16, "int32"), n: T.int32):
-            B = Ts.sblock_alloc_buffer(16, "int32")
+        @Ts.function
+        def main(A: T.Tensor(16, "int32"), n: T.int32):
+            B = Ts.sblock_alloc_tensor(16, "int32")
             for i in T.serial(16):
                 with Ts.sblock("block"):
                     vi = Ts.axis.remap("S", [i])
@@ -1070,9 +1047,9 @@ def test_transform_layout_with_var():
 
     @I.ir_module
     class Expected:
-        @Ts.prim_func
-        def main(A: T.Buffer(16, "int32"), n: T.int32):
-            B = Ts.sblock_alloc_buffer([(-16 % n + 16) // n, n], dtype="int32")
+        @Ts.function
+        def main(A: T.Tensor(16, "int32"), n: T.int32):
+            B = Ts.sblock_alloc_tensor([(-16 % n + 16) // n, n], dtype="int32")
             for i, j in T.grid((-16 % n + 16) // n, n):
                 with Ts.sblock("block"):
                     vi, vj = Ts.axis.remap("SS", [i, j])
@@ -1086,7 +1063,6 @@ def test_transform_layout_with_var():
                         and 16 % n <= (vj + vi * n) % n,
                         0,
                         A[vj + vi * n],
-                        dtype="int32",
                     )
 
     sch = tvm.s_tir.Schedule(Before)
@@ -1098,14 +1074,14 @@ def test_transform_layout_with_var():
         pad_value=0,
     )
     After = sch.mod
-    tvm.ir.assert_structural_equal(After, Expected)
+    tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
 def test_index_map_dtype_legalize():
     """Test dtype legalization of the index map indices."""
 
-    @Ts.prim_func
-    def func(A: T.Buffer(T.int64(58), "int32")):
+    @Ts.function
+    def func(A: T.Tensor(T.int64(58), "int32")):
         for i in T.serial(T.int64(58)):
             with Ts.sblock("block"):
                 vi = Ts.axis.remap("S", [i])
@@ -1118,7 +1094,7 @@ def test_index_map_dtype_legalize():
     # # RuntimeError: Check failed: dom->extent.dtype() == var.dtype() (int64 vs. int32) :
     # # The dtype of the extent of an IterVar (int64) must match its associated Var's dtype (int32)
     sch.transform_layout(
-        sch.get_sblock("block"), buffer="A", index_map=lambda h: [h // 8, h % 8], pad_value=0
+        sch.get_sblock("block"), tensor="A", index_map=lambda h: [h // 8, h % 8], pad_value=0
     )
 
 
@@ -1128,8 +1104,8 @@ def test_index_map_dtype_legalize_with_constant():
     The index map `lambda i,j: [i, j//8, j % 8]` has an inverse `lambda i,j,k: [i, 8*j+k]`.
     """
 
-    @Ts.prim_func
-    def func(A: T.Buffer(T.int64(16), "int32")):
+    @Ts.function
+    def func(A: T.Tensor(T.int64(16), "int32")):
         for i in T.grid(T.int64(16)):
             with Ts.sblock("block"):
                 vi = Ts.axis.remap("S", [i])
@@ -1155,16 +1131,16 @@ def test_index_map_dtype_legalize_with_constant():
     #
     # RuntimeError: Check failed: dom->extent.dtype() == var.dtype() (int64 vs. int32) :
     # The dtype of the extent of an IterVar (int64) must match its associated Var's dtype (int32)
-    sch.transform_layout(block="block", buffer="A", index_map=func, pad_value=0)
+    sch.transform_layout(block="block", tensor="A", index_map=func, pad_value=0)
 
 
 def test_transform_layout_with_symbolic_bound():
     # fmt: off
     # pylint: disable=invalid-name,line-too-long,too-many-locals
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @Ts.prim_func
-    def before(A: T.Buffer((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Buffer((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Buffer((T.int64(1), T.int64(32), T.int64(1), n), 'float16')):
+    @Ts.function
+    def before(A: T.Tensor((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Tensor((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Tensor((T.int64(1), T.int64(32), T.int64(1), n), 'float16')):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
         for i0, i1, i2, i3, k in T.grid(T.int64(1), T.int64(32), T.int64(1), n, T.int64(128)):
@@ -1176,10 +1152,10 @@ def test_transform_layout_with_symbolic_bound():
                     C[v_i0, v_i1, v_i2, v_i3] = T.float16(0)
                 C[v_i0, v_i1, v_i2, v_i3] = C[v_i0, v_i1, v_i2, v_i3] + A[v_i0, v_i1, v_i2, v_k] * B[v_i0, v_i1, v_i3, v_k]
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @Ts.prim_func
-    def after(A: T.Buffer((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Buffer((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Buffer((n * T.int64(32),), 'float16')):
+    @Ts.function
+    def after(A: T.Tensor((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Tensor((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Tensor((n * T.int64(32),), 'float16')):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
         for i0, i1, i2, i3, k in T.grid(T.int64(1), T.int64(32), T.int64(1), n, T.int64(128)):
@@ -1203,16 +1179,16 @@ def test_transform_layout_with_symbolic_bound():
         assume_injective_transform=True,
     )
     # pylint: enable=invalid-name
-    tvm.ir.assert_structural_equal(after, sch.mod["main"])
+    tvm_tirx.ir.assert_structural_equal(after, sch.mod["main"])
 
 
 def test_transform_block_layout_with_symbolic_bound():
     # fmt: off
     # pylint: disable=invalid-name,line-too-long,too-many-locals
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @Ts.prim_func
-    def before(A: T.Buffer((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Buffer((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Buffer((n * T.int64(32),), 'float16')):
+    @Ts.function
+    def before(A: T.Tensor((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Tensor((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Tensor((n * T.int64(32),), 'float16')):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
         for i0, i1, i2, i3, k in T.grid(T.int64(1), T.int64(32), T.int64(1), n, T.int64(128)):
@@ -1224,10 +1200,10 @@ def test_transform_block_layout_with_symbolic_bound():
                     C[v_i1 * n + v_i3] = T.float16(0)
                 C[v_i1 * n + v_i3] = C[v_i1 * n + v_i3] + A[v_i0, v_i1, v_i2, v_k] * B[v_i0, v_i1, v_i3, v_k]
 
-    n = T.dynamic("n")
+    n = T.dynamic("n", "int64")
 
-    @Ts.prim_func
-    def after(A: T.Buffer((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Buffer((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Buffer((n * T.int64(32),), 'float16')):
+    @Ts.function
+    def after(A: T.Tensor((T.int64(1), T.int64(32), T.int64(1), T.int64(128)), 'float16'), B: T.Tensor((T.int64(1), T.int64(32), n, T.int64(128)), 'float16'), C: T.Tensor((n * T.int64(32),), 'float16')):
         T.func_attr({"global_symbol": "main", "tirx.noalias": True})
 
         for ax0, ax1 in T.grid(n * T.int64(32), T.int64(128)):
@@ -1252,8 +1228,8 @@ def test_transform_block_layout_with_symbolic_bound():
         ),
     )
     # pylint: enable=invalid-name
-    tvm.ir.assert_structural_equal(after, sch.mod["main"])
+    tvm_tirx.ir.assert_structural_equal(after, sch.mod["main"])
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

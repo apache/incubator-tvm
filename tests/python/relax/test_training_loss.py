@@ -14,11 +14,11 @@
 # KIND, either express or implied.  See the License for the
 # specific language governing permissions and limitations
 # under the License.
-import tvm.testing
+import tvm_tirx.testing
 from tvm import relax
-from tvm.ir.base import assert_structural_equal
-from tvm.script import ir as I
-from tvm.script import relax as R
+from tvm.relax import script as R
+from tvm_tirx.ir.base import assert_structural_equal
+from tvm_tirx.script import ir as I
 
 
 @I.ir_module
@@ -296,4 +296,4 @@ def test_categorical_cross_entropy_loss_with_ignore_index():
 
 
 if __name__ == "__main__":
-    tvm.testing.main()
+    tvm_tirx.testing.main()

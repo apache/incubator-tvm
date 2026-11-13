@@ -201,29 +201,23 @@
    limitations under the License.
 
 ------------------------------------------------------------------------------------
-This product bundles various third-party components under other open source licenses.
-This section summarizes those components and their licenses. See licenses/
-and 3rdparty/tvm-ffi/licenses/ for text of these licenses.
-
+This product bundles the following third-party components. See licenses/ and the
+respective component directories for their licenses.
 
 Apache Software Foundation License 2.0
 --------------------------------------
 
-3rdparty/OpenCL-Headers
+OpenCL-Headers (downloaded when OpenCL is enabled)
 3rdparty/cutlass_fpA_intB_gemm
 3rdparty/tensorrt_llm
-3rdparty/tvm-ffi/3rdparty/dlpack
-
-
-MIT License
------------
-
-3rdparty/compiler-rt/builtin_fp16.h
-
 
 BSD 3-Clause "New" or "Revised" License
 ---------------------------------------
 
 3rdparty/cutlass
 3rdparty/libflash_attn
-3rdparty/tvm-ffi/3rdparty/libbacktrace
+
+MIT License
+-----------
+
+src/runtime/extra/contrib/vllm

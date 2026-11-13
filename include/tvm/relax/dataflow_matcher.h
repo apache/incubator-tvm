@@ -24,6 +24,7 @@
 #ifndef TVM_RELAX_DATAFLOW_MATCHER_H_
 #define TVM_RELAX_DATAFLOW_MATCHER_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/optional.h>
 #include <tvm/relax/dataflow_pattern.h>

@@ -24,9 +24,10 @@
 #ifndef TVM_TOPI_DETAIL_EXTERN_H_
 #define TVM_TOPI_DETAIL_EXTERN_H_
 
-#include <tvm/ir/prim/builtin.h>
+#include <tvm/ir/prim/op.h>
 #include <tvm/te/operation.h>
-#include <tvm/tirx/builtin.h>
+#include <tvm/tirx/op/abi.h>
+#include <tvm/tirx/type.h>
 
 #include <string>
 #include <utility>
@@ -43,7 +44,7 @@ using namespace tvm::te;
  * function. The function expects two arguments: an array of Buffers holding the input
  * tensor values, and a pre-allocated array of Buffers to be filled with the outputs.
  */
-using FExtern = std::function<PrimExpr(ffi::Array<BufferVar>, ffi::Array<BufferVar>)>;
+using FExtern = std::function<PrimExpr(ffi::Array<TensorVar>, ffi::Array<TensorVar>)>;
 
 /*!
  * \brief Create tensors representing the result of invoking an external function.
@@ -70,17 +71,19 @@ inline ffi::Array<Tensor> make_extern(const ffi::Array<ffi::Array<PrimExpr>>& ou
   TVM_FFI_ICHECK_EQ(out_shapes.size(), out_types.size())
       << "make_extern: out_shapes and out_types must have equal size";
 
-  ffi::Array<BufferVar> input_placeholders;
+  ffi::Array<TensorVar> input_placeholders;
   for (auto t : inputs) {
-    input_placeholders.push_back(tvm::tirx::decl_buffer(t->shape, t->dtype, t->op->name));
+    input_placeholders.push_back(
+        tvm::tirx::TensorVar(t->op.value()->name, tvm::tirx::TensorType(t->shape, t->dtype)));
   }
-  ffi::Array<BufferVar> output_placeholders;
+  ffi::Array<TensorVar> output_placeholders;
   for (size_t i = 0; i < out_shapes.size(); ++i) {
-    output_placeholders.push_back(tvm::tirx::decl_buffer(out_shapes[i], out_types[i], name));
+    output_placeholders.push_back(
+        tvm::tirx::TensorVar(name, tvm::tirx::TensorType(out_shapes[i], out_types[i])));
   }
 
   auto body = fextern(input_placeholders, output_placeholders);
-  auto body_stmt = tvm::tirx::Evaluate(body);
+  auto body_stmt = tvm::Evaluate(body);
 
   auto op = ExternOp(name, tag, attrs, inputs, input_placeholders, output_placeholders, body_stmt);
 
@@ -99,15 +102,14 @@ inline ffi::Array<Tensor> make_extern(const ffi::Array<ffi::Array<PrimExpr>>& ou
  *
  * \return An expression representing the pack operation
  */
-inline Expr pack_buffer(BufferVar buf) {
+inline Expr pack_buffer(TensorVar buf) {
   using namespace tvm::prim;
   TVM_FFI_ICHECK_GT(buf->shape.size(), 0) << "buf shape must have at least one element";
-  Expr shape =
-      Call(PointerType(PrimType::Int(64)), tvm::tirx::builtin::tvm_stack_make_shape(), buf->shape);
+  Expr shape = Call(PtrType(PrimType::Int(64)), tvm::tirx::stack_make_shape_op(), buf->shape);
   Expr strides;
-  if (buf->strides.size() > 0) {
-    strides = Call(PointerType(PrimType::Int(64)), tvm::tirx::builtin::tvm_stack_make_shape(),
-                   buf->strides);
+  if (tvm::tirx::MatchShapeStridePattern(buf.ty()).value().get<1>().size() > 0) {
+    strides = Call(PtrType(PrimType::Int(64)), tvm::tirx::stack_make_shape_op(),
+                   tvm::tirx::MatchShapeStridePattern(buf.ty()).value().get<1>());
   } else {
     strides = PrimExpr(0);
   }
@@ -116,8 +118,8 @@ inline Expr pack_buffer(BufferVar buf) {
                              strides,
                              IntImm::Int32(static_cast<int64_t>(buf->shape.size())),
                              MakeConst(PrimType(buf->dtype), 0),
-                             buf->elem_offset};
-  return Call(PointerType::VoidPointerTy(), tvm::tirx::builtin::tvm_stack_make_array(), pack_args);
+                             tvm::tirx::MatchShapeStridePattern(buf.ty()).value().get<2>()};
+  return Call(PtrType::VoidPtrType(), tvm::tirx::stack_make_dltensor_op(), pack_args);
 }
 
 /*!
@@ -130,8 +132,7 @@ inline Expr pack_buffer(BufferVar buf) {
  * \return An expression representing the invocation
  */
 inline PrimExpr call_packed(ffi::Array<Expr> args) {
-  return Call(PrimType::Int(32), tvm::tirx::builtin::tvm_call_packed(), args)
-      .as_or_throw<PrimExpr>();
+  return Call(PrimType::Int(32), tvm::tirx::call_packed_op(), args).as_or_throw<PrimExpr>();
 }
 
 }  // namespace detail

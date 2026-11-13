@@ -102,7 +102,7 @@ Pass ExpandMatmulOfSum() {
     auto [pattern, rewriter] = CreatePatterns(func);
     return RewriteCall(pattern, rewriter, func);
   };
-  return CreateFunctionPass(pass_func, 1, "ExpandMatmulOfSum", {});
+  return CreateFunctionPass(pass_func, 1, "ExpandMatmulOfSum");
 }
 
 TVM_FFI_STATIC_INIT_BLOCK() {

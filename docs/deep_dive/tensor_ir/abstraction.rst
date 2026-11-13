@@ -32,11 +32,11 @@ the compute statements themselves.
     from tvm.script import tirx as T
     from tvm.script import s_tir as Ts
 
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A: T.Buffer((128,), "float32"),
-        B: T.Buffer((128,), "float32"),
-        C: T.Buffer((128,), "float32"),
+        A: T.Tensor((128,), "float32"),
+        B: T.Tensor((128,), "float32"),
+        C: T.Tensor((128,), "float32"),
     ) -> None:
         for i in range(128):
             with Ts.sblock("C"):

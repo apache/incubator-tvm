@@ -32,7 +32,14 @@ fi
 export TVM_BIND_THREADS=0
 export OMP_NUM_THREADS=1
 
+# Test workers receive the exact FFI package in their own checkout. Native
+# binaries must find that copy even when their build workspace had another path.
+ffi_lib_dir="$(pwd)/python/tvm_ffi/lib"
+export LD_LIBRARY_PATH="${ffi_lib_dir}:${LD_LIBRARY_PATH:-}"
+export DYLD_LIBRARY_PATH="${ffi_lib_dir}:${DYLD_LIBRARY_PATH:-}"
+
 pushd "${BUILD_DIR}"
 # run cpp test executable
 ./cpptest
+./tirx_cpptest
 popd

@@ -33,15 +33,15 @@ from typing import (
 )
 
 import numpy as np  # type: ignore
+import tvm_ffi
 
-import tvm.runtime
-from tvm import tirx
-from tvm.ir import IRModule
-from tvm.ir.transform import Pass
-from tvm.runtime import Device
-from tvm.runtime import device as as_device
+import tvm_tirx.runtime
 from tvm.runtime.vm import VirtualMachine
-from tvm.target import Target
+from tvm_tirx import tirx
+from tvm_tirx.ir import IRModule
+from tvm_tirx.ir.transform import Pass
+from tvm_tirx.runtime import Device
+from tvm_tirx.target import Target
 
 from .... import relax as rx
 from ...block_builder import BlockBuilder
@@ -159,11 +159,11 @@ class Tensor(_TensorOp):
         never be created directly by users in usual cases, and the only exception is to indicate
         the shape/dtype of return values of an external function.
 
-        If shape is a string `name`, we create a symbolic shape `tvm.tirx.Var(name, "int64")`.
+        If shape is a string `name`, we create a symbolic shape `tvm_tirx.tirx.Var(name, "int64")`.
         """
         new_shape = []
         for expr in shape:
-            if isinstance(expr, int | tirx.IntImm):
+            if isinstance(expr, int | tvm_tirx.ir.IntImm):
                 expr = int(expr)
                 assert expr >= 0
                 new_shape.append(expr)
@@ -172,9 +172,9 @@ class Tensor(_TensorOp):
                 expr = tirx.Var(expr, "int64")
                 new_shape.append(expr)
                 continue
-            if not tvm.ir.is_prim_expr(expr):
+            if not tvm_tirx.ir.is_prim_expr(expr):
                 raise TypeError(f"Invalid shape: {shape}")
-            assert expr.ty == tvm.ir.PrimType("int64")
+            assert expr.ty == tvm_tirx.ir.PrimType("int64")
             new_shape.append(expr)
         return Tensor(
             _expr=rx.Var(
@@ -190,8 +190,8 @@ class Tensor(_TensorOp):
     def shape(self) -> list[int | tirx.Expr]:
         """Returns the shape of the tensor as a list of integers.
 
-        An integer can be a python int or tvm.tirx.Expr, depending on whether the shape is
-        fully static, for example, [1, 2, tvm.tirx.Var("n", "int64")] is a valid shape where
+        An integer can be a python int or tvm_tirx.tirx.Expr, depending on whether the shape is
+        fully static, for example, [1, 2, tvm_tirx.tirx.Var("n", "int64")] is a valid shape where
         the last dimension is dynamic while the first two dimensions are always static constants.
 
         Returns
@@ -201,7 +201,7 @@ class Tensor(_TensorOp):
         """
 
         def _simplify(expr: tirx.Expr):
-            return expr.value if isinstance(expr, tirx.IntImm) else expr
+            return expr.value if isinstance(expr, tvm_tirx.ir.IntImm) else expr
 
         shape_ty: ShapeType = self._expr.ty.shape.ty
         return [_simplify(x) for x in shape_ty.values]
@@ -253,7 +253,7 @@ class Parameter(Tensor):
         ----------
         shape : Sequence[Union[int, str, tirx.Expr]]
             The shape of the parameter. If it is a string `name`, we create a symbolic shape
-            `tvm.tirx.Var(name, "int64")`.
+            `tvm_tirx.tirx.Var(name, "int64")`.
         dtype : Optional[str]
             The data type of the parameter. If not specified, the default dtype will be used.
         """
@@ -266,14 +266,14 @@ class Parameter(Tensor):
     @property
     def data(self) -> Tensor | None:
         """Returns the concrete value of the parameter if it is bound to a concrete value,
-        otherwise returns None. The returned value is a tvm.runtime.Tensor."""
+        otherwise returns None. The returned value is a tvm_tirx.runtime.Tensor."""
         return self._data
 
     @data.setter
-    def data(self, data: Union[None, tvm.runtime.Tensor, np.ndarray, "torch.Tensor"]) -> None:
+    def data(self, data: Union[None, tvm_tirx.runtime.Tensor, np.ndarray, "torch.Tensor"]) -> None:
         """Set the concrete value of the parameter. The data should be one of the following:
         - None: unbind the parameter to concrete values
-        - tvm.runtime.Tensor
+        - tvm_tirx.runtime.Tensor
         - numpy.ndarray
         - torch.Tensor and any other DLPack-compliant tensors
         """
@@ -281,10 +281,10 @@ class Parameter(Tensor):
             self._data = data
             return
         # Try to do zero-copy if possible
-        if isinstance(data, tvm.runtime.Tensor):
+        if isinstance(data, tvm_tirx.runtime.Tensor):
             pass
         elif isinstance(data, np.ndarray):
-            data = tvm.runtime.tensor(data)
+            data = tvm_tirx.runtime.tensor(data)
         elif hasattr(data, "__dlpack__"):
             data = _from_dlpack(data)
         else:
@@ -479,7 +479,7 @@ class Module(SubroutineMixin):
 
         Returns
         -------
-        irmodule : tvm.ir.IRModule
+        irmodule : tvm_tirx.ir.IRModule
             The converted tvm IR representation of the model.
         params : List[Tuple[str, Parameter]]
             A list of Parameters corresponding to the weights of the model.
@@ -564,7 +564,7 @@ class Module(SubroutineMixin):
             params = _param_to_tensor(params, device)
             return spec, vm, params
 
-        device = as_device(device)
+        device = tvm_ffi.device(device)
         spec, vm, params = _compile(spec, device, pipeline, debug)  # pylint: disable=invalid-name
 
         if out_format == "torch":
@@ -847,15 +847,15 @@ def _attribute_finder(root: Module, prefix: str, condition_yield: Callable[[Any]
             )
 
 
-def _from_dlpack(tensor) -> tvm.runtime.Tensor:
+def _from_dlpack(tensor) -> tvm_tirx.runtime.Tensor:
     try:
-        return tvm.runtime.from_dlpack(tensor)
+        return tvm_ffi.from_dlpack(tensor)
     except RuntimeError:
         pass
     # special logic for PyTorch
     device_type = tensor.device.type
     device_id = tensor.device.index or 0
-    return tvm.runtime.tensor(
+    return tvm_tirx.runtime.tensor(
         tensor.numpy(),
         device=Device(
             Device._DEVICE_NAME_TO_TYPE[device_type],
@@ -866,7 +866,7 @@ def _from_dlpack(tensor) -> tvm.runtime.Tensor:
 
 def _param_to_tensor(
     params: list[tuple[str, Parameter]], device: Device
-) -> list[tvm.runtime.Tensor]:
+) -> list[tvm_tirx.runtime.Tensor]:
     results = []
     missing = []
     for name, param in params:

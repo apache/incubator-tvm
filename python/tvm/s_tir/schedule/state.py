@@ -20,12 +20,12 @@
 from collections import namedtuple
 from enum import IntEnum
 
+import tvm_ffi
 from tvm_ffi import register_object
 
-from tvm.ir import IRModule
-from tvm.runtime import Object
 from tvm.s_tir import SBlock, SBlockRealize
-from tvm.tirx import For, PrimFunc
+from tvm_tirx.ir import For, IRModule
+from tvm_tirx.tirx import Function
 
 from ..sblock_scope import SBlockScope, StmtSRef
 from . import _ffi_api
@@ -52,11 +52,11 @@ class ScheduleDebugMask(IntEnum):
     VERIFY_CACHED_FLAGS = 2
 
 
-def _parse_mod(mod: PrimFunc | IRModule) -> IRModule:
-    if isinstance(mod, PrimFunc):
+def _parse_mod(mod: Function | IRModule) -> IRModule:
+    if isinstance(mod, Function):
         mod = IRModule({"main": mod})
     if not isinstance(mod, IRModule):
-        raise TypeError(f"Expected `mod` to be PrimFunc or IRModule, but gets: {mod}")
+        raise TypeError(f"Expected `mod` to be Function or IRModule, but gets: {mod}")
     return mod
 
 
@@ -80,7 +80,7 @@ def _parse_enable_checks(enable_checks: bool) -> bool:
 
 
 @register_object("s_tir.ScheduleState")
-class ScheduleState(Object):
+class ScheduleState(tvm_ffi.Object):
     """The state of scheduling, which exposes a `Replace` method as
     the primary resort for all the scheduling primitives to manipulate the TensorIR.
 
@@ -109,17 +109,17 @@ class ScheduleState(Object):
 
     def __init__(
         self,
-        mod: PrimFunc | IRModule,
+        mod: Function | IRModule,
         *,
         debug_mask: str | int = "none",
         enable_check: bool = True,
     ) -> None:
-        """Construct a schedule state from an IRModule or a PrimFunc
+        """Construct a schedule state from an IRModule or a Function
 
         Parameters
         ----------
-        mod : Union[PrimFunc, IRModule]
-            The IRModule or PrimFunc to be scheduled
+        mod : Union[Function, IRModule]
+            The IRModule or Function to be scheduled
         debug_mask : Union[str, int]
             Do extra correctness checking after the class creation and each time
             after calling the Replace method.

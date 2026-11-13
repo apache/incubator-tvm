@@ -15,30 +15,30 @@
 # specific language governing permissions and limitations
 # under the License.
 # pylint: disable=missing-module-docstring,missing-function-docstring,missing-class-docstring
-import tvm
+import tvm_tirx
 from tvm.s_tir import meta_schedule as ms
+from tvm.s_tir import script as Ts
 from tvm.s_tir.meta_schedule.testing.space_generation import (
     check_sketches,
     generate_design_space,
 )
-from tvm.script import s_tir as Ts
-from tvm.script import tirx as T
-from tvm.target import Target
+from tvm_tirx.script import tirx as T
+from tvm_tirx.target import Target
 
 # fmt: off
 # pylint: disable=no-member,invalid-name,unused-variable,no-self-argument,line-too-long,chained-comparison,not-callable,too-many-nested-blocks
 
-@tvm.script.ir_module
+@tvm_tirx.script.ir_module
 class Add:
-    @Ts.prim_func
+    @Ts.function
     def main(
-        A: T.Buffer([2048, 2048, 2048], dtype="float32"),
-        B: T.Buffer([2048, 2048, 2048], dtype="float32"),
+        A: T.Tensor([2048, 2048, 2048], dtype="float32"),
+        B: T.Tensor([2048, 2048, 2048], dtype="float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main"})
 
-        A_cached = Ts.sblock_alloc_buffer([2048, 2048, 2048], dtype="float32")
+        A_cached = Ts.sblock_alloc_tensor([2048, 2048, 2048], dtype="float32")
         # body
         for i, j, k in T.grid(2048, 2048, 2048):
             with Ts.sblock("move"):
@@ -60,16 +60,16 @@ class Add:
 
 
 def test_random_compute_location():
-    @Ts.prim_func
+    @Ts.function
     def add_0(
-        A: T.Buffer((2048, 2048, 2048), "float32"),
-        B: T.Buffer((2048, 2048, 2048), "float32"),
+        A: T.Tensor((2048, 2048, 2048), "float32"),
+        B: T.Tensor((2048, 2048, 2048), "float32"),
     ) -> None:
         # function attr dict
         T.func_attr({"global_symbol": "main"})
         # body
         # with Ts.sblock("root")
-        A_cached = Ts.sblock_alloc_buffer([2048, 2048, 2048], dtype="float32")
+        A_cached = Ts.sblock_alloc_tensor([2048, 2048, 2048], dtype="float32")
         for i0, j0, i1, j1, k0, i2 in T.grid(128, 64, 4, 4, 64, 4):
             for ax0, ax1, ax2 in T.grid(1, 8, 32):
                 with Ts.sblock("move"):

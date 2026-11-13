@@ -34,7 +34,7 @@ public class Client {
   public static RPCSession connect(String url, int port, String key) {
     Function doConnect = RPC.getApi("Connect");
     if (doConnect == null) {
-      throw new RuntimeException("Please compile with USE_RPC=1");
+      throw new RuntimeException("Please compile with TVM_USE_RPC=1");
     }
     TVMValue sess = doConnect.pushArg(url).pushArg(port).pushArg(key).invoke();
     return new RPCSession(sess.asModule());

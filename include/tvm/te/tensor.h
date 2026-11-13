@@ -24,10 +24,13 @@
 #ifndef TVM_TE_TENSOR_H_
 #define TVM_TE_TENSOR_H_
 
+#include <tvm/base.h>
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/ir/prim/expr.h>
-#include <tvm/sym/bound.h>
-#include <tvm/tirx/op.h>
+#include <tvm/ir/prim/op.h>
+#include <tvm/s_tir/iter_var.h>
+#include <tvm/sym/int_set.h>
+#include <tvm/tirx/expr.h>
 
 #include <string>
 #include <type_traits>
@@ -36,25 +39,37 @@
 
 namespace tvm {
 namespace te {
+using s_tir::IterVar;
+using s_tir::IterVarObj;
+using s_tir::IterVarType;
+using s_tir::IterVarType2String;
+using s_tir::kCommReduce;
+using s_tir::kDataPar;
+using s_tir::kOpaque;
+using s_tir::kOrdered;
+using s_tir::kParallelized;
+using s_tir::kTensorized;
+using s_tir::kThreadIndex;
+using s_tir::kUnrolled;
+using s_tir::kVectorized;
 using sym::IntSet;
+
 using namespace tvm::tirx;
 
 // internal node container for Operation
-class OperationNode;
+class OperationObj;
 class Tensor;
 
 /*! \brief Operation that produces tensors */
 class Operation : public ffi::ObjectRef {
  public:
-  /*! \brief default constructor  */
-  Operation() {}
-  explicit Operation(ffi::ObjectPtr<ffi::Object> n) : ffi::ObjectRef(n) {}
+  static constexpr bool _type_is_nullable = false;
   explicit Operation(ffi::UnsafeInit tag) : ffi::ObjectRef(tag) {}
   /*!
    * \brief access the internal node container
    * \return the pointer to the internal node container
    */
-  inline const OperationNode* operator->() const;
+  inline const OperationObj* operator->() const;
   /*!
    * \brief get the i-th output of the operation.
    * \param i the output index.
@@ -62,18 +77,18 @@ class Operation : public ffi::ObjectRef {
    */
   TVM_DLL Tensor output(size_t i) const;
   /*! \brief specify container node */
-  using ContainerType = OperationNode;
+  using ContainerType = OperationObj;
 };
 
 /*! \brief Opaque construction-time node that represents a tensor. */
-class TensorNode : public OpaqueExprNode {
+class TensorObj : public OpaqueExprObj {
  public:
   /*! \brief The shape of the tensor */
   ffi::Array<PrimExpr> shape;
   /*! \brief dtype in the content of the tensor */
   PrimType dtype = PrimType::Void();
   /*! \brief the source operation, can be None */
-  Operation op;
+  ffi::Optional<Operation> op;
   /*! \brief the output index from source operation */
   int value_index{0};
 
@@ -87,7 +102,7 @@ class TensorNode : public OpaqueExprNode {
 
   static constexpr TVMFFISEqHashKind _type_s_eq_hash_kind = kTVMFFISEqHashKindConstTreeNode;
 
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.Tensor", TensorNode, OpaqueExprNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("te.Tensor", TensorObj, OpaqueExprObj);
 };
 
 /*!
@@ -105,7 +120,8 @@ class Tensor : public OpaqueExpr {
   inline PrimExpr IndexTensor(ffi::Array<PrimExpr> indices, bool support_negative_indices) const;
 
  public:
-  TVM_DLL Tensor(ffi::Array<PrimExpr> shape, PrimType dtype, Operation op, int value_index);
+  TVM_DLL Tensor(ffi::Array<PrimExpr> shape, PrimType dtype, ffi::Optional<Operation> op,
+                 int value_index);
 
   /*!
    * \brief check if two tensors equals each other.
@@ -203,7 +219,9 @@ class Tensor : public OpaqueExpr {
    */
   inline Slice operator[](PrimExpr i) const { return Slice(*this, {i}); }
 
-  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NULLABLE(Tensor, OpaqueExpr, TensorNode);
+  explicit Tensor(ffi::ObjectPtr<TensorObj> node) : OpaqueExpr(std::move(node)) {}
+
+  TVM_FFI_DEFINE_OBJECT_REF_METHODS_NOTNULLABLE(Tensor, OpaqueExpr, TensorObj);
 };
 
 /*! \brief Return whether an expression calls the registered te.tensor_load operator. */
@@ -221,7 +239,7 @@ inline size_t Tensor::ndim() const { return (*this)->shape.size(); }
 inline bool Tensor::operator==(const Tensor& other) const {
   if (get() == other.get()) return true;
   if (get() == nullptr || other.get() == nullptr) return false;
-  if ((*this)->op.defined() || other->op.defined()) {
+  if ((*this)->op.has_value() || other->op.has_value()) {
     return (*this)->op == other->op && (*this)->value_index == other->value_index;
   } else {
     return false;
@@ -274,8 +292,8 @@ template <>
 struct hash<::tvm::te::Tensor> {
   std::size_t operator()(const ::tvm::te::Tensor& k) const {
     ::tvm::ffi::ObjectPtrHash hasher;
-    if (k.defined() && k->op.defined()) {
-      return hasher(k->op);
+    if (k.defined() && k->op.has_value()) {
+      return hasher(k->op.value());
     } else {
       return hasher(k);
     }

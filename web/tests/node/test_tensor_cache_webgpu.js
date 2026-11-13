@@ -39,7 +39,18 @@ function createInstance() {
   );
 }
 
-function createMockGPUDevice({ detachWriteSources = false } = {}) {
+function createDeferred() {
+  let resolve;
+  const promise = new Promise((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+function createMockGPUDevice({
+  detachWriteSources = false,
+  lost = new Promise(() => {}),
+} = {}) {
   const buffers = [];
   const writes = [];
   const queue = {
@@ -65,7 +76,7 @@ function createMockGPUDevice({ detachWriteSources = false } = {}) {
   };
   const device = {
     queue,
-    lost: new Promise(() => {}),
+    lost,
     addEventListener: jest.fn(),
     pushErrorScope: jest.fn(),
     popErrorScope: jest.fn(() => Promise.resolve(null)),
@@ -93,6 +104,33 @@ function createArtifactCache(manifest, shard) {
     },
   };
 }
+
+test("an external owner can defer disposal after device loss", async () => {
+  const lost = createDeferred();
+  const tvm = createInstance();
+  const dispose = jest.spyOn(tvm, "dispose");
+  const gpu = createMockGPUDevice({ lost: lost.promise });
+  const log = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    tvm.initWebGPU(gpu.device);
+    tvm.setDeviceLostAutoDispose(false);
+
+    lost.resolve({ reason: "unknown", message: "test device loss" });
+    await lost.promise;
+    await Promise.resolve();
+
+    expect(dispose).not.toHaveBeenCalled();
+
+    tvm.dispose();
+    expect(dispose).toHaveBeenCalledTimes(1);
+  } finally {
+    if (dispose.mock.calls.length === 0) {
+      tvm.dispose();
+    }
+    dispose.mockRestore();
+    log.mockRestore();
+  }
+});
 
 test("WebGPU tensor cache uploads pass-through records and decodes BF16 in place", async () => {
   const tvm = createInstance();

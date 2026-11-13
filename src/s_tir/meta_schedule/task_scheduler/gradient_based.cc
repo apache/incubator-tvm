@@ -25,7 +25,7 @@ namespace s_tir {
 namespace meta_schedule {
 
 /*! \brief The gradient based task scheduler. */
-class GradientBasedNode final : public TaskSchedulerNode {
+class GradientBasedObj final : public TaskSchedulerObj {
  public:
   double alpha;
   int window_size;
@@ -36,12 +36,12 @@ class GradientBasedNode final : public TaskSchedulerNode {
 
   static void RegisterReflection() {
     namespace refl = tvm::ffi::reflection;
-    refl::ObjectDef<GradientBasedNode>()
-        .def_ro("alpha", &GradientBasedNode::alpha)
-        .def_ro("window_size", &GradientBasedNode::window_size);
+    refl::ObjectDef<GradientBasedObj>()
+        .def_ro("alpha", &GradientBasedObj::alpha)
+        .def_ro("window_size", &GradientBasedObj::window_size);
   }
-  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.GradientBased", GradientBasedNode,
-                                    TaskSchedulerNode);
+  TVM_FFI_DECLARE_OBJECT_INFO_FINAL("s_tir.meta_schedule.GradientBased", GradientBasedObj,
+                                    TaskSchedulerObj);
 
  public:
   void Tune(ffi::Array<TuneContext> tasks, ffi::Array<FloatImm> task_weights, int max_trials_global,
@@ -51,9 +51,9 @@ class GradientBasedNode final : public TaskSchedulerNode {
     int n_tasks = tasks.size();
     round_robin_rounds_ = 0;
     best_latency_history_.resize(n_tasks, std::vector<double>());
-    TaskSchedulerNode::Tune(tasks, task_weights, max_trials_global, max_trials_per_task,
-                            num_trials_per_iter, builder, runner, measure_callbacks, database,
-                            cost_model);
+    TaskSchedulerObj::Tune(tasks, task_weights, max_trials_global, max_trials_per_task,
+                           num_trials_per_iter, builder, runner, measure_callbacks, database,
+                           cost_model);
   }
 
   int NextTaskId() final {
@@ -123,8 +123,8 @@ class GradientBasedNode final : public TaskSchedulerNode {
   }
 
   ffi::Array<RunnerResult> JoinRunningTask(int task_id) final {
-    ffi::Array<RunnerResult> results = TaskSchedulerNode::JoinRunningTask(task_id);
-    TaskRecordNode* task = this->tasks_[task_id].get();
+    ffi::Array<RunnerResult> results = TaskSchedulerObj::JoinRunningTask(task_id);
+    TaskRecordObj* task = this->tasks_[task_id].get();
     if (task->latency_ms.size() > 0) {
       this->best_latency_history_.at(task_id).push_back(
           *std::min_element(task->latency_ms.begin(),  //
@@ -136,7 +136,7 @@ class GradientBasedNode final : public TaskSchedulerNode {
 
 TaskScheduler TaskScheduler::GradientBased(ffi::Function logger, double alpha, int window_size,
                                            LinearCongruentialEngine::TRandState seed) {
-  ffi::ObjectPtr<GradientBasedNode> n = ffi::make_object<GradientBasedNode>();
+  ffi::ObjectPtr<GradientBasedObj> n = ffi::make_object<GradientBasedObj>();
   n->logger = logger;
   n->alpha = alpha;
   n->window_size = window_size;
@@ -144,7 +144,7 @@ TaskScheduler TaskScheduler::GradientBased(ffi::Function logger, double alpha, i
   return TaskScheduler(n);
 }
 
-TVM_FFI_STATIC_INIT_BLOCK() { GradientBasedNode::RegisterReflection(); }
+TVM_FFI_STATIC_INIT_BLOCK() { GradientBasedObj::RegisterReflection(); }
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;

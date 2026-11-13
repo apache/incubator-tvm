@@ -18,7 +18,7 @@
 CUDA C++/PTX intrinsics
 =======================
 
-When no tile primitive covers what you need, two escape hatches reach the hardware
+When no tile op covers what you need, two escape hatches reach the hardware
 directly: **call a backend intrinsic** (the ``Tx.cuda.*`` / ``Tx.ptx.*`` namespaces
 from ``tvm.backend.cuda``), or **inline raw CUDA** source.
 
@@ -41,23 +41,23 @@ synchronization, mbarriers, reductions, and the PTX data-movement / MMA families
     Tx.cuda.cta_sync()  # initialization completes before any thread uses bar
     Tx.cuda.mbarrier_wait(bar.data, phase)
 
-A complete, runnable example — a warp all-reduce via ``Tx.tvm_warp_shuffle_xor``:
+A complete, runnable example — a warp all-reduce via ``Tx.gpu_warp_shuffle_xor``:
 
 .. code-block:: python
 
-    @Tx.prim_func
-    def warp_reduce(A: Tx.Buffer((32,), "float32", align=16)):
+    @Tx.function
+    def warp_reduce(A: Tx.Tensor((32,), "float32", align=16)):
 
-        Tx.device_entry()
-        cta_id = Tx.cta_id([1])
-        warp_id = Tx.warp_id([1])
-        lane_id = Tx.lane_id([32])
+        Tx.device_entry(launch=Tx.cuda.LaunchConfig(grid=(1,), block=((1) * 32,)))
+        cta_id = Tx.cuda.block_idx("x")
+        warp_id = Tx.cuda.warp_id()
+        lane_id = Tx.cuda.lane_id()
         v = Tx.alloc_local((1,), "float32")
         i = Tx.alloc_local((1,), "int32")
         v[0] = Tx.float32(31 - lane_id)
         i[0] = 16
         while i[0] >= 1:
-            v[0] += Tx.tvm_warp_shuffle_xor(0xFFFFFFFF, v[0], i[0], 32, 32)
+            v[0] += Tx.gpu_warp_shuffle_xor(0xFFFFFFFF, v[0], i[0], 32, 32)
             i[0] = i[0] // 2
         A[lane_id] = v[0]
 
@@ -76,7 +76,7 @@ Inlining raw CUDA
 -----------------
 
 For something with no intrinsic at all, inject a ``__device__`` function from a
-source string with ``Tx.cuda.func_call(name, *args, source_code=..., return_type=...)``:
+source string with ``Tx.cuda.func_call(name, *args, ..., ty=...)``:
 
 .. code-block:: python
 
@@ -85,13 +85,13 @@ source string with ``Tx.cuda.func_call(name, *args, source_code=..., return_type
     """
 
 
-    @Tx.prim_func
-    def k(A: Tx.Buffer((256,), "float32"), B: Tx.Buffer((256,), "float32")):
+    @Tx.function
+    def k(A: Tx.Tensor((256,), "float32"), B: Tx.Tensor((256,), "float32")):
 
-        Tx.device_entry()
-        bx = Tx.cta_id([1])
-        tx = Tx.thread_id([256])
-        B[tx] = Tx.cuda.func_call("my_relu", A[tx], source_code=SRC, return_type="float32")
+        Tx.device_entry(launch=Tx.cuda.LaunchConfig(grid=(1,), block=(256,)))
+        bx = Tx.cuda.block_idx("x")
+        tx = Tx.cuda.thread_idx("x")
+        B[tx] = Tx.cuda.func_call("my_relu", A[tx], SRC, ty="float32")
 
 The source is emitted verbatim and the call is wired in:
 

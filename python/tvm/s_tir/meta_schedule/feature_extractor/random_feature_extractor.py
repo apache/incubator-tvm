@@ -18,8 +18,8 @@
 
 import numpy as np  # type: ignore
 
-import tvm.runtime
-from tvm.ir.utils import derived_object
+import tvm_tirx.runtime
+from tvm.s_tir.utils import derived_object
 
 from ..feature_extractor import PyFeatureExtractor
 from ..search_strategy import MeasureCandidate
@@ -54,11 +54,11 @@ class RandomFeatureExtractor(PyFeatureExtractor):
 
     def extract_from(
         self, context: TuneContext, candidates: list[MeasureCandidate]
-    ) -> list[tvm.runtime.Tensor]:
+    ) -> list[tvm_tirx.runtime.Tensor]:
         np.random.set_state(self.random_state)
         result = [
             np.random.rand(np.random.randint(1, self.max_block_num + 1), self.feature_size)
             for candidate in candidates
         ]
         self.random_state = np.random.get_state()
-        return [tvm.runtime.tensor(x) for x in result]
+        return [tvm_tirx.runtime.tensor(x) for x in result]

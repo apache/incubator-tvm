@@ -19,27 +19,28 @@
 """Common utilities used in Non-maximum suppression operators"""
 
 import tvm
+import tvm_tirx
 from tvm import te
-from tvm.script.ir_builder import IRBuilder
-from tvm.tirx.script import ir_builder as T
+from tvm_tirx.script.ir_builder import IRBuilder
+from tvm_tirx.tirx.script import ir_builder as T
 
 
 def _get_boundaries(output, box_idx):
     l = tvm.te.min(
-        output[T.buffer_indices(output, box_idx)],
-        output[T.buffer_indices(output, box_idx + 2)],
+        output[T.tensor_indices(output, box_idx)],
+        output[T.tensor_indices(output, box_idx + 2)],
     )
     t = tvm.te.min(
-        output[T.buffer_indices(output, box_idx + 1)],
-        output[T.buffer_indices(output, box_idx + 3)],
+        output[T.tensor_indices(output, box_idx + 1)],
+        output[T.tensor_indices(output, box_idx + 3)],
     )
     r = tvm.te.max(
-        output[T.buffer_indices(output, box_idx)],
-        output[T.buffer_indices(output, box_idx + 2)],
+        output[T.tensor_indices(output, box_idx)],
+        output[T.tensor_indices(output, box_idx + 2)],
     )
     b = tvm.te.max(
-        output[T.buffer_indices(output, box_idx + 1)],
-        output[T.buffer_indices(output, box_idx + 3)],
+        output[T.tensor_indices(output, box_idx + 1)],
+        output[T.tensor_indices(output, box_idx + 3)],
     )
     return l, t, r, b
 
@@ -59,7 +60,7 @@ def calculate_overlap(out_tensor, box_a_idx, box_b_idx):
     # total area of the figure formed by box a and box b
     # except for overlapping area
     u = (a_r - a_l) * (a_b - a_t) + (b_r - b_l) * (b_b - b_t) - area
-    return tvm.tirx.Select(u <= 0.0, 0.0, area / u)
+    return tvm_tirx.tirx.Select(u <= 0.0, 0.0, area / u)
 
 
 def binary_search(y, num_boxes, scores, score_threshold, out):
@@ -67,20 +68,20 @@ def binary_search(y, num_boxes, scores, score_threshold, out):
 
     Must be called within an IRBuilder context.
     """
-    lo_buf = T.decl_buffer([1], "int32", scope="local")
-    hi_buf = T.decl_buffer([1], "int32", scope="local")
+    lo_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], "int32", scope="local")]))
+    hi_buf = T.bind_(T.alloc_tensor(ty_args=[T.Tensor([1], "int32", scope="local")]))
     lo = lo_buf
     hi = hi_buf
-    T.buffer_store(lo, T.int32(0), T.buffer_indices(lo, 0))
-    T.buffer_store(hi, tvm.tirx.Cast("int32", num_boxes), T.buffer_indices(hi, 0))
-    with T.while_(lo[T.buffer_indices(lo, 0)] < hi[T.buffer_indices(hi, 0)]):
-        mid = (hi[T.buffer_indices(hi, 0)] + lo[T.buffer_indices(lo, 0)]) >> 1
+    T.tensor_store(lo, T.tensor_indices(lo, 0), T.int32(0))
+    T.tensor_store(hi, T.tensor_indices(hi, 0), tvm_tirx.tirx.Cast("int32", num_boxes))
+    with T.while_(lo[T.tensor_indices(lo, 0)] < hi[T.tensor_indices(hi, 0)]):
+        mid = (hi[T.tensor_indices(hi, 0)] + lo[T.tensor_indices(lo, 0)]) >> 1
         with T.if_(scores[y, mid] > score_threshold):
             with T.then_():
-                T.buffer_store(lo, mid + 1, T.buffer_indices(lo, 0))
+                T.tensor_store(lo, T.tensor_indices(lo, 0), mid + 1)
             with T.else_():
-                T.buffer_store(hi, mid, T.buffer_indices(hi, 0))
-    T.buffer_store(out, lo[T.buffer_indices(lo, 0)], T.buffer_indices(out, y))
+                T.tensor_store(hi, T.tensor_indices(hi, 0), mid)
+    T.tensor_store(out, T.tensor_indices(out, y), lo[T.tensor_indices(lo, 0)])
 
 
 def _estimate_max_detections(batch_class, input_image_size=None):
@@ -302,17 +303,17 @@ def _all_class_nms_ir(
 ):
     with IRBuilder() as ib:
         if isinstance(iou_threshold, float | int):
-            iou_threshold = tvm.tirx.FloatImm("float32", float(iou_threshold))
+            iou_threshold = tvm_tirx.ir.FloatImm("float32", float(iou_threshold))
         elif isinstance(iou_threshold, te.Tensor):
             if len(iou_threshold.shape) == 0:
                 iou_threshold = iou_threshold()
             elif len(iou_threshold.shape) == 1 and iou_threshold.shape[0] == 1:
                 iou_threshold = iou_threshold[0]
             else:
-                iou_threshold = tvm.tirx.FloatImm("float32", 0.5)
+                iou_threshold = tvm_tirx.ir.FloatImm("float32", 0.5)
 
         if isinstance(max_output_size_per_class, int):
-            max_output_size_per_class = tvm.tirx.const(max_output_size_per_class)
+            max_output_size_per_class = tvm_tirx.ir.const(max_output_size_per_class)
         elif isinstance(max_output_size_per_class, te.Tensor):
             if len(max_output_size_per_class.shape) == 0:
                 max_output_size_per_class = max_output_size_per_class()
@@ -322,7 +323,7 @@ def _all_class_nms_ir(
             ):
                 max_output_size_per_class = max_output_size_per_class[0]
             else:
-                max_output_size_per_class = tvm.tirx.const(1000)
+                max_output_size_per_class = tvm_tirx.tirx.const(1000, "int32")
 
         def calc_overlap(i, j, k):
             offset_j = sorted_indices[i, j] * 4
@@ -338,27 +339,27 @@ def _all_class_nms_ir(
         def on_new_valid_box(tid, num_current_valid_box, i, j):
             with T.if_(tid + 0 == 0):
                 with T.then_():
-                    T.buffer_store(
+                    T.tensor_store(
                         box_indices,
-                        sorted_indices[i, j],
                         (i, num_current_valid_box),
+                        sorted_indices[i, j],
                     )
                     if selected_scores is not None:
-                        T.buffer_store(
+                        T.tensor_store(
                             selected_scores,
-                            sorted_scores[i, j],
                             (i, num_current_valid_box),
+                            sorted_scores[i, j],
                         )
 
         def on_new_invalidated_box(*_):
             pass
 
         def needs_bbox_check(*_):
-            return tvm.tirx.const(True)
+            return tvm_tirx.tirx.const(True, "bool")
 
         nms_loop(
             batch_class,
-            tvm.tirx.IntImm("int32", -1),  # top_k
+            tvm_tirx.ir.IntImm("int32", -1),  # top_k
             iou_threshold,
             max_output_size_per_class,
             valid_count,
@@ -423,11 +424,15 @@ def run_all_class_nms(
     num_class = batch_class // batch
 
     if return_scores is False:
-        all_class_num0_buf = tvm.tirx.decl_buffer(
-            (batch_class, num_boxes), "int32", "all_class_nms0", data_alignment=8, layout=None
+        all_class_num0_buf = tvm_tirx.tirx.Var(
+            "all_class_nms0",
+            tvm_tirx.tirx.TensorType(
+                (batch_class, num_boxes), "int32", data_alignment=8, layout=None
+            ),
         )
-        all_class_num1_buf = tvm.tirx.decl_buffer(
-            (batch_class,), "int32", "all_class_nms1", data_alignment=8, layout=None
+        all_class_num1_buf = tvm_tirx.tirx.Var(
+            "all_class_nms1",
+            tvm_tirx.tirx.TensorType((batch_class,), "int32", data_alignment=8, layout=None),
         )
         extern_inputs = [boxes, sorted_scores, sorted_indices, valid_count]
         if score_threshold is not None:
@@ -452,7 +457,7 @@ def run_all_class_nms(
                 nms_loop,
                 ins[4] if score_threshold is not None else None,  # score_threshold
             ),
-            out_buffers=[all_class_num0_buf, all_class_num1_buf],
+            out_tensors=[all_class_num0_buf, all_class_num1_buf],
             dtype=["int32", "int32"],
             name="all_class_nms",
             tag="all_class_nms",

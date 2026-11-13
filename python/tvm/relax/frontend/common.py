@@ -19,34 +19,36 @@
 
 import numpy as _np
 
-import tvm
+import tvm_tirx
 from tvm import topi
 
 
-def detach_params(mod: tvm.IRModule) -> tuple[tvm.IRModule, dict[str, list[tvm.runtime.Tensor]]]:
+def detach_params(
+    mod: tvm_tirx.IRModule,
+) -> tuple[tvm_tirx.IRModule, dict[str, list[tvm_tirx.runtime.Tensor]]]:
     """Detach the attribute "params" in the functions of the input IRModule as
     separate dictionary of params.
 
     Parameters
     ----------
-    mod : tvm.IRModule
+    mod : tvm_tirx.IRModule
         The IRModule whose functions' "param" attribute is going to be detached.
 
     Returns
     -------
-    detached_mod : tvm.IRModule
+    detached_mod : tvm_tirx.IRModule
         The IRModule after the detachment.
 
-    params_dict : Dict[str, List[tvm.runtime.Tensor]]
+    params_dict : Dict[str, List[tvm_tirx.runtime.Tensor]]
         The detached params. The dict keys corresponds to the names of the
         functions in the input IRModule that have attribute "params".
     """
-    detached_mod = tvm.IRModule()
+    detached_mod = tvm_tirx.IRModule()
     params_dict = dict()
     for gv, func in mod.functions_items():
         if "params" in func.attrs:
             params = list(func.attrs["params"])
-            if not all([isinstance(param, tvm.runtime.Tensor) for param in params]):
+            if not all([isinstance(param, tvm_tirx.runtime.Tensor) for param in params]):
                 raise ValueError('The value "params" attribute is expected to be a list of Tensor.')
             params_dict[gv.name_hint] = params
             detached_mod[gv] = func.without_attr("params")
@@ -112,7 +114,7 @@ def autopad(
     pad = _np.concatenate([_np.zeros([2, 2], dtype="int64"), pad], axis=0)
 
     if pad_type not in ["constant", "edge", "reflect"]:
-        raise tvm.error.OpAttributeInvalid(
+        raise AttributeError(
             "Value " + pad_type + ' in attribute "mode" is invalid for operator Pad.'
         )
 

@@ -16,25 +16,29 @@
 # under the License.
 
 # NNAPI Codegen
-if(USE_NNAPI_CODEGEN)
+if(TVM_USE_NNAPI_CODEGEN)
     message(STATUS "Build with NNAPI codegen")
 
-    tvm_file_glob(GLOB COMPILER_NNAPI_SRCS src/relax/backend/contrib/nnapi/*.cc)
-    tvm_file_glob(GLOB RUNTIME_NNAPI_SRCS src/runtime/extra/contrib/nnapi/*.cc)
+    file(GLOB COMPILER_NNAPI_SRCS CONFIGURE_DEPENDS src/relax/backend/contrib/nnapi/*.cc)
+    file(GLOB RUNTIME_NNAPI_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/nnapi/*.cc)
     list(APPEND COMPILER_SRCS ${COMPILER_NNAPI_SRCS})
-    if(NOT USE_NNAPI_RUNTIME)
-        list(APPEND COMPILER_SRCS ${RUNTIME_NNAPI_SRCS})
+    if(NOT TVM_USE_NNAPI_RUNTIME)
+        add_library(tvm_nnapi_objs OBJECT ${RUNTIME_NNAPI_SRCS})
+        tvm_configure_target(tvm_nnapi_objs)
+        target_link_libraries(tvm_nnapi_objs PRIVATE tvm_runtime_extra_defs)
+        target_link_libraries(tvm_runtime_extra PRIVATE tvm_nnapi_objs)
     endif()
 endif()
 
 # NNAPI Runtime — goes into libtvm_runtime_extra.
-if(USE_NNAPI_RUNTIME)
+if(TVM_USE_NNAPI_RUNTIME)
     message(STATUS "Build with NNAPI runtime")
 
-    tvm_file_glob(GLOB RUNTIME_NNAPI_SRCS src/runtime/extra/contrib/nnapi/*.cc)
+    file(GLOB RUNTIME_NNAPI_SRCS CONFIGURE_DEPENDS src/runtime/extra/contrib/nnapi/*.cc)
     add_library(tvm_nnapi_objs OBJECT ${RUNTIME_NNAPI_SRCS})
+    tvm_configure_target(tvm_nnapi_objs)
     target_link_libraries(tvm_nnapi_objs PRIVATE tvm_runtime_extra_defs)
     target_link_libraries(tvm_runtime_extra PRIVATE tvm_nnapi_objs neuralnetworks log)
 
-    add_definitions(-DTVM_GRAPH_EXECUTOR_NNAPI)
+    target_compile_definitions(tvm_nnapi_objs PRIVATE TVM_GRAPH_EXECUTOR_NNAPI)
 endif()

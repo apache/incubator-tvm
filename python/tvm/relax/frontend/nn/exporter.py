@@ -21,9 +21,9 @@ import operator
 import threading
 import typing
 
-import tvm
-from tvm import tirx
-from tvm.ir import IRModule
+import tvm_tirx
+from tvm_tirx import tirx
+from tvm_tirx.ir import IRModule
 
 from .... import relax as rx
 from ...block_builder import BlockBuilder
@@ -140,7 +140,7 @@ class Exporter:
                         outputs, inputs = _emit_method(self.builder, method_spec, params, effects)
                     self.builder.emit_func_output(outputs, inputs)
         mod = self.builder.finalize()
-        rx.analysis.well_formed(mod)
+        rx.analysis.check_well_formed(mod)
 
         return mod, params, ext_mods
 
@@ -178,7 +178,7 @@ def _emit_method(  # pylint: disable=too-many-locals,too-many-branches,too-many-
         raise TypeError(f"Unsupported return type: {type(expr)}")
 
     def _convert_input(arg):
-        if isinstance(arg, tvm.ir.Var):
+        if isinstance(arg, tvm_tirx.ir.Var):
             return rx.Var(arg.name, ty=ShapeType(values=[arg]))
         if isinstance(arg, core.Tensor | core.Object):
             return arg._expr  # pylint: disable=protected-access
@@ -203,7 +203,7 @@ def _emit_method(  # pylint: disable=too-many-locals,too-many-branches,too-many-
         for name, param in params:
             # Make sure the a symbolic shape is not re-registered (same as _method_spec_to_inputs)
             # e.g. we do not see `vocab_size` for `lm_head` and `vocab_size_1` for `embed_tokens`
-            new_shape = [_get_var(x) if isinstance(x, tvm.ir.Var) else x for x in param.shape]
+            new_shape = [_get_var(x) if isinstance(x, tvm_tirx.ir.Var) else x for x in param.shape]
             var = core.Tensor.placeholder(new_shape, param.dtype, name)._expr
             inputs.append(var)
             param._expr = var
@@ -264,7 +264,7 @@ def _emit_method(  # pylint: disable=too-many-locals,too-many-branches,too-many-
             return type(arg.elements)(ret)
         if isinstance(arg, core.Tensor):
             return core.Tensor(_expr=var)
-        if isinstance(arg, tvm.ir.Var):
+        if isinstance(arg, tvm_tirx.ir.Var):
             return arg
         raise TypeError(f"Unsupported input type: {type(arg)}")
 

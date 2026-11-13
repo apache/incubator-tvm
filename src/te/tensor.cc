@@ -25,6 +25,7 @@
 #include <tvm/ffi/extra/structural_visit.h>
 #include <tvm/ffi/function.h>
 #include <tvm/ffi/reflection/registry.h>
+#include <tvm/ir/expr.h>
 #include <tvm/ir/op.h>
 #include <tvm/te/operation.h>
 #include <tvm/te/tensor.h>
@@ -42,12 +43,12 @@ const Op& TensorLoadOp() {
 ffi::Array<PrimExpr> ValidateTensorLoad(const Call& call, Tensor* tensor_out) {
   TVM_FFI_ICHECK(call->op.same_as(TensorLoadOp())) << "Expected a te.tensor_load Call";
   TVM_FFI_ICHECK(!call->args.empty()) << "Tensor-load Call requires a Tensor argument";
-  const auto* tensor_node = call->args[0].as<TensorNode>();
+  const auto* tensor_node = call->args[0].as<TensorObj>();
   TVM_FFI_ICHECK(tensor_node != nullptr) << "Tensor-load first argument must be a TE Tensor";
   Tensor tensor = ffi::GetRef<Tensor>(tensor_node);
   TVM_FFI_ICHECK_EQ(call->args.size() - 1, tensor->shape.size())
       << "Tensor-load index count must match tensor rank";
-  TVM_FFI_ICHECK(call->ty.as<PrimTypeNode>() != nullptr && call->ty == tensor->dtype)
+  TVM_FFI_ICHECK(call->ty.as<PrimTypeObj>() != nullptr && call->ty == tensor->dtype)
       << "Tensor-load result type must match the tensor element type";
 
   ffi::Array<PrimExpr> indices;
@@ -80,13 +81,13 @@ TVM_FFI_INLINE ffi::Expected<ffi::UnchangedOr<ffi::Any>> TensorMaybeInplaceMutat
 
 }  // namespace
 
-void TensorNode::RegisterReflection() {
+void TensorObj::RegisterReflection() {
   namespace refl = tvm::ffi::reflection;
-  refl::ObjectDef<TensorNode>()
-      .def_ro("shape", &TensorNode::shape)
-      .def_ro("dtype", &TensorNode::dtype)
-      .def_ro("op", &TensorNode::op)
-      .def_ro("value_index", &TensorNode::value_index);
+  refl::ObjectDef<TensorObj>()
+      .def_ro("shape", &TensorObj::shape)
+      .def_ro("dtype", &TensorObj::dtype)
+      .def_ro("op", &TensorObj::op)
+      .def_ro("value_index", &TensorObj::value_index);
 }
 
 IterVar thread_axis(Range dom, std::string tag) {
@@ -103,8 +104,7 @@ PrimVar var(std::string name_hint, PrimType t) { return PrimVar(name_hint, t); }
 TVM_FFI_STATIC_INIT_BLOCK() {
   OpDef("te.tensor_load")
       .signature(sig::arg("tensor", "The input tensor."), sig::var_args("args"))
-      .set_attr<TCallEffectKind>("TCallEffectKind",
-                                 static_cast<int64_t>(CallEffectKind::kReadState));
+      .set_attr(tvm::op_attr::kCallEffectKind, CallEffectKind::kReadState);
 }
 
 // Tensor
@@ -129,7 +129,7 @@ inline PrimExpr Tensor::IndexTensor(ffi::Array<PrimExpr> indices,
   for (const PrimExpr& index : indices) {
     args.push_back(index);
   }
-  return PrimExpr(Call((*this)->dtype, TensorLoadOp(), args));
+  return Call((*this)->dtype, TensorLoadOp(), args).as_or_throw<PrimExpr>();
 }
 
 PrimExpr Tensor::operator()(ffi::Array<PrimVar> indices) const {
@@ -152,17 +152,20 @@ PrimExpr Tensor::IndexWithNegativeIndices(ffi::Array<PrimExpr> indices) const {
   return IndexTensor(indices, true);
 }
 
-ffi::String TensorNode::GetNameHint() const {
-  return op->num_outputs() == 1 ? op->name : (op->name + ".v" + std::to_string(value_index));
+ffi::String TensorObj::GetNameHint() const {
+  return op.value()->num_outputs() == 1 ? op.value()->name
+                                        : (op.value()->name + ".v" + std::to_string(value_index));
 }
 
 Tensor Operation::output(size_t i) const {
   return Tensor((*this)->output_shape(i), (*this)->output_dtype(i), *this, static_cast<int>(i));
 }
 
-Tensor::Tensor(ffi::Array<PrimExpr> shape, PrimType dtype, Operation op, int value_index) {
-  auto n = ffi::make_object<TensorNode>();
-  n->ExprNode::ty = OpaqueType();
+Tensor::Tensor(ffi::Array<PrimExpr> shape, PrimType dtype, ffi::Optional<Operation> op,
+               int value_index)
+    : OpaqueExpr(ffi::UnsafeInit{}) {
+  auto n = ffi::make_object<TensorObj>();
+  n->ExprObj::ty = OpaqueType();
   n->shape = std::move(shape);
   n->dtype = dtype;
   n->op = op;
@@ -172,23 +175,22 @@ Tensor::Tensor(ffi::Array<PrimExpr> shape, PrimType dtype, Operation op, int val
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  TensorNode::RegisterReflection();
-  refl::TypeAttrDef<TensorNode>()
-      .attr(refl::type_attr::kStructuralVisit, ffi::FStructuralVisit::FromNative<&TensorVisit>())
-      .attr(refl::type_attr::kStructuralMutate, ffi::FStructuralMutate::FromNative<&TensorMutate>())
-      .attr(refl::type_attr::kStructuralMaybeInplaceMutate,
+  TensorObj::RegisterReflection();
+  refl::TypeAttrDef<TensorObj>()
+      .attr(ffi::type_attr::kStructuralVisit, ffi::FStructuralVisit::FromNative<&TensorVisit>())
+      .attr(ffi::type_attr::kStructuralMutate, ffi::FStructuralMutate::FromNative<&TensorMutate>())
+      .attr(ffi::type_attr::kStructuralMaybeInplaceMutate,
             ffi::FStructuralMutate::FromNative<&TensorMaybeInplaceMutate>());
 }
 
 bool IsTensorLoad(const Expr& expr) {
-  const auto* call = expr.as<CallNode>();
+  const auto* call = expr.as<CallObj>();
   return call != nullptr && call->op.same_as(TensorLoadOp());
 }
 
 Tensor GetTensorFromLoad(const Call& call) {
-  Tensor tensor;
-  ValidateTensorLoad(call, &tensor);
-  return tensor;
+  ValidateTensorLoad(call, nullptr);
+  return call->args[0].as_or_throw<Tensor>();
 }
 
 ffi::Array<PrimExpr> GetTensorLoadIndices(const Call& call) {
@@ -197,10 +199,9 @@ ffi::Array<PrimExpr> GetTensorLoadIndices(const Call& call) {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   namespace refl = tvm::ffi::reflection;
-  refl::GlobalDef().def(
-      "te.Tensor", [](ffi::Array<PrimExpr> shape, PrimType dtype, Operation op, int value_index) {
-        return Tensor(shape, dtype, op, value_index);
-      });
+  refl::GlobalDef().def("te.Tensor",
+                        [](ffi::Array<PrimExpr> shape, PrimType dtype, ffi::Optional<Operation> op,
+                           int value_index) { return Tensor(shape, dtype, op, value_index); });
 
   // Pattern A (RM): auto-default repr from reflection.
 
@@ -218,8 +219,8 @@ TVM_FFI_STATIC_INIT_BLOCK() {
            })
       .def("te.OpGetOutput",
            [](Operation op, int64_t output) { return op.output(static_cast<size_t>(output)); })
-      .def_method("te.OpNumOutputs", &OperationNode::num_outputs)
-      .def_method("te.OpInputTensors", &OperationNode::InputTensors);
+      .def_method("te.OpNumOutputs", &OperationObj::num_outputs)
+      .def_method("te.OpInputTensors", &OperationObj::InputTensors);
 }
 
 }  // namespace te

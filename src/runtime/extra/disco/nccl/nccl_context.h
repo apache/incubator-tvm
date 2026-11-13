@@ -39,7 +39,7 @@
 #else
 #include <rccl/rccl.h>
 
-#include "../../../../backend/rocm/runtime/rocm_common.h"
+#include "../../rocm_utils.h"
 #endif
 
 namespace tvm {

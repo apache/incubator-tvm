@@ -30,7 +30,7 @@ GIT_TOPLEVEL=$(cd $(dirname ${BASH_SOURCE[0]}) && git rev-parse --show-toplevel)
 DOCKER_IS_ROOTLESS=$(docker info 2> /dev/null | grep 'Context: \+rootless' || true)
 
 function lookup_image_spec() {
-    img_spec=$(python3 "${GIT_TOPLEVEL}/ci/scripts/jenkins/determine_docker_images.py" \
+    img_spec=$(python3 "${GIT_TOPLEVEL}/ci/jenkins/scripts/determine_docker_images.py" \
         --lookup-only "$1" 2>/dev/null)
     if [ -n "${img_spec}" ]; then
         has_similar_docker_image=1
