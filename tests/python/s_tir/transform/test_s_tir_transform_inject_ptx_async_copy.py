@@ -943,5 +943,52 @@ def test_multiplication_nodes_are_inlined():
     tvm_tirx.ir.assert_structural_equal(After, Expected)
 
 
+@pytest.mark.parametrize(
+    "src_stride,dst_stride,src_align,dst_align,expect_async",
+    [
+        (16, 16, 16, 16, 1),
+        (17, 16, 16, 16, 0),
+        (16, 17, 16, 16, 0),
+        (17, 17, 16, 16, 0),
+        (16, 16, 4, 16, 0),
+        (16, 16, 16, 4, 0),
+    ],
+)
+def test_inject_async_copy_requires_alignment(
+    src_stride, dst_stride, src_align, dst_align, expect_async
+):
+    @Ts.function
+    def copy(
+        A: T.Tensor((32, src_stride), "float32", data_alignment=src_align),
+        B: T.Tensor((32, 4), "float32"),
+    ) -> None:
+        T.func_attr({"global_symbol": "main", "tirx.noalias": True})
+        T.launch_thread("blockIdx.x", 1)
+        tx = T.launch_thread("threadIdx.x", 32)
+        with Ts.sblock():
+            shared = Ts.sblock_alloc_tensor(
+                [32, dst_stride], "float32", scope="shared", align=dst_align
+            )
+            Ts.reads(A[0:32, 0:4])
+            Ts.writes(B[0:32, 0:4])
+            with Ts.async_copy_scope():
+                shared[tx, T.Ramp(0, 1, 4)] = A[tx, T.Ramp(0, 1, 4)]
+                T.evaluate(T.ptx.cp.async_.commit_group())
+                T.evaluate(T.ptx.cp.async_.wait_group(0))
+                for j in range(4):
+                    B[tx, j] = shared[tx, j]
+
+    mod = tvm_tirx.IRModule.from_expr(copy)
+    for transform in (
+        tvm.s_tir.transform.LowerOpaqueBlock(),
+        tvm.s_tir.transform.LowerThreadBinding(),
+        tvm_tirx.tirx.transform.FlattenTensor(),
+        tvm_tirx.tirx.transform.VectorizeLoop(),
+        tvm.s_tir.transform.InjectPTXAsyncCopy(),
+    ):
+        mod = transform(mod)
+    assert count_cp_async(mod["main"].body) == expect_async
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()

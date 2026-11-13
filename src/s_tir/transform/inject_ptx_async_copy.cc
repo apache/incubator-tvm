@@ -33,6 +33,7 @@
 #include <tvm/tirx/analysis.h>
 #include <tvm/tirx/op/memory.h>
 
+#include <numeric>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -132,9 +133,31 @@ class PTXAsyncCopyInjector : public StmtExprMutator {
           index_factor = static_cast<int>(src_elem_type.StorageBytes());
         }
 
+        // cp.async requires both source and destination addresses to be
+        // aligned to the transaction size.  The offsets are in element units;
+        // index_factor accounts for the byte buffer used by merged shared memory.
+        auto aligned = [this, bytes](const TensorVar& tensor, const PrimExpr& offset,
+                                     int offset_unit_bytes) {
+          int base_alignment = tensor.ty()->data_alignment;
+          if (base_alignment < bytes || base_alignment % bytes != 0) return false;
+          const int modulus = bytes / std::gcd(bytes, offset_unit_bytes);
+          sym::ModularSet indices = analyzer_->modular_set(offset);
+          return indices->coeff % modulus == 0 && indices->base % modulus == 0;
+        };
+        auto can_copy = [&](const PrimExpr& src_offset, const PrimExpr& dst_offset) {
+          return aligned(load->source.as_or_throw<TensorVar>(), src_offset,
+                         static_cast<int>(src_elem_type.StorageBytes())) &&
+                 aligned(store->dest.as_or_throw<TensorVar>(), dst_offset,
+                         static_cast<int>(dst_elem_type.StorageBytes()) * index_factor);
+        };
+
         if (indices_lanes == 1) {
           auto src_offset = load->indices[0];
           auto dst_offset = store->indices[0];
+          if (!can_copy(src_offset, dst_offset)) {
+            return StmtExprMutator::Mutate_(store, InplaceMode::kDisallow)
+                .ValueOrUnchanged(ffi::GetRef<Stmt>(store));
+          }
           ffi::Array<Expr> args = {
               store->dest.as_or_throw<TensorVar>().data(), mul(dst_offset, PrimExpr(index_factor)),
               load->source.as_or_throw<tvm::tirx::TensorVar>().data(), src_offset, PrimExpr(bytes)};
@@ -172,7 +195,8 @@ class PTXAsyncCopyInjector : public StmtExprMutator {
             }
             return std::nullopt;
           }();
-          if (src_offset.has_value() && dst_offset.has_value()) {
+          if (src_offset.has_value() && dst_offset.has_value() &&
+              can_copy(src_offset.value(), dst_offset.value())) {
             static const Op ptx_cp_async_op = Op::Get("tirx.s_tir.cp_async_raw");
             return Evaluate(Call(store->dest.as_or_throw<TensorVar>().dtype(), ptx_cp_async_op,
                                  {store->dest.as_or_throw<TensorVar>().data(),
@@ -206,7 +230,8 @@ class PTXAsyncCopyInjector : public StmtExprMutator {
             return std::nullopt;
           }();
 
-          if (src_offset.has_value() && dst_offset.has_value()) {
+          if (src_offset.has_value() && dst_offset.has_value() &&
+              can_copy(src_offset.value(), dst_offset.value())) {
             static const Op ptx_cp_async_op = Op::Get("tirx.s_tir.cp_async_raw");
             return Evaluate(Call(store->dest.as_or_throw<TensorVar>().dtype(), ptx_cp_async_op,
                                  {store->dest.as_or_throw<TensorVar>().data(),
