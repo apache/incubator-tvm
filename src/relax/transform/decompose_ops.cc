@@ -30,6 +30,7 @@
 
 #include <unordered_set>
 
+#include "../op/op_common.h"
 #include "utils.h"
 
 namespace tvm {
@@ -95,9 +96,10 @@ Expr MutateBatchNormForTraining(Call call) {
 
   TensorType ty = MatchTensorType(data);
 
+  int axis = NormalizeAxis(call, ty->ndim, attrs->axis);
   ffi::Array<int64_t> reduce_axes;
   for (int i = 0; i < ty->ndim; ++i) {
-    if (i != attrs->axis) {
+    if (i != axis) {
       reduce_axes.push_back(i);
     }
   }

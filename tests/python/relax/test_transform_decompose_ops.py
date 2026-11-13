@@ -182,6 +182,31 @@ def test_batch_norm_training():
     tvm_tirx.ir.assert_structural_equal(Expected, After)
 
 
+def test_batch_norm_training_negative_axis():
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 4), "float32"),
+            gamma: R.Tensor((4,), "float32"),
+            beta: R.Tensor((4,), "float32"),
+            moving_mean: R.Tensor((4,), "float32"),
+            moving_var: R.Tensor((4,), "float32"),
+        ):
+            return R.nn.batch_norm(
+                x,
+                gamma,
+                beta,
+                moving_mean,
+                moving_var,
+                axis=-1,
+                training=True,
+            )
+
+    After = relax.transform.DecomposeOpsForTraining()(Before)
+    relax.analysis.check_well_formed(After, check_ty=True)
+
+
 def test_batch_norm_multiple_functions():
     @I.ir_module
     class Before:
