@@ -2150,7 +2150,7 @@ export class Instance implements Disposable {
     this.deviceLostIsError = true;
 
     const webGPUContext = new WebGPUContext(
-      this.memory, device
+      this.memory, device, this.cacheState
     );
     this.registerFunc("wasm.WebGPUDeviceAPI", (name: string) => {
       return webGPUContext.getDeviceAPI(name);

@@ -127,6 +127,15 @@ export class LRUCache<K, V> {
  *   - Invalidation: Cache entries may be evicted, but returned shape tuples
  *     hold independent references and remain valid for their caller's scope.
  *
+ * - **bindGroupCache**: Caches GPUBindGroup objects for kernel launches.
+ *   - Why: creating a bind group is a round trip to the GPU process, and
+ *     during LLM decode nearly every launch rebinds the buffers it bound one
+ *     token earlier.
+ *   - Key: exact string of the shader uid, the buffer uids in binding order
+ *     and the uniform-buffer uid; uids are never reused, unlike GPU pointers.
+ *   - Invalidation: Never. Bind groups are immutable and an entry is only
+ *     reachable with the ids of live buffers; stale entries leave through LRU.
+ *
  * Future additions (follow-up PR):
  * - **uniformCache**: Caches GPU uniform buffers keyed by content hash.
  *   - Why: Many dispatches use identical scalar arguments (matrix dims, etc.).
@@ -147,11 +156,21 @@ export class CacheState {
    */
   readonly shapeCache: LRUCache<string, Disposable>;
 
-  constructor(shapeCacheSize: number = 256) {
+  /**
+   * Cache for the bind groups of WebGPU kernel launches (see class comment).
+   * The size must exceed the number of launches in one repeating unit of
+   * work (a few hundred per LLM decode step), or every lookup misses.
+   */
+  readonly bindGroupCache: LRUCache<string, GPUBindGroup>;
+
+  private nextUid = 0;
+
+  constructor(shapeCacheSize: number = 256, bindGroupCacheSize: number = 2048) {
     this.shapeCache = new LRUCache<string, Disposable>(
       shapeCacheSize,
       (_key, value) => value.dispose()
     );
+    this.bindGroupCache = new LRUCache<string, GPUBindGroup>(bindGroupCacheSize);
   }
 
   /**
@@ -165,6 +184,42 @@ export class CacheState {
   }
 
   /**
+   * Allocate an id for an object that takes part in cache keys.
+   *
+   * @returns An id that this CacheState has not returned before.
+   */
+  allocUid(): number {
+    return this.nextUid++;
+  }
+
+  /**
+   * Compute the cache key for the bind group of a kernel launch.
+   *
+   * A bind group is fully determined by its layout and the resource bound at
+   * each binding. For a kernel launch:
+   * - the layout, and the size of the uniform binding, are fixed per shader,
+   *   so `shaderUid` stands for both;
+   * - every buffer argument is bound whole (offset 0, full size), so its
+   *   buffer's unique id stands for the binding;
+   * - the last binding is the uniform buffer holding the POD arguments.
+   *
+   * POD argument values are not part of the key: they live in the uniform
+   * buffer's contents, not in the bind group.
+   *
+   * @param shaderUid Unique id of the shader.
+   * @param bufferUids Unique ids of the buffer arguments, in binding order.
+   * @param uniformUid Unique id of the uniform buffer.
+   * @returns String key suitable for bindGroupCache lookup.
+   */
+  static computeBindGroupKey(
+    shaderUid: number,
+    bufferUids: Array<number>,
+    uniformUid: number
+  ): string {
+    return shaderUid + ":" + bufferUids.join(",") + ":" + uniformUid;
+  }
+
+  /**
    * Dispose all cached objects and clear all caches.
    */
   dispose(): void {
@@ -172,5 +227,6 @@ export class CacheState {
       obj.dispose();
     }
     this.shapeCache.invalidate();
+    this.bindGroupCache.invalidate();
   }
 }
