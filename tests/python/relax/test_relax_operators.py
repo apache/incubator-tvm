@@ -737,7 +737,8 @@ def test_py_func_registry_exit_with_registered_function():
 
     code = (
         "import tvm\n"
-        "tvm.get_global_func('vm.builtin.register_py_func')('py_identity', lambda x: x)\n"
+        "import tvm_ffi\n"
+        "tvm_ffi.get_global_func('vm.builtin.register_py_func')('py_identity', lambda x: x)\n"
     )
     result = subprocess.run([sys.executable, "-c", code], capture_output=True, text=True)
     assert result.returncode == 0, result.stderr
