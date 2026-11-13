@@ -22,7 +22,7 @@ from operator import mul
 
 import tvm_ffi
 
-from tvm import relax, topi
+from tvm import relax, te, topi
 from tvm.contrib.thrust import can_use_thrust
 from tvm.relax import expr_functor
 from tvm_tirx.ir import GlobalVar, Op
@@ -31,6 +31,35 @@ from tvm_tirx.ir.transform import PassContext, module_pass
 from tvm_tirx.target import Target
 
 from .utils import BackendDispatcher
+
+
+def _te_median_from_sorted(values, indices, axis, keepdims, flattened_rank):
+    """Select the lower middle value and index from sorted tensors."""
+    if flattened_rank is not None:
+        out_shape = [1] * flattened_rank if keepdims else []
+    elif keepdims:
+        out_shape = [1 if i == axis else dim for i, dim in enumerate(values.shape)]
+    else:
+        out_shape = [dim for i, dim in enumerate(values.shape) if i != axis]
+    middle = (values.shape[axis] - 1) // 2
+
+    def coordinates(out):
+        if flattened_rank is not None:
+            return (middle,)
+        coord = list(out)
+        if keepdims:
+            coord[axis] = middle
+        else:
+            coord.insert(axis, middle)
+        return tuple(coord)
+
+    result = te.compute(out_shape, lambda *out: values[coordinates(out)], name="median_value")
+    if flattened_rank is not None:
+        return result
+    result_index = te.compute(
+        out_shape, lambda *out: indices[coordinates(out)], name="median_index"
+    )
+    return result, result_index
 
 
 @expr_functor.mutator
@@ -125,6 +154,58 @@ class SortScanDispatcher(BackendDispatcher):
                 dtype=call.attrs.dtype,
                 **kwargs,
             )
+        if call.op.name == "relax.median":
+            try:
+                tgt = self._get_target(call.ty)
+            except ValueError:
+                # A target-less dispatch previously left median unchanged.
+                return super().visit_call_(call)
+            axes = call.attrs.axis
+            shape = call.args[0].ty.shape
+            if not self.is_gpu_target(tgt) or not isinstance(shape, relax.ShapeExpr):
+                return super().visit_call_(call)
+            if axes is not None and len(axes) != 1:
+                return super().visit_call_(call)
+
+            flattened_rank = None
+            data = call.args[0]
+            if axes is None:
+                flattened_rank = len(shape.values)
+                size = reduce(mul, shape.values, 1)
+                data = self.builder_.emit(relax.op.reshape(data, relax.ShapeExpr([size])))
+                axis = 0
+            else:
+                axis = int(axes[0]) % len(shape.values)
+
+            kwargs = {}
+            te_sort = topi.gpu.argsort
+            if can_use_thrust(tgt, "tvm.contrib.thrust.sort"):
+                te_sort = topi.gpu.argsort_thrust
+                kwargs["workspace"] = self.allocate_workspace(call)
+            with tgt:
+                sorted_pair = self.builder_.emit(
+                    self.builder_.call_te(
+                        te_sort,
+                        data,
+                        axis=axis,
+                        is_ascend=True,
+                        dtype="int64",
+                        ret_type="both",
+                        **kwargs,
+                    )
+                )
+                sorted_values = self.builder_.emit(relax.TupleGetItem(sorted_pair, 0))
+                sorted_indices = self.builder_.emit(relax.TupleGetItem(sorted_pair, 1))
+                result = self.builder_.call_te(
+                    _te_median_from_sorted,
+                    sorted_values,
+                    sorted_indices,
+                    axis,
+                    bool(call.attrs.keepdims),
+                    flattened_rank,
+                )
+            self._append_calls_to_update(result, tgt)
+            return result
         if call.op.name == "relax.topk":
             tgt = self._get_target(call.ty)
             te_func = topi.topk
