@@ -4686,7 +4686,7 @@ class LpNormalization(OnnxOpConverter):
             axis = _normalize_constant_axes([axis], ndim, "LpNormalization")[0]
 
         # Compute half-precision inputs in float32 in float16 the squares and sums can
-        # overflow (e.g. 300 * 300 > 65504) or 
+        # overflow (e.g. 300 * 300 > 65504) or
         # underflow(e.g. 1e-4 * 1e-4), and bfloat16 loses precision when summing.
         compute_dtype = "float32" if dtype in ("float16", "bfloat16") else dtype
         if compute_dtype != dtype:
