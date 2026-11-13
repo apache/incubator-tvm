@@ -4853,8 +4853,7 @@ def test_thresholded_relu():
             R.func_attr({"num_input": 1})
             with R.dataflow():
                 lv: R.Tensor((2, 3), dtype="bool") = R.greater(x, R.const(1.0, "float32"))
-                lv1: R.Tensor((2, 3), dtype="float32") = R.astype(lv, dtype="float32")
-                gv: R.Tensor((2, 3), dtype="float32") = R.multiply(lv1, x)
+                gv: R.Tensor((2, 3), dtype="float32") = R.where(lv, x, R.const(0.0, "float32"))
                 R.output(gv)
             return gv
 
@@ -4872,12 +4871,37 @@ def test_thresholded_relu():
                 lv: R.Tensor((2, 3), dtype="bool") = R.greater(
                     x, R.const(-0.0099999997764825821, "float32")
                 )
-                lv1: R.Tensor((2, 3), dtype="float32") = R.astype(lv, dtype="float32")
-                gv: R.Tensor((2, 3), dtype="float32") = R.multiply(lv1, x)
+                gv: R.Tensor((2, 3), dtype="float32") = R.where(lv, x, R.const(0.0, "float32"))
                 R.output(gv)
             return gv
 
     tvm_tirx.ir.assert_structural_equal(tvm_model, ExpectedCustom)
+
+
+@pytest.mark.parametrize(
+    "onnx_dtype, np_dtype",
+    [
+        (TensorProto.FLOAT, np.float32),
+        (TensorProto.FLOAT16, np.float16),
+        (TensorProto.DOUBLE, np.float64),
+    ],
+)
+def test_thresholded_relu_nonfinite_and_dtypes(onnx_dtype, np_dtype):
+    # nan and -inf are not above alpha, so they map to 0 (a mask multiply gave nan).
+    xs = np.array([np.nan, -np.inf, -2.0, 0.0, 0.5, 1.0, 2.0, np.inf], dtype=np_dtype)
+    expected = np.where(xs > 1.0, xs, 0).astype(np_dtype)
+    graph = helper.make_graph(
+        [helper.make_node("ThresholdedRelu", ["x"], ["y"], alpha=1.0)],
+        "thresholded_relu_nonfinite",
+        inputs=[helper.make_tensor_value_info("x", onnx_dtype, [len(xs)])],
+        outputs=[helper.make_tensor_value_info("y", onnx_dtype, [len(xs)])],
+    )
+    model = helper.make_model(graph, producer_name="thresholded_relu_nonfinite")
+
+    tvm_output = run_in_tvm(model, inputs={"x": xs}, opset=10).numpy()
+
+    assert tvm_output.dtype == np_dtype
+    np.testing.assert_array_equal(tvm_output, expected)
 
 
 def test_leakyrelu():

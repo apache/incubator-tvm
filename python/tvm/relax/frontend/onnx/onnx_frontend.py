@@ -2064,7 +2064,12 @@ class ThresholdedRelu(OnnxOpConverter):
     def _impl_v1(cls, bb, inputs, attr, params):
         x = inputs[0]
         alpha = attr.get("alpha", 1.0)
-        return relax.op.greater(x, relax.const(alpha)).astype("float32") * x
+        dtype = x.ty.dtype
+        # Select rather than multiply by a mask: nan * 0 and -inf * 0 are nan, and a
+        # float32 mask would not match float16/float64 inputs.
+        return relax.op.where(
+            relax.op.greater(x, relax.const(alpha, dtype)), x, relax.const(0, dtype)
+        )
 
 
 class LeakyRelu(OnnxOpConverter):
