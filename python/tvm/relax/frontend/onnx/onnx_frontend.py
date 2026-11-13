@@ -3847,6 +3847,7 @@ def _emit_resize_topi_dynamic_roi(
     cubic_coeff_a: float,
     exclude_outside: int,
     extrapolation_value: float,
+    scales: list | None,
 ) -> relax.Expr:
     """Lower Resize with runtime ROI via TOPI, which supports Expr ROI."""
     if rank == 3:
@@ -3863,6 +3864,7 @@ def _emit_resize_topi_dynamic_roi(
                 cubic_coeff_a,
                 exclude_outside,
                 extrapolation_value,
+                scales=scales,
             )
 
         return bb.emit_te(resize1d_dyn, data, roi_spatial_vec, sizes_spatial[0])
@@ -3881,12 +3883,14 @@ def _emit_resize_topi_dynamic_roi(
                 bicubic_alpha=cubic_coeff_a,
                 bicubic_exclude=exclude_outside,
                 extrapolation_value=extrapolation_value,
+                scales=scales,
             )
 
         return bb.emit_te(resize2d_dyn, data, roi_spatial_vec, sizes_spatial[0], sizes_spatial[1])
 
     def resize3d_dyn(d, r, s0, s1, s2):
         # r is ONNX order (D,H,W) x2; TOPI expects (W,H,D) x2.
+        # NOTE: scales order must stay ONNX (D,H,W), unlike r which is reordered
         return topi.image.resize3d(
             d,
             (r[2], r[1], r[0], r[5], r[4], r[3]),
@@ -3898,6 +3902,7 @@ def _emit_resize_topi_dynamic_roi(
             bicubic_alpha=cubic_coeff_a,
             bicubic_exclude=exclude_outside,
             extrapolation_value=extrapolation_value,
+            scales=scales,
         )
 
     return bb.emit_te(
@@ -3964,7 +3969,10 @@ class Resize(OnnxOpConverter):
 
         use_dynamic_roi = roi_dynamic_vec is not None
 
-        # Convert scales to sizes if needed.
+        # Convert scales to sizes if needed, preserving the original spatial scales so
+        # the coordinate transformation uses the exact ONNX scale value rather than the
+        # lossy ratio derived from floor(input * scale) / input.
+        original_spatial_scales = None
         if scales is not None:
             if isinstance(scales, tvm_tirx.ir.GenericConst):
                 scales = scales.value.numpy()
@@ -3972,6 +3980,7 @@ class Resize(OnnxOpConverter):
                 scales = [int(val.value) for val in scales.values]
             else:
                 raise ValueError(f"Type {type(scales)} for scale is currently unsupported.")
+            original_spatial_scales = [float(s) for s in scales[2:]]
             sizes = []
 
             for i, dim in enumerate(x.ty.shape):
@@ -3998,6 +4007,7 @@ class Resize(OnnxOpConverter):
                 cubic_coeff_a,
                 exclude_outside,
                 extrapolation_value,
+                original_spatial_scales,
             )
 
         if ndims == 3:
@@ -4013,8 +4023,24 @@ class Resize(OnnxOpConverter):
                 cubic_coeff_a,
                 exclude_outside,
                 extrapolation_value,
+                scales=original_spatial_scales,
             )
         elif ndims == 4:
+            if original_spatial_scales is not None:
+                return bb.emit_te(
+                    topi.image.resize2d,
+                    x,
+                    roi_static,
+                    sizes,
+                    "NCHW",
+                    topi_mode,
+                    coord_mode,
+                    rounding_method,
+                    cubic_coeff_a,
+                    exclude_outside,
+                    extrapolation_value,
+                    scales=original_spatial_scales,
+                )
             return relax.op.image.resize2d(
                 x,
                 size=relax.ShapeExpr(sizes),
@@ -4029,6 +4055,21 @@ class Resize(OnnxOpConverter):
             )
         else:  # ndims == 5
             roi3d = _topi_resize3d_roi_from_onnx_ncdhw_spatial(roi_static)
+            if original_spatial_scales is not None:
+                return bb.emit_te(
+                    topi.image.resize3d,
+                    x,
+                    roi3d,
+                    sizes,
+                    "NCDHW",
+                    topi_mode,
+                    coord_mode,
+                    rounding_method,
+                    cubic_coeff_a,
+                    exclude_outside,
+                    extrapolation_value,
+                    scales=original_spatial_scales,
+                )
             return relax.op.image.resize3d(
                 x,
                 size=relax.ShapeExpr(sizes),
