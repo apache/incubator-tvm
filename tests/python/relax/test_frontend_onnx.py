@@ -5990,6 +5990,8 @@ def test_lp_norm():
             atol=1e-2,
         )
 
+    # bf16 is computed in float32 and cast back. ONNX Runtime's CPU provider has no bf16
+    # LpNormalization kernel, so this only checks the imported IR.
     @I.ir_module
     class ExpectedBF16:
         @R.function
