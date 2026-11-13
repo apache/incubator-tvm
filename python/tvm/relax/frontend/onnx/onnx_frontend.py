@@ -56,7 +56,6 @@ except ImportError as err:
 
 import tvm_ffi
 
-import tvm
 import tvm_tirx
 from tvm import relax, topi
 from tvm.topi.utils import get_const_tuple
@@ -5497,25 +5496,23 @@ def _legacy_upsample(bb, data, scales, mode, op_name):
     """
     mode = mode.decode("ascii") if isinstance(mode, bytes) else mode
     if mode not in ("nearest", "linear"):
-        raise tvm.error.OpAttributeInvalid(
-            f'Value {mode} in attribute "mode" of operator {op_name} is not valid.'
-        )
+        raise ValueError(f'Value {mode} in attribute "mode" of operator {op_name} is not valid.')
     scales = [float(s) for s in scales]
     shape = list(data.ty.shape)
     ndims = len(shape)
     if len(scales) != ndims:
-        raise tvm.error.OpAttributeInvalid(
+        raise ValueError(
             f"{op_name} expects {ndims} scales for a rank-{ndims} input, got {len(scales)}."
         )
     if ndims not in (3, 4, 5) or scales[0] != 1.0 or scales[1] != 1.0:
-        raise tvm.error.OpAttributeUnImplemented(
+        raise NotImplementedError(
             f"{op_name} is only supported for 3-D/4-D/5-D inputs with unit batch and "
             f"channel scales, got scales {scales} for a rank-{ndims} input."
         )
 
     sizes = []
     for dim, scale in zip(shape[2:], scales[2:]):
-        if isinstance(dim, tirx.IntImm):
+        if isinstance(dim, tvm_tirx.ir.IntImm):
             sizes.append(math.floor(int(dim) * scale))
         elif scale.is_integer():
             sizes.append(dim * int(scale))
@@ -5530,7 +5527,7 @@ def _legacy_upsample(bb, data, scales, mode, op_name):
     elif all(s < 1.0 for s in spatial_scales):
         method, rounding_method = "nearest_neighbor", "ceil"
     else:
-        raise tvm.error.OpAttributeUnImplemented(
+        raise NotImplementedError(
             f"{op_name} nearest mode cannot mix upsampling and downsampling axes, "
             f"got scales {scales}."
         )
@@ -5559,10 +5556,8 @@ def _legacy_upsample(bb, data, scales, mode, op_name):
 
 def _get_constant_scales(scales, params, op_name):
     scales = get_constant(scales, params)
-    if not isinstance(scales, tvm.ir.GenericConst):
-        raise tvm.error.OpAttributeUnImplemented(
-            f"{op_name} with non-constant scales is not supported."
-        )
+    if not isinstance(scales, tvm_tirx.ir.GenericConst):
+        raise NotImplementedError(f"{op_name} with non-constant scales is not supported.")
     return scales.value.numpy().tolist()
 
 

@@ -9597,10 +9597,10 @@ def test_legacy_upsample_symbolic_shape(op_name, opset):
     func = from_onnx(model, opset=opset, keep_params_in_input=True)["main"]
     n, _, h, _ = func.params[0].ty.shape.values
     out_n, out_c, out_h, _ = func.ret_ty.shape.values
-    tvm.ir.assert_structural_equal(out_n, n)
+    tvm_tirx.ir.assert_structural_equal(out_n, n)
     assert int(out_c) == 2
     # Integer scales keep the output extent an exact integer expression.
-    assert tvm.sym.Analyzer().can_prove_equal(out_h, h * 2)
+    assert tvm_tirx.sym.Analyzer().can_prove_equal(out_h, h * 2)
 
     x = generate_random_value([2, 2, 4, 6], TensorProto.FLOAT)
     check_correctness(model, inputs={"X": x}, opset=opset)
@@ -9627,11 +9627,11 @@ def test_legacy_upsample_unsupported_scales():
     model = _make_legacy_upsample_model(
         "Upsample", 9, [1, 2, 4, 5], [1.0, 2.0, 2.0, 2.0], "nearest"
     )
-    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="unit batch and channel"):
+    with pytest.raises(NotImplementedError, match="unit batch and channel"):
         from_onnx(model, opset=9)
 
     model = _make_legacy_upsample_model("Resize", 10, [1, 2, 4, 5], [1.0, 1.0, 0.5, 2.0], "nearest")
-    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="cannot mix"):
+    with pytest.raises(NotImplementedError, match="cannot mix"):
         from_onnx(model, opset=10)
 
 
