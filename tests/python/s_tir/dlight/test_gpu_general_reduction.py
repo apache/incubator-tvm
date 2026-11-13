@@ -17,10 +17,13 @@
 # pylint: disable=missing-docstring
 # ruff: noqa: E501, F841
 
+import re
+
 import tvm_tirx
 import tvm_tirx.testing
 from tvm.s_tir import dlight as dl
 from tvm.s_tir import script as Ts
+from tvm.s_tir.dlight.gpu import general_reduction as gr
 from tvm_tirx.ir import IRModule, assert_structural_equal
 from tvm_tirx.script import ir as I
 from tvm_tirx.script import tirx as T
@@ -756,6 +759,125 @@ def test_logsumexp():
                             )
 
     _check(Before, After)
+
+
+def _make_pool_add(pool):
+    """`pool` x `pool` max-pool (reduction extent pool*pool) fused with an elementwise add."""
+
+    @I.ir_module
+    class Before:
+        @Ts.function
+        def main(
+            A: T.Tensor((1, 144, 32 * pool, 32 * pool), "float32"),
+            B: T.Tensor((1, 144, 32, 32), "float32"),
+            Output: T.Tensor((1, 144, 32, 32), "float32"),
+        ):
+            T.func_attr({"tirx.noalias": True})
+            pooled = Ts.sblock_alloc_tensor((1, 144, 32, 32), "float32")
+            for n, c, oh, ow, rh, rw in T.grid(1, 144, 32, 32, pool, pool):
+                with Ts.sblock("pool_max"):
+                    v_n, v_c, v_oh, v_ow, v_rh, v_rw = Ts.axis.remap(
+                        "SSSSRR", [n, c, oh, ow, rh, rw]
+                    )
+                    Ts.reads(A[v_n, v_c, v_oh * pool + v_rh, v_ow * pool + v_rw])
+                    Ts.writes(pooled[v_n, v_c, v_oh, v_ow])
+                    with Ts.init():
+                        pooled[v_n, v_c, v_oh, v_ow] = T.float32(-3.4028234663852886e38)
+                    pooled[v_n, v_c, v_oh, v_ow] = T.max(
+                        pooled[v_n, v_c, v_oh, v_ow],
+                        A[v_n, v_c, v_oh * pool + v_rh, v_ow * pool + v_rw],
+                    )
+            for n, c, oh, ow in T.grid(1, 144, 32, 32):
+                with Ts.sblock("add"):
+                    v_n, v_c, v_oh, v_ow = Ts.axis.remap("SSSS", [n, c, oh, ow])
+                    Ts.reads(pooled[v_n, v_c, v_oh, v_ow], B[v_n, v_c, v_oh, v_ow])
+                    Ts.writes(Output[v_n, v_c, v_oh, v_ow])
+                    Output[v_n, v_c, v_oh, v_ow] = (
+                        pooled[v_n, v_c, v_oh, v_ow] + B[v_n, v_c, v_oh, v_ow]
+                    )
+
+    return Before
+
+
+def _schedule_pool_add(pool):
+    target = Target("nvidia/geforce-rtx-3090-ti")
+    with target:
+        return dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.GeneralReduction(),
+        )(_make_pool_add(pool))
+
+
+def test_small_reduction_runs_serially_per_thread():
+    """A 2x2 max-pool fused with an add (apache/tvm#20401): reduction extent 4."""
+    mod = _schedule_pool_add(2)
+    scheduled = mod.script()
+    local = tvm_tirx.runtime.MemoryScope("local")
+    alloc = list(mod["main"].body[0].block.alloc_tensors)
+    # The pool result is thread-private: a register, not shared memory.
+    assert alloc and all(t.scope() == local for t in alloc)
+    assert 'scope="shared"' not in scheduled
+    # One output per thread: 144 * 32 * 32 / 256 = 576 blocks of 256 threads, no tail predicate.
+    assert re.search(
+        r'parallel\((T\.int64\(0\), )?T\.int64\(576\), annotations=\{"thread_binding": "blockIdx\.x"\}',
+        scheduled,
+    )
+    assert re.search(
+        r'parallel\((T\.int64\(0\), )?T\.int64\(256\), annotations=\{"thread_binding": "threadIdx\.x"\}',
+        scheduled,
+    )
+    assert "Ts.where" not in scheduled
+    # The reduction must be computed *inside* the thread loop. Computing it at the block
+    # loop makes every thread redo the reductions of all 256 outputs of its block.
+    assert scheduled.index('"threadIdx.x"') < scheduled.index('Ts.sblock("pool_max")')
+
+
+def test_reduction_above_policy_bound_keeps_cross_thread_schedule():
+    """A 23x23 pool has extent 529, above the serial bound, so it falls back.
+
+    The serial path is taken only for reductions at most `_SERIAL_REDUCTION_MAX_EXTENT`
+    (512). This pins the fallback at the first size in this family above it and proves
+    the cross-thread path still runs. The bound sits above the reporter's measured 289,
+    where the serial path was 12x faster (32.90 us vs 403.01 us), so 289 itself must stay
+    on the serial path -- see `test_pool_at_measured_size_runs_serially`.
+    """
+    mod = _schedule_pool_add(23)
+    alloc = list(mod["main"].body[0].block.alloc_tensors)
+    shared = tvm_tirx.runtime.MemoryScope("shared")
+    assert alloc and all(t.scope() == shared for t in alloc)
+
+
+def test_policy_bound_is_pinned():
+    """The policy bound is a deliberate constant, and the tests must move with it.
+
+    It is not derived from a model -- see the comment on `_SERIAL_REDUCTION_MAX_EXTENT`
+    for why a single measurement cannot supply a crossover. If someone retunes it, the
+    sizes in the boundary tests above have to be revisited, so fail loudly here rather
+    than let the two drift apart silently.
+    """
+    assert gr._SERIAL_REDUCTION_MAX_EXTENT == 512
+    # Just below the bound: serial. Just above: cross-thread.
+    below = _schedule_pool_add(22)  # extent 484
+    assert all(
+        t.scope() == tvm_tirx.runtime.MemoryScope("local")
+        for t in below["main"].body[0].block.alloc_tensors
+    )
+    above = _schedule_pool_add(23)  # extent 529
+    assert all(
+        t.scope() == tvm_tirx.runtime.MemoryScope("shared")
+        for t in above["main"].body[0].block.alloc_tensors
+    )
+
+
+def test_pool_at_measured_size_runs_serially():
+    """A 17x17 pool (extent 289) stays serial: the reporter measured it 12x faster there.
+
+    This is the case that a bound of `len_tx` (256) would have sent down the cross-thread
+    path despite the measurement. It pins the bound above the measured data point.
+    """
+    mod = _schedule_pool_add(17)
+    alloc = list(mod["main"].body[0].block.alloc_tensors)
+    local = tvm_tirx.runtime.MemoryScope("local")
+    assert alloc and all(t.scope() == local for t in alloc)
 
 
 if __name__ == "__main__":
