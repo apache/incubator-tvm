@@ -26,6 +26,7 @@ import operator
 from collections.abc import Callable
 from functools import reduce
 
+import numpy as np
 import tvm_ffi
 
 import tvm_tirx
@@ -362,6 +363,16 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             )
         )
 
+    def _emit_clip(self, x: relax.Expr, a_min, a_max) -> relax.Expr:
+        # clip cannot represent an infinite bound for an integer tensor, so use
+        # the integer type's own limits for a missing bound.
+        dtype = str(x.ty.dtype)
+        if "int" in dtype:
+            info = np.iinfo(dtype)
+            a_min = int(info.min) if a_min == -math.inf else a_min
+            a_max = int(info.max) if a_max == math.inf else a_max
+        return self.block_builder.emit(relax.op.clip(x, a_min, a_max))
+
     def _clamp(self, node: fx.Node) -> relax.Expr:
         args = self.retrieve_args(node)
         x = args[0]
@@ -401,7 +412,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             x = self.block_builder.emit(relax.op.minimum(x, a_max))
             a_max = math.inf
 
-        return self.block_builder.emit(relax.op.clip(x, a_min, a_max))
+        return self._emit_clip(x, a_min, a_max)
 
     def _clamp_min(self, node: fx.Node) -> relax.Expr:
         args = self.retrieve_args(node)
@@ -426,13 +437,13 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             x = self.block_builder.emit(relax.op.maximum(x, a_min))
             a_min = -math.inf
 
-        return self.block_builder.emit(relax.op.clip(x, a_min, a_max))
+        return self._emit_clip(x, a_min, a_max)
 
     def _clamp_max(self, node: fx.Node) -> relax.Expr:
         args = self.retrieve_args(node)
         x = args[0]
         a_min = -math.inf
-        a_max = args[2] if len(args) > 2 else node.kwargs.get("max", math.inf)
+        a_max = args[1] if len(args) > 1 else node.kwargs.get("max", math.inf)
 
         a_max = math.inf if a_max is None else a_max
 
@@ -451,7 +462,7 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
             x = self.block_builder.emit(relax.op.minimum(x, a_max))
             a_max = math.inf
 
-        return self.block_builder.emit(relax.op.clip(x, a_min, a_max))
+        return self._emit_clip(x, a_min, a_max)
 
     def _elu(self, node: fx.Node) -> relax.Var:
         x = self.env[node.args[0]]

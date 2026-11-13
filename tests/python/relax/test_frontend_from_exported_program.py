@@ -150,6 +150,29 @@ def test_basic_unary_ops(pytorch_op, relax_op):
     verify_model(UnaryOp(), example_args, {}, expected)
 
 
+@pytest.mark.parametrize("dtype", [torch.int32, torch.int64, torch.uint8])
+def test_clamp_one_sided_integer(dtype):
+    class ClampMin(Module):
+        def forward(self, input):
+            return input.clamp(min=2)
+
+    class ClampMax(Module):
+        def forward(self, input):
+            return input.clamp(max=3)
+
+    class ClampMinOp(Module):
+        def forward(self, input):
+            return torch.clamp_min(input, 2)
+
+    class ClampMaxOp(Module):
+        def forward(self, input):
+            return torch.clamp_max(input, 3)
+
+    x = torch.tensor([0, 1, 2, 3, 4, 5], dtype=dtype)
+    for model in (ClampMin(), ClampMax(), ClampMinOp(), ClampMaxOp()):
+        verify_model_numerically(model, (x,), rtol=0, atol=0)
+
+
 def test_round():
     class Round(Module):
         def __init__(self, decimals):
