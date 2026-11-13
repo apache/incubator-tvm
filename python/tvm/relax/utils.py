@@ -33,6 +33,7 @@ import tvm_tirx
 from tvm.relax.global_info import VDevice
 from tvm_tirx import tirx
 from tvm_tirx.ir import Attrs, StringImm, Type
+from tvm_tirx.target import Target
 
 from ..te import Tensor as te_Tensor
 from ..te import create_function
@@ -267,7 +268,7 @@ def gen_call_tir_inputs(
                         "emit_te only supports dict with string as the key currently"
                     )
                 return {k: _convert_te_arg_helper(arg[k]) for k in arg}
-            elif isinstance(arg, int | float | str | Type | Attrs) or arg is None:
+            elif isinstance(arg, int | float | str | Type | Attrs | Target) or arg is None:
                 return arg
             raise TypeError(f"not supported type in emit_te: {type(arg)}")
 

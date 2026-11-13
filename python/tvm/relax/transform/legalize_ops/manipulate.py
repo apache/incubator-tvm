@@ -249,14 +249,13 @@ def _meshgrid(bb: BlockBuilder, call: Call) -> Expr:
     )
 
 
-def _is_gpu_target():
-    target = tvm_tirx.target.Target.current(allow_none=True)
+def _is_gpu_target(target):
     return target is not None and "gpu" in target.keys
 
 
 @register_legalize("relax.scatter_elements")
 def _scatter_elements(bb: BlockBuilder, call: Call) -> Expr:
-    te_func = topi.gpu.scatter_elements if _is_gpu_target() else topi.scatter_elements
+    te_func = topi.gpu.scatter_elements if _is_gpu_target(bb.target) else topi.scatter_elements
     return bb.call_te(
         te_func,
         call.args[0],
@@ -264,18 +263,25 @@ def _scatter_elements(bb: BlockBuilder, call: Call) -> Expr:
         call.args[2],
         call.attrs.axis,
         call.attrs.reduction,
+        **({"target": bb.target} if _is_gpu_target(bb.target) else {}),
     )
 
 
 @register_legalize("relax.scatter_nd")
 def _scatter_nd(bb: BlockBuilder, call: Call) -> Expr:
     # TODO(relax-team): Support native scatter_nd without te extern
-    base_te = topi.gpu.scatter_nd if _is_gpu_target() else topi.scatter_nd
+    base_te = topi.gpu.scatter_nd if _is_gpu_target(bb.target) else topi.scatter_nd
 
     def scatter_nd(data, indices, updates, reduction):
         axes = list(range(len(indices.shape)))
         indices = topi.transpose(indices, axes[-1:] + axes[:-1])
-        return base_te(data, indices, updates, reduction)
+        return base_te(
+            data,
+            indices,
+            updates,
+            reduction,
+            **({"target": bb.target} if _is_gpu_target(bb.target) else {}),
+        )
 
     return bb.call_te(
         scatter_nd,

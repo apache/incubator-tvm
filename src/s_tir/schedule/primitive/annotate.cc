@@ -117,9 +117,8 @@ struct AnnotateTraits : public UnpackedInstTraits<AnnotateTraits> {
     throw;
   }
 
-  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs,
-                                      ffi::ObjectRef block_or_loop_rv, Any ann_val,
-                                      ffi::String ann_key) {
+  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::Any block_or_loop_rv,
+                                      Any ann_val, ffi::String ann_key) {
     PythonAPICall py("annotate");
     py.Input("block_or_loop", block_or_loop_rv);
     py.Input("ann_key", ann_key);
@@ -153,8 +152,8 @@ struct UnannotateTraits : public UnpackedInstTraits<UnannotateTraits> {
     throw;
   }
 
-  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs,
-                                      ffi::ObjectRef block_or_loop_rv, ffi::String ann_key) {
+  static ffi::String UnpackedAsPython(ffi::Array<ffi::String> outputs, ffi::Any block_or_loop_rv,
+                                      ffi::String ann_key) {
     PythonAPICall py("unannotate");
     py.Input("block_or_loop", block_or_loop_rv);
     py.Input("ann_key", ann_key);

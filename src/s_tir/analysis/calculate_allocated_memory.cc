@@ -184,7 +184,6 @@ bool VerifyVTCMLimit(const Function& func, int64_t limit) {
 }
 
 int64_t GetVTCMCapacity(ffi::Optional<Target> target, const tvm::transform::PassContext& pass_ctx) {
-  if (!target.has_value()) target = Target::Current(/*allow_not_defined=*/true);
   if (target.has_value() && target.value()->kind->name == "hexagon") {
     auto value = target.value()->GetAttr<int64_t>("vtcm-capacity").value();
     if (value > 0) return value;

@@ -976,9 +976,8 @@ def test_multinomial_from_uniform():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
     target = tvm_tirx.target.Target("cuda", host="llvm")
-    with target:
-        mod = relax.backend.DispatchSampling()(mod)
-        mod = s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = relax.backend.DispatchSampling(target=target)(mod)
+    mod = s_tir.transform.DefaultGPUSchedule(target=target)(mod)
     ex = tvm.compile(mod, target)
     dev = tvm_tirx.cuda(0)
     vm = relax.VirtualMachine(ex, dev)
@@ -1108,8 +1107,7 @@ def test_sample_top_p_top_k_from_sorted_prob():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
     target = tvm_tirx.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
-    with target:
-        mod = s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = s_tir.transform.DefaultGPUSchedule(target=target)(mod)
 
     ex = tvm.compile(mod, target)
 
@@ -1225,9 +1223,8 @@ def test_renormalize_top_p_top_k_prob():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
     target = tvm_tirx.target.Target({"kind": "cuda", "libs": ["thrust"]}, host="llvm")
-    with target:
-        mod = relax.transform.LegalizeOps()(mod)
-        mod = s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = relax.transform.LegalizeOps(target=target)(mod)
+    mod = s_tir.transform.DefaultGPUSchedule(target=target)(mod)
 
     ex = tvm.compile(mod, target)
 

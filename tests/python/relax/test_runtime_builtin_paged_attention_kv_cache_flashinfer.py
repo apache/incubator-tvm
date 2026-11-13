@@ -146,8 +146,7 @@ def set_global_func(rope_mode: RopeMode, target):
         _compact_kv_copy(num_kv_heads, head_dim, dtype, target),
     ]:
         mod = tvm_tirx.IRModule({"main": tir_func})
-        with target:
-            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
+        mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
         f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
         builts.append(f.main)
 

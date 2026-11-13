@@ -133,34 +133,41 @@ def test_imperative_nms():
 )
 def test_gpu_imperative_tensors(kind):
     data = te.placeholder((2, 4), "float32")
-    with tvm_tirx.target.Target("cuda"):
-        if kind == "sort":
-            result = topi.gpu.sort(data)
-        elif kind == "argsort":
-            result = topi.gpu.argsort(data)
-        elif kind == "searchsorted":
-            result = topi.gpu.searchsorted(data, te.placeholder((2, 3), "float32"))
-        elif kind == "scan":
-            from tvm.topi.gpu.scan import exclusive_scan_ir
+    if kind == "sort":
+        result = topi.gpu.sort(data, target=tvm_tirx.target.Target("cuda"))
+    elif kind == "argsort":
+        result = topi.gpu.argsort(data, target=tvm_tirx.target.Target("cuda"))
+    elif kind == "searchsorted":
+        result = topi.gpu.searchsorted(
+            data, te.placeholder((2, 3), "float32"), target=tvm_tirx.target.Target("cuda")
+        )
+    elif kind == "scan":
+        from tvm.topi.gpu.scan import exclusive_scan_ir
 
-            body = exclusive_scan_ir(
-                tirx.Var("tensor", tirx.TensorType((2, 4), "float32")),
-                tirx.Var("tensor", tirx.TensorType((2, 4), "float32")),
-            )
-            assert isinstance(body, tvm_tirx.ir.Stmt)
-            return
-        elif kind == "scatter_nd":
-            result = topi.gpu.scatter_nd(
-                data, te.placeholder((1, 2), "int32"), te.placeholder((2, 4)), "add"
-            )
-        else:
-            result = topi.gpu.scatter_elements(
-                data,
-                te.placeholder((2, 3), "int32"),
-                te.placeholder((2, 3)),
-                axis=1,
-                reduction="add",
-            )
+        body = exclusive_scan_ir(
+            tirx.Var("tensor", tirx.TensorType((2, 4), "float32")),
+            tirx.Var("tensor", tirx.TensorType((2, 4), "float32")),
+            target=tvm_tirx.target.Target("cuda"),
+        )
+        assert isinstance(body, tvm_tirx.ir.Stmt)
+        return
+    elif kind == "scatter_nd":
+        result = topi.gpu.scatter_nd(
+            data,
+            te.placeholder((1, 2), "int32"),
+            te.placeholder((2, 4)),
+            "add",
+            target=tvm_tirx.target.Target("cuda"),
+        )
+    else:
+        result = topi.gpu.scatter_elements(
+            data,
+            te.placeholder((2, 3), "int32"),
+            te.placeholder((2, 3)),
+            axis=1,
+            reduction="add",
+            target=tvm_tirx.target.Target("cuda"),
+        )
     _check_stores(result)
 
 

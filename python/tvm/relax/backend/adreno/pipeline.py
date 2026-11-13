@@ -45,7 +45,7 @@ def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-a
 
     pass_list.extend(
         [
-            tvm_tirx.tirx.transform.BindTarget(tvm_tirx.target.Target.current(allow_none=False)),
+            tvm_tirx.tirx.transform.BindTarget(target),
             relax.transform.DecomposeOpsForInference(),
         ]
     )
@@ -55,17 +55,17 @@ def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-a
                 relax.transform.ConvertLayout(desired_layouts),
                 relax.transform.Normalize(),
                 relax.transform.FoldConstant(),
-                relax.transform.LegalizeOps(skip_ops=skip_ops),
+                relax.transform.LegalizeOps(skip_ops=skip_ops, target=target),
                 relax.transform.AnnotateTIROpPattern(),
                 relax.backend.adreno.transform.AnnotateCustomMemoryScope(target),
             ]
         )
-    pass_list.extend([tvm.relax.transform.LegalizeOps()])
+    pass_list.extend([tvm.relax.transform.LegalizeOps(target=target)])
     if "texture" in target.keys:
         pass_list.extend(
             [
                 relax.transform.LegalizeOps(
-                    {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo},
+                    {"relax.nn.conv2d": legalize_adreno.conv2d_NCHWc_OIHWo}, target=target
                 )
             ]
         )
@@ -93,18 +93,14 @@ def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-a
     pass_list.extend(
         [
             dl.ApplyDefaultSchedule(
-                dl.adreno.Conv2d(),
-                dl.adreno.LayoutTransform(),
-                dl.adreno.Pool2D(),
+                dl.adreno.Conv2d(), dl.adreno.LayoutTransform(), dl.adreno.Pool2D(), target=target
             )
         ]
     )
     pass_list.extend(
         [
             dl.ApplyDefaultSchedule(
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
+                dl.gpu.Reduction(), dl.gpu.GeneralReduction(), dl.gpu.Fallback(), target=target
             )
         ]
     )
@@ -126,14 +122,13 @@ def get_default_pipeline(target: tvm_tirx.target.Target):
 
     @tvm_tirx.ir.transform.module_pass(opt_level=0)
     def _pipeline(mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext):
-        with target:
-            seq = tvm_tirx.ir.transform.Sequential(
-                library_dispatch_passes(target)
-                + legalize_passes(target)
-                + dataflow_lower_passes(target)
-                + finalize_passes(target)
-            )
-            mod = seq(mod)
+        seq = tvm_tirx.ir.transform.Sequential(
+            library_dispatch_passes(target)
+            + legalize_passes(target)
+            + dataflow_lower_passes(target)
+            + finalize_passes(target)
+        )
+        mod = seq(mod)
         return mod
 
     return _pipeline

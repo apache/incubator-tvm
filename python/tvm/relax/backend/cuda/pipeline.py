@@ -24,8 +24,8 @@ from tvm import relax
 def library_dispatch_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-argument
     """The default library dispatch passes for CUDA backend."""
     return [
-        relax.backend.DispatchSampling(),
-        relax.backend.DispatchSortScan(),
+        relax.backend.DispatchSampling(target=target),
+        relax.backend.DispatchSortScan(target=target),
     ]
 
 
@@ -34,7 +34,7 @@ def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-a
     from tvm.s_tir import dlight as dl  # pylint: disable=import-outside-toplevel
 
     return [
-        tvm.relax.transform.LegalizeOps(),
+        tvm.relax.transform.LegalizeOps(target=target),
         tvm.relax.transform.AnnotateTIROpPattern(),
         tvm.relax.transform.FoldConstant(),
         tvm.relax.transform.FuseOps(),
@@ -45,6 +45,7 @@ def legalize_passes(target: tvm_tirx.target.Target):  # pylint: disable=unused-a
             dl.gpu.Reduction(),
             dl.gpu.GeneralReduction(),
             dl.gpu.Fallback(),
+            target=target,
         ),
     ]
 
@@ -78,14 +79,13 @@ def get_default_pipeline(target: tvm_tirx.target.Target):
 
     @tvm_tirx.ir.transform.module_pass(opt_level=0)
     def _pipeline(mod: tvm_tirx.ir.IRModule, _ctx: tvm_tirx.ir.transform.PassContext):
-        with target:
-            seq = tvm_tirx.ir.transform.Sequential(
-                library_dispatch_passes(target)
-                + legalize_passes(target)
-                + dataflow_lower_passes(target)
-                + finalize_passes(target)
-            )
-            mod = seq(mod)
+        seq = tvm_tirx.ir.transform.Sequential(
+            library_dispatch_passes(target)
+            + legalize_passes(target)
+            + dataflow_lower_passes(target)
+            + finalize_passes(target)
+        )
+        mod = seq(mod)
         return mod
 
     return _pipeline

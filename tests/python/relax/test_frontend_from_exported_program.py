@@ -3364,8 +3364,7 @@ def test_einsum():
     assert einsum_calls[0].ty.ndim == 1
 
     # Legalize and check again on the lowered graph.
-    with tvm_tirx.target.Target("llvm"):
-        lowered = relax.transform.LegalizeOps()(mod)
+    lowered = relax.transform.LegalizeOps(target=tvm_tirx.target.Target("llvm"))(mod)
     assert rank2_call_results(lowered) == []
 
 

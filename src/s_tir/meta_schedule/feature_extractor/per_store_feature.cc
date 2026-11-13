@@ -390,9 +390,9 @@ Pass SimplifyForFeatureExtraction(bool normalize_thread_bindings = false) {
     std::vector<const ForObj*> thread_bindings_;
   };
   auto pass_func = [normalize_thread_bindings](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     FunctionObj* n = f.CopyOnWrite();
-    n->body = Simplifier::Run(std::move(n->body).value(), normalize_thread_bindings);
+    n->body = Simplifier::Run(std::move(n->body), normalize_thread_bindings);
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "tirx.SimplifyForFeatureExtraction");

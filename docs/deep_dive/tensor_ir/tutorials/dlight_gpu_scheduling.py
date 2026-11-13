@@ -73,8 +73,7 @@ mod, params = DemoModel().export_tvm({"forward": {"x": nn.spec.Tensor((1, 768), 
 
 device = tvm_tirx.cuda(0)
 target = tvm_tirx.target.Target.from_device(device)
-with target:
-    mod = relax.get_pipeline("zero")(mod)
+mod = relax.get_pipeline("zero", target=target)(mod)
 
 ######################################################################
 # At this point every TIR function in ``mod`` is **unscheduled** — it has no thread bindings
@@ -96,14 +95,14 @@ for gv, func in mod.functions_items():
 # Here we use a common subset of rules. The full catalog (including ``LowBatchGEMV``,
 # ``Transpose``, ``RMSNorm``) is listed in the next section.
 
-with target:
-    scheduled_mod = dl.ApplyDefaultSchedule(
-        dl.gpu.Matmul(),  # GEMM: dense matrix multiplication
-        dl.gpu.GEMV(),  # matrix-vector products
-        dl.gpu.Reduction(),  # simple reductions (sum, max, ...)
-        dl.gpu.GeneralReduction(),  # compound reductions (softmax, layer norm, ...)
-        dl.gpu.Fallback(),  # catch-all for anything unmatched above
-    )(mod)
+scheduled_mod = dl.ApplyDefaultSchedule(
+    dl.gpu.Matmul(),  # GEMM: dense matrix multiplication
+    dl.gpu.GEMV(),  # matrix-vector products
+    dl.gpu.Reduction(),  # simple reductions (sum, max, ...)
+    dl.gpu.GeneralReduction(),  # compound reductions (softmax, layer norm, ...)
+    dl.gpu.Fallback(),  # catch-all for anything unmatched above
+    target=target,
+)(mod)
 
 scheduled_mod.show()
 
@@ -185,8 +184,7 @@ rules = OrderedDict(
 
 rule_assignment = {}
 for rule_name, rule in rules.items():
-    with target:
-        test_mod = dl.ApplyDefaultSchedule(rule)(mod)
+    test_mod = dl.ApplyDefaultSchedule(rule, target=target)(mod)
     for gv, func in test_mod.functions_items():
         if isinstance(func, tirx.Function) and gv.name_hint not in rule_assignment:
             if "tirx.is_scheduled" in func.attrs and func.attrs["tirx.is_scheduled"] == 1:
@@ -291,13 +289,13 @@ def my_tile_and_bind(func: tirx.Function, target: tvm_tirx.target.Target, tunabl
 # Insert the custom rule into the rule chain. Note that ``from_callable`` returns an
 # **instance**, so pass it directly — do not call ``my_tile_and_bind()`` again.
 
-with target:
-    custom_mod = dl.ApplyDefaultSchedule(
-        dl.gpu.Matmul(),
-        dl.gpu.GeneralReduction(),
-        my_tile_and_bind,  # our custom rule, tried before Fallback
-        dl.gpu.Fallback(),
-    )(mod)
+custom_mod = dl.ApplyDefaultSchedule(
+    dl.gpu.Matmul(),
+    dl.gpu.GeneralReduction(),
+    my_tile_and_bind,  # our custom rule, tried before Fallback
+    dl.gpu.Fallback(),
+    target=target,
+)(mod)
 
 custom_mod.show()
 

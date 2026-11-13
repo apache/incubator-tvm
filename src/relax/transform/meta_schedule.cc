@@ -77,9 +77,9 @@ class MetaScheduleTuner {
   tvm::ffi::Function normalize_mod_func_;
 };
 
-Pass MetaScheduleApplyDatabase(ffi::Optional<ffi::String> work_dir, bool enable_warning = false) {
+Pass MetaScheduleApplyDatabase(Target target, ffi::Optional<ffi::String> work_dir,
+                               bool enable_warning = false) {
   using tvm::s_tir::meta_schedule::Database;
-  Target target = Target::Current(false).value();
   const std::optional<tvm::ffi::Function> normalize_mod_func_ =
       tvm::ffi::Function::GetGlobalRequired("tvm.s_tir.meta_schedule.normalize_mod");
   TVM_FFI_ICHECK(normalize_mod_func_.has_value()) << "Normalization function is not found.";
@@ -149,11 +149,10 @@ Pass MetaScheduleApplyDatabase(ffi::Optional<ffi::String> work_dir, bool enable_
   return CreateModulePass(pass_func, 0, "MetaScheduleApplyDatabase");
 }
 
-Pass MetaScheduleTuneIRMod(ffi::Map<ffi::String, ffi::Tensor> params, ffi::String work_dir,
-                           int64_t max_trials_global,
+Pass MetaScheduleTuneIRMod(Target target, ffi::Map<ffi::String, ffi::Tensor> params,
+                           ffi::String work_dir, int64_t max_trials_global,
                            ffi::Optional<int64_t> max_trials_per_task = std::nullopt,
                            ffi::Optional<ffi::Array<ffi::String>> op_names = std::nullopt) {
-  Target target = Target::Current(false).value();
   auto pass_func = [=](IRModule m, PassContext ctx) {
     auto max_trials_task = max_trials_per_task.value_or(max_trials_global);
     return MetaScheduleTuner(target, work_dir, max_trials_global, max_trials_task, op_names, params)
@@ -163,8 +162,7 @@ Pass MetaScheduleTuneIRMod(ffi::Map<ffi::String, ffi::Tensor> params, ffi::Strin
                           /*pass name*/ "MetaScheduleTuneIRModule");
 }
 
-Pass MetaScheduleTuneTIR(ffi::String work_dir, int64_t max_trials_global) {
-  Target target = Target::Current(false).value();
+Pass MetaScheduleTuneTIR(Target target, ffi::String work_dir, int64_t max_trials_global) {
   ffi::TypedFunction<tirx::Function(tirx::Function, IRModule, PassContext)> pass_func =
       [=](tirx::Function f, IRModule mod, PassContext ctx) {
         return MetaScheduleTuner(target, work_dir, max_trials_global, max_trials_global,

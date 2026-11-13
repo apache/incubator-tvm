@@ -40,11 +40,10 @@ def _get_thrust_func_name(tvmop):
     return _THRUST_SUM_SCAN
 
 
-def _can_use_scan_thrust(binop):
+def _can_use_scan_thrust(binop, *, target=None):
     """
     Check if scan_thrust can be utilized based on the current target and binary op.
     """
-    target = tvm_tirx.target.Target.current()
     if target is None:
         return False
     return binop is operator.add and any(
@@ -55,7 +54,9 @@ def _can_use_scan_thrust(binop):
     )
 
 
-def exclusive_scan_ir(data, output, reduction=None, binop=operator.add, identity_value=0):
+def exclusive_scan_ir(
+    data, output, reduction=None, binop=operator.add, identity_value=0, *, target=None
+):
     """Low level IR to do exclusive sum scan along rows of 2D input.
 
     Parameters
@@ -86,7 +87,7 @@ def exclusive_scan_ir(data, output, reduction=None, binop=operator.add, identity
     with IRBuilder() as ib:
         out_dtype = output.dtype
 
-        max_threads = int(tvm_tirx.target.Target.current(allow_none=False).attrs["max_num_threads"])
+        max_threads = int(target.attrs["max_num_threads"])
 
         with T.if_(scan_axis_size == 0):
             with T.then_():
@@ -127,7 +128,7 @@ def exclusive_scan_ir(data, output, reduction=None, binop=operator.add, identity
 
                 # The following algorithm performs parallel exclusive scan
                 # Up Sweep of exclusive scan
-                lim = ceil_log2(scan_axis_size)
+                lim = ceil_log2(scan_axis_size, target=target)
 
                 with T.serial(0, cast(lim, "int32")) as l2_width:
                     width = 2 << l2_width
@@ -334,7 +335,7 @@ def exclusive_scan_ir(data, output, reduction=None, binop=operator.add, identity
         return ib.get()
 
 
-def get_reduction_from_exclusive_scan(data, ex_scan_output, binop=operator.add):
+def get_reduction_from_exclusive_scan(data, ex_scan_output, binop=operator.add, *, target=None):
     """Return the sum of the last element of data and the exclusive scan output.
     The is the reduction of data along each row (for 2-D case).
 
@@ -365,7 +366,7 @@ def get_reduction_from_exclusive_scan(data, ex_scan_output, binop=operator.add):
         batch_size = cast(prod(data_buf.shape[:-1]), "int32")
         scan_axis_size = cast(data_buf.shape[-1], "int32")
 
-        max_threads = int(tvm_tirx.target.Target.current(allow_none=False).attrs["max_num_threads"])
+        max_threads = int(target.attrs["max_num_threads"])
 
         with IRBuilder() as ib:
             data = data_buf
@@ -445,6 +446,8 @@ def scan_thrust(
     return_reduction=False,
     binop=operator.add,
     workspace=None,
+    *,
+    target=None,
 ):
     """Do exclusive or inclusive scan on 1D or multidimensional input, using thrust.
 
@@ -526,7 +529,7 @@ def scan_thrust(
 
     if return_reduction:
         assert exclusive, "return_reduction should be False for inclusive scan"
-        reduction = get_reduction_from_exclusive_scan(data, output, binop)
+        reduction = get_reduction_from_exclusive_scan(data, output, binop, target=target)
         return output, reduction
 
     return output
@@ -540,6 +543,8 @@ def exclusive_scan(
     binop=operator.add,
     identity_value=0,
     workspace=None,
+    *,
+    target=None,
 ):
     """Do exclusive scan on 1D or multidimensional input.
 
@@ -587,7 +592,7 @@ def exclusive_scan(
 
     def do_scan(data, output_dtype):
         # TODO: add support for a prod_scan
-        if _can_use_scan_thrust(binop):
+        if _can_use_scan_thrust(binop, target=target):
             return scan_thrust(
                 data,
                 output_dtype,
@@ -595,6 +600,7 @@ def exclusive_scan(
                 return_reduction=return_reduction,
                 binop=binop,
                 workspace=workspace,
+                target=target,
             )
 
         if ndim == 1:
@@ -620,7 +626,12 @@ def exclusive_scan(
                 [data.shape, data.shape[:-1]],
                 [data],
                 lambda ins, outs: exclusive_scan_ir(
-                    ins[0], outs[0], outs[1], binop=binop, identity_value=identity_value
+                    ins[0],
+                    outs[0],
+                    outs[1],
+                    binop=binop,
+                    identity_value=identity_value,
+                    target=target,
                 ),
                 dtype=[output_dtype, output_dtype],
                 in_tensors=[data_buf],
@@ -632,7 +643,7 @@ def exclusive_scan(
                 [data.shape],
                 [data],
                 lambda ins, outs: exclusive_scan_ir(
-                    ins[0], outs[0], binop=binop, identity_value=identity_value
+                    ins[0], outs[0], binop=binop, identity_value=identity_value, target=target
                 ),
                 dtype=[output_dtype],
                 in_tensors=[data_buf],
@@ -681,7 +692,14 @@ def exclusive_scan(
 
 
 def inclusive_scan(
-    data, axis=-1, output_dtype=None, binop=operator.add, identity_value=0, workspace=None
+    data,
+    axis=-1,
+    output_dtype=None,
+    binop=operator.add,
+    identity_value=0,
+    workspace=None,
+    *,
+    target=None,
 ):
     """Do inclusive scan on 1D or multidimensional input.
 
@@ -717,7 +735,7 @@ def inclusive_scan(
         A N-D tensor of the same rank N as the input data.
     """
 
-    if _can_use_scan_thrust(binop):
+    if _can_use_scan_thrust(binop, target=target):
         if output_dtype is None or output_dtype == "":
             output_dtype = data.dtype
         ndim = len(data.shape)
@@ -727,7 +745,9 @@ def inclusive_scan(
         if axis != ndim - 1:
             axes = swap(list(range(ndim)), axis)
             data = transpose(data, axes)
-        output = scan_thrust(data, output_dtype, exclusive=False, binop=binop, workspace=workspace)
+        output = scan_thrust(
+            data, output_dtype, exclusive=False, binop=binop, workspace=workspace, target=target
+        )
         if axis != ndim - 1:
             axes = swap(list(range(ndim)), axis)
             output = transpose(output, axes)
@@ -740,6 +760,7 @@ def inclusive_scan(
         binop=binop,
         identity_value=identity_value,
         workspace=workspace,
+        target=target,
     )
 
     if output_dtype is not None and data.dtype != output_dtype and output_dtype != "":
@@ -756,6 +777,8 @@ def scanop(
     dtype: str | None = None,
     exclusive: bool | None = None,
     workspace: tvm.te.Tensor | None = None,
+    *,
+    target=None,
 ) -> tvm.te.Tensor:
     """Cumulative binary operator (scan) with similar axis behavior as np.cumsum and np.cumprod.
 
@@ -812,6 +835,7 @@ def scanop(
             binop=binop,
             identity_value=identity_value,
             workspace=workspace,
+            target=target,
         )
     return inclusive_scan(
         data,
@@ -820,6 +844,7 @@ def scanop(
         binop=binop,
         identity_value=identity_value,
         workspace=workspace,
+        target=target,
     )
 
 
@@ -829,6 +854,8 @@ def cumsum(
     dtype: int | None = None,
     exclusive: bool | None = None,
     workspace: tvm.te.Tensor | None = None,
+    *,
+    target=None,
 ) -> tvm.te.Tensor:
     """Numpy style cumsum op. Return the cumulative sum of the elements along a given axis.
 
@@ -870,6 +897,7 @@ def cumsum(
         dtype=dtype,
         exclusive=exclusive,
         workspace=workspace,
+        target=target,
     )
 
 
@@ -879,6 +907,8 @@ def cumprod(
     dtype: int | None = None,
     exclusive: bool | None = None,
     workspace: tvm.te.Tensor | None = None,
+    *,
+    target=None,
 ):
     """Numpy style cumprod op. Return the cumulative product of the elements along a given axis.
 
@@ -920,4 +950,5 @@ def cumprod(
         dtype=dtype,
         exclusive=exclusive,
         workspace=workspace,
+        target=target,
     )

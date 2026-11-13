@@ -566,8 +566,7 @@ def test_cublas_matmul_cuda_graph():
 
     out = get_result_with_relax_cublas_offload(Mod, inputs, cuda_graph=True)
 
-    with tvm_tirx.target.Target("cuda"):
-        mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+    mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
     ref = build_and_run(mod, inputs, "llvm", legalize=True)
     tvm_tirx.testing.assert_allclose(out, ref, rtol=1e-2, atol=1e-2)
 

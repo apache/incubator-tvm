@@ -877,13 +877,12 @@ namespace transform {
 
 Pass LowerAutoCopy() {
   auto pass_func = [](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
-    auto mutator = ffi::make_object<AutoCopyMutator>(
-        ThreadExtentCollector::CollectThreadExtent(n->body.value()));
-    n->body = mutator->Mutate(n->body.value(), InplaceMode::kAllow)
-                  .ValueOrUnchanged(std::move(n->body).value());
-    n->body = mutator->RewritePaddingBody(n->body.value());
+    auto mutator =
+        ffi::make_object<AutoCopyMutator>(ThreadExtentCollector::CollectThreadExtent(n->body));
+    n->body = mutator->Mutate(n->body, InplaceMode::kAllow).ValueOrUnchanged(std::move(n->body));
+    n->body = mutator->RewritePaddingBody(n->body);
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.LowerAutoCopy");

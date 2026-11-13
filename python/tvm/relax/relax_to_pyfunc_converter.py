@@ -625,8 +625,7 @@ class RelaxExpressionConverter:
                         try:
                             # Compile the TIR function
                             target = tvm_tirx.target.Target("llvm")
-                            with tvm_tirx.target.Target(target):
-                                tir_function = tvm.compile(func, target=target)
+                            tir_function = tvm.compile(func, target=target)
                             break
                         except (RuntimeError, ValueError, TypeError) as compile_e:
                             print(

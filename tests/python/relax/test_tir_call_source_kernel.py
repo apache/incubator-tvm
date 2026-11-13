@@ -54,7 +54,8 @@ def test_tir_call_source_kernel():
             y: T.Tensor((m_add,), "float32"),
             output: T.Tensor((m_add,), "float32"),
         ) -> None:
-            T.func_attr({"global_symbol": "add"})
+            # The external kernel supplies its own grid and block dimensions.
+            T.func_attr({"global_symbol": "add", "tirx.is_scheduled": True})
 
             with Ts.sblock("root"):
                 Ts.reads(x[0:m_add], y[0:m_add])
@@ -88,6 +89,7 @@ def test_tir_call_source_kernel():
             y: T.Tensor((m,), "float32"),
             output: T.Tensor((m,), "float32"),
         ):
+            T.func_attr({"tirx.is_scheduled": True})
             with Ts.sblock("root"):
                 Ts.reads(x[0:m], y[0:m])
                 Ts.writes(output[0:m])
@@ -104,15 +106,16 @@ def test_tir_call_source_kernel():
     tvm_tirx.ir.assert_structural_equal(Module["add"], Parsed["add"])
     assert len(Module.get_attr("external_mods")) == 1
 
-    with tvm_tirx.target.Target("cuda"):
-        lib = tvm.compile(Module)
+    lib = tvm.compile(Module, target=tvm_tirx.target.Target("cuda"))
 
     def run_and_check():
         device = tvm_tirx.cuda(0)
-        x_nd = tvm_tirx.runtime.tensor(np.random.rand(256).astype(np.float32), device)
-        y_nd = tvm_tirx.runtime.tensor(np.random.rand(256).astype(np.float32), device)
-        output_np = x_nd.numpy() + y_nd.numpy()
-        output_nd = tvm.runtime.vm.VirtualMachine(lib, device)["main"](x_nd, y_nd)
-        tvm_tirx.testing.assert_allclose(output_nd.numpy(), output_np, rtol=1e-5)
+        vm = tvm.runtime.vm.VirtualMachine(lib, device)
+        for n_elements in (256, 257):
+            x_nd = tvm_tirx.runtime.tensor(np.random.rand(n_elements).astype(np.float32), device)
+            y_nd = tvm_tirx.runtime.tensor(np.random.rand(n_elements).astype(np.float32), device)
+            output_np = x_nd.numpy() + y_nd.numpy()
+            output_nd = vm["main"](x_nd, y_nd)
+            tvm_tirx.testing.assert_allclose(output_nd.numpy(), output_np, rtol=1e-5)
 
     tvm_tirx.testing.run_with_gpu_lock(run_and_check)

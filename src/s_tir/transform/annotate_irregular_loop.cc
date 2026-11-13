@@ -95,8 +95,8 @@ namespace transform {
 
 Pass AnnotateIrregularLoop() {
   auto pass_func = [](Function func, IRModule mod, PassContext ctx) -> Function {
-    if (!func->body.has_value()) return func;
-    func.CopyOnWrite()->body = IrregularLoopAnnotator::Annotate(func->body.value());
+    if (func->GetAttr(tvm::attr::kDeclaration).value_or(false)) return func;
+    func.CopyOnWrite()->body = IrregularLoopAnnotator::Annotate(func->body);
     return func;
   };
 

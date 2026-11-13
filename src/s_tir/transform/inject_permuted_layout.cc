@@ -49,7 +49,7 @@ class PermutedLayoutInjector : public StmtExprMutatorWithConstraintContext {
 
     auto new_body = ffi::make_object<PermutedLayoutInjector>(analyzer)
                         ->Mutate(func->body)
-                        .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>()
+                        .as_or_throw<UnchangedOr<SeqStmt>>()
                         .ValueOrUnchanged(func->body);
     auto func_node = func.CopyOnWrite();
     func_node->body = new_body;

@@ -2386,6 +2386,50 @@ class CumSum(OnnxOpConverter):
         return data
 
 
+class CumProd(OnnxOpConverter):
+    """Converts an onnx CumProd node into an equivalent Relax expression."""
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        exclusive = attr.get("exclusive", 0) != 0
+
+        axis = 0
+        if len(inputs) > 1 and inputs[1] is not None:
+            axis_input = get_constant(inputs[1], params)
+            if isinstance(axis_input, tvm_tirx.ir.GenericConst):
+                axis_data = axis_input.value.numpy()
+                if axis_data.ndim == 0:
+                    axis = int(axis_data.item())
+                elif axis_data.ndim == 1 and axis_data.shape[0] == 1:
+                    axis = int(axis_data.item())
+                else:
+                    raise ValueError(
+                        "CumProd axis input must be a scalar (0-D) or a single-element 1-D tensor, "
+                        f"got shape {axis_data.shape}"
+                    )
+            elif isinstance(axis_input, relax.Var):
+                axis_shape = axis_input.ty.shape if hasattr(axis_input.ty, "shape") else None
+                raise ValueError(
+                    "CumProd with non-constant axis input is not supported yet. "
+                    "ONNX permits runtime axis tensors, but Relax/TE currently requires a compile-time "
+                    f"constant axis for cumprod/flip. Got axis shape {axis_shape}"
+                )
+            else:
+                raise TypeError("CumProd axis input must be a Constant or Var")
+
+        if attr.get("reverse", 0) != 0:
+            data = bb.emit_te(topi.flip, data, axis=axis)
+
+        data = relax.op.cumprod(data, axis, exclusive=exclusive)
+        data = bb.normalize(data)
+
+        if attr.get("reverse", 0) != 0:
+            data = bb.emit_te(topi.flip, data, axis=axis)
+
+        return data
+
+
 class Squeeze(OnnxOpConverter):
     """Converts an onnx Squeeze node into an equivalent Relax expression."""
 
@@ -6228,6 +6272,7 @@ def _get_convert_map():
         "Clip": Clip,
         "Shape": Shape,
         "Pow": Pow,
+        "CumProd": CumProd,
         "CumSum": CumSum,
         "Squeeze": Squeeze,
         "Constant": Constant,

@@ -89,11 +89,13 @@ def check_roundtrip(exec0, reference_exec, input_arrays, entry_func_name="main")
 def gen_ground_truth(mod, target):
     # Lower and run tuning
     # Since there is no default schedule for GPU in MS yet, this is necessary
-    with target:
-        seq = tvm_tirx.ir.transform.Sequential(
-            [relax.transform.LegalizeOps(), s_tir.transform.DefaultGPUSchedule()]
-        )
-        new_mod = seq(mod)
+    seq = tvm_tirx.ir.transform.Sequential(
+        [
+            relax.transform.LegalizeOps(target=target),
+            s_tir.transform.DefaultGPUSchedule(target=target),
+        ]
+    )
+    new_mod = seq(mod)
     relax.analysis.check_well_formed(new_mod)
     return tvm.compile(new_mod, target, params={})
 
@@ -181,17 +183,17 @@ def test_mix_use_tensorrt_and_tvm():
 
     # Run Codegen pass
     with tempfile.TemporaryDirectory() as work_dir:
-        with target, tvm_tirx.ir.transform.PassContext(opt_level=0):
+        with tvm_tirx.ir.transform.PassContext(opt_level=0):
             new_mod = tvm_tirx.ir.transform.Sequential(
                 [
                     relax.transform.FuseOpsByPattern(patterns),
                     relax.transform.MergeCompositeFunctions(),
                     relax.transform.RunCodegen(),
-                    relax.transform.LegalizeOps(),
+                    relax.transform.LegalizeOps(target=target),
                     relax.transform.MetaScheduleTuneIRMod(
-                        params={}, work_dir=work_dir, max_trials_global=8
+                        params={}, work_dir=work_dir, max_trials_global=8, target=target
                     ),
-                    relax.transform.MetaScheduleApplyDatabase(work_dir),
+                    relax.transform.MetaScheduleApplyDatabase(work_dir, target=target),
                 ]
             )(mod)
     relax.analysis.check_well_formed(new_mod)

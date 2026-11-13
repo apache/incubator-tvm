@@ -1665,8 +1665,7 @@ def test_scatter_elements_gpu():
                 R.output(gv)
             return gv
 
-    with tvm_tirx.target.Target(target):
-        mod = LegalizeOps()(Mod)
+    mod = LegalizeOps(target=tvm_tirx.target.Target(target))(Mod)
     relax.build(mod, target=target)
 
 
@@ -1942,8 +1941,7 @@ def test_scatter_nd_gpu():
                 R.output(gv)
             return gv
 
-    with tvm_tirx.target.Target(target):
-        mod = LegalizeOps()(Mod)
+    mod = LegalizeOps(target=tvm_tirx.target.Target(target))(Mod)
     relax.build(mod, target=target)
 
 

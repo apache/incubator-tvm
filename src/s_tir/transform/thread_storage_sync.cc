@@ -399,9 +399,9 @@ namespace transform {
 
 Pass ThreadSync(runtime::MemoryScope storage_scope) {
   auto pass_func = [storage_scope](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
-    n->body = s_tir::ThreadSync(std::move(n->body).value(), storage_scope);
+    n->body = s_tir::ThreadSync(std::move(n->body), storage_scope);
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.ThreadSync");
@@ -409,13 +409,13 @@ Pass ThreadSync(runtime::MemoryScope storage_scope) {
 
 Pass LowerSynchronization() {
   auto pass_func = [](Function f, IRModule, PassContext) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto target = f->GetAttr(tvm::attr::kTarget);
     bool is_cuda = target && target.value()->kind->name == "cuda";
     auto* n = f.CopyOnWrite();
     n->body = ffi::make_object<SynchronizationLowerer>(is_cuda)
-                  ->Mutate(n->body.value(), InplaceMode::kAllow)
-                  .ValueOrUnchanged(n->body.value());
+                  ->Mutate(n->body, InplaceMode::kAllow)
+                  .ValueOrUnchanged(n->body);
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.LowerSynchronization");

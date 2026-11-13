@@ -139,7 +139,7 @@ class ScriptCompleter : public s_tir::StmtExprMutator {
 Function ScriptComplete(Function func, const ffi::Array<TensorVar>& root_allocates,
                         const TensorAllocatedAddresses& root_addresses) {
   func = WithAttr(std::move(func), tvm::attr::kScriptNamespace.name, ffi::String("s_tir"));
-  if (!func->body.has_value()) return func;
+  if (func->GetAttr(tvm::attr::kDeclaration).value_or(false)) return func;
   ffi::Map<Var, TensorVar> tensor_var_map;
   for (const Var& param : func->params) {
     if (auto tensor = param.as<TensorVar>()) {
@@ -150,7 +150,7 @@ Function ScriptComplete(Function func, const ffi::Array<TensorVar>& root_allocat
     tensor_var_map.Set(alloc, alloc);
   }
 
-  Stmt res = func->body.value();
+  Stmt res = func->body;
 
   // Generate root block automatically.  This is done before
   // ScriptCompleter, in order to fill the root block's Ts.reads() and
@@ -159,13 +159,12 @@ Function ScriptComplete(Function func, const ffi::Array<TensorVar>& root_allocat
     if (root_allocates.size()) {
       return true;
     }
-    auto* block_realize = func->body.value()->seq.size() == 1
-                              ? func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()
-                              : nullptr;
+    auto* block_realize =
+        func->body->seq.size() == 1 ? func->body->seq[0].as<s_tir::SBlockRealizeObj>() : nullptr;
     if (block_realize && block_realize->block->iter_vars.size()) {
       return true;
     }
-    if (!block_realize && ContainsNode<s_tir::SBlockRealizeObj>(func->body.value())) {
+    if (!block_realize && ContainsNode<s_tir::SBlockRealizeObj>(func->body)) {
       return true;
     }
     return false;

@@ -503,16 +503,16 @@ def test_mlp(session_kind, ccl):  # pylint: disable=too-many-locals
     dev, target = create_device_target(ccl)
 
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            )(mod)
-            return tvm.compile(mod, target=target)
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        )(mod)
+        return tvm.compile(mod, target=target)
 
     # pylint: disable=invalid-name
     X = np.random.randn(128, 128).astype("float32")
@@ -645,16 +645,16 @@ def test_attention(session_kind, ccl):  # pylint: disable=too-many-locals,too-ma
     dev, target = create_device_target(ccl)
 
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.Matmul(),
-                dl.gpu.GEMV(),
-                dl.gpu.Reduction(),
-                dl.gpu.GeneralReduction(),
-                dl.gpu.Fallback(),
-            )(mod)
-            return tvm.compile(mod, target=target)
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.Matmul(),
+            dl.gpu.GEMV(),
+            dl.gpu.Reduction(),
+            dl.gpu.GeneralReduction(),
+            dl.gpu.Fallback(),
+            target=target,
+        )(mod)
+        return tvm.compile(mod, target=target)
 
     # pylint: disable=invalid-name
     X = np.random.randn(1, 10, 128).astype("float32")

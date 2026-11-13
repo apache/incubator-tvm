@@ -74,8 +74,8 @@ class LegalizeMutator : public ExprMutator {
   explicit LegalizeMutator(const IRModule& mod,
                            const ffi::Optional<ffi::Map<ffi::String, ffi::Function>>& cmap,
                            const ffi::Optional<ffi::Array<ffi::String>> skip_ops,
-                           bool enable_warning)
-      : ExprMutator(mod), mod_(std::move(mod)), enable_warning_(enable_warning) {
+                           bool enable_warning, ffi::Optional<Target> target)
+      : ExprMutator(mod), mod_(std::move(mod)), target_(target), enable_warning_(enable_warning) {
     if (cmap) {
       cmap_ = cmap.value();
     }
@@ -368,6 +368,8 @@ class LegalizeMutator : public ExprMutator {
     } else {
       builder_->BeginBindingBlock();
     }
+    builder_->target = GetTarget({visited_call->ty});
+    if (!builder_->target.has_value()) builder_->target = target_;
     Expr legalized = legalization_func(builder_, visited_call);
 
     // Append the target attribute to any tirx::Function generated in
@@ -404,6 +406,7 @@ class LegalizeMutator : public ExprMutator {
 
   /*! \brief The context IRModule. */
   IRModule mod_;
+  ffi::Optional<Target> target_;
   /*! \brief The customized legalization function map. */
   ffi::Map<ffi::String, ffi::Function> cmap_;
   /*! \brief If VDevice annotations produced at least one tirx::Function with a Target attr*/
@@ -422,12 +425,13 @@ class LegalizeMutator : public ExprMutator {
 namespace transform {
 
 Pass LegalizeOps(ffi::Optional<ffi::Map<ffi::String, ffi::Function>> cmap,
-                 ffi::Optional<ffi::Array<ffi::String>> skip_ops, bool enable_warning) {
+                 ffi::Optional<ffi::Array<ffi::String>> skip_ops, bool enable_warning,
+                 ffi::Optional<Target> target) {
   auto pass_func = [=](IRModule mod, PassContext pc) {
     bool apply_legalize_ops =
         pc->GetConfig<bool>("relax.transform.apply_legalize_ops").value_or(true);
     if (apply_legalize_ops) {
-      mod = LegalizeMutator(mod, cmap, skip_ops, enable_warning).Transform();
+      mod = LegalizeMutator(mod, cmap, skip_ops, enable_warning, target).Transform();
     }
     return mod;
   };

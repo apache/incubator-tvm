@@ -19,9 +19,9 @@
 
 from tvm.relax.distributed import DeviceMesh, Placement
 from tvm_tirx.ir import Call, Op
+from tvm_tirx.ir._expose_api import _make_op_api
 from tvm_tirx.ir.attrs import make_node
 from tvm_tirx.ir.location import UNKNOWN_LOC, Location
-from tvm_tirx.ir.op import _make_op_api
 
 from ...expr import Expr
 

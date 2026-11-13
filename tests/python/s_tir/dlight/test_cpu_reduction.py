@@ -109,8 +109,7 @@ def test_softmax_schedule_structure():
     assert scheduled_mod is not None
 
     # Verify via ApplyDefaultSchedule path
-    with target:
-        scheduled = dl.ApplyDefaultSchedule(Reduction())(mod)
+    scheduled = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     func = scheduled["main"]
 
     # Check tirx.is_scheduled is set
@@ -179,8 +178,7 @@ def test_rvv_code_size_reduction(fast):
     n_unsched = len(ir_unsched.splitlines())
 
     # Scheduled
-    with target:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     ir_sched = _codegen_llvm_ir(mod_sched, target)
     n_sched = len(ir_sched.splitlines())
 
@@ -202,8 +200,7 @@ def test_rvv_fast_softmax_vectorizes_exp():
     for the polynomial exp approximation (no scalar exp calls)."""
     target = _rvv_target()
     mod = _build_softmax(14, 185, fast=True)
-    with target:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=target)(mod)
     ir = _codegen_llvm_ir(mod_sched, target)
 
     # Should have zero scalar exp calls (fast_exp uses polynomial)
@@ -252,8 +249,7 @@ def test_rvv_asm_instruction_reduction():
     )
 
     # RVV scheduled
-    with rvv:
-        mod_sched = dl.ApplyDefaultSchedule(Reduction())(mod)
+    mod_sched = dl.ApplyDefaultSchedule(Reduction(), target=rvv)(mod)
     asm_sched = _codegen_asm(mod_sched, rvv)
     n_sched = len(
         [

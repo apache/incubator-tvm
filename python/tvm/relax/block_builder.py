@@ -164,6 +164,9 @@ class BlockBuilder(tvm_ffi.Object):
         else:
             return None
 
+    # Set by LegalizeOps from the explicit target or the call's virtual device.
+    target: tvm_tirx.target.Target | None
+
     def __init__(self, mod: IRModule = None):
         # Which functions are currently being defined
         self._func_stack: list[FunctionScope] = []

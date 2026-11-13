@@ -202,7 +202,7 @@ ffi::Array<ScheduleRule> ScheduleRule::DefaultHexagon() {
   };
 }
 
-ffi::Array<ScheduleRule> ScheduleRule::DefaultRISCV(const int vlen) {
+ffi::Array<ScheduleRule> ScheduleRule::DefaultRISCV(Target target, const int vlen) {
   ffi::Array<ScheduleRule> rules;
   rules.push_back(ScheduleRule::ApplyCustomRule());
   rules.push_back(ScheduleRule::InlineConstantScalars());
@@ -217,15 +217,14 @@ ffi::Array<ScheduleRule> ScheduleRule::DefaultRISCV(const int vlen) {
   rules.push_back(ScheduleRule::AddRFactor(
       /*max_jobs_per_core=*/16,
       /*max_innermost_factor=*/static_cast<int64_t>(64)));
-  auto current_target = tvm::Target::Current();
   const auto reg_rvv_intrinsics =
       tvm::ffi::Function::GetGlobalRequired("tirx.tensor_intrin.register_rvv_isa_intrinsics");
-  const auto rvv_kernels_inventory = reg_rvv_intrinsics(current_target, /* inventory_only */ true)
-                                         .cast<ffi::Map<ffi::String, int>>();
+  const auto rvv_kernels_inventory =
+      reg_rvv_intrinsics(target, /* inventory_only */ true).cast<ffi::Map<ffi::String, int>>();
   for (const auto& intrin : rvv_kernels_inventory) {
     if (!TensorIntrin::Get(intrin.first, /*allow_missing*/ true)) {
       // on demand intrinsic register
-      reg_rvv_intrinsics(current_target, /* inventory_only */ false);
+      reg_rvv_intrinsics(target, /* inventory_only */ false);
     }
     rules.push_back(ScheduleRule::MultiLevelTilingWithIntrin(
         /*intrin_name=*/intrin.first,

@@ -46,8 +46,7 @@ def build_and_run(mod, inputs_np, target, legalize=True):
     if legalize:
         mod = relax.transform.LegalizeOps()(mod)
 
-        with tvm_tirx.target.Target("cuda"):
-            mod = tvm.s_tir.transform.DefaultGPUSchedule()(mod)
+        mod = tvm.s_tir.transform.DefaultGPUSchedule(target=tvm_tirx.target.Target("cuda"))(mod)
 
     with tvm_tirx.ir.transform.PassContext():
         ex = tvm.compile(mod, target)

@@ -57,9 +57,8 @@ class TextureAllocInjector : public s_tir::StmtExprMutatorWithConstraintContext 
     auto pass = ffi::make_object<TextureAllocInjector>(ana);
     auto writer = func.CopyOnWrite();
     pass->AddParamConstraints(func);
-    writer->body = pass->Mutate(func->body)
-                       .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>()
-                       .ValueOrUnchanged(func->body);
+    writer->body =
+        pass->Mutate(func->body).as_or_throw<UnchangedOr<SeqStmt>>().ValueOrUnchanged(func->body);
     return func;
   }
 
