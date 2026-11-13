@@ -55,6 +55,11 @@ class FuseTransposeMatmul:  # pylint: disable=too-few-public-methods
 
 def _pattern():
     """Pattern for transpose + matmul."""
+    # tvm.relax.backend imports tvm.relax.transform, so import it lazily here.
+    from tvm.relax.backend.utils import (  # pylint: disable=import-outside-toplevel
+        has_leaking_intermediate_variables,
+    )
+
     # pylint: disable=invalid-name
     w = wildcard()
     x = wildcard()
@@ -64,6 +69,10 @@ def _pattern():
     annotations = {"o": o, "w": w, "x": x, "wT": wT}
 
     def _check(context: relax.transform.PatternCheckContext) -> bool:
+        # The fused function returns only the matmul result, so the transposed operand
+        # must not be used outside the pattern (e.g. by another op or as an output).
+        if has_leaking_intermediate_variables(context):
+            return False
         transpose_call = context.annotated_expr["wT"]
         ndim = transpose_call.args[0].ty.ndim
         if ndim == -1:

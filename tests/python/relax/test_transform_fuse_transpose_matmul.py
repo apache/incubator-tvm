@@ -134,5 +134,46 @@ def test_transform_fuse_transpose_matmul_const():
     tvm_tirx.ir.assert_structural_equal(after, Expected)
 
 
+def test_transform_fuse_transpose_matmul_transpose_is_output():
+    # The transposed operand is also a function output, so it cannot be folded into
+    # the fused matmul. The module should be left unchanged.
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((128, 256), "float32"),
+            w: R.Tensor((128, 256), "float32"),
+        ) -> R.Tuple(R.Tensor((128, 128), "float32"), R.Tensor((256, 128), "float32")):
+            with R.dataflow():
+                wT = R.permute_dims(w, [1, 0])
+                o = R.matmul(x, wT)
+                R.output(o, wT)
+            return (o, wT)
+
+    after = relax.transform.FuseTransposeMatmul()(Before)
+    tvm.ir.assert_structural_equal(after, Before)
+
+
+def test_transform_fuse_transpose_matmul_transpose_has_other_user():
+    # The transposed operand is also used by another op in the dataflow block.
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor((128, 128), "float32"),
+            w: R.Tensor((128, 128), "float32"),
+        ) -> R.Tensor((128, 128), "float32"):
+            with R.dataflow():
+                wT = R.permute_dims(w, [1, 0])
+                o = R.matmul(x, wT)
+                r = R.nn.relu(wT)
+                out = R.add(o, r)
+                R.output(out)
+            return out
+
+    after = relax.transform.FuseTransposeMatmul()(Before)
+    tvm.ir.assert_structural_equal(after, Before)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
