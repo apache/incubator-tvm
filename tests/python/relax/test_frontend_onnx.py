@@ -6302,6 +6302,201 @@ def test_rms_norm():
     check_correctness(model, opset=23, rtol=1e-2, atol=1e-2)
 
 
+def test_simplified_layer_norm():
+    """Test SimplifiedLayerNormalization (RMSNorm variant without beta).
+
+    Unlike LayerNormalization, SimplifiedLayerNormalization uses root mean square
+    normalization (no mean-centering) and has no beta parameter (optional bias input).
+    Formula: y = x / sqrt(mean(x^2) + eps) * weight [+ bias]
+    """
+
+    def _numpy_rms_norm(x, weight, bias=None, axis=-1, eps=1e-5):
+        """NumPy reference implementation of SimplifiedLayerNormalization."""
+        # Determine normalization axes: from axis to the last dimension
+        ndim = x.ndim
+        if axis < 0:
+            axis = ndim + axis
+        axes = tuple(range(axis, ndim))
+        # Root mean square
+        rms = np.sqrt(np.mean(x**2, axis=axes, keepdims=True) + eps)
+        out = x / rms * weight
+        if bias is not None:
+            out = out + bias
+        return out
+
+    # --- Test 1: Basic case without bias, default axis=-1 ---
+    print("Test 1: No bias, axis=-1")
+    input_shape = (2, 4, 8)
+    eps = 1e-5
+    node = helper.make_node(
+        "SimplifiedLayerNormalization",
+        ["input", "scale"],
+        ["output"],
+        epsilon=eps,
+    )
+    graph = helper.make_graph(
+        [node],
+        "simplified_ln_test",
+        inputs=[
+            helper.make_tensor_value_info("input", TensorProto.FLOAT, input_shape),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [8]),
+        ],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.FLOAT, input_shape)],
+    )
+    model = helper.make_model(graph, producer_name="simplified_ln_test")
+    model.ir_version = 11
+
+    # Verify the converter builds the graph
+    tvm_model = from_onnx(model, keep_params_in_input=True)
+    assert tvm_model is not None
+    print("  Converter ran successfully")
+
+    # Run TVM and compare against numpy
+    x_np = np.random.randn(*input_shape).astype(np.float32)
+    w_np = np.random.randn(8).astype(np.float32)
+
+    # Compile and run with TVM
+    tvm_model_compiled = relax.transform.DecomposeOpsForInference()(tvm_model)
+    tvm_model_compiled = relax.transform.LegalizeOps()(tvm_model_compiled)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex = tvm.compile(tvm_model_compiled, target="llvm")
+        vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
+
+    vm.set_input("main", x_np, w_np)
+    vm.invoke_stateful("main")
+    tvm_out = vm.get_outputs("main").numpy()
+
+    # Reference: numpy RMSNorm
+    np_out = _numpy_rms_norm(x_np, w_np, axis=-1, eps=eps)
+    np.testing.assert_allclose(tvm_out, np_out, rtol=1e-5, atol=1e-5)
+    print("  Output matches numpy reference ✓")
+
+    # --- Test 2: With optional bias ---
+    print("Test 2: With bias, axis=-1")
+    node2 = helper.make_node(
+        "SimplifiedLayerNormalization",
+        ["input", "scale", "bias"],
+        ["output"],
+        epsilon=eps,
+    )
+    graph2 = helper.make_graph(
+        [node2],
+        "simplified_ln_with_bias_test",
+        inputs=[
+            helper.make_tensor_value_info("input", TensorProto.FLOAT, input_shape),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [8]),
+            helper.make_tensor_value_info("bias", TensorProto.FLOAT, [8]),
+        ],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.FLOAT, input_shape)],
+    )
+    model2 = helper.make_model(graph2, producer_name="simplified_ln_with_bias_test")
+    model2.ir_version = 11
+
+    tvm_model2 = from_onnx(model2, keep_params_in_input=True)
+    x_np2 = np.random.randn(*input_shape).astype(np.float32)
+    w_np2 = np.random.randn(8).astype(np.float32)
+    b_np2 = np.random.randn(8).astype(np.float32)
+
+    tvm_model2_compiled = relax.transform.DecomposeOpsForInference()(tvm_model2)
+    tvm_model2_compiled = relax.transform.LegalizeOps()(tvm_model2_compiled)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex2 = tvm.compile(tvm_model2_compiled, target="llvm")
+        vm2 = relax.VirtualMachine(ex2, tvm_tirx.cpu())
+
+    vm2.set_input("main", x_np2, w_np2, b_np2)
+    vm2.invoke_stateful("main")
+    tvm_out2 = vm2.get_outputs("main").numpy()
+
+    np_out2 = _numpy_rms_norm(x_np2, w_np2, b_np2, axis=-1, eps=eps)
+    np.testing.assert_allclose(tvm_out2, np_out2, rtol=1e-5, atol=1e-5)
+    print("  Output matches numpy reference ✓")
+
+    # --- Test 3: Different axis value (axis=1, normalize over last 2 dims) ---
+    print("Test 3: axis=1 (normalize over last 2 dims)")
+    input_shape3 = (2, 4, 8, 16)
+    node3 = helper.make_node(
+        "SimplifiedLayerNormalization",
+        ["input", "scale", "bias"],
+        ["output"],
+        axis=1,
+        epsilon=eps,
+    )
+    graph3 = helper.make_graph(
+        [node3],
+        "simplified_ln_axis_test",
+        inputs=[
+            helper.make_tensor_value_info("input", TensorProto.FLOAT, input_shape3),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT, [4, 8, 16]),
+            helper.make_tensor_value_info("bias", TensorProto.FLOAT, [4, 8, 16]),
+        ],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.FLOAT, input_shape3)],
+    )
+    model3 = helper.make_model(graph3, producer_name="simplified_ln_axis_test")
+    model3.ir_version = 11
+
+    tvm_model3 = from_onnx(model3, keep_params_in_input=True)
+    x_np3 = np.random.randn(*input_shape3).astype(np.float32)
+    w_np3 = np.random.randn(4, 8, 16).astype(np.float32)
+    b_np3 = np.random.randn(4, 8, 16).astype(np.float32)
+
+    tvm_model3_compiled = relax.transform.DecomposeOpsForInference()(tvm_model3)
+    tvm_model3_compiled = relax.transform.LegalizeOps()(tvm_model3_compiled)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex3 = tvm.compile(tvm_model3_compiled, target="llvm")
+        vm3 = relax.VirtualMachine(ex3, tvm_tirx.cpu())
+
+    vm3.set_input("main", x_np3, w_np3, b_np3)
+    vm3.invoke_stateful("main")
+    tvm_out3 = vm3.get_outputs("main").numpy()
+
+    np_out3 = _numpy_rms_norm(x_np3, w_np3, b_np3, axis=1, eps=eps)
+    np.testing.assert_allclose(tvm_out3, np_out3, rtol=1e-5, atol=1e-5)
+    print("  Output matches numpy reference ✓")
+
+    # --- Test 4: FP16 input with stash_type=1 (compute in float32) ---
+    print("Test 4: FP16 input with stash_type=1")
+    node4 = helper.make_node(
+        "SimplifiedLayerNormalization",
+        ["input", "scale"],
+        ["output"],
+        epsilon=eps,
+        stash_type=1,
+    )
+    graph4 = helper.make_graph(
+        [node4],
+        "simplified_ln_fp16_test",
+        inputs=[
+            helper.make_tensor_value_info("input", TensorProto.FLOAT16, input_shape),
+            helper.make_tensor_value_info("scale", TensorProto.FLOAT16, [8]),
+        ],
+        outputs=[helper.make_tensor_value_info("output", TensorProto.FLOAT16, input_shape)],
+    )
+    model4 = helper.make_model(graph4, producer_name="simplified_ln_fp16_test")
+    model4.ir_version = 11
+
+    tvm_model4 = from_onnx(model4, keep_params_in_input=True)
+    x_np4 = np.random.randn(*input_shape).astype(np.float16)
+    w_np4 = np.random.randn(8).astype(np.float16)
+
+    tvm_model4_compiled = relax.transform.DecomposeOpsForInference()(tvm_model4)
+    tvm_model4_compiled = relax.transform.LegalizeOps()(tvm_model4_compiled)
+    with tvm_tirx.ir.transform.PassContext(opt_level=3):
+        ex4 = tvm.compile(tvm_model4_compiled, target="llvm")
+        vm4 = relax.VirtualMachine(ex4, tvm_tirx.cpu())
+
+    vm4.set_input("main", x_np4, w_np4)
+    vm4.invoke_stateful("main")
+    tvm_out4 = vm4.get_outputs("main").numpy()
+
+    # NumPy reference (compute in float32, then cast to fp16)
+    np_out4 = _numpy_rms_norm(x_np4.astype(np.float32), w_np4.astype(np.float32), axis=-1, eps=eps)
+    np_out4 = np_out4.astype(np.float16)
+    np.testing.assert_allclose(tvm_out4.astype(np.float32), np_out4.astype(np.float32), rtol=1e-2, atol=1e-2)
+    print("  Output matches numpy reference ✓")
+
+    print("All SimplifiedLayerNormalization tests passed!")
+
+
 def _make_group_norm_expected_ir(
     input_shape: list[int],
     scale_shape: list[int],

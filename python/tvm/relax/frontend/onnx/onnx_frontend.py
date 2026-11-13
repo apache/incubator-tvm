@@ -4744,6 +4744,57 @@ class RMSNormalization(OnnxOpConverter):
         return output
 
 
+class SimplifiedLayerNormalization(OnnxOpConverter):
+    """Converts an onnx SimplifiedLayerNormalization node into an equivalent Relax expression.
+
+    SimplifiedLayerNormalization is an RMSNorm variant that normalizes using root mean square.
+    Unlike LayerNormalization, it does not use mean-centered variance and has no beta parameter
+    (though it accepts an optional bias input).
+
+    Formula: y = x / sqrt(mean(x^2) + eps) * weight [+ bias]
+    """
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        scale = inputs[1]
+        bias = inputs[2] if len(inputs) > 2 else None
+
+        axis = attr.get("axis", -1)
+        epsilon = attr.get("epsilon", 1e-05)
+        # stash_type is supported in ONNX spec but defaults to float computation
+        stash_type = attr.get("stash_type", 1)
+
+        # Determine normalization axes: from `axis` to the last dimension
+        ndim = _get_known_tensor_rank(data)
+        if ndim is None:
+            raise ValueError("SimplifiedLayerNormalization requires a statically known input rank.")
+        axis = _normalize_constant_axes([axis], ndim, "SimplifiedLayerNormalization")[0]
+        axes = list(range(axis, ndim))
+
+        # If stash_type requires float32 computation and input is not float32, cast
+        input_dtype = data.ty.dtype.dtype
+        if stash_type == 1 and input_dtype != "float32":
+            data_compute = relax.op.astype(data, "float32")
+            scale_compute = relax.op.astype(scale, "float32")
+        else:
+            data_compute = data
+            scale_compute = scale
+
+        # RMSNorm computation
+        output = relax.op.nn.rms_norm(data_compute, scale_compute, axes, epsilon)
+
+        # Add optional bias
+        if bias is not None:
+            output = relax.op.add(output, bias)
+
+        # Cast back to original dtype if needed
+        if stash_type == 1 and input_dtype != "float32":
+            output = relax.op.astype(output, input_dtype)
+
+        return output
+
+
 class GroupNormalization(OnnxOpConverter):
     """Converts an onnx GroupNormalization node into an equivalent Relax expression"""
 
@@ -6289,6 +6340,7 @@ def _get_convert_map():
         "BatchNormalization": BatchNormalization,
         "LayerNormalization": LayerNormalization,
         "RMSNormalization": RMSNormalization,
+        "SimplifiedLayerNormalization": SimplifiedLayerNormalization,
         "GroupNormalization": GroupNormalization,
         "SkipLayerNormalization": SkipLayerNormalization,
         "EmbedLayerNormalization": EmbedLayerNormalization,
