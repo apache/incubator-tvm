@@ -24,12 +24,12 @@
 
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/relax/analysis.h>
+#include <tvm/relax/attrs/linear_algebra.h>
 #include <tvm/relax/dataflow_matcher.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 
-#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -51,6 +51,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
   auto pat_matmul = IsOp("relax.matmul")(pat_lhs, pat_rhs);
 
   auto rewriter = [=](Expr expr, ffi::Map<DFPattern, Expr> matches) -> Expr {
+    auto out_dtype = expr.as<CallNode>()->attrs.as<MatmulAttrs>()->out_dtype;
     auto lhs = matches[pat_lhs];
     auto weights = matches[pat_weights];
     auto indices = matches[pat_indices];
@@ -92,7 +93,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
       // indices.shape = [outfeatures]
 
       // out_table.shape = [*batch, table_size]
-      auto out_table = matmul(lhs, weights, std::nullopt);
+      auto out_table = matmul(lhs, weights, out_dtype);
       // new_output.shape = [*batch, outfeatures]
       auto new_output = take(out_table, indices, matmul_ty->ndim - 1, attrs->mode);
 
@@ -116,7 +117,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
       auto fused_weight = reshape(reordered_weight,
                                   ShapeExpr({weight_shape[1], weight_shape[0] * weight_shape[2]}));
       // fused_output.shape = [batch1, batch2, table_size * outfeatures]
-      auto fused_output = matmul(lhs, fused_weight, std::nullopt);
+      auto fused_output = matmul(lhs, fused_weight, out_dtype);
       // indexed_output.shape = [batch1, batch2, table_size, outfeatures]
       auto indexed_output = reshape(
           fused_output, ShapeExpr({lhs_shape[0], lhs_shape[1], weight_shape[0], weight_shape[2]}));

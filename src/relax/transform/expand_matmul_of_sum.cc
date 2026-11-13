@@ -24,12 +24,12 @@
 
 #include <tvm/ffi/reflection/registry.h>
 #include <tvm/relax/analysis.h>
+#include <tvm/relax/attrs/linear_algebra.h>
 #include <tvm/relax/dataflow_matcher.h>
 #include <tvm/relax/expr.h>
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/transform.h>
 
-#include <optional>
 #include <unordered_set>
 #include <vector>
 
@@ -59,6 +59,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
   auto pat_matmul = IsOp("relax.matmul")(pat_lhs, pat_rhs);
 
   auto rewriter = [=](Expr expr, ffi::Map<DFPattern, Expr> matches) -> Expr {
+    auto out_dtype = expr.as<CallNode>()->attrs.as<MatmulAttrs>()->out_dtype;
     auto lhs = matches[pat_lhs];
     auto rhs_a = matches[pat_rhs_a];
     auto rhs_b = matches[pat_rhs_b];
@@ -88,7 +89,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
       rhs_b = permute_dims(rhs_b, axes);
     }
 
-    return add(matmul(lhs, rhs_a, std::nullopt), matmul(lhs, rhs_b, std::nullopt));
+    return add(matmul(lhs, rhs_a, out_dtype), matmul(lhs, rhs_b, out_dtype));
   };
 
   return {pat_matmul, rewriter};

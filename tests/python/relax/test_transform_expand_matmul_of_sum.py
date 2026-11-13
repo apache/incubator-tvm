@@ -64,6 +64,33 @@ class TestSimple(Base):
             return out
 
 
+class TestPreserveOutDtype(Base):
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor([16], "float16"),
+            A: R.Tensor([16, 32], "float16"),
+            B: R.Tensor([16, 32], "float16"),
+        ) -> R.Tensor([32], "float32"):
+            weight = R.add(A, B)
+            out = R.matmul(x, weight, out_dtype="float32")
+            return out
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor([16], "float16"),
+            A: R.Tensor([16, 32], "float16"),
+            B: R.Tensor([16, 32], "float16"),
+        ) -> R.Tensor([32], "float32"):
+            lhs = R.matmul(x, A, out_dtype="float32")
+            rhs = R.matmul(x, B, out_dtype="float32")
+            out = R.add(lhs, rhs)
+            return out
+
+
 class TestNoExpansionOfCompileTimeAddition(Base):
     """Do not expand compile-time parameters
 

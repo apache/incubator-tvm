@@ -262,5 +262,69 @@ class TestPreserveTakeModeForBatchedWeights(Base):
             return out
 
 
+class TestPreserveOutDtype(Base):
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor([1, 16], "float16"),
+            weight_table: R.Tensor([16, 64], "float16"),
+            routing_table: R.Tensor([32], "int64"),
+        ) -> R.Tensor([1, 32], "float32"):
+            with R.dataflow():
+                weight = R.take(weight_table, routing_table, axis=1)
+                out = R.matmul(x, weight, out_dtype="float32")
+                R.output(out)
+            return out
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor([1, 16], "float16"),
+            weight_table: R.Tensor([16, 64], "float16"),
+            routing_table: R.Tensor([32], "int64"),
+        ) -> R.Tensor([1, 32], "float32"):
+            with R.dataflow():
+                out_table = R.matmul(x, weight_table, out_dtype="float32")
+                out = R.take(out_table, routing_table, axis=1)
+                R.output(out)
+            return out
+
+
+class TestPreserveOutDtypeForBatchedWeights(Base):
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor([128, 1, 16], "float16"),
+            weight_table: R.Tensor([64, 16, 32], "float16"),
+            routing_table: R.Tensor([128], "int64"),
+        ) -> R.Tensor([128, 1, 32], "float32"):
+            with R.dataflow():
+                weight = R.take(weight_table, routing_table, axis=0)
+                out = R.matmul(x, weight, out_dtype="float32")
+                R.output(out)
+            return out
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor([128, 1, 16], "float16"),
+            weight_table: R.Tensor([64, 16, 32], "float16"),
+            routing_table: R.Tensor([128], "int64"),
+        ) -> R.Tensor([128, 1, 32], "float32"):
+            with R.dataflow():
+                reordered_weight = R.permute_dims(weight_table, [1, 0, 2])
+                fused_weight = R.reshape(reordered_weight, [16, 2048])
+                fused_output = R.matmul(x, fused_weight, out_dtype="float32")
+                reordered_output = R.reshape(fused_output, [128, 1, 64, 32])
+                tabular_output = R.take(reordered_output, routing_table, axis=2)
+                out = R.einsum([tabular_output], "ijik->ijk")
+                R.output(out)
+            return out
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
