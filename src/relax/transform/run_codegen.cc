@@ -34,6 +34,9 @@
 #include <tvm/relax/expr_functor.h>
 #include <tvm/relax/op_attr.h>
 #include <tvm/relax/transform.h>
+#include <tvm/relax/type.h>
+
+#include <algorithm>
 
 #include "../../support/ordered_set.h"
 #include "utils.h"
@@ -78,6 +81,35 @@ class CodeGenRunner : ExprMutator {
       }
     }
 
+    // Pre-scan the module to identify BYOC functions and their param filter masks.
+    // ShapeType params (e.g. tir_vars injected by FuseOps) are symbolic variable
+    // definitions, not actual tensor inputs for the external codegen. They must
+    // be excluded both from the function passed to codegen and from the call site args.
+    for (const auto& [gv, base_func] : mod->functions) {
+      if (base_func->IsInstance<tirx::FunctionObj>()) continue;
+      PostOrderVisit(base_func, [this, &gv, &base_func](Expr e) {
+        if (e->IsInstance<FunctionObj>()) {
+          auto f = e.as_or_throw<Function>();
+          if (f->GetAttr<ffi::String>(tvm::relax::attr::kCodegen).has_value()) {
+            std::vector<bool> mask;
+            for (const auto& param : f->params) {
+              auto ty = GetType(param);
+              mask.push_back(!ty->IsInstance<ShapeTypeNode>());
+            }
+            // Only store if there are ShapeType params to filter
+            if (std::any_of(mask.begin(), mask.end(), [](bool b) { return !b; })) {
+              // We key on the GlobalVarObj* — but nested functions don't have one directly.
+              // For top-level functions we can use gvar; for nested ones we'll handle in
+              // VisitExpr_(CallObj) by looking up the function directly.
+              if (e.same_as(base_func)) {
+                param_filter_[gv.get()] = mask;
+              }
+            }
+          }
+        }
+      });
+    }
+
     for (const auto& gvar : entry_functions) {
       builder_->UpdateFunction(gvar, VisitExpr(mod->Lookup(gvar)).as_or_throw<BaseFunc>());
     }
@@ -115,9 +147,34 @@ class CodeGenRunner : ExprMutator {
     if (auto const* gvar_node = call_node->op.as<GlobalVarObj>()) {
       const GlobalVar gvar = ffi::GetRef<GlobalVar>(gvar_node);
 
-      auto create_call_dps_packed = [call_node, this](Expr extern_func, Type ret_ty) {
+      // Build filtered call args, excluding args that correspond to ShapeType params
+      // (e.g. tir_vars injected by FuseOps). These are symbolic variable definitions,
+      // not actual tensor inputs for the external codegen.
+      auto get_filtered_args = [&, this]() -> ffi::Array<Expr> {
+        auto it = param_filter_.find(gvar_node);
+        if (it == param_filter_.end()) {
+          // No ShapeType params — include all args
+          ffi::Array<Expr> filtered;
+          for (const auto& arg : call_node->args) {
+            filtered.push_back(VisitExpr(arg));
+          }
+          return filtered;
+        }
+        const auto& mask = it->second;
+        TVM_FFI_ICHECK_EQ(mask.size(), call_node->args.size())
+            << "Param filter mask size does not match call args size";
+        ffi::Array<Expr> filtered;
+        for (size_t i = 0; i < call_node->args.size(); ++i) {
+          if (mask[i]) {
+            filtered.push_back(VisitExpr(call_node->args[i]));
+          }
+        }
+        return filtered;
+      };
+
+      auto create_call_dps_packed = [&, this](Expr extern_func, Type ret_ty) {
         ffi::Array<Expr> new_args({extern_func});
-        new_args.push_back(Tuple(call_node->args.Map([this](Expr arg) { return VisitExpr(arg); })));
+        new_args.push_back(Tuple(get_filtered_args()));
 
         static const Op call_op = Op::Get("relax.call_dps_packed");
 
@@ -225,6 +282,11 @@ class CodeGenRunner : ExprMutator {
   ffi::Map<GenericConst, ffi::String> constant_names;
   /*! \brief Extern funcs for each global variable.  */
   std::unordered_map<const GlobalVarObj*, Expr> extern_funcs_;
+  /*! \brief Param filter mask for each BYOC function. Entries are only present for
+   *  functions that have ShapeType params (e.g. tir_vars). The mask has the same size
+   *  as the function's params; a false entry means that param and its corresponding
+   *  call-site arg should be filtered out. */
+  std::unordered_map<const GlobalVarObj*, std::vector<bool>> param_filter_;
 };
 
 }  // namespace relax
