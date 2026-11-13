@@ -105,7 +105,11 @@ def create_loggers(
         global_logger_name,
         {
             "level": logging.DEBUG,
-            "handlers": [handler.get_name() for handler in global_logger.handlers]
+            "handlers": [
+                handler.get_name()
+                for handler in global_logger.handlers
+                if handler.get_name() is not None
+            ]
             + [global_logger_name + ".console", global_logger_name + ".file"],
             "propagate": False,
         },
