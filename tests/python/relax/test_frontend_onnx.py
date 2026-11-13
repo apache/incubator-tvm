@@ -14583,7 +14583,12 @@ def test_quantizelinear_output_dtype_mismatch(opset):
 
 
 def test_qlinearmatmul():
-    """Verify numerical correctness of QLinearMatMul against ONNX Runtime."""
+    """Verify numerical correctness of QLinearMatMul against ONNX Runtime and reference."""
+
+    np_dtype_map = {
+        "uint8": (np.uint8, TensorProto.UINT8),
+        "int8": (np.int8, TensorProto.INT8),
+    }
 
     def verify_qlinearmatmul(
         a_shape,
@@ -14591,38 +14596,39 @@ def test_qlinearmatmul():
         a_dtype="uint8",
         b_dtype="uint8",
         y_dtype="uint8",
+        a_scale_shape=(),
+        b_scale_shape=(),
+        y_scale_shape=(),
         opset=10,
+        seed=42,
     ):
-        np_dtype_map = {
-            "uint8": (np.uint8, TensorProto.UINT8),
-            "int8": (np.int8, TensorProto.INT8),
-        }
+        rng = np.random.RandomState(seed)
         a_np_dtype, a_proto = np_dtype_map[a_dtype]
         b_np_dtype, b_proto = np_dtype_map[b_dtype]
         y_np_dtype, y_proto = np_dtype_map[y_dtype]
 
         if a_dtype == "uint8":
-            a = np.random.randint(0, 255, size=a_shape, dtype=a_np_dtype)
-            a_zp = np.array(128, dtype=a_np_dtype)
+            a = rng.randint(120, 136, size=a_shape).astype(a_np_dtype)
+            a_zp = np.full(a_scale_shape, 128, dtype=a_np_dtype)
         else:
-            a = np.random.randint(-128, 127, size=a_shape, dtype=a_np_dtype)
-            a_zp = np.array(0, dtype=a_np_dtype)
+            a = rng.randint(-8, 8, size=a_shape).astype(a_np_dtype)
+            a_zp = np.full(a_scale_shape, 0, dtype=a_np_dtype)
 
         if b_dtype == "uint8":
-            b = np.random.randint(0, 255, size=b_shape, dtype=b_np_dtype)
-            b_zp = np.array(120, dtype=b_np_dtype)
+            b = rng.randint(120, 136, size=b_shape).astype(b_np_dtype)
+            b_zp = np.full(b_scale_shape, 128, dtype=b_np_dtype)
         else:
-            b = np.random.randint(-128, 127, size=b_shape, dtype=b_np_dtype)
-            b_zp = np.array(0, dtype=b_np_dtype)
+            b = rng.randint(-8, 8, size=b_shape).astype(b_np_dtype)
+            b_zp = np.full(b_scale_shape, 0, dtype=b_np_dtype)
 
         if y_dtype == "uint8":
-            y_zp = np.array(10, dtype=y_np_dtype)
+            y_zp = np.full(y_scale_shape, 128, dtype=y_np_dtype)
         else:
-            y_zp = np.array(-5, dtype=y_np_dtype)
+            y_zp = np.full(y_scale_shape, 0, dtype=y_np_dtype)
 
-        a_scale = np.array(0.5, dtype=np.float32)
-        b_scale = np.array(0.25, dtype=np.float32)
-        y_scale = np.array(0.1, dtype=np.float32)
+        a_scale = np.full(a_scale_shape, 0.5, dtype=np.float32)
+        b_scale = np.full(b_scale_shape, 0.25, dtype=np.float32)
+        y_scale = np.full(y_scale_shape, 2.0, dtype=np.float32)
 
         node = helper.make_node(
             "QLinearMatMul",
@@ -14630,7 +14636,6 @@ def test_qlinearmatmul():
             outputs=["y"],
         )
 
-        # Output shape
         y_shape = list(np.matmul(np.zeros(a_shape), np.zeros(b_shape)).shape)
 
         graph = helper.make_graph(
@@ -14638,13 +14643,13 @@ def test_qlinearmatmul():
             "qlinearmatmul_test",
             inputs=[
                 helper.make_tensor_value_info("a", a_proto, a_shape),
-                helper.make_tensor_value_info("a_scale", TensorProto.FLOAT, []),
-                helper.make_tensor_value_info("a_zp", a_proto, []),
+                helper.make_tensor_value_info("a_scale", TensorProto.FLOAT, list(a_scale_shape)),
+                helper.make_tensor_value_info("a_zp", a_proto, list(a_scale_shape)),
                 helper.make_tensor_value_info("b", b_proto, b_shape),
-                helper.make_tensor_value_info("b_scale", TensorProto.FLOAT, []),
-                helper.make_tensor_value_info("b_zp", b_proto, []),
-                helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
-                helper.make_tensor_value_info("y_zp", y_proto, []),
+                helper.make_tensor_value_info("b_scale", TensorProto.FLOAT, list(b_scale_shape)),
+                helper.make_tensor_value_info("b_zp", b_proto, list(b_scale_shape)),
+                helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, list(y_scale_shape)),
+                helper.make_tensor_value_info("y_zp", y_proto, list(y_scale_shape)),
             ],
             outputs=[helper.make_tensor_value_info("y", y_proto, y_shape)],
         )
@@ -14661,7 +14666,124 @@ def test_qlinearmatmul():
         }
         check_correctness(model, inputs=inputs, opset=opset)
 
-    # 2D uint8
+    def verify_qlinearmatmul_ref(
+        a_shape,
+        b_shape,
+        a_dtype="uint8",
+        b_dtype="uint8",
+        y_dtype="uint8",
+        a_scale_shape=(),
+        b_scale_shape=(),
+        y_scale_shape=(),
+        opset=10,
+        seed=42,
+    ):
+        rng = np.random.RandomState(seed)
+        a_np_dtype, a_proto = np_dtype_map[a_dtype]
+        b_np_dtype, b_proto = np_dtype_map[b_dtype]
+        y_np_dtype, y_proto = np_dtype_map[y_dtype]
+
+        if a_dtype == "uint8":
+            a = rng.randint(120, 136, size=a_shape).astype(a_np_dtype)
+            a_zp = np.full(a_scale_shape, 128, dtype=a_np_dtype)
+        else:
+            a = rng.randint(-8, 8, size=a_shape).astype(a_np_dtype)
+            a_zp = np.full(a_scale_shape, 0, dtype=a_np_dtype)
+
+        if b_dtype == "uint8":
+            b = rng.randint(120, 136, size=b_shape).astype(b_np_dtype)
+            b_zp = np.full(b_scale_shape, 128, dtype=b_np_dtype)
+        else:
+            b = rng.randint(-8, 8, size=b_shape).astype(b_np_dtype)
+            b_zp = np.full(b_scale_shape, 0, dtype=b_np_dtype)
+
+        if y_dtype == "uint8":
+            y_zp = np.full(y_scale_shape, 128, dtype=y_np_dtype)
+        else:
+            y_zp = np.full(y_scale_shape, 0, dtype=y_np_dtype)
+
+        a_scale = np.full(a_scale_shape, 0.5, dtype=np.float32)
+        b_scale = np.full(b_scale_shape, 0.25, dtype=np.float32)
+        y_scale = np.full(y_scale_shape, 2.0, dtype=np.float32)
+
+        # Reference calculation
+        a_int32 = a.astype(np.int32)
+        b_int32 = b.astype(np.int32)
+        a_zp_i = a_zp.astype(np.int32)
+        b_zp_i = b_zp.astype(np.int32)
+        if a.ndim >= 2 and a_zp_i.ndim == 1:
+            a_zp_i = np.expand_dims(a_zp_i, axis=-1)
+        if b.ndim >= 2 and b_zp_i.ndim == 1:
+            b_zp_i = np.expand_dims(b_zp_i, axis=0)
+
+        matmul_int32 = np.matmul(a_int32 - a_zp_i, b_int32 - b_zp_i)
+        as_f = a_scale.copy()
+        bs_f = b_scale.copy()
+        ys_f = y_scale.copy()
+        yz_f = y_zp.astype(np.float32)
+
+        if b.ndim >= 2 and as_f.ndim == 1:
+            as_f = np.expand_dims(as_f, axis=-1)
+        elif b.ndim == 1 and as_f.ndim >= 2 and as_f.shape[-1] == 1:
+            as_f = np.squeeze(as_f, axis=-1)
+
+        if a.ndim >= 2 and bs_f.ndim == 1:
+            bs_f = np.expand_dims(bs_f, axis=0)
+        elif a.ndim == 1 and bs_f.ndim >= 2 and bs_f.shape[-2] == 1:
+            bs_f = np.squeeze(bs_f, axis=-2)
+
+        if b.ndim >= 2 and a.ndim >= 2 and ys_f.ndim == 1:
+            if a.shape[-2] == ys_f.shape[0]:
+                ys_f = np.expand_dims(ys_f, axis=-1)
+                yz_f = np.expand_dims(yz_f, axis=-1)
+            elif b.shape[-1] == ys_f.shape[0]:
+                ys_f = np.expand_dims(ys_f, axis=0)
+                yz_f = np.expand_dims(yz_f, axis=0)
+
+        scaled = matmul_int32.astype(np.float32) * (as_f * bs_f) / ys_f
+        rounded = np.round(scaled) + yz_f
+        min_v, max_v = (0, 255) if y_dtype == "uint8" else (-128, 127)
+        ref_out = np.clip(rounded, min_v, max_v).astype(y_np_dtype)
+
+        node = helper.make_node(
+            "QLinearMatMul",
+            inputs=["a", "a_scale", "a_zp", "b", "b_scale", "b_zp", "y_scale", "y_zp"],
+            outputs=["y"],
+        )
+        y_shape = list(ref_out.shape)
+
+        graph = helper.make_graph(
+            [node],
+            "qlinearmatmul_ref_test",
+            inputs=[
+                helper.make_tensor_value_info("a", a_proto, a_shape),
+                helper.make_tensor_value_info("a_scale", TensorProto.FLOAT, list(a_scale_shape)),
+                helper.make_tensor_value_info("a_zp", a_proto, list(a_scale_shape)),
+                helper.make_tensor_value_info("b", b_proto, b_shape),
+                helper.make_tensor_value_info("b_scale", TensorProto.FLOAT, list(b_scale_shape)),
+                helper.make_tensor_value_info("b_zp", b_proto, list(b_scale_shape)),
+                helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, list(y_scale_shape)),
+                helper.make_tensor_value_info("y_zp", y_proto, list(y_scale_shape)),
+            ],
+            outputs=[helper.make_tensor_value_info("y", y_proto, y_shape)],
+        )
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+        inputs = {
+            "a": a,
+            "a_scale": a_scale,
+            "a_zp": a_zp,
+            "b": b,
+            "b_scale": b_scale,
+            "b_zp": b_zp,
+            "y_scale": y_scale,
+            "y_zp": y_zp,
+        }
+        tvm_out = run_in_tvm(model, inputs=inputs, opset=opset)
+        tvm_val = tvm_out[0].numpy() if isinstance(tvm_out, (list, tuple)) else tvm_out.numpy()
+        assert tvm_val.shape == ref_out.shape
+        np.testing.assert_allclose(tvm_val, ref_out, atol=1e-5)
+
+    # 2D uint8 with in-range output
     verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
     # 2D int8
     verify_qlinearmatmul([3, 4], [4, 2], a_dtype="int8", b_dtype="int8", y_dtype="int8", opset=10)
@@ -14673,6 +14795,55 @@ def test_qlinearmatmul():
     verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=21)
     # Opset 21 int8
     verify_qlinearmatmul([2, 3], [3, 4], a_dtype="int8", b_dtype="int8", y_dtype="int8", opset=21)
+    # Mixed signedness uint8/int8
+    verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="int8", y_dtype="uint8", opset=10)
+    # Matrix-vector (2D x 1D -> 1D)
+    verify_qlinearmatmul([2, 3], [3], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
+    # Vector-matrix (1D x 2D -> 1D)
+    verify_qlinearmatmul([3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
+    # Batched matrix-vector (3D x 1D -> 2D)
+    verify_qlinearmatmul([2, 3, 4], [4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", opset=10)
+    # Per-column parameter on B
+    verify_qlinearmatmul([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", b_scale_shape=(4,))
+    # Batched per-column parameter on B
+    verify_qlinearmatmul(
+        [2, 3, 4], [2, 4, 5], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", b_scale_shape=(2, 1, 5)
+    )
+
+    # Reference tests for cases unsupported by ORT (per-row A and int8/uint8)
+    verify_qlinearmatmul_ref([2, 3], [3, 4], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", a_scale_shape=(2,))
+    verify_qlinearmatmul_ref(
+        [2, 3, 4], [2, 4, 5], a_dtype="uint8", b_dtype="uint8", y_dtype="uint8", a_scale_shape=(2, 3, 1)
+    )
+    verify_qlinearmatmul_ref([2, 3], [3, 4], a_dtype="int8", b_dtype="uint8", y_dtype="int8")
+
+
+def test_qlinearmatmul_float8_unsupported():
+    """Verify that float8 inputs and outputs in QLinearMatMul are rejected with NotImplementedError."""
+    node = helper.make_node(
+        "QLinearMatMul",
+        inputs=["a", "a_scale", "a_zp", "b", "b_scale", "b_zp", "y_scale", "y_zp"],
+        outputs=["y"],
+    )
+    # TensorProto.FLOAT8E4M3FN is type 17
+    graph = helper.make_graph(
+        [node],
+        "test_float8",
+        inputs=[
+            helper.make_tensor_value_info("a", 17, [2, 3]),
+            helper.make_tensor_value_info("a_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("a_zp", 17, []),
+            helper.make_tensor_value_info("b", 17, [3, 4]),
+            helper.make_tensor_value_info("b_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("b_zp", 17, []),
+            helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
+            helper.make_tensor_value_info("y_zp", 17, []),
+        ],
+        outputs=[helper.make_tensor_value_info("y", 17, [2, 4])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 21)])
+    with pytest.raises(NotImplementedError, match="Float8 operands and outputs"):
+        from_onnx(model, opset=21, keep_params_in_input=True)
 
 
 if __name__ == "__main__":

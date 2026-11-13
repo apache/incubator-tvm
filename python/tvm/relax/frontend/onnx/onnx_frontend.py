@@ -6141,6 +6141,56 @@ class QLinearMatMul(OnnxOpConverter):
     """Converts an onnx QLinearMatMul node into an equivalent Relax expression."""
 
     @classmethod
+    def _align_output_param(cls, bb, param, a_norm, b_norm):
+        if param is None:
+            return None
+        param_norm = bb.normalize(param)
+        if not hasattr(param_norm.ty, "shape"):
+            return param
+        p_shape = param_norm.ty.shape
+        p_ndim = len(p_shape)
+        if p_ndim == 0:
+            return param
+
+        a_shape = a_norm.ty.shape if hasattr(a_norm.ty, "shape") else None
+        b_shape = b_norm.ty.shape if hasattr(b_norm.ty, "shape") else None
+        a_rank = len(a_shape) if a_shape is not None else 2
+        b_rank = len(b_shape) if b_shape is not None else 2
+
+        # When b_rank == 1, output of matmul is [..., M], no trailing column axis
+        if b_rank == 1:
+            if p_ndim >= 2 and isinstance(p_shape[-1], (int, tvm_tirx.ir.IntImm)) and int(p_shape[-1]) == 1:
+                return relax.op.squeeze(param, axis=[-1])
+            return param
+
+        # When a_rank == 1, output of matmul is [..., N], no leading row axis
+        if a_rank == 1:
+            if p_ndim >= 2 and isinstance(p_shape[-2], (int, tvm_tirx.ir.IntImm)) and int(p_shape[-2]) == 1:
+                return relax.op.squeeze(param, axis=[-2])
+            return param
+
+        # Both a and b have rank >= 2, output is [..., M, N]
+        if p_ndim == 1:
+            # Check if it corresponds to row dimension M
+            if a_shape is not None and a_rank >= 2:
+                row_dim = a_shape[-2]
+                if (
+                    isinstance(row_dim, (int, tvm_tirx.ir.IntImm))
+                    and int(row_dim) == int(p_shape[0])
+                ):
+                    return relax.op.expand_dims(param, axis=-1)
+            # Check if it corresponds to col dimension N
+            if b_shape is not None and b_rank >= 2:
+                col_dim = b_shape[-1]
+                if (
+                    isinstance(col_dim, (int, tvm_tirx.ir.IntImm))
+                    and int(col_dim) == int(p_shape[0])
+                ):
+                    return relax.op.expand_dims(param, axis=0)
+
+        return param
+
+    @classmethod
     def _impl_v10(cls, bb, inputs, attr, params):
         a = inputs[0]
         a_scale = inputs[1]
@@ -6155,6 +6205,23 @@ class QLinearMatMul(OnnxOpConverter):
             y_zero_point = relax.const(0, "uint8")
         out_dtype = y_zero_point.ty.dtype.dtype
 
+        # Reject float8 input and output dtypes
+        for name, val in [("A", a), ("B", b), ("Y", y_zero_point)]:
+            if val is not None and hasattr(val, "ty") and hasattr(val.ty, "dtype"):
+                dtype_str = str(val.ty.dtype.dtype)
+                if dtype_str.startswith("float8") or "e4m3" in dtype_str or "e5m2" in dtype_str:
+                    raise NotImplementedError(
+                        f"Float8 operands and outputs ({name} has dtype {dtype_str}) "
+                        "are currently not supported in QLinearMatMul."
+                    )
+
+        a_norm = bb.normalize(a)
+        b_norm = bb.normalize(b)
+        a_shape = a_norm.ty.shape if hasattr(a_norm.ty, "shape") else None
+        b_shape = b_norm.ty.shape if hasattr(b_norm.ty, "shape") else None
+        a_rank = len(a_shape) if a_shape is not None else 2
+        b_rank = len(b_shape) if b_shape is not None else 2
+
         # Widen to int32 before arithmetic to prevent overflow
         a = relax.op.astype(a, "int32")
         b = relax.op.astype(b, "int32")
@@ -6162,49 +6229,44 @@ class QLinearMatMul(OnnxOpConverter):
         if a_zero_point is not None:
             a_zp = relax.op.astype(a_zero_point, "int32")
             a_zp = bb.normalize(a_zp)
-            if len(a_zp.ty.shape) == 1:
+            if a_rank >= 2 and len(a_zp.ty.shape) == 1:
                 a_zp = relax.op.expand_dims(a_zp, axis=-1)
             a = relax.op.subtract(a, a_zp)
 
         if b_zero_point is not None:
             b_zp = relax.op.astype(b_zero_point, "int32")
             b_zp = bb.normalize(b_zp)
-            if len(b_zp.ty.shape) == 1:
+            if b_rank >= 2 and len(b_zp.ty.shape) == 1:
                 b_zp = relax.op.expand_dims(b_zp, axis=0)
             b = relax.op.subtract(b, b_zp)
 
         # 32-bit integer accumulation
         matmul_int32 = relax.op.matmul(a, b, out_dtype="int32")
 
+        # Broadcast a_scale: for rank >= 2, expand row dimension to broadcast over columns
         a_scale_norm = bb.normalize(a_scale)
-        if len(a_scale_norm.ty.shape) == 1:
-            a_scale = relax.op.expand_dims(a_scale, axis=-1)
+        if hasattr(a_scale_norm.ty, "shape"):
+            as_shape = a_scale_norm.ty.shape
+            if b_rank >= 2:
+                if len(as_shape) == 1:
+                    a_scale = relax.op.expand_dims(a_scale, axis=-1)
+            elif b_rank == 1:
+                if len(as_shape) >= 2 and isinstance(as_shape[-1], (int, tvm_tirx.ir.IntImm)) and int(as_shape[-1]) == 1:
+                    a_scale = relax.op.squeeze(a_scale, axis=[-1])
 
+        # Broadcast b_scale: for rank >= 2, expand column dimension to broadcast over rows
         b_scale_norm = bb.normalize(b_scale)
-        if len(b_scale_norm.ty.shape) == 1:
-            b_scale = relax.op.expand_dims(b_scale, axis=0)
+        if hasattr(b_scale_norm.ty, "shape"):
+            bs_shape = b_scale_norm.ty.shape
+            if a_rank >= 2:
+                if len(bs_shape) == 1:
+                    b_scale = relax.op.expand_dims(b_scale, axis=0)
+            elif a_rank == 1:
+                if len(bs_shape) >= 2 and isinstance(bs_shape[-2], (int, tvm_tirx.ir.IntImm)) and int(bs_shape[-2]) == 1:
+                    b_scale = relax.op.squeeze(b_scale, axis=[-2])
 
-        y_scale_norm = bb.normalize(y_scale)
-        if len(y_scale_norm.ty.shape) == 1:
-            a_norm = bb.normalize(a)
-            if hasattr(a_norm.ty, "shape") and len(a_norm.ty.shape) >= 2:
-                row_dim = a_norm.ty.shape[-2]
-                if (
-                    isinstance(row_dim, (int, tvm_tirx.ir.IntImm))
-                    and int(row_dim) == int(y_scale_norm.ty.shape[0])
-                ):
-                    y_scale = relax.op.expand_dims(y_scale, axis=-1)
-
-        y_zp_norm = bb.normalize(y_zero_point)
-        if len(y_zp_norm.ty.shape) == 1:
-            a_norm = bb.normalize(a)
-            if hasattr(a_norm.ty, "shape") and len(a_norm.ty.shape) >= 2:
-                row_dim = a_norm.ty.shape[-2]
-                if (
-                    isinstance(row_dim, (int, tvm_tirx.ir.IntImm))
-                    and int(row_dim) == int(y_zp_norm.ty.shape[0])
-                ):
-                    y_zero_point = relax.op.expand_dims(y_zero_point, axis=-1)
+        y_scale = cls._align_output_param(bb, y_scale, a_norm, b_norm)
+        y_zero_point = cls._align_output_param(bb, y_zero_point, a_norm, b_norm)
 
         matmul_float = relax.op.astype(matmul_int32, "float32")
         a_scale_f = relax.op.astype(a_scale, "float32")
