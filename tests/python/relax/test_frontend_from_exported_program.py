@@ -698,16 +698,20 @@ def test_extended_unary_ops():
             R.Tensor((1, 3, 10, 10), dtype="float32")
         ):
             with R.dataflow():
-                lv: R.Tensor((1, 3, 10, 10), dtype="float32") = R.exp(input)
-                lv1: R.Tensor((1, 3, 10, 10), dtype="float32") = R.subtract(
-                    R.const(1.0, "float32"), lv
+                lv: R.Tensor((1, 3, 10, 10), dtype="bool") = R.less(
+                    input, R.const(0.0, "float32")
                 )
-                lv2: R.Tensor((1, 3, 10, 10), dtype="float32") = R.nn.relu(lv1)
+                lv1: R.Tensor((1, 3, 10, 10), dtype="float32") = R.exp(input)
+                lv2: R.Tensor((1, 3, 10, 10), dtype="float32") = R.subtract(
+                    lv1, R.const(1.0, "float32")
+                )
                 lv3: R.Tensor((1, 3, 10, 10), dtype="float32") = R.multiply(
-                    R.const(-1.6732631921768188, "float32"), lv2
+                    R.const(1.6732631921768188, "float32"), lv2
                 )
-                lv4: R.Tensor((1, 3, 10, 10), dtype="float32") = R.nn.relu(input)
-                lv5: R.Tensor((1, 3, 10, 10), dtype="float32") = R.add(lv3, lv4)
+                lv4: R.Tensor((1, 3, 10, 10), dtype="float32") = R.where(lv, lv3, input)
+                lv5: R.Tensor((1, 3, 10, 10), dtype="float32") = R.multiply(
+                    lv4, R.const(1.0507009873554805, "float32")
+                )
                 gv: R.Tuple(R.Tensor((1, 3, 10, 10), dtype="float32")) = (lv5,)
                 R.output(gv)
             return gv
@@ -9206,6 +9210,33 @@ def test_affine_grid_numerically():
     tvm_output_np = tvm_output[0].numpy()
 
     tvm_tirx.testing.assert_allclose(tvm_output_np, pytorch_output.numpy(), rtol=1e-5, atol=1e-5)
+
+
+def test_elu_negative_input_scale():
+    class EluScaled(Module):
+        def forward(self, x):
+            return torch.ops.aten.elu(x, 0.5, 2.0, -1.0)
+
+    @tvm.script.ir_module
+    class expected:
+        @R.function
+        def main(x: R.Tensor((1, 4), dtype="float32")) -> R.Tuple(
+            R.Tensor((1, 4), dtype="float32")
+        ):
+            with R.dataflow():
+                lv = R.multiply(x, R.const(-1.0, "float32"))
+                lv1 = R.less(x, R.const(0.0, "float32"))
+                lv2 = R.exp(lv)
+                lv3 = R.subtract(lv2, R.const(1.0, "float32"))
+                lv4 = R.multiply(R.const(0.5, "float32"), lv3)
+                lv5 = R.where(lv1, lv4, x)
+                lv6 = R.multiply(lv5, R.const(2.0, "float32"))
+                gv = (lv6,)
+                R.output(gv)
+            return gv
+
+    example_args = (torch.tensor([[-2.0, -0.5, 0.0, 1.5]]),)
+    verify_model(EluScaled(), example_args, {}, expected)
 
 
 if __name__ == "__main__":

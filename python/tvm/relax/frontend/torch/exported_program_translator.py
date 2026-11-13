@@ -76,6 +76,27 @@ class ExportedProgramImporter(BaseFXGraphImporter):
 
     ########## Unary Ops ##########
 
+    def _elu(self, node: fx.Node) -> relax.Expr:
+        # aten.elu is elu(x, alpha, scale, input_scale); run_decompositions rewrites selu to it
+        scale = node.args[2] if len(node.args) > 2 else node.kwargs.get("scale", 1.0)
+        input_scale = node.args[3] if len(node.args) > 3 else node.kwargs.get("input_scale", 1.0)
+        if scale == 1 and input_scale == 1:
+            return super()._elu(node)
+
+        x = self.env[node.args[0]]
+        alpha = node.args[1] if len(node.args) > 1 else node.kwargs.get("alpha", 1.0)
+        dtype = x.ty.dtype
+        bb = self.block_builder
+        scaled_x = x
+        if input_scale != 1:
+            scaled_x = bb.emit(relax.op.multiply(x, relax.const(input_scale, dtype)))
+        negative = relax.op.multiply(
+            relax.const(alpha, dtype),
+            relax.op.subtract(relax.op.exp(scaled_x), relax.const(1, dtype)),
+        )
+        out = bb.emit(relax.op.where(relax.op.less(x, relax.const(0, dtype)), negative, x))
+        return out if scale == 1 else bb.emit(relax.op.multiply(out, relax.const(scale, dtype)))
+
     def _hardtanh(self, node: fx.Node) -> relax.Expr:
         args = self.retrieve_args(node)
         x = args[0]
