@@ -94,7 +94,9 @@ def benchmark(
     if args is None:
         args, _ = extract_func_info_from_function(mod[func_name])
     # produce target & device
-    target = tvm_tirx.target.Target.current() if target is None else tvm_tirx.target.Target(target)
+    target = (
+        mod[func_name].attrs.get("target") if target is None else tvm_tirx.target.Target(target)
+    )
     if target is None:
         raise ValueError("Target is not specified")
     if target.kind.name == "llvm":

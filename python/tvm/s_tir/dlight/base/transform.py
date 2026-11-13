@@ -36,10 +36,12 @@ def _is_scheduled(func: tirx.Function) -> bool:
     return func.attrs["tirx.is_scheduled"] == 1
 
 
-def _get_target(func: tirx.Function) -> Target:
+def _get_target(func: tirx.Function, default_target: Target | None = None) -> Target:
     target = func.attrs.get("target")
     if target is None:
-        return Target.current(allow_none=False)
+        if default_target is None:
+            raise ValueError("A target must be supplied or attached to the function")
+        return default_target
     else:
         return target
 
@@ -48,15 +50,18 @@ def _get_target(func: tirx.Function) -> Target:
 class ApplyDefaultSchedule:  # pylint: disable=too-few-public-methods
     """A IRModule pass that applies a list of ScheduleRules to all Functions in the module."""
 
-    def __init__(self, *rules: ScheduleRule):
+    def __init__(self, *rules: ScheduleRule, target: Target | None = None):
         """Construct a new ApplyDefaultSchedule pass.
 
         Parameters
         ----------
         *rules : ScheduleRule
             The ScheduleRules to apply to all Functions in the module.
+        target : Target or None
+            Default compilation target for functions without a target attribute.
         """
         self.rules = list(rules)
+        self.target = Target(target) if target is not None else None
 
     def transform_module(  # pylint: disable=missing-function-docstring
         self,
@@ -66,7 +71,7 @@ class ApplyDefaultSchedule:  # pylint: disable=too-few-public-methods
         updated_functions = {}
         for g_var, func in mod.functions_items():
             if isinstance(func, tirx.Function) and not _is_scheduled(func):
-                target = _get_target(func)
+                target = _get_target(func, self.target)
 
                 sch = _apply_rules(func, target, self.rules, tunable=False)
                 if sch is not None:

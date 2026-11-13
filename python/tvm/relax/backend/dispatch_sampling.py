@@ -56,7 +56,7 @@ class SamplingDispatcher(BackendDispatcher):
             if self.is_gpu_target(tgt):
                 gv = self.builder_.add_func(
                     gpu_multinomial_from_uniform(
-                        prob_dtype, sample_dtype, sample_indices_dtype, dtype
+                        prob_dtype, sample_dtype, sample_indices_dtype, dtype, target=tgt
                     ),
                     "gpu_multinomial_from_uniform",
                 )
@@ -84,8 +84,11 @@ class SamplingDispatcher(BackendDispatcher):
 class DispatchSampling:
     """Pass to dispatch scan and sort operators to platform dependent implementation."""
 
+    def __init__(self, target=None):
+        self.target = target
+
     def transform_module(self, mod: IRModule, ctx: PassContext) -> IRModule:
-        sampling_dispatcher = SamplingDispatcher(mod)
+        sampling_dispatcher = SamplingDispatcher(mod, self.target)
         for gv, func in mod.functions_items():
             if isinstance(func, relax.Function):
                 func = sampling_dispatcher.visit_expr(func)

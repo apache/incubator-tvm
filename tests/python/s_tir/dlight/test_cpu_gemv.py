@@ -107,8 +107,7 @@ def test_gemv_basic():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -154,8 +153,7 @@ def test_decode_gemv_256_threads():
         # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target('llvm'))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -202,8 +200,7 @@ def test_decode_gemv1():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -264,8 +261,7 @@ def test_decode_gemv2():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -327,8 +323,7 @@ def test_decode_gemv3():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -365,8 +360,7 @@ def test_autogptq_decode_gemv():
     # The GeMV rule does not yet support the inner dim being grouped.
     # So the rule is expected to skip transforming this function.
     mod = tvm_tirx.IRModule({"main": func})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], func)
 
 
@@ -427,8 +421,7 @@ def test_outer_reduction_adreno():
                 p_output0_intermediate[v_ax0, v_ax1, v_ax2] = lv570[v_ax0, v_ax1, v_ax2] + var_matmul_intermediate[v_ax0, v_ax1, v_ax2]
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -496,9 +489,8 @@ def test_outer_reduction_adreno_dynamic():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
-        tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
 def test_blockized_gemv():
@@ -548,9 +540,8 @@ def test_blockized_gemv():
                                         o[v_expert_id_o, v0] = o[v_expert_id_o, v0] + x[0, v1] * w[indptr[v_expert_id_o], v0, v1]
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
-        tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
 def test_func_to_skip():
@@ -581,9 +572,8 @@ def test_func_to_skip():
 
     # This function should be skipped.
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("llvm"):
-        mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV())(mod)
-        tvm_tirx.ir.assert_structural_equal(mod["main"], before)
+    mod = dl.ApplyDefaultSchedule(dl.cpu.GEMV(), target=Target("llvm"))(mod)
+    tvm_tirx.ir.assert_structural_equal(mod["main"], before)
 
 
 if __name__ == "__main__":

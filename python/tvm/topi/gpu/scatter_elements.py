@@ -17,7 +17,6 @@
 # pylint: disable=invalid-name
 """scatter_elements related operators"""
 
-import tvm_tirx
 from tvm import te
 from tvm_tirx import tirx
 from tvm_tirx.script.ir_builder import IRBuilder
@@ -28,7 +27,7 @@ from ..math import cast
 from ..utils import ceil_div
 
 
-def scatter_elements(data, indices, updates, axis=0, reduction="update"):
+def scatter_elements(data, indices, updates, axis=0, reduction="update", *, target=None):
     """GPU implementation of scatter_elements with explicit thread bindings"""
     if not isinstance(axis, int):
         axis = utils.get_const_int(axis)
@@ -67,7 +66,7 @@ def scatter_elements(data, indices, updates, axis=0, reduction="update"):
         updates = updates_ptr
         out = out_ptr
 
-        max_threads = int(tvm_tirx.target.Target.current(allow_none=False).attrs["max_num_threads"])
+        max_threads = int(target.attrs["max_num_threads"])
 
         with IRBuilder() as ib:
             # Init

@@ -562,8 +562,7 @@ def run_pytorch_model_via_rpc():
 
     # Apply optimization pipeline
     pipeline = relax.get_pipeline()
-    with target:
-        built_mod = pipeline(mod)
+    built_mod = pipeline(mod)
 
     # Compile to executable
     executable = tvm.compile(built_mod, target=target)
@@ -715,8 +714,7 @@ def run_pytorch_model_via_rpc():
     #    .. code-block:: python
     #
     #       from tvm.s_tir import dlight as dl
-    #       with target:
-    #           mod = dl.ApplyDefaultSchedule()(mod)
+    #       mod = dl.ApplyDefaultSchedule(target=target)(mod)
     #
     # 3. **Architecture-specific optimizations**:
     #

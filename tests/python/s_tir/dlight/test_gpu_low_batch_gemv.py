@@ -148,8 +148,7 @@ def test_batch_decode_gemv():
 
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=Target("metal"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -252,8 +251,7 @@ def test_batch_gemv():
                                 NT_matmul[v0, T.int64(0), v1] = NT_matmul_pad_local[v0, T.int64(0), v1]
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=Target("metal"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -276,8 +274,7 @@ def test_reduction_symbolic_var():
                 matmul[v_i0, v_i1, v_i2, v_i3] = matmul[v_i0, v_i1, v_i2, v_i3] + A[v_i0, v_i1, v_i2, v_k] * B[v_i0, v_i1, v_k, v_i3]
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=Target("metal"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], before)
 
 
@@ -386,8 +383,7 @@ def test_small_spatial_axis():
     # fmt: on
 
     mod = tvm_tirx.IRModule({"main": func})
-    with Target("cuda"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=Target("cuda"))(mod)
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -532,8 +528,7 @@ def test_outer_reduction():
                             C[v0, 0, v1] = C_pad_local[v0, 0, v1]
     # fmt: on
     mod = tvm_tirx.IRModule({"main": before})
-    with Target("metal"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=Target("metal"))(mod)  # pylint: disable=not-callable
     tvm_tirx.ir.assert_structural_equal(mod["main"], expected)
 
 
@@ -559,8 +554,7 @@ def test_low_batch_gemv_cuda_target_without_max_shared_memory_per_block():
     assert target.attrs.get("max_shared_memory_per_block", None) is None
 
     mod = tvm_tirx.IRModule({"main": before})
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+    mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4), target=target)(mod)
     assert mod["main"].attrs["tirx.is_scheduled"] == 1
 
 
@@ -582,8 +576,8 @@ def test_low_batch_gemv_rejects_non_einsum_tensor_access():
                     C[vi, vj] = T.float16(0)
                 C[vi, vj] = C[vi, vj] + A[vi, vk] * B[vj, T.max(vi + vk - 7, 0)]
 
-    with Target("webgpu") as target:
-        result = dl.gpu.LowBatchGEMV(4).apply(before, target, False)
+    target = Target("webgpu")
+    result = dl.gpu.LowBatchGEMV(4).apply(before, target, False)
     assert result is None
 
 
@@ -627,8 +621,9 @@ def test_low_batch_gemv_broadcast_epilogue():
 
     mod = tvm_tirx.IRModule({"main": before})
     with mock.patch.object(low_batch_gemv, "is_broadcast_epilogue", return_value=True) as check:
-        with Target("nvidia/geforce-rtx-3090-ti"):
-            mod = dl.ApplyDefaultSchedule(dl.gpu.LowBatchGEMV(4))(mod)
+        mod = dl.ApplyDefaultSchedule(
+            dl.gpu.LowBatchGEMV(4), target=Target("nvidia/geforce-rtx-3090-ti")
+        )(mod)
 
     check.assert_called_once()
     assert mod["main"].attrs["tirx.is_scheduled"] == 1

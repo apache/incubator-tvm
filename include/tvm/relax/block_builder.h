@@ -30,6 +30,7 @@
 #include <tvm/relax/utils.h>
 #include <tvm/runtime/base.h>
 #include <tvm/sym/analyzer.h>
+#include <tvm/target/target.h>
 
 namespace tvm {
 namespace relax {
@@ -65,6 +66,9 @@ namespace relax {
  */
 class BlockBuilderObj : public ffi::Object {
  public:
+  /*! \brief Explicit target for the operation being legalized, if one was supplied. */
+  ffi::Optional<Target> target;
+
   //-------------------------------
   // Global Context management
   //-------------------------------

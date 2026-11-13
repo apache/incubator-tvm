@@ -63,9 +63,8 @@ class ForMatcher : public TensorizeComparator {
   }
 
   bool Match(const For& top) {
-    TVM_FFI_ICHECK(pattern_->body.has_value() && pattern_->body.value()->size() == 1)
-        << "Invalid pattern function";
-    const auto* root = pattern_->body.value()->seq[0].as<s_tir::SBlockRealizeObj>();
+    TVM_FFI_ICHECK(pattern_->body->size() == 1) << "Invalid pattern function";
+    const auto* root = pattern_->body->seq[0].as<s_tir::SBlockRealizeObj>();
     TVM_FFI_ICHECK(root && root->block->body->size() == 1) << "Invalid pattern function";
     const ForObj* pattern_top = root->block->body->seq[0].as<ForObj>();
     TVM_FFI_ICHECK(pattern_top) << "Invalid pattern function";
@@ -599,10 +598,10 @@ std::pair<tirx::Function, ffi::Optional<tirx::Function>> SplitFunctions(
     tirx::Function func, std::vector<std::vector<int>>* arg_partition,
     ffi::Array<TIRPattern> patterns, FCodegen f_codegen) {
   // Step 1. Find the library kernel and the rest.
-  if (!func->body.has_value() || func->body.value()->size() != 1) {
+  if (func->body->size() != 1) {
     return {func, std::nullopt};
   }
-  const auto* root = func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>();
+  const auto* root = func->body->seq[0].as<s_tir::SBlockRealizeObj>();
   if (root == nullptr) return {func, std::nullopt};
   SeqStmt body = root->block->body;
   ffi::Array<MatchResult> match_results = TIRPatternMatcher::Match(patterns, body);
@@ -634,10 +633,10 @@ std::pair<tirx::Function, ffi::Optional<tirx::Function>> SplitFunctions(
     return {WithAttr(func, tvm::relax::attr::kLibraryKernel.name, library_code), std::nullopt};
   }
   // Step 2. Split the function into two functions.
-  Stmt body1 = BlockRemover::RemoveBlockByPartition(
-      func->body.value(), partitioner->block_partition, partitioner->allocs1, true);
-  Stmt body2 = BlockRemover::RemoveBlockByPartition(
-      func->body.value(), partitioner->block_partition, partitioner->allocs2, false);
+  Stmt body1 = BlockRemover::RemoveBlockByPartition(func->body, partitioner->block_partition,
+                                                    partitioner->allocs1, true);
+  Stmt body2 = BlockRemover::RemoveBlockByPartition(func->body, partitioner->block_partition,
+                                                    partitioner->allocs2, false);
   // Step 3. Craft the first function.
   ffi::Array<Var> new_params1;
   std::vector<int> arg_partition1;

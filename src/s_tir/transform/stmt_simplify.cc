@@ -115,9 +115,9 @@ Function StmtSimplifier::Run(Function func) {
                   if (auto value = string_bindings.Get(var)) return ffi::Any(*value);
                   return ffi::Unchanged();
                 })
-                .as_or_throw<ffi::Optional<SeqStmt>>();
+                .as_or_throw<SeqStmt>();
   n->body = Mutate(n->body, InplaceMode::kAllow)
-                .as_or_throw<UnchangedOr<ffi::Optional<SeqStmt>>>()
+                .as_or_throw<UnchangedOr<SeqStmt>>()
                 .ValueOrUnchanged(n->body);
   return func;
 }

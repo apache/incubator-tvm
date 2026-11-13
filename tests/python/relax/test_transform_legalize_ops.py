@@ -440,10 +440,37 @@ def test_legalize_with_vdevice():
                     ax0, ax1 = Ts.axis.remap("SS", iters)
                     C[ax0, ax1] = A[ax0, ax1] + B[ax0, ax1]
 
-    with tvm_tirx.target.Target("cuda"):
-        After = tvm.relax.transform.LegalizeOps()(Before)
+    After = tvm.relax.transform.LegalizeOps(target=tvm_tirx.target.Target("cuda"))(Before)
 
     tvm_tirx.ir.assert_structural_equal(Expected, After)
+
+
+def test_explicit_legalize_target_and_vdevice_precedence():
+    @I.ir_module
+    class Module:
+        I.module_global_infos({"vdevice": [R.vdevice("llvm")]})
+
+        @R.function
+        def default(x: R.Tensor((4,), "float32")):
+            return R.add(x, x)
+
+        @R.function
+        def annotated(x: R.Tensor((4,), "float32", "llvm")):
+            return R.add(x, x)
+
+    targets = []
+
+    def record_target(bb, call):
+        targets.append(bb.target.kind.name)
+        return call
+
+    cuda_pass = tvm.relax.transform.LegalizeOps({"relax.add": record_target}, target="cuda")
+    llvm_pass = tvm.relax.transform.LegalizeOps({"relax.add": record_target}, target="llvm")
+    cuda_pass(Module)
+    assert sorted(targets) == ["cuda", "llvm"]
+    targets.clear()
+    llvm_pass(Module)
+    assert targets == ["llvm", "llvm"]
 
 
 if __name__ == "__main__":

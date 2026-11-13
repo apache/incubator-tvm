@@ -58,15 +58,15 @@ def get_rpc():
         return None
 
 
-def preprocess_pipeline(mod: IRModule) -> IRModule:
+def preprocess_pipeline(mod: IRModule, *, target=None) -> IRModule:
     desired_layouts = {"relax.nn.conv2d": ["NCHW16c", "OIHW16o", "NCHW16c"]}
     seq = tvm_tirx.ir.transform.Sequential(
         [
-            tvm_tirx.tirx.transform.BindTarget(Target.current(allow_none=False)),
+            tvm_tirx.tirx.transform.BindTarget(target),
             tvm.relax.transform.FoldConstant(),
             tvm.relax.transform.DecomposeOpsForInference(),
             tvm.relax.transform.FoldConstant(),
-            tvm_tirx.tirx.transform.BindTarget(tvm_tirx.target.Target.current(allow_none=False)),
+            tvm_tirx.tirx.transform.BindTarget(target),
             tvm.relax.transform.ConvertLayout(desired_layouts),
             tvm.relax.transform.Normalize(),
             tvm.relax.transform.FoldConstant(),
@@ -86,7 +86,7 @@ def preprocess_pipeline(mod: IRModule) -> IRModule:
     return mod
 
 
-def postprocess_pipeline(mod: IRModule) -> IRModule:
+def postprocess_pipeline(mod: IRModule, *, target=None) -> IRModule:
     seq = tvm_tirx.ir.transform.Sequential(
         [
             tvm.relax.transform.ToNonDataflow(),
@@ -158,11 +158,10 @@ def test_texture_copy(backend, dtype, channel_size, read_width):
             {"kind": "llvm", "mtriple": "aarch64-linux-android"},
         )
 
-    with target:
-        mod = preprocess_pipeline(mod)
-        sch = tvm.s_tir.Schedule(mod)
-        schedule_texture_read(sch)
-        mod = postprocess_pipeline(sch.mod)
+    mod = preprocess_pipeline(mod, target=target)
+    sch = tvm.s_tir.Schedule(mod)
+    schedule_texture_read(sch)
+    mod = postprocess_pipeline(sch.mod, target=target)
 
     ex = relax.build(mod, target)
     load_path = "vm_library.so"

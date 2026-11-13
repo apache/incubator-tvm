@@ -46,9 +46,8 @@ const FunctionObj* GetRootFunction(const IRModule& mod, const StmtObj* root_bloc
     const GlobalVar& g_var = kv.first;
     const BaseFunc& base_func = kv.second;
     if (const auto* func = base_func.as<FunctionObj>()) {
-      if (const auto* realize = func->body.has_value() && func->body.value()->size() == 1
-                                    ? func->body.value()->seq[0].as<SBlockRealizeObj>()
-                                    : nullptr) {
+      if (const auto* realize =
+              func->body->size() == 1 ? func->body->seq[0].as<SBlockRealizeObj>() : nullptr) {
         if (realize->block.get() == root_block) {
           if (result_g_var != nullptr) {
             *result_g_var = g_var;
@@ -910,7 +909,7 @@ SBlockRealize GetSBlockRealize(const ScheduleState& self, const StmtSRef& block_
   const SBlockObj* block = TVM_SREF_TO_SBLOCK(block_sref);
   if (block_sref->parent == nullptr) {
     const FunctionObj* func = GetRootFunction(self->mod, block, nullptr);
-    return func->body.value()->seq[0].as_or_throw<SBlockRealize>();
+    return func->body->seq[0].as_or_throw<SBlockRealize>();
   } else {
     auto finder = ffi::make_object<BlockRealizeFinder>(block);
     finder->Visit(ffi::GetRef<Stmt>(block_sref->parent->stmt));
@@ -1777,9 +1776,7 @@ TensorIntrinDescInfo ExtractTensorIntrinDescInfo(sym::AnalyzerObj* analyzer,
                                                  const Function& desc_func) {
   TensorIntrinDescInfo info;
   const auto* desc_scope_realize =
-      desc_func->body.has_value() && desc_func->body.value()->size() == 1
-          ? desc_func->body.value()->seq[0].as<SBlockRealizeObj>()
-          : nullptr;
+      desc_func->body->size() == 1 ? desc_func->body->seq[0].as<SBlockRealizeObj>() : nullptr;
   TVM_FFI_ICHECK(desc_scope_realize);
   {
     auto visit_block = [&](const SBlockRealize& block) -> ffi::Expected<ffi::WalkResult> {

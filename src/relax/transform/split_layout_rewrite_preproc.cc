@@ -48,10 +48,9 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
 
   explicit SplitFunctionLayoutRewrite(const tirx::Function& func) : original_func_(func) {}
   std::tuple<ffi::Optional<tirx::Function>, tirx::Function> Transform(const tirx::Function& func) {
-    TVM_FFI_ICHECK(func->body.has_value() && func->body.value()->size() == 1 &&
-                   func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>())
+    TVM_FFI_ICHECK(func->body->size() == 1 && func->body->seq[0].as<s_tir::SBlockRealizeObj>())
         << "The body of the function should be a root block.";
-    const auto& block = func->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()->block;
+    const auto& block = func->body->seq[0].as<s_tir::SBlockRealizeObj>()->block;
     visit_root_block(block.get());
     if (layout_rewrite_preproc_stmts_.size() > 0) {
       return std::make_tuple(create_layout_rewrite_preproc_func(), create_compute_func());
@@ -118,7 +117,7 @@ class SplitFunctionLayoutRewrite : public s_tir::StmtExprMutator {
     // Step 2: Create the body for the new tirx::Function
     Stmt body = SeqStmt(compute_stmts_);
     s_tir::SBlock original_block =
-        original_func_->body.value()->seq[0].as<s_tir::SBlockRealizeObj>()->block;
+        original_func_->body->seq[0].as<s_tir::SBlockRealizeObj>()->block;
     ffi::Array<TensorVar> alloc_tensors;
     for (const auto& tensor : original_block->alloc_tensors) {
       auto it =

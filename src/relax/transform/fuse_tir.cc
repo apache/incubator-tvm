@@ -575,11 +575,10 @@ class FusedTIRConstructor : public ExprVisitor {
 
     // Step 3. Check functions are all schedulable funcs. i.e. the body of func is root block
     // TODO(Siyuan): support un-schedulable functions.
-    TVM_FFI_ICHECK(function->body.has_value() && function->body.value()->size() == 1 &&
-                   function->body.value()->seq[0].as<s_tir::SBlockRealizeObj>())
+    TVM_FFI_ICHECK(function->body->size() == 1 &&
+                   function->body->seq[0].as<s_tir::SBlockRealizeObj>())
         << "Only schedulable functions (whose body is the root block) can be fused";
-    s_tir::SBlockRealize root_realize =
-        function->body.value()->seq[0].as_or_throw<s_tir::SBlockRealize>();
+    s_tir::SBlockRealize root_realize = function->body->seq[0].as_or_throw<s_tir::SBlockRealize>();
     const s_tir::SBlock& root_block = root_realize->block;
 
     // Step 4. Add all the original alloc_tensors and body to the fused function.

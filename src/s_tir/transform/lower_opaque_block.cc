@@ -183,9 +183,9 @@ namespace transform {
 
 Pass LowerOpaqueBlock() {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto fptr = f.CopyOnWrite();
-    fptr->body = OpaqueBlockLower::Rewrite(std::move(fptr->body).value());
+    fptr->body = OpaqueBlockLower::Rewrite(std::move(fptr->body));
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.LowerOpaqueBlock");

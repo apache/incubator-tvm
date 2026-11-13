@@ -273,8 +273,8 @@ double EstimateTIRFlops(const IRModule& mod) {
     if (const auto* func = base_func.as<FunctionObj>()) {
       if (auto cached = func->attrs.GetAttr(tvm::s_tir::attr::kEstimatedFlops)) {
         cached_result += cached.value();
-      } else if (func->body.has_value()) {
-        result += counter.Dispatch(func->body.value());
+      } else if (!func->GetAttr(tvm::attr::kDeclaration).value_or(false)) {
+        result += counter.Dispatch(func->body);
       }
     }
   }

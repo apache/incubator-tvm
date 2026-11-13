@@ -299,9 +299,8 @@ def test_load_shard_in_relax():
 
     # pylint: enable=invalid-name
     def relax_build(mod, target):
-        with target:
-            mod = rx.get_pipeline("zero")(mod)  # pylint: disable=no-value-for-parameter
-            return tvm.compile(mod, target="cuda")
+        mod = rx.get_pipeline("zero", target=target)(mod)  # pylint: disable=no-value-for-parameter
+        return tvm.compile(mod, target="cuda")
 
     target = Target(
         {

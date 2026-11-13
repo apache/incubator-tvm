@@ -20,7 +20,6 @@
 import math
 from collections.abc import Callable
 
-import tvm_tirx
 from tvm.s_tir import script as Ts
 from tvm_tirx.script import tirx as T
 from tvm_tirx.tirx import Function
@@ -40,6 +39,8 @@ def gpu_multinomial_from_uniform(
     tx_len: int = 32,
     thread_elem: int = 4,
     eps: float = 1e-6,
+    *,
+    target=None,
 ) -> Function:
     """Generate GPU kernel for multinomial_from_uniform operator.
 
@@ -72,7 +73,6 @@ def gpu_multinomial_from_uniform(
         The generated function
     """
 
-    target = tvm_tirx.target.Target.current()
     target_dtype = "int32" if "webgpu" in str(target) else "int64"
 
     TX = T.int64(tx_len)  # threadIdx.x

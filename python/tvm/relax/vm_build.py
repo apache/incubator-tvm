@@ -253,14 +253,16 @@ def build(
                 try:
                     relax_pipeline = relax.get_default_pipeline(target)
                 except (ValueError, AttributeError):
-                    relax_pipeline = relax.get_pipeline(relax_pipeline)
+                    relax_pipeline = relax.get_pipeline(
+                        relax_pipeline,
+                        **({"target": target} if relax_pipeline in ("default", "zero") else {}),
+                    )
             else:
-                relax_pipeline = relax.get_pipeline(relax_pipeline)
-        if target is None:
-            mod = relax_pipeline(mod)
-        else:
-            with target:
-                mod = relax_pipeline(mod)
+                relax_pipeline = relax.get_pipeline(
+                    relax_pipeline,
+                    **({"target": target} if relax_pipeline in ("default", "zero") else {}),
+                )
+        mod = relax_pipeline(mod)
 
     ext_libs, constants = _extract_attrs(mod)
     params.update(dict(constants))

@@ -147,9 +147,8 @@ class DistributedTensorCompactor : public s_tir::StmtExprMutator {
     }
     auto new_body =
         compactor->Mutate(function->body, InplaceMode::kDisallow).ValueOrUnchanged(function->body);
-    if (new_body.has_value()) {
-      new_body = DistTensorReplacer::TensorReplace(new_body.value(), replace_tensor_map);
-    }
+    new_body =
+        DistTensorReplacer::TensorReplace(new_body, replace_tensor_map).as_or_throw<SeqStmt>();
     tirx::Function new_func(new_params, new_body, function->ret_type, function->attrs,
                             function->loc);
     return std::make_tuple(new_func, compactor->add_allreduce_kind_);

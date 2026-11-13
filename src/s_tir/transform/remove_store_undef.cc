@@ -193,9 +193,9 @@ class ContainsUndefChecker : public StmtExprVisitor {
 namespace transform {
 Pass RemoveStoreUndefInternal() {
   auto pass_func = [](Function f, IRModule m, tvm::transform::PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
-    n->body = StoreUndefRemover::Apply(std::move(n->body).value());
+    n->body = StoreUndefRemover::Apply(std::move(n->body));
     return f;
   };
   return CreateFunctionPass(pass_func, 0, "s_tir.RemoveStoreUndefInternal");
@@ -203,8 +203,8 @@ Pass RemoveStoreUndefInternal() {
 
 Pass ValidateAllUndefRemoved() {
   auto pass_func = [](Function f, IRModule m, tvm::transform::PassContext ctx) {
-    if (!f->body.has_value()) return f;
-    bool contains_undef = ContainsUndefChecker::Check(f->body.value());
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
+    bool contains_undef = ContainsUndefChecker::Check(f->body);
     TVM_FFI_ICHECK(!contains_undef)
         << "Expected removal of TensorStore containing tirx::undef_op() "
         << "to remove all instances of tirx::undef_op().  "

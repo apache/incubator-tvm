@@ -374,11 +374,13 @@ pprint(named_params[:5])  # Only show the first 5 parameters for demonstration
 # Define Optimization Pipeline
 # ----------------------------
 # We define a series of optimization passes to optimize the model. The optimization pipeline
-# is designed specifically for the LLMs.
+# is designed specifically for the LLMs. Pass the compilation target explicitly to legalization
+# and GPU scheduling.
 
 
 @register_pipeline("opt_llm")
 def _pipeline(  # pylint: disable=too-many-arguments
+    target: tvm_tirx.target.Target,
     ext_mods: list[nn.ExternModule] | None = None,
 ):
     ext_mods = ext_mods or []
@@ -393,7 +395,7 @@ def _pipeline(  # pylint: disable=too-many-arguments
                 # We can enable cublas for further optimization
                 relax.transform.FuseTransposeMatmul(),
                 # Phase 2. Lowering to TIR, inherited TVM Relax's official "zero" pipeline
-                relax.transform.LegalizeOps(),
+                relax.transform.LegalizeOps(target=target),
                 relax.transform.AnnotateTIROpPattern(),
                 relax.transform.FoldConstant(),
                 relax.transform.FuseOps(),
@@ -407,6 +409,7 @@ def _pipeline(  # pylint: disable=too-many-arguments
                     dlight.gpu.Reduction(),
                     dlight.gpu.GeneralReduction(),
                     dlight.gpu.Fallback(),
+                    target=target,
                 ),
                 # Phase 5. Lowering to VM bytecode
                 relax.transform.RewriteDataflowReshape(),
@@ -429,9 +432,8 @@ def _pipeline(  # pylint: disable=too-many-arguments
     return _pipeline
 
 
-with target:
-    ex = tvm.compile(mod, target, relax_pipeline=relax.get_pipeline("opt_llm"))
-    vm = relax.VirtualMachine(ex, dev)
+ex = tvm.compile(mod, target, relax_pipeline=relax.get_pipeline("opt_llm", target=target))
+vm = relax.VirtualMachine(ex, dev)
 
 
 ######################################################################

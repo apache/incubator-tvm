@@ -256,11 +256,9 @@ print(cpu_out)
 
 from tvm.s_tir import dlight as dl
 
-with tvm_tirx.target.Target("cuda"):
-    gpu_mod = dl.ApplyDefaultSchedule(
-        dl.gpu.Matmul(),
-        dl.gpu.Fallback(),
-    )(mod)
+gpu_mod = dl.ApplyDefaultSchedule(
+    dl.gpu.Matmul(), dl.gpu.Fallback(), target=tvm_tirx.target.Target("cuda")
+)(mod)
 
 ######################################################################
 # Now we can compile the IRModule on GPU, the similar way as we did on CPU.

@@ -167,8 +167,8 @@ class VerifyGPUCodeObj : public PostprocObj {
       const GlobalVar& g_var = kv.first;
       const BaseFunc& base_func = kv.second;
       if (const auto* function = base_func.as<tirx::FunctionObj>()) {
-        if (function->body.has_value() &&
-            !s_tir::ThreadExtentChecker::Check(function->body.value(), thread_warp_size_)) {
+        if (!function->GetAttr(tvm::attr::kDeclaration).value_or(false) &&
+            !s_tir::ThreadExtentChecker::Check(function->body, thread_warp_size_)) {
           return false;
         }
         IRModule lowered{ffi::UnsafeInit()};

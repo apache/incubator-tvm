@@ -441,8 +441,8 @@ ScheduleState::ScheduleState(IRModule mod, int debug_mask, bool enable_check) {
     if (auto opt = base_func.as<Function>()) {
       auto func = opt.value();
       s_tir::CheckWellFormed(func);
-      if (func->body.has_value()) {
-        SBlockInfoCollector::Collect(self, func->body.value());
+      if (!func->GetAttr(tvm::attr::kDeclaration).value_or(false)) {
+        SBlockInfoCollector::Collect(self, func->body);
       }
     }
   }
@@ -1100,16 +1100,16 @@ void ScheduleStateObj::Replace(const tirx::StmtSRef& _src_sref, const Stmt& tgt_
     // If `g_func` was unique, after the 3 lines above:
     //   `ref_new_func` points to the same unique function that `g_func` points to
     // Update the body of the function the sref belongs to Assign
-    TVM_FFI_ICHECK(g_func->body.has_value());
-    TVM_FFI_ICHECK_EQ(g_func->body.value()->size(), 1);
-    const auto* realize = TVM_TYPE_AS(g_func->body.value()->seq[0], SBlockRealizeObj);
+    TVM_FFI_ICHECK(!g_func->GetAttr(tvm::attr::kDeclaration).value_or(false));
+    TVM_FFI_ICHECK_EQ(g_func->body->size(), 1);
+    const auto* realize = TVM_TYPE_AS(g_func->body->seq[0], SBlockRealizeObj);
     // Make `child_tgt_stmt` the root block
     const auto* child_block = TVM_TYPE_AS(child_tgt_stmt, SBlockObj);
     ffi::ObjectPtr<SBlockRealizeObj> new_realize = ffi::make_object<SBlockRealizeObj>(*realize);
     new_realize->block = ffi::GetRef<SBlock>(child_block);
     new_func->body =
         SeqStmt({SBlockRealize(std::move(new_realize))}, g_func->body.as<SeqStmtObj>()->loc);
-    SetSeqIndexInChildren(this->stmt2ref, new_func->body.value().get());
+    SetSeqIndexInChildren(this->stmt2ref, new_func->body.get());
     // Finally, move the `ref_new_func` back and update `this->mod`
     new_map->at(g_var) = std::move(ref_new_func);
     this->mod = ffi::GetRef<IRModule>(new_mod);

@@ -279,7 +279,7 @@ TVM_DLL Pass MergeSharedMemoryAllocations();
  * \brief Set default thread bindings for GPU Functions.
  * \return The pass.
  */
-TVM_DLL Pass DefaultGPUSchedule();
+TVM_DLL Pass DefaultGPUSchedule(ffi::Optional<Target> target = std::nullopt);
 
 /*!
  * \brief Remove weight layout rewrite block before benchmark.

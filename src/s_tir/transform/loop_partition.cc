@@ -996,10 +996,10 @@ namespace transform {
 
 Pass LoopPartition() {
   auto pass_func = [=](Function f, IRModule m, PassContext ctx) {
-    if (!f->body.has_value()) return f;
+    if (f->GetAttr(tvm::attr::kDeclaration).value_or(false)) return f;
     auto* n = f.CopyOnWrite();
     auto cfg = ctx->GetConfigOrDefault<LoopPartitionConfig>("s_tir.LoopPartition");
-    n->body = s_tir::LoopPartition(std::move(n->body).value(), cfg->partition_const_loop,
+    n->body = s_tir::LoopPartition(std::move(n->body), cfg->partition_const_loop,
                                    cfg->no_unroll_loop_with_extent_one,
                                    cfg->unroll_loop_with_partition_hint_no_interval);
     return f;

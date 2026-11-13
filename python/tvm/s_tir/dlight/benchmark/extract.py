@@ -278,7 +278,7 @@ def extract_function(  # pylint: disable=too-many-arguments
     sample_number: int
         The number of times to sample dynamic shape variables, by default 5.
     target: Optional[Union[str, dict, tvm_tirx.target.Target]]
-        The target device to run the Function. If None, will use target from the context.
+        The target device to run the Function. Must be supplied explicitly.
 
     Returns
     -------
@@ -286,9 +286,7 @@ def extract_function(  # pylint: disable=too-many-arguments
         The extracted Function test file content.
     """
     if target is None:
-        target = tvm_tirx.target.Target.current()
-        if target is None:
-            raise ValueError("Target is not specified.")
+        raise ValueError("Target is not specified.")
     elif isinstance(target, str | dict):
         target = tvm_tirx.target.Target(target)
     elif not isinstance(target, tvm_tirx.target.Target):
@@ -333,7 +331,7 @@ def extract_from_relax(
     file_path: str
         The path to store the extracted files.
     target: Optional[Union[str, tvm_tirx.target.Target]]
-        The target device to run the Function. If None, will use target from the context.
+        The target device to run the Function. Must be supplied explicitly.
     """
     relax_funcs, dym_var_dict = extract_all_func_info_from_relax(mod)
     Path(file_path).mkdir(parents=True, exist_ok=True)

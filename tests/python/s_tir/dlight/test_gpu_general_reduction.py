@@ -29,10 +29,9 @@ from tvm_tirx.target import Target
 
 def _check(mod_before: IRModule, mod_after: IRModule):
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-            dl.gpu.GeneralReduction(),
-        )(mod_before)
+    mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+        dl.gpu.GeneralReduction(), target=target
+    )(mod_before)
     assert_structural_equal(mod, mod_after)
 
 
@@ -79,10 +78,9 @@ def _make_scalar_argmin(length):
 def test_scalar_argmin_reduction_value_scope():
     for length, expected_scope in ((1, "local"), (2, "global"), (3, "global")):
         target = Target("nvidia/geforce-rtx-3090-ti")
-        with target:
-            mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-                dl.gpu.GeneralReduction(),
-            )(_make_scalar_argmin(length))
+        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+            dl.gpu.GeneralReduction(), target=target
+        )(_make_scalar_argmin(length))
 
         index_temp, value_temp = mod["main"].body[0].block.alloc_tensors
         assert index_temp.scope() == tvm_tirx.runtime.MemoryScope("global")

@@ -92,8 +92,7 @@ def test_decode_gemv_1():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -154,8 +153,7 @@ def test_decode_gemv_2():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -227,8 +225,7 @@ def test_decode_gemv_3():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -291,8 +288,7 @@ def test_decode_gemv_4():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -377,8 +373,7 @@ def test_decode_gemv_sigmoid():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -463,8 +458,7 @@ def test_decode_gemv_1_fp32():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -534,8 +528,7 @@ def test_reduction_no_spatial():
                                 rms_norm[0, v0] = T.Cast("float16", T.Cast("float32", B[v0]) * (T.Cast("float32", A[0, 0, v0]) / T.sqrt(Ared_temp_shared[0, 0] * T.float32(0.000244140625) + T.float32(9.9999999999999995e-07))))
     # fmt: on
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, After)
 
 
@@ -613,8 +606,7 @@ def test_spatial_inner_no_broadcasting():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Module)  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -688,8 +680,7 @@ def test_spatial_inner_broadcasting():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Module)  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -756,8 +747,7 @@ def test_reduction_inner_no_broadcasting():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Module)  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -838,8 +828,9 @@ def test_reduction_inner_no_broadcasting2():
                             p_output0_intermediate[0, v0] = T.Cast("float32", var_matmul_intermediate_local[0, v0])
     # fmt: on
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=Target("nvidia/geforce-rtx-3090-ti"))(
+        Module
+    )  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -905,8 +896,9 @@ def test_reduction_inner_spatial_choose_perfect_factor():
                             matmul[T.int64(0), v0, T.int64(0), v1] = matmul[T.int64(0), v0, T.int64(0), v1] + matmul_rf_local[vax2_fused_1, T.int64(0), v0, T.int64(0), v1]
     # fmt: on
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=Target("nvidia/geforce-rtx-3090-ti"))(
+        Module
+    )  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -974,13 +966,13 @@ def test_reduction_inner_spatial_non_affine_write_back_falls_back():
                             Ts.writes(C[v0, v1, v2])
                             C[v0, v1, v2] += A[v0, v1 + v3, v2] * W[v3]
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        # Reduction must decline instead of raising ScheduleError.
-        assert dl.gpu.Reduction().apply(Before["main"], Target.current(), False) is None
-        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-            dl.gpu.Reduction(),
-            dl.gpu.Fallback(),
-        )(Before)
+    assert (
+        dl.gpu.Reduction().apply(Before["main"], Target("nvidia/geforce-rtx-3090-ti"), False)
+        is None
+    )
+    mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+        dl.gpu.Reduction(), dl.gpu.Fallback(), target=Target("nvidia/geforce-rtx-3090-ti")
+    )(Before)
     assert_structural_equal(mod, Expected)
 
 
@@ -1002,13 +994,16 @@ def test_reduction_inner_spatial_non_affine_without_mixed_access():
                         C[vn, vy, vx] = T.float32(0)
                     C[vn, vy, vx] += A[vn, vy, vk, vx]
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        assert dl.gpu.Reduction().apply(Before["main"], Target.current(), False) is None
-        mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
-            dl.gpu.Reduction(),
-            dl.gpu.GeneralReduction(),
-            dl.gpu.Fallback(),
-        )(Before)
+    assert (
+        dl.gpu.Reduction().apply(Before["main"], Target("nvidia/geforce-rtx-3090-ti"), False)
+        is None
+    )
+    mod = dl.ApplyDefaultSchedule(  # pylint: disable=not-callable
+        dl.gpu.Reduction(),
+        dl.gpu.GeneralReduction(),
+        dl.gpu.Fallback(),
+        target=Target("nvidia/geforce-rtx-3090-ti"),
+    )(Before)
     assert "tirx.is_scheduled" in mod["main"].attrs
 
 
@@ -1030,8 +1025,10 @@ def test_reduction_inner_spatial_reordered_access_declines():
                         C[vn, vy, vx] = T.float32(0)
                     C[vn, vy, vx] += A[vn, vx, vk, vy]
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        assert dl.gpu.Reduction().apply(Before["main"], Target.current(), False) is None
+    assert (
+        dl.gpu.Reduction().apply(Before["main"], Target("nvidia/geforce-rtx-3090-ti"), False)
+        is None
+    )
 
 
 def test_reduction_inner_spatial_affine_write_back_still_applies():
@@ -1053,8 +1050,7 @@ def test_reduction_inner_spatial_affine_write_back_still_applies():
                         C[vn, vy, vx] = T.float32(0)
                     C[vn, vy, vx] += A[vn, vy + vk, vx] * W[vk]
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        sch = dl.gpu.Reduction().apply(Before["main"], Target.current(), False)
+    sch = dl.gpu.Reduction().apply(Before["main"], Target("nvidia/geforce-rtx-3090-ti"), False)
     assert sch is not None, "Reduction rule should still handle affine write-back blocks"
 
 
@@ -1076,8 +1072,7 @@ def test_reduction_inner_spatial_uses_normalized_split_extent():
                         C[vn, vy, vx] = T.float32(0)
                     C[vn, vy, vx] += A[vn, vy, vk, vx // 2]
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        sch = dl.gpu.Reduction().apply(Before["main"], Target.current(), False)
+    sch = dl.gpu.Reduction().apply(Before["main"], Target("nvidia/geforce-rtx-3090-ti"), False)
     assert sch is not None, "Reduction should use the normalized split extent for tx"
     assert 'parallel(0, 4, annotations={"thread_binding": "threadIdx.x"})' in sch.mod.script()
 
@@ -1161,8 +1156,9 @@ def test_repeat_transpose_gemv():
                                 var_matmul_intermediate[T.int64(0), v0, T.int64(0), v1] = var_matmul_intermediate[T.int64(0), v0, T.int64(0), v1] + var_matmul_intermediate_rf_local[vax2_fused_1, T.int64(0), v0, T.int64(0), v1]
     # fmt: on
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=Target("nvidia/geforce-rtx-3090-ti"))(
+        Before
+    )  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -1244,8 +1240,9 @@ def test_gemv_dyn_shape_epilogue():
                             C[T.int64(0), T.int64(0), v0] = T.Cast("float32", C_temp_local[T.int64(0), T.int64(0), v0])
     # fmt: on
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Module)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=Target("nvidia/geforce-rtx-3090-ti"))(
+        Module
+    )  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -1303,8 +1300,9 @@ def test_gemv_output_one_element():
                             out[T.int64(0), T.int64(0)] = T.sigmoid(NT_matmul_intermediate_shared[T.int64(0), T.int64(0)])
     # fmt: on
 
-    with Target("nvidia/geforce-rtx-3090-ti"):
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=Target("nvidia/geforce-rtx-3090-ti"))(
+        Before
+    )  # pylint: disable=not-callable
     assert_structural_equal(mod, Expected)
 
 
@@ -1329,8 +1327,7 @@ def test_no_reduction_loop_check():
     # fmt: on
 
     target = Target("nvidia/geforce-rtx-3090-ti")
-    with target:
-        mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction())(Before)  # pylint: disable=not-callable
+    mod = dl.ApplyDefaultSchedule(dl.gpu.Reduction(), target=target)(Before)  # pylint: disable=not-callable
     assert_structural_equal(mod, Before)
 
 

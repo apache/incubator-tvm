@@ -88,6 +88,7 @@ void FunctionFrameObj::ExitWithScope() {
     block_builder->EndScope();
     function = tvm::relax::Function::CreateEmpty(params, ret_ty.value_or(tvm::AnyType()),
                                                  is_pure.value_or(true), DictAttrs(attrs), loc);
+    function = WithAttr(function.value(), tvm::attr::kDeclaration.name, true);
     if (local) {
       auto ty = tvm::relax::GetType(function.value());
       local_var = CheckBindingBlockFrameExistAndUnended()->is_dataflow
@@ -172,10 +173,10 @@ void FunctionFrameObj::ExitWithScope() {
     if (!frame->global_var_map.count(func_name)) {
       // First time visiting the function.
       ir::DeclFunction(func_name, func);
+    } else {
+      // Complete the previously declared signature without permitting redefinition.
+      ir::DefFunction(func_name, func);
     }
-    // Define the function.
-    // Note we do checks to disallow redefinition of functions inside the `DefFunction`.
-    ir::DefFunction(func_name, func);
     global_var = frame->global_var_map[func_name];
   } else {
     TVM_FFI_THROW(ValueError) << "Cannot find where to insert Relax.Function";

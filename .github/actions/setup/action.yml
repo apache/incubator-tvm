@@ -4,6 +4,12 @@ description: Set up the cached conda build environment and install tvm-ffi.
 runs:
  using: "composite"
  steps:
+  - name: Fetch package version tags
+    shell: bash
+    run: |
+      # Shallow submodule checkouts may omit the release tags used by setuptools-scm.
+      git -C 3rdparty/tvm-tirx fetch --tags --no-recurse-submodules origin
+      git -C 3rdparty/tvm-tirx/3rdparty/tvm-ffi fetch --tags --no-recurse-submodules origin
   - uses: actions/cache@v5.0.5
     env:
       CACHE_NUMBER: 2

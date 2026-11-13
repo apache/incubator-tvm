@@ -354,7 +354,7 @@ def MergeSharedMemoryAllocations():
     return _ffi_api.MergeSharedMemoryAllocations()  # type: ignore
 
 
-def DefaultGPUSchedule():
+def DefaultGPUSchedule(*, target=None):
     """Set default thread bindings for GPU Functions.
 
     Returns
@@ -362,7 +362,9 @@ def DefaultGPUSchedule():
     fpass : tvm_tirx.ir.transform.Pass
         The result pass
     """
-    return _ffi_api.DefaultGPUSchedule()  # type: ignore
+    from tvm_tirx.target import Target
+
+    return _ffi_api.DefaultGPUSchedule(Target(target) if target is not None else None)  # type: ignore
 
 
 def RemoveWeightLayoutRewriteBlock(skip_tensor_rewrite=False):

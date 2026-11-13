@@ -130,8 +130,7 @@ def set_global_func(dtype, target):
         _copy_single_page_mla(page_size, kv_lora_rank + qk_rope_head_dim, dtype, target),
     ]:
         mod = tvm_tirx.IRModule({"main": tir_func})
-        with target:
-            mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback())(mod)
+        mod = dl.ApplyDefaultSchedule(dl.gpu.Fallback(), target=target)(mod)
         f = tvm_tirx.tirx.compile(mod["main"], target=target).mod
         builts.append(f.main)
 

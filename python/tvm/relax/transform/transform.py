@@ -1059,6 +1059,8 @@ def LegalizeOps(
     customize_legalize_map: dict[str, LegalizeFunc] | None = None,
     skip_ops: list[str] | None = None,
     enable_warning: bool = False,
+    *,
+    target: tvm_tirx.target.Target | str | None = None,
 ):
     """Legalize high-level operator calls in Relax functions to call_tir
     with corresponding low-level TIR Functions.
@@ -1091,6 +1093,10 @@ def LegalizeOps(
         A boolean value indicating if to print warnings for CallObj whose op's
         legalization function is not registered. By default we don't print
         warnings.
+
+    target : Target or str or None
+        The explicit compilation target. Virtual-device annotations take precedence.
+        Custom legalization callbacks can read it from ``bb.target``.
 
     Returns
     -------
@@ -1166,7 +1172,8 @@ def LegalizeOps(
                         T_multiply[v_ax0, v_ax1] = A[v_ax0, v_ax1] * B[v_ax0, v_ax1]
     """
 
-    return _ffi_api.LegalizeOps(customize_legalize_map, skip_ops, enable_warning)  # type: ignore
+    target = tvm_tirx.target.Target(target) if target is not None else None
+    return _ffi_api.LegalizeOps(customize_legalize_map, skip_ops, enable_warning, target)  # type: ignore
 
 
 def RealizeVDevice() -> tvm_tirx.ir.transform.Pass:
@@ -1182,7 +1189,10 @@ def RealizeVDevice() -> tvm_tirx.ir.transform.Pass:
 
 
 def MetaScheduleApplyDatabase(
-    work_dir: str | None = None, enable_warning: bool = False
+    work_dir: str | None = None,
+    enable_warning: bool = False,
+    *,
+    target: tvm_tirx.target.Target | str,
 ) -> tvm_tirx.ir.transform.Pass:
     """Apply the best schedule from tuning database.
 
@@ -1195,17 +1205,21 @@ def MetaScheduleApplyDatabase(
         A boolean value indicating if to print warnings for TIR functions not
         showing up in the database. By default we don't print warning.
 
+    target : Target or str
+        The explicit compilation target.
+
     Returns
     -------
     ret : tvm_tirx.ir.transform.Pass
         The registered pass
     """
-    return _ffi_api.MetaScheduleApplyDatabase(work_dir, enable_warning)  # type: ignore
+    return _ffi_api.MetaScheduleApplyDatabase(
+        tvm_tirx.target.Target(target), work_dir, enable_warning
+    )  # type: ignore
 
 
 def MetaScheduleTuneTIR(
-    work_dir: str,
-    max_trials_global: int,
+    work_dir: str, max_trials_global: int, *, target: tvm_tirx.target.Target | str
 ) -> tvm_tirx.ir.transform.Pass:
     """Tune TIR with MetaSchedule.
 
@@ -1215,11 +1229,14 @@ def MetaScheduleTuneTIR(
        work directory
     max_trials_gloabl: int
        maximum number of total trials allowed for tuning
+    target : Target or str
+        The explicit compilation target.
+
     Returns
     -------
     ret: tvm_tirx.ir.transform.Pass
     """
-    return _ffi_api.MetaScheduleTuneTIR(work_dir, max_trials_global)  # type: ignore
+    return _ffi_api.MetaScheduleTuneTIR(tvm_tirx.target.Target(target), work_dir, max_trials_global)  # type: ignore
 
 
 def MetaScheduleTuneIRMod(
@@ -1228,6 +1245,8 @@ def MetaScheduleTuneIRMod(
     max_trials_global: int,
     max_trials_per_task: int | None = None,
     op_names: list[str] | None = None,
+    *,
+    target: tvm_tirx.target.Target | str,
 ) -> tvm_tirx.ir.transform.Pass:
     """Tune Relax IRModule with MetaSchedule.
 
@@ -1245,12 +1264,20 @@ def MetaScheduleTuneIRMod(
        A list of operator names to specify which op to tune. When it is None, all operators
        are tuned.
 
+    target : Target or str
+        The explicit compilation target.
+
     Returns
     -------
     ret: tvm_tirx.ir.transform.Pass
     """
     return _ffi_api.MetaScheduleTuneIRMod(
-        params, work_dir, max_trials_global, max_trials_per_task, op_names
+        tvm_tirx.target.Target(target),
+        params,
+        work_dir,
+        max_trials_global,
+        max_trials_per_task,
+        op_names,
     )  # type: ignore
 
 
