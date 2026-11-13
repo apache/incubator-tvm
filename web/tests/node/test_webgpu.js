@@ -47,6 +47,8 @@ function createMockDevice({
   onSubmittedWorkDone = () => Promise.resolve(),
 } = {}) {
   const events = [];
+  // Like `events`, but also records compute pass boundaries.
+  const trace = [];
   const encoders = [];
 
   const queue = {
@@ -59,25 +61,61 @@ function createMockDevice({
     queue,
     createCommandEncoder: jest.fn(() => {
       const commands = [];
+      const passes = [];
       const encoderId = encoders.length;
+      // WebGPU locks a command encoder while one of its passes is open:
+      // recording a copy, opening a second pass, or calling finish() in that
+      // state is a validation error. The mock throws so tests catch it.
+      let openPass = null;
+      const assertUnlocked = (what) => {
+        if (openPass !== null) {
+          throw new Error("mock WebGPU: " + what + " while a compute pass is open");
+        }
+      };
       const encoder = {
         commands,
-        beginComputePass: jest.fn(() => ({
-          setPipeline: jest.fn(),
-          setBindGroup: jest.fn(),
-          dispatchWorkgroups: jest.fn(() => {
-            commands.push("compute");
-            events.push("compute");
-          }),
-          end: jest.fn(),
-        })),
+        passes,
+        beginComputePass: jest.fn(() => {
+          assertUnlocked("beginComputePass");
+          const pass = {
+            ended: false,
+            dispatchCount: 0,
+            setPipeline: jest.fn(),
+            setBindGroup: jest.fn(),
+            dispatchWorkgroups: jest.fn(() => {
+              if (pass.ended) {
+                throw new Error("mock WebGPU: dispatch on an ended compute pass");
+              }
+              pass.dispatchCount += 1;
+              commands.push("compute");
+              events.push("compute");
+              trace.push("dispatch");
+            }),
+            end: jest.fn(() => {
+              if (pass.ended) {
+                throw new Error("mock WebGPU: compute pass ended twice");
+              }
+              pass.ended = true;
+              openPass = null;
+              trace.push("endPass");
+            }),
+          };
+          openPass = pass;
+          passes.push(pass);
+          trace.push("beginPass");
+          return pass;
+        }),
         copyBufferToBuffer: jest.fn(() => {
+          assertUnlocked("copyBufferToBuffer");
           commands.push("copy");
           events.push("copy");
+          trace.push("copy");
         }),
         finish: jest.fn(() => {
+          assertUnlocked("finish");
           const commandBuffer = { encoderId, commands: commands.slice() };
           events.push("finish");
+          trace.push("finish");
           return commandBuffer;
         }),
       };
@@ -104,7 +142,7 @@ function createMockDevice({
     destroy: jest.fn(),
   };
 
-  return { device, queue, events, encoders };
+  return { device, queue, events, trace, encoders };
 }
 
 function createContext(deviceOptions) {
@@ -444,4 +482,98 @@ test("sync propagates a pending readback failure", async () => {
 
   await expect(context.sync()).rejects.toBe(readError);
   expect(queue.onSubmittedWorkDone).toHaveBeenCalledTimes(1);
+});
+
+function createNoArgShader(context, name = "main") {
+  return context.createShader(
+    {
+      name,
+      arg_types: [],
+      launch_param_tags: [],
+    },
+    "@compute @workgroup_size(1) fn " + name + "() {}"
+  );
+}
+
+test("consecutive dispatches share one compute pass", async () => {
+  const { context, queue, trace, encoders } = createContext();
+  const shader = createNoArgShader(context);
+
+  shader();
+  shader();
+  shader();
+
+  expect(encoders).toHaveLength(1);
+  expect(encoders[0].beginComputePass).toHaveBeenCalledTimes(1);
+  expect(encoders[0].passes[0].dispatchCount).toBe(3);
+  expect(encoders[0].passes[0].ended).toBe(false);
+  expect(queue.submit).not.toHaveBeenCalled();
+
+  await context.sync();
+
+  expect(trace).toEqual([
+    "beginPass", "dispatch", "dispatch", "dispatch", "endPass", "finish",
+  ]);
+  expect(queue.submit).toHaveBeenCalledTimes(1);
+
+  // Dispatches after a flush start a new encoder and a new pass.
+  shader();
+  shader();
+  await context.sync();
+
+  expect(encoders).toHaveLength(2);
+  expect(encoders[1].passes).toHaveLength(1);
+  expect(encoders[1].passes[0].dispatchCount).toBe(2);
+  expect(queue.submit).toHaveBeenCalledTimes(2);
+});
+
+test("a GPU copy ends the open compute pass and the next dispatch opens a new one", async () => {
+  const { context, trace, encoders, source, destination } = createContext();
+  const copyWithinGPU = context.getDeviceAPI("deviceCopyWithinGPU");
+  const shader = createNoArgShader(context);
+
+  shader();
+  shader();
+  copyWithinGPU(source, 0, destination, 0, 16);
+  copyWithinGPU(destination, 16, source, 32, 16);
+  shader();
+  await context.sync();
+
+  expect(encoders).toHaveLength(1);
+  expect(encoders[0].beginComputePass).toHaveBeenCalledTimes(2);
+  expect(trace).toEqual([
+    "beginPass", "dispatch", "dispatch", "endPass",
+    "copy", "copy",
+    "beginPass", "dispatch", "endPass",
+    "finish",
+  ]);
+});
+
+test.each([
+  ["buffer deallocation", ({ context, source }) =>
+    context.getDeviceAPI("deviceFreeDataSpace")(source)],
+  ["host write", ({ context, destination }) =>
+    context.copyRawBytesToBuffer(new Uint8Array([1, 2, 3, 4]), destination, 0, 4)],
+  ["GPU readback", ({ context, source }) =>
+    context.getDeviceAPI("deviceCopyFromGPU")(source, 0, 128, 16)],
+  ["dispose", ({ context }) => context.dispose()],
+])("%s ends the open compute pass before finishing the encoder", (_name, flushPoint) => {
+  const gpu = createContext();
+  createNoArgShader(gpu.context)();
+  // The mock throws if the encoder is finished while its pass is open.
+  flushPoint(gpu);
+  expect(gpu.trace.slice(0, 4)).toEqual(["beginPass", "dispatch", "endPass", "finish"]);
+});
+
+test("a launch that throws leaves the shared pass usable and closable", async () => {
+  const { context, queue, trace } = createContext();
+  const shader = createNoArgShader(context);
+
+  // Wrong argument count: the launch throws after the pass has been opened.
+  expect(() => shader(1)).toThrow();
+  shader();
+  await context.sync();
+
+  expect(trace).toEqual(["beginPass", "dispatch", "endPass", "finish"]);
+  expect(queue.submit).toHaveBeenCalledTimes(1);
 });

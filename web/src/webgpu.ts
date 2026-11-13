@@ -443,6 +443,10 @@ export class WebGPUContext {
   // Batched command encoding: accumulate compute passes and GPU copies in a
   // single encoder, and submit only on flush to reduce JS-native transition overhead.
   private pendingEncoder: GPUCommandEncoder | null = null;
+  // Compute pass on pendingEncoder reused across consecutive dispatches; each
+  // dispatch is its own usage scope, so ordering is unchanged. The encoder is
+  // locked while it is open: end it before recording anything else or finishing.
+  private pendingComputePass: GPUComputePassEncoder | null = null;
   // Pool of uniform buffers reused across flushes. Each dispatch in a batch
   // gets its own buffer (indexed by pendingDispatchCount). The pool grows
   // as needed but buffers are never destroyed — just reused next batch.
@@ -481,11 +485,20 @@ export class WebGPUContext {
    * - Queue sync (sync)
    */
   flushCommands(): void {
+    this.endPendingComputePass();
     if (this.pendingEncoder) {
       this.device.queue.submit([this.pendingEncoder.finish()]);
       this.pendingEncoder = null;
       this.pendingDispatchCount = 0;
       this.pendingGPUToCPUCopyIsQueueTail = false;
+    }
+  }
+
+  /** End the compute pass shared by pending dispatches, if one is open. */
+  private endPendingComputePass(): void {
+    if (this.pendingComputePass) {
+      this.pendingComputePass.end();
+      this.pendingComputePass = null;
     }
   }
 
@@ -751,8 +764,11 @@ export class WebGPUContext {
         if (!this.pendingEncoder) {
           this.pendingEncoder = this.device.createCommandEncoder();
         }
+        if (!this.pendingComputePass) {
+          this.pendingComputePass = this.pendingEncoder.beginComputePass();
+        }
 
-        const compute = this.pendingEncoder.beginComputePass();
+        const compute = this.pendingComputePass;
         compute.setPipeline(pipeline);
         const bindGroupEntries: Array<GPUBindGroupEntry> = [];
         const numBufferOrPodArgs = bufferArgIndices.length + podArgIndices.length;
@@ -835,7 +851,6 @@ export class WebGPUContext {
         }));
 
         compute.dispatchWorkgroups(workDim[0], workDim[1], workDim[2]);
-        compute.end();
 
         // In debug mode, flush immediately so we can observe each submission.
         if (this.debugLogFinish) {
@@ -1078,6 +1093,7 @@ export class WebGPUContext {
     if (!this.pendingEncoder) {
       this.pendingEncoder = this.device.createCommandEncoder();
     }
+    this.endPendingComputePass();
     this.pendingEncoder.copyBufferToBuffer(
       this.gpuBufferFromPtr(from),
       fromOffset,
