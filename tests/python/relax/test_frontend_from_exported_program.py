@@ -5496,6 +5496,22 @@ def test_slice_scatter():
     verify_model(SliceScatterNegative(), example_args, {}, expected_slice_scatter)
 
 
+@pytest.mark.parametrize(
+    "start, end, src_rows",
+    [(-3, None, 2), (-5, -1, 1), (-5, -3, 0), (-3, 2, 2)],
+)
+def test_slice_scatter_negative_bound_past_start(start, end, src_rows):
+    """A negative bound that reaches past the start of the dimension is clamped to 0."""
+
+    class SliceScatter(Module):
+        def forward(self, input, src):
+            return torch.slice_scatter(input, src, dim=0, start=start, end=end)
+
+    input = torch.randn(2, 3, dtype=torch.float32)
+    src = torch.randn(src_rows, 3, dtype=torch.float32)
+    verify_model_numerically(SliceScatter(), (input, src))
+
+
 def test_slice_with_symbolic_end():
     """_slice correctly handles symbolic end values from dynamic shapes."""
 
