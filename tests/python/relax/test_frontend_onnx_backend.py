@@ -170,6 +170,7 @@ _INCLUDE_OPS = [
     "less_equal",
     "lrn",
     "logsoftmax",
+    "lpnormalization",
     "matmul",
     "matmulinteger",
     "mean",
