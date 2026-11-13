@@ -62,6 +62,7 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
     auto lhs = matches[pat_lhs];
     auto rhs_a = matches[pat_rhs_a];
     auto rhs_b = matches[pat_rhs_b];
+    auto rhs_sum = matches[pat_rhs_sum];
 
     // Suppress the rewrite if `(A+B)` can be computed at
     // compile-time.
@@ -74,6 +75,13 @@ std::tuple<DFPattern, ffi::TypedFunction<Expr(Expr, ffi::Map<DFPattern, Expr>)>>
     };
 
     if (is_compile_time(rhs_a) && is_compile_time(rhs_b)) {
+      return expr;
+    }
+
+    // Distributing matmul over addition only preserves the result shape when
+    // neither addend is broadcast while computing the sum.
+    if (!ffi::StructuralEqual()(GetType(rhs_a), GetType(rhs_sum)) ||
+        !ffi::StructuralEqual()(GetType(rhs_b), GetType(rhs_sum))) {
       return expr;
     }
 

@@ -124,6 +124,24 @@ class TestExpansionOfRuntimeAddition(Base):
             return out
 
 
+class TestNoExpansionOfBroadcastAddition(Base):
+    """Do not distribute matmul over an addition that broadcasts its operands."""
+
+    @I.ir_module
+    class Before:
+        @R.function
+        def main(
+            x: R.Tensor([2, 2, 1], "float32"),
+            A: R.Tensor([1], "float32"),
+            B: R.Tensor([1, 1, 1], "float32"),
+        ) -> R.Tensor([2, 2, 1], "float32"):
+            weight = R.add(A, B)
+            out = R.matmul(x, weight)
+            return out
+
+    Expected = Before
+
+
 class TestRHSPermuteDims(Base):
     @I.ir_module
     class Before:
