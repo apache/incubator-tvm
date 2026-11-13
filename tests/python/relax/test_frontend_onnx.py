@@ -6302,6 +6302,129 @@ def test_rms_norm():
     check_correctness(model, opset=23, rtol=1e-2, atol=1e-2)
 
 
+def _make_simplified_layer_norm_expected_ir(
+    input_shape: list | tuple,
+    scale_shape: list | tuple,
+    axis: int = -1,
+    epsilon: float = 1e-5,
+    dtype: str = "float32",
+):
+    # Convert string dimensions to shared T.dynamic symbolic variables
+    var_dict = {}
+    def get_dim(d):
+        if not isinstance(d, str):
+          return d
+        if d not in var_dict:
+          var_dict[d] = T.dynamic(d)
+        return var_dict[d]
+
+    input_shape = tuple(get_dim(d) for d in input_shape)
+    scale_shape = tuple(get_dim(d) for d in scale_shape)
+
+    ndim = len(input_shape)
+    norm_axis = axis if axis >= 0 else ndim + axis
+    red_axis = list(range(norm_axis, ndim))
+    eps_val = float(np.float32(epsilon))
+
+    if dtype == "float32":
+        @I.ir_module
+        class ExpectedFP32:
+            @R.function
+            def main(
+                input: R.Tensor(input_shape, dtype="float32"),
+                scale: R.Tensor(scale_shape, dtype="float32"),
+            ) -> R.Tensor(input_shape, dtype="float32"):
+                R.func_attr({"num_input": 2})
+                with R.dataflow():
+                    gv: R.Tensor(input_shape, dtype="float32") = R.nn.rms_norm(
+                        input, scale, axes=red_axis, epsilon=eps_val
+                    )
+                    R.output(gv)
+                return gv
+
+        return ExpectedFP32
+
+    @I.ir_module
+    class ExpectedOtherDtype:
+        @R.function
+        def main(
+            input: R.Tensor(input_shape, dtype=dtype),
+            scale: R.Tensor(scale_shape, dtype=dtype),
+        ) -> R.Tensor(input_shape, dtype=dtype):
+            R.func_attr({"num_input": 2})
+            with R.dataflow():
+                lv: R.Tensor(input_shape, dtype="float32") = R.astype(
+                    input, dtype="float32"
+                )
+                lv1: R.Tensor(scale_shape, dtype="float32") = R.astype(
+                    scale, dtype="float32"
+                )
+                lv2: R.Tensor(input_shape, dtype="float32") = R.nn.rms_norm(
+                    lv, lv1, axes=red_axis, epsilon=eps_val
+                )
+                gv: R.Tensor(input_shape, dtype=dtype) = R.astype(lv2, dtype=dtype)
+                R.output(gv)
+            return gv
+
+    return ExpectedOtherDtype
+
+
+def test_simplified_layer_norm():
+    def verify_simplified_layer_norm(
+        shape: list,
+        axis: int = -1,
+        epsilon: float = 1e-5,
+        dtype: str = "float32",
+    ):
+        ndim = len(shape)
+        norm_axis = axis if axis >= 0 else ndim + axis
+        scale_shape = shape[norm_axis:]
+        proto_dtype = TensorProto.FLOAT if dtype == "float32" else TensorProto.FLOAT16
+
+        node = helper.make_node(
+            "SimplifiedLayerNormalization",
+            inputs=["input", "scale"],
+            outputs=["y"],
+            domain="com.microsoft",
+            axis=axis,
+            epsilon=epsilon,
+        )
+        graph = helper.make_graph(
+            [node],
+            "simplified_layer_norm_test",
+            inputs=[
+                helper.make_tensor_value_info("input", proto_dtype, list(shape)),
+                helper.make_tensor_value_info(
+                    "scale", proto_dtype, list(scale_shape)
+                ),
+            ],
+            outputs=[helper.make_tensor_value_info("y", proto_dtype, list(shape))]
+        )
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 14),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+
+        tvm_model = from_onnx(model, keep_params_in_input=True)
+        expected = _make_simplified_layer_norm_expected_ir(
+            shape, scale_shape, axis=axis, epsilon=epsilon, dtype=dtype
+        )
+        tvm.ir.assert_structural_equal(tvm_model, expected)
+
+    # Static input test cases
+    verify_simplified_layer_norm([2, 8, 32], -1, 1e-5, "float32")
+    verify_simplified_layer_norm([4, 16], 1, 1e-6, "float32")
+    verify_simplified_layer_norm([1, 3, 224, 224], -1, 1e-7, "float16")
+    verify_simplified_layer_norm([1, 3, 16, 16, 256], 2, 1e-9, "float32")
+    # Dynamic input test cases
+    verify_simplified_layer_norm(["batch", "seq_len", 48], -1, 1e-8, "float32")
+    verify_simplified_layer_norm(["batch", "dim_1", "dim_2", 512], 1, 1e-6, "float32")
+    verify_simplified_layer_norm(["n", 8, 32, 1, 1], -1, 1e-12, "float16")
+
+
 def _make_group_norm_expected_ir(
     input_shape: list[int],
     scale_shape: list[int],
@@ -6642,6 +6765,156 @@ def test_skiplayernormalization(dynamic):
     bias = np.random.randn(hidden_size).astype(dtype)
 
     verify_skiplayernormalization(input_array, skip, gamma, beta, bias)
+
+
+def _make_skip_simplified_layer_norm_expected_ir(
+    input_shape: list | tuple,
+    gamma_shape: list | tuple,
+    has_bias: bool = False,
+    epsilon: float = 1e-5,
+    dtype: str = "float32",
+):
+    # Convert string dimensions to shared T.dynamic symbolic variables
+    var_dict = {}
+    def get_dim(d):
+        if not isinstance(d, str):
+          return d
+        if d not in var_dict:
+          var_dict[d] = T.dynamic(d)
+        return var_dict[d]
+
+    input_shape = tuple(get_dim(d) for d in input_shape)
+    gamma_shape = tuple(get_dim(d) for d in gamma_shape)
+    eps_val = float(np.float32(epsilon))
+
+    if not has_bias:
+        @I.ir_module
+        class ExpectedNoBias:
+            @R.function
+            def main(
+                input: R.Tensor(input_shape, dtype=dtype),
+                skip: R.Tensor(input_shape, dtype=dtype),
+                gamma: R.Tensor(gamma_shape, dtype=dtype),
+            ) -> R.Tuple(
+                R.Tensor(input_shape, dtype=dtype),
+                R.Tensor((), dtype="float32"),
+                R.Tensor((), dtype="float32"),
+            ):
+                R.func_attr({"num_input": 3})
+                with R.dataflow():
+                    lv: R.Tensor(input_shape, dtype=dtype) = R.add(input, skip)
+                    lv1: R.Tensor(input_shape, dtype=dtype) = R.nn.rms_norm(
+                        lv, gamma, axes=[-1], epsilon=eps_val
+                    )
+                    gv: R.Tuple(
+                        R.Tensor(input_shape, dtype=dtype),
+                        R.Tensor((), dtype="float32"),
+                        R.Tensor((), dtype="float32"),
+                    ) = (lv1, R.const(0.0, "float32"), R.const(0.0, "float32"))
+                    R.output(gv)
+                return gv
+        return ExpectedNoBias
+
+    @I.ir_module
+    class ExpectedWithBias:
+        @R.function
+        def main(
+            input: R.Tensor(input_shape, dtype=dtype),
+            skip: R.Tensor(input_shape, dtype=dtype),
+            gamma: R.Tensor(gamma_shape, dtype=dtype),
+            bias: R.Tensor(gamma_shape, dtype=dtype),
+        ) -> R.Tuple(
+            R.Tensor(input_shape, dtype=dtype),
+            R.Tensor((), dtype="float32"),
+            R.Tensor((), dtype="float32"),
+        ):
+            R.func_attr({"num_input": 4})
+            with R.dataflow():
+                lv: R.Tensor(input_shape, dtype=dtype) = R.add(input, skip)
+                lv1: R.Tensor(input_shape, dtype=dtype) = R.add(lv, bias)
+                lv2: R.Tensor(input_shape, dtype=dtype) = R.nn.rms_norm(
+                    lv1, gamma, axes=[-1], epsilon=eps_val
+                )
+                gv: R.Tuple(
+                    R.Tensor(input_shape, dtype=dtype),
+                    R.Tensor((), dtype="float32"),
+                    R.Tensor((), dtype="float32"),
+                ) = (lv2, R.const(0.0, "float32"), R.const(0.0, "float32"))
+                R.output(gv)
+            return gv
+
+    return ExpectedWithBias
+
+
+def test_skipsimplifiedlayernormalization():
+    def verify_skipsimplifiedlayernormalization(
+        shape: list,
+        has_bias: bool = False,
+        epsilon: float = 1e-5,
+        dtype: str = "float32",
+    ):
+        hidden_size = shape[-1]
+        gamma_shape = [hidden_size]
+        proto_dtype = TensorProto.FLOAT if dtype == "float32" else TensorProto.FLOAT16
+
+        input_names = ["input", "skip", "gamma"]
+        inputs = [
+            helper.make_tensor_value_info("input", proto_dtype, list(shape)),
+            helper.make_tensor_value_info("skip", proto_dtype, list(shape)),
+            helper.make_tensor_value_info("gamma", proto_dtype, list(gamma_shape)),
+        ]
+
+        if has_bias:
+            input_names.append("bias")
+            inputs.append(
+                helper.make_tensor_value_info("bias", proto_dtype, list(gamma_shape))
+            )
+
+        node = helper.make_node(
+            "SkipSimplifiedLayerNormalization",
+            inputs=input_names,
+            outputs=["output", "mean", "inv_std_dev"],
+            domain="com.microsoft",
+            epsilon=epsilon,
+        )
+
+        # Output mean and inv_std_dev have reduced shape shape[:-1]
+        mean_std_shape = list(shape[:-1])
+        graph = helper.make_graph(
+            [node],
+            "skip_simplified_layer_norm_test",
+            inputs=inputs,
+            outputs=[
+                helper.make_tensor_value_info("output", proto_dtype, list(shape)),
+                helper.make_tensor_value_info(
+                    "mean", proto_dtype, list(mean_std_shape)
+                ),
+                helper.make_tensor_value_info(
+                    "inv_std_dev", proto_dtype, list(mean_std_shape)
+                    ),
+            ],
+        )
+        model = helper.make_model(
+            graph,
+            opset_imports=[
+                helper.make_opsetid("", 14),
+                helper.make_opsetid("com.microsoft", 1),
+            ],
+        )
+
+        tvm_model = from_onnx(model, keep_params_in_input=True)
+        expected = _make_skip_simplified_layer_norm_expected_ir(
+            shape, gamma_shape, has_bias=has_bias, epsilon=epsilon, dtype=dtype
+        )
+        tvm.ir.assert_structural_equal(tvm_model, expected)
+
+    verify_skipsimplifiedlayernormalization(shape=[2, 8, 32, 128], has_bias=False, epsilon=1e-5)
+    verify_skipsimplifiedlayernormalization(shape=[1, 3, 224], has_bias=True, epsilon=1e-5)
+    verify_skipsimplifiedlayernormalization(shape=[4, 16, 64], has_bias=True, epsilon=1e-6)
+
+    verify_skipsimplifiedlayernormalization(shape=["batch", "seq_len", 128], has_bias=False)
+    verify_skipsimplifiedlayernormalization(shape=["batch", "seq_len", 256], has_bias=True)
+    verify_skipsimplifiedlayernormalization(shape=["batch", "hidden_dim"], has_bias=True)
 
 
 def test_embedlayernormalization():

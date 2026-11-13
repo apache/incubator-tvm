@@ -5400,6 +5400,29 @@ class SkipLayerNormalization(OnnxOpConverter):
         return relax.Tuple([output, placeholder, placeholder])
 
 
+class SkipSimplifiedLayerNormalization(OnnxOpConverter):
+    """Converts a microsoft contrib SkipSimplifiedLayerNormalization node into a Relax expression."""
+
+    @classmethod
+    def _impl_v1(cls, bb, inputs, attr, params):
+        data = inputs[0]
+        skip = inputs[1]
+        gamma = inputs[2]
+        bias = inputs[3] if len(inputs) > 3 and inputs[3] is not None else None
+
+        epsilon = attr.get("epsilon", 1e-5)
+
+        data = relax.op.add(data, skip)
+        if bias is not None:
+            data = relax.op.add(data, bias)
+
+        output = relax.op.nn.rms_norm(data, gamma, axes=-1, epsilon=epsilon)
+
+        # Expects three outputs though only the first is used. Construct a placeholder for others.
+        placeholder = relax.const(0, dtype="float32")
+        return relax.Tuple([output, placeholder, placeholder])
+
+
 class EmbedLayerNormalization(OnnxOpConverter):
     """Converts a microsoft contrib EmbedLayerNormalization node into a Relax expression."""
 
@@ -6289,8 +6312,10 @@ def _get_convert_map():
         "BatchNormalization": BatchNormalization,
         "LayerNormalization": LayerNormalization,
         "RMSNormalization": RMSNormalization,
+        "SimplifiedLayerNormalization": RMSNormalization,
         "GroupNormalization": GroupNormalization,
         "SkipLayerNormalization": SkipLayerNormalization,
+        "SkipSimplifiedLayerNormalization": SkipSimplifiedLayerNormalization,
         "EmbedLayerNormalization": EmbedLayerNormalization,
         "InstanceNormalization": InstanceNormalization,
         "MeanVarianceNormalization": MeanVarianceNormalization,
