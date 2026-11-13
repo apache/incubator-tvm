@@ -4449,17 +4449,39 @@ class Pool(OnnxOpConverter):
     name = ""
 
     @classmethod
-    def get_pad_pair(cls, input1d, kernel1d, stride1d, mode):
-        """infer pad size"""
-        if input1d % stride1d == 0:
-            pad = max(kernel1d - stride1d, 0)
-        else:
-            pad = max(kernel1d - (input1d % stride1d), 0)
-        pad_before = pad // 2
-        pad_after = pad - pad_before
-        if "LOWER" in mode:
-            return [pad_after, pad_before]
-        return [pad_before, pad_after]
+    def get_same_pads(cls, input_shape, kernel_shape, strides, dilations, auto_pad):
+        """Compute the explicit padding for SAME_UPPER / SAME_LOWER auto_pad.
+
+        Per the ONNX spec, both SAME modes produce ``ceil(input / stride)`` output
+        elements along each spatial axis. The total padding of an axis is therefore
+        ``(ceil(input / stride) - 1) * stride + dilated_kernel - input``, which
+        simplifies to ``dilated_kernel - 1`` when ``stride == 1``. This lets us
+        support symbolic spatial extents whenever the stride is 1.
+
+        Returns the padding as ``(begin_0, ..., begin_n, end_0, ..., end_n)``.
+        """
+        pads_begin, pads_end = [], []
+        for i, dim in enumerate(list(input_shape)[2:]):
+            dilated_kernel = (kernel_shape[i] - 1) * dilations[i] + 1
+            if strides[i] == 1:
+                total_pad = dilated_kernel - 1
+            elif isinstance(dim, tvm_tirx.ir.IntImm | int):
+                dim = int(dim)
+                out_dim = (dim + strides[i] - 1) // strides[i]
+                total_pad = max((out_dim - 1) * strides[i] + dilated_kernel - dim, 0)
+            else:
+                raise NotImplementedError(
+                    f"{auto_pad} auto_pad with stride {strides[i]} is not supported for "
+                    f"symbolic spatial dimension {dim} in operator {cls.__name__}, "
+                    "since the required padding depends on the runtime extent."
+                )
+            if auto_pad == "SAME_UPPER":
+                pad_begin = total_pad // 2
+            else:
+                pad_begin = total_pad - total_pad // 2
+            pads_begin.append(pad_begin)
+            pads_end.append(total_pad - pad_begin)
+        return tuple(pads_begin + pads_end)
 
     @classmethod
     def _impl_v1(cls, bb, inputs, attr, params):
@@ -4486,45 +4508,10 @@ class Pool(OnnxOpConverter):
         ], f"Value {auto_pad} in attribute auto_pad is invalid."
 
         if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
-            pads = []
-            if cls.name == "avg_pool":
-                for axis in range(len(input_shape) - 2):
-                    axis_shape = int(input_shape[2 + axis])
-                    stride = strides[axis]
-                    kernel = kernel_shape[axis]
-                    pad = cls.get_pad_pair(axis_shape, kernel, stride, auto_pad)
-                    pads.append(pad)
-            else:
-                input_spatial_shape = cls._get_input_spatial_shape(data)
-                output_spatial_shape = [0 for _ in input_spatial_shape]
-
-                for i, _ in enumerate(input_spatial_shape):
-                    if auto_pad == "SAME_UPPER":
-                        output_spatial_shape[i] = int(_np.ceil(input_spatial_shape[i] / strides[i]))
-                    else:
-                        output_spatial_shape[i] = int(
-                            _np.floor(input_spatial_shape[i] / strides[i])
-                        )
-                    pad_i = (
-                        (output_spatial_shape[i] - 1) * strides[i]
-                        + ((kernel_shape[i] - 1) * dilations[i] + 1)
-                        - input_spatial_shape[i]
-                    )
-
-                    if auto_pad == "SAME_UPPER":
-                        pads.append([pad_i // 2, pad_i - pad_i // 2])
-                    else:
-                        pads.append([pad_i - pad_i // 2, pad_i // 2])
-
-            pads = tuple([val for pair in zip(*pads) for val in pair])
+            pads = cls.get_same_pads(input_shape, kernel_shape, strides, dilations, auto_pad)
 
         op = getattr(relax.op.nn, cls.name + str(len(kernel_shape)) + "d")
         return op(data, kernel_shape, strides, pads, dilations, ceil_mode, count_include_pad)
-
-    @classmethod
-    def _get_input_spatial_shape(cls, tensor):
-        # shape is (N x C x D1 x D2 ... Dn)
-        return _np.array([int(d) for d in tensor.ty.shape], dtype="int64")[2:]
 
 
 class MaxPool(Pool):
