@@ -6140,6 +6140,8 @@ class MatMulInteger(OnnxOpConverter):
 class DFT(OnnxOpConverter):
     """Converts an onnx DFT node into an equivalent Relax expression."""
 
+    MAX_DFT_LENGTH = 4096
+
     @classmethod
     def _impl_v17(cls, bb, inputs, attr, params):
         data = inputs[0]
@@ -6165,6 +6167,10 @@ class DFT(OnnxOpConverter):
                 axis = int(axis_c.value.numpy().item())
             elif isinstance(axis_c, (int, tvm_tirx.ir.IntImm)):
                 axis = int(axis_c)
+            else:
+                raise NotImplementedError(
+                    "Dynamic or non-constant axis is currently not supported for DFT."
+                )
         else:
             axis = int(attr.get("axis", -2))
 
@@ -6195,6 +6201,19 @@ class DFT(OnnxOpConverter):
                 dft_len = int(dft_len_c.value.numpy().item())
             elif isinstance(dft_len_c, (int, tvm_tirx.ir.IntImm)):
                 dft_len = int(dft_len_c)
+            else:
+                raise NotImplementedError(
+                    "Dynamic or non-constant dft_length is currently not supported for DFT."
+                )
+
+            if dft_len <= 0:
+                raise ValueError(f"dft_length must be positive, but got {dft_len}")
+
+        if dft_len > cls.MAX_DFT_LENGTH:
+            raise ValueError(
+                f"DFT transform length {dft_len} exceeds maximum supported length "
+                f"{cls.MAX_DFT_LENGTH} for table-based DFT conversion."
+            )
 
         if dft_len < orig_len:
             data = relax.op.strided_slice(data, axes=[axis], begin=[0], end=[dft_len])
@@ -6215,24 +6234,25 @@ class DFT(OnnxOpConverter):
             x_im = relax.op.squeeze(x_im, axis=[-1])
         else:
             x_re = relax.op.squeeze(data, axis=[-1])
-            x_im = relax.op.zeros_like(x_re)
+            x_im = None
 
         rank_no_c = ndim - 1
         perm = list(range(rank_no_c))
         if axis != rank_no_c - 1:
             perm[axis], perm[-1] = perm[-1], perm[axis]
             x_re_t = relax.op.permute_dims(x_re, perm)
-            x_im_t = relax.op.permute_dims(x_im, perm)
+            x_im_t = relax.op.permute_dims(x_im, perm) if is_complex else None
         else:
             x_re_t = x_re
-            x_im_t = x_im
+            x_im_t = x_im if is_complex else None
 
         N = dft_len
         K = (N // 2 + 1) if onesided else N
 
-        n_arr = _np.arange(N, dtype=dtype)
-        k_arr = _np.arange(K, dtype=dtype)
-        W_arr = (2.0 * _np.pi / N) * _np.outer(n_arr, k_arr)
+        # Compute DFT coefficient phases in float64 to avoid overflow and phase rounding errors
+        n_arr = _np.arange(N, dtype=_np.float64)
+        k_arr = _np.arange(K, dtype=_np.float64)
+        W_arr = (2.0 * _np.pi / float(N)) * _np.outer(n_arr, k_arr)
         C_np = _np.cos(W_arr).astype(dtype)
         S_np = _np.sin(W_arr).astype(dtype)
 
@@ -6240,17 +6260,26 @@ class DFT(OnnxOpConverter):
         S = relax.const(S_np, dtype)
 
         term_re1 = relax.op.matmul(x_re_t, C)
-        term_re2 = relax.op.matmul(x_im_t, S)
         term_im1 = relax.op.matmul(x_re_t, S)
-        term_im2 = relax.op.matmul(x_im_t, C)
 
-        if not inverse:
-            y_re_t = relax.op.add(term_re1, term_re2)
-            y_im_t = relax.op.subtract(term_im2, term_im1)
+        if is_complex:
+            term_re2 = relax.op.matmul(x_im_t, S)
+            term_im2 = relax.op.matmul(x_im_t, C)
+            if not inverse:
+                y_re_t = relax.op.add(term_re1, term_re2)
+                y_im_t = relax.op.subtract(term_im2, term_im1)
+            else:
+                inv_scale = relax.const(1.0 / float(N), dtype)
+                y_re_t = relax.op.multiply(relax.op.subtract(term_re1, term_re2), inv_scale)
+                y_im_t = relax.op.multiply(relax.op.add(term_im1, term_im2), inv_scale)
         else:
-            inv_scale = relax.const(1.0 / N, dtype)
-            y_re_t = relax.op.multiply(relax.op.subtract(term_re1, term_re2), inv_scale)
-            y_im_t = relax.op.multiply(relax.op.add(term_im1, term_im2), inv_scale)
+            if not inverse:
+                y_re_t = term_re1
+                y_im_t = relax.op.negative(term_im1)
+            else:
+                inv_scale = relax.const(1.0 / float(N), dtype)
+                y_re_t = relax.op.multiply(term_re1, inv_scale)
+                y_im_t = relax.op.multiply(term_im1, inv_scale)
 
         if axis != rank_no_c - 1:
             y_re = relax.op.permute_dims(y_re_t, perm)
