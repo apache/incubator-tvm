@@ -14588,34 +14588,50 @@ def test_qlinearconv():
     def verify_qlinearconv(
         x_shape,
         w_shape,
-        strides=[1, 1],
-        pads=[0, 0, 0, 0],
-        dilations=[1, 1],
+        strides=None,
+        pads=None,
+        dilations=None,
+        auto_pad=None,
         group=1,
         with_bias=True,
+        dtype="uint8",
+        w_scale_shape=(),
+        w_zp_shape=(),
         opset=10,
+        seed=42,
     ):
-        x = np.random.randint(0, 255, size=x_shape, dtype=np.uint8)
+        rng = np.random.RandomState(seed)
+        is_int8 = dtype == "int8"
+        proto = TensorProto.INT8 if is_int8 else TensorProto.UINT8
+        np_dtype = np.int8 if is_int8 else np.uint8
+
+        if is_int8:
+            x = rng.randint(-8, 8, size=x_shape).astype(np_dtype)
+            x_zp = np.array(0, dtype=np_dtype)
+            w = rng.randint(-8, 8, size=w_shape).astype(np_dtype)
+            w_zp = np.full(w_zp_shape, 0, dtype=np_dtype)
+            y_zp = np.array(0, dtype=np_dtype)
+        else:
+            x = rng.randint(120, 136, size=x_shape).astype(np_dtype)
+            x_zp = np.array(128, dtype=np_dtype)
+            w = rng.randint(116, 128, size=w_shape).astype(np_dtype)
+            w_zp = np.full(w_zp_shape, 120, dtype=np_dtype)
+            y_zp = np.array(128, dtype=np_dtype)
+
         x_scale = np.array(0.5, dtype=np.float32)
-        x_zp = np.array(128, dtype=np.uint8)
-
-        w = np.random.randint(0, 255, size=w_shape, dtype=np.uint8)
-        w_scale = np.array(0.25, dtype=np.float32)
-        w_zp = np.array(120, dtype=np.uint8)
-
-        y_scale = np.array(0.1, dtype=np.float32)
-        y_zp = np.array(10, dtype=np.uint8)
+        w_scale = np.full(w_scale_shape, 0.25, dtype=np.float32)
+        y_scale = np.array(2.0, dtype=np.float32)
 
         inputs_list = ["x", "x_scale", "x_zp", "w", "w_scale", "w_zp", "y_scale", "y_zp"]
         graph_inputs = [
-            helper.make_tensor_value_info("x", TensorProto.UINT8, x_shape),
+            helper.make_tensor_value_info("x", proto, x_shape),
             helper.make_tensor_value_info("x_scale", TensorProto.FLOAT, []),
-            helper.make_tensor_value_info("x_zp", TensorProto.UINT8, []),
-            helper.make_tensor_value_info("w", TensorProto.UINT8, w_shape),
-            helper.make_tensor_value_info("w_scale", TensorProto.FLOAT, []),
-            helper.make_tensor_value_info("w_zp", TensorProto.UINT8, []),
+            helper.make_tensor_value_info("x_zp", proto, []),
+            helper.make_tensor_value_info("w", proto, w_shape),
+            helper.make_tensor_value_info("w_scale", TensorProto.FLOAT, list(w_scale_shape)),
+            helper.make_tensor_value_info("w_zp", proto, list(w_zp_shape)),
             helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
-            helper.make_tensor_value_info("y_zp", TensorProto.UINT8, []),
+            helper.make_tensor_value_info("y_zp", proto, []),
         ]
 
         feed_inputs = {
@@ -14630,41 +14646,122 @@ def test_qlinearconv():
         }
 
         if with_bias:
-            B = np.random.randint(-10, 10, size=[w_shape[0]], dtype=np.int32)
+            B = rng.randint(-5, 5, size=[w_shape[0]]).astype(np.int32)
             inputs_list.append("B")
             graph_inputs.append(helper.make_tensor_value_info("B", TensorProto.INT32, [w_shape[0]]))
             feed_inputs["B"] = B
+
+        kwargs = {"group": group, "kernel_shape": w_shape[2:]}
+        if strides is not None:
+            kwargs["strides"] = strides
+        if dilations is not None:
+            kwargs["dilations"] = dilations
+        if pads is not None:
+            kwargs["pads"] = pads
+        if auto_pad is not None:
+            kwargs["auto_pad"] = auto_pad
 
         node = helper.make_node(
             "QLinearConv",
             inputs=inputs_list,
             outputs=["y"],
-            kernel_shape=w_shape[2:],
-            strides=strides,
-            pads=pads,
-            dilations=dilations,
-            group=group,
+            **kwargs,
         )
-
-        out_h = (x_shape[2] + pads[0] + pads[2] - dilations[0] * (w_shape[2] - 1) - 1) // strides[0] + 1
-        out_w = (x_shape[3] + pads[1] + pads[3] - dilations[1] * (w_shape[3] - 1) - 1) // strides[1] + 1
-        y_shape = [x_shape[0], w_shape[0], out_h, out_w]
 
         graph = helper.make_graph(
             [node],
             "qlinearconv_test",
             inputs=graph_inputs,
-            outputs=[helper.make_tensor_value_info("y", TensorProto.UINT8, y_shape)],
+            outputs=[helper.make_tensor_value_info("y", proto, None)],
         )
-        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)])
+        model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", opset)], ir_version=8)
         check_correctness(model, inputs=feed_inputs, opset=opset)
 
-    # 2D Conv with bias
-    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], with_bias=True)
-    # 2D Conv without bias
-    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], with_bias=False)
-    # Multi-channel
+    # 1. 2D Conv with bias (in-range uint8)
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], pads=[0, 0, 0, 0], with_bias=True)
+    # 2. 2D Conv without bias
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], pads=[0, 0, 0, 0], with_bias=False)
+    # 3. Multi-channel 2D Conv
     verify_qlinearconv([2, 3, 5, 5], [4, 3, 3, 3], pads=[1, 1, 1, 1], with_bias=True)
+    # 4. 1D Conv
+    verify_qlinearconv([1, 1, 8], [1, 1, 3], strides=[1], dilations=[1], pads=[0, 0])
+    # 5. 3D Conv
+    verify_qlinearconv(
+        [1, 1, 4, 4, 4], [1, 1, 2, 2, 2], strides=[1, 1, 1], dilations=[1, 1, 1], pads=[0, 0, 0, 0, 0, 0]
+    )
+    # 6. SAME_UPPER automatic padding
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 3, 3], auto_pad="SAME_UPPER")
+    # 7. SAME_LOWER automatic padding
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 3, 3], auto_pad="SAME_LOWER")
+    # 8. VALID automatic padding
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 3, 3], auto_pad="VALID")
+    # 9. Non-unit strides and dilations
+    verify_qlinearconv([1, 1, 8, 8], [1, 1, 3, 3], strides=[2, 2], dilations=[2, 2], pads=[0, 0, 0, 0])
+    # 10. Grouped Conv
+    verify_qlinearconv([1, 4, 4, 4], [4, 2, 2, 2], group=2, pads=[0, 0, 0, 0])
+    # 11. Signed int8 quantization
+    verify_qlinearconv([1, 1, 4, 4], [1, 1, 2, 2], dtype="int8", pads=[0, 0, 0, 0], with_bias=True)
+    # 12. Distinct per-output-channel weight scales and zero-points
+    verify_qlinearconv(
+        [1, 2, 4, 4], [4, 2, 2, 2], w_scale_shape=(4,), w_zp_shape=(4,), pads=[0, 0, 0, 0], with_bias=True
+    )
+    # 13. Unequal input/output channels with bias
+    verify_qlinearconv([1, 3, 5, 5], [5, 3, 2, 2], pads=[0, 0, 0, 0], with_bias=True)
+
+
+def test_qlinearconv_precision_cancellation():
+    """Verify that 1x1 conv over 261 uint8 channels with large bias keeps precision in int32."""
+    channels = 261
+    x = np.full([1, channels, 1, 1], 254, dtype=np.uint8)
+    w = np.full([1, channels, 1, 1], 254, dtype=np.uint8)
+    x_scale = np.array(1.0, dtype=np.float32)
+    x_zp = np.array(0, dtype=np.uint8)
+    w_scale = np.array(1.0, dtype=np.float32)
+    w_zp = np.array(0, dtype=np.uint8)
+    y_scale = np.array(1.0, dtype=np.float32)
+    y_zp = np.array(0, dtype=np.uint8)
+    bias = np.array([-16838675], dtype=np.int32)
+
+    inputs_list = ["x", "x_scale", "x_zp", "w", "w_scale", "w_zp", "y_scale", "y_zp", "B"]
+    graph_inputs = [
+        helper.make_tensor_value_info("x", TensorProto.UINT8, [1, channels, 1, 1]),
+        helper.make_tensor_value_info("x_scale", TensorProto.FLOAT, []),
+        helper.make_tensor_value_info("x_zp", TensorProto.UINT8, []),
+        helper.make_tensor_value_info("w", TensorProto.UINT8, [1, channels, 1, 1]),
+        helper.make_tensor_value_info("w_scale", TensorProto.FLOAT, []),
+        helper.make_tensor_value_info("w_zp", TensorProto.UINT8, []),
+        helper.make_tensor_value_info("y_scale", TensorProto.FLOAT, []),
+        helper.make_tensor_value_info("y_zp", TensorProto.UINT8, []),
+        helper.make_tensor_value_info("B", TensorProto.INT32, [1]),
+    ]
+    node = helper.make_node(
+        "QLinearConv",
+        inputs=inputs_list,
+        outputs=["y"],
+        kernel_shape=[1, 1],
+    )
+    graph = helper.make_graph(
+        [node],
+        "qlinearconv_cancel_test",
+        inputs=graph_inputs,
+        outputs=[helper.make_tensor_value_info("y", TensorProto.UINT8, [1, 1, 1, 1])],
+    )
+    model = helper.make_model(graph, opset_imports=[helper.make_opsetid("", 10)], ir_version=8)
+    feed_inputs = {
+        "x": x,
+        "x_scale": x_scale,
+        "x_zp": x_zp,
+        "w": w,
+        "w_scale": w_scale,
+        "w_zp": w_zp,
+        "y_scale": y_scale,
+        "y_zp": y_zp,
+        "B": bias,
+    }
+    tvm_out = run_in_tvm(model, inputs=feed_inputs, opset=10)
+    tvm_val = tvm_out[0].numpy() if isinstance(tvm_out, (list, tuple)) else tvm_out.numpy()
+    assert tvm_val[0, 0, 0, 0] == 1
+    check_correctness(model, inputs=feed_inputs, opset=10)
 
 
 if __name__ == "__main__":

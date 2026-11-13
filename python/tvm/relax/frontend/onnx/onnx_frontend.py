@@ -2258,13 +2258,17 @@ class QLinearConv(OnnxOpConverter):
         y_zero_point = inputs[7]
         bias = inputs[8] if len(inputs) > 8 and inputs[8] is not None else None
 
-        if hasattr(data.ty, "ndim"):
-            ndim = data.ty.ndim
+        data_norm = bb.normalize(data)
+        if hasattr(data_norm.ty, "ndim"):
+            ndim = data_norm.ty.ndim
         else:
-            ndim = len(data.ty.shape)
+            ndim = len(data_norm.ty.shape)
 
+        weight_norm = bb.normalize(weight)
         if "kernel_shape" not in attr:
-            attr["kernel_shape"] = weight.ty.shape.values[2:]
+            attr["kernel_shape"] = [int(dim) for dim in weight_norm.ty.shape[2:]]
+        else:
+            attr["kernel_shape"] = [int(dim) for dim in attr["kernel_shape"]]
 
         if ndim == 3:
             op = relax.op.nn.conv1d
@@ -2281,113 +2285,102 @@ class QLinearConv(OnnxOpConverter):
         else:
             raise NotImplementedError("Ndim > 5 not supported for QLinearConv.")
 
-        # Dequantize x
+        # Widen data and weight to int32 before centering and arithmetic to prevent overflow
+        data_i32 = relax.op.astype(data, "int32")
+        weight_i32 = relax.op.astype(weight, "int32")
+
         if x_zero_point is None:
-            x_zero_point = relax.const(0, data.ty.dtype.dtype)
-        x_zp_norm = bb.normalize(x_zero_point)
-        if len(x_zp_norm.ty.shape) == 1:
-            x_zp = bb.normalize(relax.op.reshape(x_zero_point, [1, -1] + [1] * (ndim - 2)))
-        else:
-            x_zp = x_zero_point
+            x_zero_point = relax.const(0, "int32")
+        x_zp_i32 = relax.op.astype(x_zero_point, "int32")
+        x_zp_norm = bb.normalize(x_zp_i32)
+        if hasattr(x_zp_norm.ty, "shape") and len(x_zp_norm.ty.shape) == 1:
+            x_zp_i32 = bb.normalize(relax.op.reshape(x_zp_i32, [1, -1] + [1] * (ndim - 2)))
+        x_centered = relax.op.subtract(data_i32, x_zp_i32)
 
-        x_scale_norm = bb.normalize(x_scale)
-        if len(x_scale_norm.ty.shape) == 1:
-            x_scale_reshaped = bb.normalize(relax.op.reshape(x_scale, [1, -1] + [1] * (ndim - 2)))
-        else:
-            x_scale_reshaped = x_scale
-
-        x_float = relax.op.subtract(
-            relax.op.astype(data, "float32"), relax.op.astype(x_zp, "float32")
-        )
-        x_float = relax.op.multiply(x_float, relax.op.astype(x_scale_reshaped, "float32"))
-
-        # Dequantize weight
         if w_zero_point is None:
-            w_zero_point = relax.const(0, weight.ty.dtype.dtype)
-        w_zp_norm = bb.normalize(w_zero_point)
-        if len(w_zp_norm.ty.shape) == 1:
-            w_zp = bb.normalize(relax.op.reshape(w_zero_point, [-1, 1] + [1] * (ndim - 2)))
-        else:
-            w_zp = w_zero_point
-
-        w_scale_norm = bb.normalize(w_scale)
-        if len(w_scale_norm.ty.shape) == 1:
-            w_scale_reshaped = bb.normalize(relax.op.reshape(w_scale, [-1, 1] + [1] * (ndim - 2)))
-        else:
-            w_scale_reshaped = w_scale
-
-        w_float = relax.op.subtract(
-            relax.op.astype(weight, "float32"), relax.op.astype(w_zp, "float32")
-        )
-        w_float = relax.op.multiply(w_float, relax.op.astype(w_scale_reshaped, "float32"))
+            w_zero_point = relax.const(0, "int32")
+        w_zp_i32 = relax.op.astype(w_zero_point, "int32")
+        w_zp_norm = bb.normalize(w_zp_i32)
+        if hasattr(w_zp_norm.ty, "shape") and len(w_zp_norm.ty.shape) == 1:
+            w_zp_i32 = bb.normalize(relax.op.reshape(w_zp_i32, [-1, 1] + [1] * (ndim - 2)))
+        w_centered = relax.op.subtract(weight_i32, w_zp_i32)
 
         if "auto_pad" in attr:
-            attr["auto_pad"] = attr["auto_pad"].decode("utf-8")
-            if attr["auto_pad"] in ("SAME_UPPER", "SAME_LOWER"):
-                x_float = autopad(
+            auto_pad = attr["auto_pad"]
+            if isinstance(auto_pad, bytes):
+                auto_pad = auto_pad.decode("utf-8")
+            if auto_pad in ("SAME_UPPER", "SAME_LOWER"):
+                x_centered = bb.normalize(x_centered)
+                x_centered = autopad(
                     bb,
-                    x_float,
+                    x_centered,
                     attr.get("strides", [1] * (ndim - 2)),
                     attr["kernel_shape"],
                     attr.get("dilations", [1] * (ndim - 2)),
-                    mode=attr["auto_pad"],
+                    mode=auto_pad,
                     deconv=False,
                 )
-            elif attr["auto_pad"] == "VALID":
-                attr["pads"] = [0 for _ in range(ndim - 2)]
-            elif attr["auto_pad"] == "NOTSET":
+            elif auto_pad == "VALID":
+                attr["pads"] = [0 for _ in range((ndim - 2) * 2)]
+            elif auto_pad == "NOTSET":
                 pass
             else:
-                msg = (
-                    f'Value {attr["auto_pad"]} in attribute "auto_pad" of operator QLinearConv is invalid.'
-                )
+                msg = f'Value {auto_pad} in attribute "auto_pad" of operator QLinearConv is invalid.'
                 raise AttributeError(msg)
             attr.pop("auto_pad")
 
+        x_centered = bb.normalize(x_centered)
+        w_centered = bb.normalize(w_centered)
         conv_out = bb.normalize(
             op(
-                data=x_float,
-                weight=w_float,
+                data=x_centered,
+                weight=w_centered,
                 strides=attr.get("strides", 1),
                 padding=attr.get("pads", 0),
                 dilation=attr.get("dilations", 1),
                 groups=attr.get("group", 1),
                 data_layout=data_layout,
                 kernel_layout=kernel_layout,
+                out_dtype="int32",
             )
         )
 
         if bias is not None:
-            b_float = bb.normalize(relax.op.astype(bias, "float32"))
-            b_scale = bb.normalize(
-                relax.op.multiply(
-                    relax.op.astype(w_scale, "float32"),
-                    relax.op.astype(x_scale, "float32"),
-                )
-            )
-            b_real = bb.normalize(relax.op.multiply(b_float, b_scale))
-            b_bias = bb.normalize(relax.op.reshape(b_real, [1, -1] + [1] * (ndim - 2)))
+            b_i32 = bb.normalize(relax.op.astype(bias, "int32"))
+            b_bias = bb.normalize(relax.op.reshape(b_i32, [1, -1] + [1] * (ndim - 2)))
             conv_out = bb.normalize(relax.op.add(conv_out, b_bias))
+
+        conv_float = relax.op.astype(conv_out, "float32")
 
         if y_zero_point is None:
             y_zero_point = relax.const(0, "uint8")
         out_dtype = y_zero_point.ty.dtype.dtype
 
-        y_scale_norm = bb.normalize(y_scale)
-        if len(y_scale_norm.ty.shape) == 1:
-            y_scale_reshaped = bb.normalize(relax.op.reshape(y_scale, [1, -1] + [1] * (ndim - 2)))
-        else:
-            y_scale_reshaped = y_scale
+        x_scale_f = relax.op.astype(x_scale, "float32")
+        w_scale_f = relax.op.astype(w_scale, "float32")
+        y_scale_f = relax.op.astype(y_scale, "float32")
+        y_zp_f = relax.op.astype(y_zero_point, "float32")
 
-        y_zp_norm = bb.normalize(y_zero_point)
-        if len(y_zp_norm.ty.shape) == 1:
-            y_zp_reshaped = bb.normalize(relax.op.reshape(y_zero_point, [1, -1] + [1] * (ndim - 2)))
-        else:
-            y_zp_reshaped = y_zero_point
+        x_s_norm = bb.normalize(x_scale_f)
+        if hasattr(x_s_norm.ty, "shape") and len(x_s_norm.ty.shape) == 1:
+            x_scale_f = bb.normalize(relax.op.reshape(x_scale_f, [1, -1] + [1] * (ndim - 2)))
 
-        y_scaled = relax.op.divide(conv_out, relax.op.astype(y_scale_reshaped, "float32"))
-        y_round = relax.op.round(y_scaled)
-        y_val = relax.op.add(y_round, relax.op.astype(y_zp_reshaped, "float32"))
+        w_s_norm = bb.normalize(w_scale_f)
+        if hasattr(w_s_norm.ty, "shape") and len(w_s_norm.ty.shape) == 1:
+            w_scale_f = bb.normalize(relax.op.reshape(w_scale_f, [1, -1] + [1] * (ndim - 2)))
+
+        y_s_norm = bb.normalize(y_scale_f)
+        if hasattr(y_s_norm.ty, "shape") and len(y_s_norm.ty.shape) == 1:
+            y_scale_f = bb.normalize(relax.op.reshape(y_scale_f, [1, -1] + [1] * (ndim - 2)))
+
+        y_z_norm = bb.normalize(y_zero_point)
+        if hasattr(y_z_norm.ty, "shape") and len(y_z_norm.ty.shape) == 1:
+            y_zp_f = bb.normalize(relax.op.reshape(y_zp_f, [1, -1] + [1] * (ndim - 2)))
+
+        scale_mult = relax.op.divide(relax.op.multiply(x_scale_f, w_scale_f), y_scale_f)
+        scaled = relax.op.multiply(conv_float, scale_mult)
+        rounded = relax.op.round(scaled)
+        y_val = relax.op.add(rounded, y_zp_f)
 
         if out_dtype == "uint8":
             min_val, max_val = 0, 255
