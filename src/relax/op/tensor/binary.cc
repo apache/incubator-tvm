@@ -149,6 +149,14 @@ InferLayoutOutput InferLayoutBinaryEwise(
   auto* x1_ty = GetTypeAs<TensorTypeObj>(call->args[0]);
   auto* x2_ty = GetTypeAs<TensorTypeObj>(call->args[1]);
 
+  // An operand can be a PrimValue rather than a tensor, as in add(x, float32(1)). It then
+  // carries a PrimType and the cast above returns null. Keep both operands on the layouts they
+  // already have, which leaves the PrimValue alone, and let the result follow the tensor.
+  if (x1_ty == nullptr || x2_ty == nullptr) {
+    LayoutDecision out_layout = x1_ty == nullptr ? layout2 : layout1;
+    return InferLayoutOutput({layout1, layout2}, {out_layout}, Attrs(call->attrs));
+  }
+
   TVM_FFI_ICHECK(!x1_ty->IsUnknownNdim() && !x2_ty->IsUnknownNdim())
       << "Unknown dim tensors should not be handled by this function";
 

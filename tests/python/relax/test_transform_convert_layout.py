@@ -1655,6 +1655,52 @@ def test_binary_ewise_scalar():
     verify(Input, Expected)
 
 
+def test_binary_ewise_prim_value_scalar():
+    @I.ir_module
+    class Input:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), "float32"), w: R.Tensor((4, 3, 3, 3), "float32")
+        ) -> R.Tensor(None, "float32", ndim=4):
+            with R.dataflow():
+                gv: R.Tensor((2, 4, 26, 26), "float32") = R.nn.conv2d(x, w, out_dtype="float32")
+                gv2: R.Tensor((2, 4, 26, 26), "float32") = R.add(gv, R.prim_value(T.float32(1)))
+                R.output(gv2)
+            return gv2
+
+    @I.ir_module
+    class Expected:
+        @R.function
+        def main(
+            x: R.Tensor((2, 3, 28, 28), dtype="float32"), w: R.Tensor((4, 3, 3, 3), dtype="float32")
+        ) -> R.Tensor((2, 4, 26, 26), dtype="float32"):
+            with R.dataflow():
+                lv: R.Tensor((2, 28, 28, 3), dtype="float32") = R.permute_dims(x, axes=[0, 2, 3, 1])
+                lv1: R.Tensor((4, 3, 3, 3), dtype="float32") = R.permute_dims(w, axes=[0, 2, 3, 1])
+                gv: R.Tensor((2, 26, 26, 4), dtype="float32") = R.nn.conv2d(
+                    lv,
+                    lv1,
+                    strides=[1, 1],
+                    padding=[0, 0, 0, 0],
+                    dilation=[1, 1],
+                    groups=1,
+                    data_layout="NHWC",
+                    kernel_layout="OHWI",
+                    out_layout="NHWC",
+                    out_dtype="float32",
+                )
+                lv2: R.Tensor((2, 26, 26, 4), dtype="float32") = R.add(
+                    gv, R.prim_value(T.float32(1))
+                )
+                gv2: R.Tensor((2, 4, 26, 26), dtype="float32") = R.permute_dims(
+                    lv2, axes=[0, 3, 1, 2]
+                )
+                R.output(gv2)
+            return gv2
+
+    verify(Input, Expected)
+
+
 def test_conv2d_NCHW_sub_indexed():
     @I.ir_module
     class Input:
