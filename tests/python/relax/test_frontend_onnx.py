@@ -9627,7 +9627,7 @@ def test_resize_sizes_from_shape_symbolic_batch():
     func = from_onnx(model, opset=18, keep_params_in_input=True)["main"]
     n = func.params[0].ty.shape.values[0]
     out_shape = func.ret_ty.shape.values
-    tvm.ir.assert_structural_equal(out_shape[0], n)
+    tvm_tirx.ir.assert_structural_equal(out_shape[0], n)
     assert [int(v) for v in out_shape[1:]] == [3, 8, 10]
 
     x = generate_random_value([2, 3, 4, 5], TensorProto.FLOAT)
@@ -9639,8 +9639,8 @@ def test_resize_sizes_from_shape_symbolic_spatial():
     func = from_onnx(model, opset=18, keep_params_in_input=True)["main"]
     _, _, h, w = func.params[1].ty.shape.values
     out_shape = func.ret_ty.shape.values
-    tvm.ir.assert_structural_equal(out_shape[2], h)
-    tvm.ir.assert_structural_equal(out_shape[3], w)
+    tvm_tirx.ir.assert_structural_equal(out_shape[2], h)
+    tvm_tirx.ir.assert_structural_equal(out_shape[3], w)
 
     x = generate_random_value([2, 3, 4, 5], TensorProto.FLOAT)
     s = generate_random_value([2, 3, 8, 10], TensorProto.FLOAT)

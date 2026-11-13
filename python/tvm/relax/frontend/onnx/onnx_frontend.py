@@ -56,7 +56,6 @@ except ImportError as err:
 
 import tvm_ffi
 
-import tvm
 import tvm_tirx
 from tvm import relax, topi
 from tvm.topi.utils import get_const_tuple
@@ -3739,7 +3738,7 @@ class Dropout(OnnxOpConverter):
 
 def _none_if_empty_constant(value):
     """Return None for a zero-element constant, which stands for an omitted input."""
-    if isinstance(value, tvm.ir.GenericConst) and value.value.numpy().size == 0:
+    if isinstance(value, tvm_tirx.ir.GenericConst) and value.value.numpy().size == 0:
         return None
     return value
 
@@ -3922,7 +3921,7 @@ class Resize(OnnxOpConverter):
                 # channel dims; only the spatial dims are needed, and the relax resize
                 # ops accept symbolic spatial extents.
                 sizes = [
-                    int(val.value) if isinstance(val, tirx.IntImm) else val
+                    int(val.value) if isinstance(val, tvm_tirx.ir.IntImm) else val
                     for val in list(sizes.values)[2:]
                 ]
             else:
