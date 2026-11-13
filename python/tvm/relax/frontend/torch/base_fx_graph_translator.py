@@ -2112,7 +2112,26 @@ class BaseFXGraphImporter(metaclass=abc.ABCMeta):
     def _cat(self, node: fx.Node) -> relax.Var:
         args = self.retrieve_args(node)
         axis = args[1] if len(node.args) > 1 else node.kwargs.get("dim", 0)
-        return self.block_builder.emit(relax.op.concat(args[0], axis=axis))
+        tensors = args[0]
+
+        filtered = []
+        for t in tensors:
+            shape = self.shape_of(t)
+            if shape is not None and len(shape) == 1:
+                dim0 = self._static_dim(shape[0])
+                if dim0 == 0:
+                    continue
+            filtered.append(t)
+
+        if not filtered:
+            # Passes args[0] to relax.op.concat
+            filtered = tensors 
+
+        if len(filtered) == 1:
+            # Returns the only tensor that is not a 1D empty tensor
+            return filtered[0] 
+
+        return self.block_builder.emit(relax.op.concat(filtered, axis=axis))
 
     def _chunk(self, node: fx.Node) -> relax.Var:
         x = self.env[node.args[0]]

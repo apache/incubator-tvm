@@ -5130,10 +5130,24 @@ def test_cat():
                 R.output(gv)
             return gv
 
+    # Expected IR: Concatenate a 1D empty tensor with any tensor
+    @I.ir_module
+    class Expected3:
+        @R.function
+        def main(
+            inp_0: R.Tensor((0,), dtype="float32"),
+            inp_1: R.Tensor((2, 3), dtype="float32"),
+        ) -> R.Tensor((2, 3), dtype="float32"):
+            with R.dataflow():
+                gv: R.Tensor((2, 3), dtype="float32") = inp_1
+                R.output(gv)
+            return gv
+
     verify_model(Cat0(), [([2, 3], "float32"), ([2, 3], "float32")], {}, Expected1)
     verify_model(Cat1(), [([2, 3], "float32"), ([2, 3], "float32")], {}, Expected2)
     verify_model(Cat2(), [([2, 3], "float32"), ([2, 3], "float32")], {}, Expected2)
     verify_model(Cat3(), [([2, 3], "float32"), ([2, 3], "float32")], {}, Expected1)
+    verify_model(Cat3(), [([0], "float32"), ([2, 3], "float32")], {}, Expected3)
 
 
 def test_max():

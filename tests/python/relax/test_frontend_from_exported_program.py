@@ -4986,6 +4986,10 @@ def test_cat():
         def forward(self, x, y):
             return torch.cat((x, y), dim=1)
 
+    class Cat2(Module):
+        def forward(self, x, y):
+            return torch.cat((x, y), dim=0)
+
     @I.ir_module
     class Expected1:
         @R.function
@@ -5012,9 +5016,24 @@ def test_cat():
                 R.output(gv)
             return gv
 
+    # Expected IR: Concatenate a 1D empty tensor with any tensor
+    @I.ir_module
+    class Expected3:
+        @R.function
+        def main(
+            inp_0: R.Tensor((0,), dtype="float32"),
+            inp_1: R.Tensor((2, 3), dtype="float32"),
+        ) -> R.Tuple(R.Tensor((2, 3), dtype="float32")):
+            with R.dataflow():
+                gv: R.Tuple(R.Tensor((2, 3), dtype="float32")) = (inp_1,)
+                R.output(gv)
+            return gv
+
     example_args = (torch.randn(2, 3, dtype=torch.float32), torch.randn(2, 3, dtype=torch.float32))
+    example_args_empty = (torch.tensor([], dtype=torch.float32), torch.randn(2, 3, dtype=torch.float32))
     verify_model(Cat0(), example_args, {}, Expected1)
     verify_model(Cat1(), example_args, {}, Expected2)
+    verify_model(Cat2(), example_args_empty, {}, Expected3)
 
 
 def test_cumsum():
