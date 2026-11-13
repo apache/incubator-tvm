@@ -4838,15 +4838,7 @@ def test_thresholded_relu_nonfinite_and_dtypes(onnx_dtype, np_dtype):
     )
     model = helper.make_model(graph, producer_name="thresholded_relu_nonfinite")
 
-    tvm_model = from_onnx(model, opset=10, keep_params_in_input=True)
-    tvm_model = relax.transform.LegalizeOps()(tvm_model)
-    tvm_model, _ = relax.frontend.detach_params(tvm_model)
-    with tvm_tirx.ir.transform.PassContext(opt_level=3):
-        ex = tvm.compile(tvm_model, target="llvm")
-        vm = relax.VirtualMachine(ex, tvm_tirx.cpu())
-    vm.set_input("main", xs)
-    vm.invoke_stateful("main")
-    tvm_output = vm.get_outputs("main").numpy()
+    tvm_output = run_in_tvm(model, inputs={"x": xs}, opset=10).numpy()
 
     assert tvm_output.dtype == np_dtype
     np.testing.assert_array_equal(tvm_output, expected)
