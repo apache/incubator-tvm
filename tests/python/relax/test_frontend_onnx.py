@@ -10147,7 +10147,7 @@ def _get_pool2d_call(func):
     def visit(expr):
         if (
             isinstance(expr, relax.Call)
-            and isinstance(expr.op, tvm.ir.Op)
+            and isinstance(expr.op, tvm_tirx.ir.Op)
             and expr.op.name in ("relax.nn.max_pool2d", "relax.nn.avg_pool2d")
         ):
             pool_calls.append(expr)
@@ -10189,8 +10189,8 @@ def test_pool_same_padding_symbolic_unit_stride(pool_name, auto_pad, expected_pa
     assert tuple(int(value) for value in pool_call.attrs.padding) == expected_padding
     n, _, _, w = func.params[0].ty.shape.values
     out_n, out_c, out_h, out_w = func.ret_ty.shape.values
-    tvm.ir.assert_structural_equal(out_n, n)
-    tvm.ir.assert_structural_equal(out_w, w)
+    tvm_tirx.ir.assert_structural_equal(out_n, n)
+    tvm_tirx.ir.assert_structural_equal(out_w, w)
     assert (int(out_c), int(out_h)) == (3, 48)
 
     x = rg.standard_normal(size=[2, 3, 48, 17]).astype("float32")
@@ -10199,7 +10199,7 @@ def test_pool_same_padding_symbolic_unit_stride(pool_name, auto_pad, expected_pa
 
 def test_pool_same_padding_symbolic_non_unit_stride():
     model = _make_same_pool_model("MaxPool", [1, 3, 48, "W"], "SAME_UPPER", [2, 2], [2, 2])
-    with pytest.raises(tvm.error.OpAttributeUnImplemented, match="symbolic spatial dimension"):
+    with pytest.raises(NotImplementedError, match="symbolic spatial dimension"):
         from_onnx(model, opset=18)
 
 

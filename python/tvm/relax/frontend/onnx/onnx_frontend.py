@@ -56,7 +56,6 @@ except ImportError as err:
 
 import tvm_ffi
 
-import tvm
 import tvm_tirx
 from tvm import relax, topi
 from tvm.topi.utils import get_const_tuple
@@ -4391,12 +4390,12 @@ class Pool(OnnxOpConverter):
             dilated_kernel = (kernel_shape[i] - 1) * dilations[i] + 1
             if strides[i] == 1:
                 total_pad = dilated_kernel - 1
-            elif isinstance(dim, tirx.IntImm | int):
+            elif isinstance(dim, tvm_tirx.ir.IntImm | int):
                 dim = int(dim)
                 out_dim = (dim + strides[i] - 1) // strides[i]
                 total_pad = max((out_dim - 1) * strides[i] + dilated_kernel - dim, 0)
             else:
-                raise tvm.error.OpAttributeUnImplemented(
+                raise NotImplementedError(
                     f"{auto_pad} auto_pad with stride {strides[i]} is not supported for "
                     f"symbolic spatial dimension {dim} in operator {cls.__name__}, "
                     "since the required padding depends on the runtime extent."
