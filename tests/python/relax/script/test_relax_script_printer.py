@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+import numpy as np
 import pytest
 import tvm_ffi
 from tvm_ffi.access_path import AccessPath
@@ -1314,6 +1315,64 @@ def test_typed_add_binding_without_context_free_inference():
     assert binding.value.op.same_as(tvm_tirx.ir.Op.get("relax.add"))
     tvm_tirx.ir.assert_structural_equal(binding.var.ty, binding.value.ty)
     tvm_tirx.ir.assert_structural_equal(func, restored)
+
+
+def _build_if_module(true_branch, false_branch):
+    cond = relax.Var("cond", relax.TensorType((), "bool"))
+    builder = relax.BlockBuilder()
+    with builder.function("main", params=[cond]):
+        result = builder.emit(relax.IfExpr(cond, true_branch, false_branch))
+        builder.emit_func_output(result)
+    return builder.get()
+
+
+def _const_branch(values):
+    return relax.SeqExpr([], relax.const(np.array(values, dtype="float32")))
+
+
+def _bound_branch(name, values):
+    value = relax.const(np.array(values, dtype="float32"))
+    var = relax.Var(name, relax.TensorType(value.ty.shape, "float32"))
+    return relax.SeqExpr([relax.BindingBlock([relax.VarBinding(var, value)])], var)
+
+
+@pytest.mark.parametrize(
+    "make_branches, needs_metadata",
+    [
+        pytest.param(lambda: (_const_branch(1), _const_branch(3)), False, id="scalar"),
+        pytest.param(lambda: (_const_branch([1, 2]), _const_branch([3, 4])), True, id="vector"),
+        pytest.param(
+            lambda: (_const_branch([1, 2]), _bound_branch("f", [3, 4])),
+            True,
+            id="vector_mixed",
+        ),
+        pytest.param(
+            lambda: (_bound_branch("t", [1, 2]), _bound_branch("f", [3, 4])),
+            True,
+            id="vector_with_binding",
+        ),
+    ],
+)
+def test_if_branch_const_metadata_roundtrip(make_branches, needs_metadata):
+    mod = _build_if_module(*make_branches())
+    source = mod.script(show_meta=True)
+    assert ("load_json" in source) == needs_metadata
+    restored = tvm_tirx.script.from_source(source, extra_vars={"I": I, "R": R, "T": T})
+    tvm_tirx.ir.assert_structural_equal(mod, restored)
+
+
+def test_if_branch_returns_existing_var_roundtrip():
+    cond = relax.Var("cond", relax.TensorType((), "bool"))
+    x = relax.Var("x", relax.TensorType((2,), "float32"))
+    y = relax.Var("y", relax.TensorType((2,), "float32"))
+    builder = relax.BlockBuilder()
+    with builder.function("main", params=[cond, x, y]):
+        result = builder.emit(relax.IfExpr(cond, relax.SeqExpr([], x), relax.SeqExpr([], y)))
+        builder.emit_func_output(result)
+    mod = builder.get()
+    source = mod.script(show_meta=True)
+    restored = tvm_tirx.script.from_source(source, extra_vars={"I": I, "R": R, "T": T})
+    tvm_tirx.ir.assert_structural_equal(mod, restored)
 
 
 if __name__ == "__main__":
