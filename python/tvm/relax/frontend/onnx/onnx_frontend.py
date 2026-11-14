@@ -1766,6 +1766,37 @@ class Reshape(OnnxOpConverter):
                 )
             else:
                 new_shape = new_shape_values
+        elif isinstance(getattr(new_shape, "ty", None), relax.TensorType):
+            new_shape = _as_int64_tensor(bb, new_shape)
+            shape_len = _get_known_tensor_length(new_shape)
+            if shape_len is None:
+                raise ValueError("Reshape requires a statically known shape length.")
+            data_ndim = _get_known_tensor_rank(data)
+            if data_ndim is None:
+                raise ValueError("Reshape requires a statically known input rank.")
+            data_dims = bb.normalize(relax.op.shape_to_tensor(relax.op.shape_of(data)))
+            if not allowzero and data_ndim > 0:
+                # A 0 copies the input dimension at the same index.
+                copy_indices = relax.op.minimum(
+                    relax.op.arange(shape_len, dtype="int64"), relax.const(data_ndim - 1, "int64")
+                )
+                copied_dims = relax.op.take(data_dims, copy_indices, axis=0)
+                new_shape = bb.normalize(
+                    relax.op.where(
+                        relax.op.equal(new_shape, relax.const(0, "int64")), copied_dims, new_shape
+                    )
+                )
+            # A -1 is the number of elements divided by the product of the other dims.
+            is_inferred = relax.op.equal(new_shape, relax.const(-1, "int64"))
+            known_numel = relax.op.prod(
+                relax.op.where(is_inferred, relax.const(1, "int64"), new_shape), axis=[0]
+            )
+            inferred_dim = relax.op.floor_divide(
+                relax.op.prod(data_dims, axis=[0]),
+                relax.op.maximum(known_numel, relax.const(1, "int64")),
+            )
+            new_shape = bb.normalize(relax.op.where(is_inferred, inferred_dim, new_shape))
+            new_shape = _tensor_to_shape_expr(bb, new_shape, shape_len, "reshape_dim")
         out = relax.op.reshape(data, new_shape)
         return out
 

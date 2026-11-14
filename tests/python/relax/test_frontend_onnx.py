@@ -3177,6 +3177,91 @@ def test_reshape_shape_output():
     verify_reshape_shape_output([3, 1], [3, 1], ExpectedRank2ColumnShape)
 
 
+@pytest.mark.parametrize(
+    "data_shape, shape, allowzero, symbolic_batch, out_shape",
+    [
+        ([2, 3], [3, 2], 0, False, [3, 2]),
+        ([2, 3], [-1, 2], 0, False, [3, 2]),
+        ([2, 3], [0, 3], 0, False, [2, 3]),
+        ([2, 3, 4], [0, -1], 0, False, [2, 12]),
+        ([2, 3, 4], [0, 0, -1], 0, False, [2, 3, 4]),
+        ([6], [1, 2, 3], 0, False, [1, 2, 3]),
+        ([2, 3, 4], [24], 0, False, [24]),
+        ([2, 3, 4], [-1], 0, False, [24]),
+        ([], [1], 0, False, [1]),
+        ([2, 3], [-1, 3], 0, True, [2, 3]),
+        ([2, 3], [0, -1], 0, True, [2, 3]),
+        ([3, 4], [-1, 2], 1, False, [6, 2]),
+        ([3, 4], [2, 6], 1, False, [2, 6]),
+        ([2, 0], [0, 2], 1, False, [0, 2]),
+        ([2, 3, 4], [-1, 12], 1, True, [2, 12]),
+    ],
+)
+def test_reshape_runtime_shape(data_shape, shape, allowzero, symbolic_batch, out_shape):
+    """The shape input is a graph input, so its values are only known at run time."""
+    reshape_node = helper.make_node("Reshape", ["data", "shape"], ["reshaped"], allowzero=allowzero)
+    declared_shape = ["batch", *data_shape[1:]] if symbolic_batch else data_shape
+    graph = helper.make_graph(
+        [reshape_node],
+        "reshape_runtime_shape_test",
+        inputs=[
+            helper.make_tensor_value_info("data", TensorProto.FLOAT, declared_shape),
+            helper.make_tensor_value_info("shape", TensorProto.INT64, [len(shape)]),
+        ],
+        outputs=[helper.make_tensor_value_info("reshaped", TensorProto.FLOAT, out_shape)],
+    )
+    model = helper.make_model(graph, producer_name="reshape_runtime_shape_test")
+    inputs = {
+        "data": np.arange(int(np.prod(data_shape)), dtype="float32").reshape(data_shape),
+        "shape": np.array(shape, dtype="int64"),
+    }
+
+    check_correctness(model, inputs=inputs, opset=14)
+
+
+def test_reshape_runtime_shape_unknown_length():
+    reshape_node = helper.make_node("Reshape", ["data", "shape"], ["reshaped"])
+    graph = helper.make_graph(
+        [reshape_node],
+        "reshape_runtime_shape_unknown_length_test",
+        inputs=[
+            helper.make_tensor_value_info("data", TensorProto.FLOAT, [2, 3]),
+            helper.make_tensor_value_info("shape", TensorProto.INT64, ["length"]),
+        ],
+        outputs=[helper.make_tensor_value_info("reshaped", TensorProto.FLOAT, [2, 3])],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="reshape_runtime_shape_unknown_length_test",
+        opset_imports=[helper.make_opsetid("", 14)],
+    )
+
+    with pytest.raises(ValueError, match="Reshape requires a statically known shape length"):
+        from_onnx(model, opset=14, keep_params_in_input=True)
+
+
+def test_reshape_shape_typed_runtime_shape():
+    """A Shape-typed value (not a tensor) as the target shape keeps working."""
+    nodes = [
+        helper.make_node("Shape", ["like"], ["like_shape"]),
+        helper.make_node("Reshape", ["data", "like_shape"], ["reshaped"]),
+    ]
+    graph = helper.make_graph(
+        nodes,
+        "reshape_shape_typed_runtime_shape_test",
+        inputs=[
+            helper.make_tensor_value_info("like", TensorProto.FLOAT, None),
+            helper.make_tensor_value_info("data", TensorProto.FLOAT, [2, 12]),
+        ],
+        outputs=[helper.make_tensor_value_info("reshaped", TensorProto.FLOAT, [4, 3, 2])],
+    )
+    model = helper.make_model(graph, producer_name="reshape_shape_typed_runtime_shape_test")
+
+    tvm_model = from_onnx(model, opset=13, keep_params_in_input=True)
+
+    assert "reshape" in tvm_model.script()
+
+
 def test_transpose_scalar():
     """Test Transpose with scalar inputs - should return scalar unchanged."""
     scalar_node = helper.make_node("Transpose", ["x"], ["y"])
