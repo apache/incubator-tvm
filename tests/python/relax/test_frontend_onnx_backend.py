@@ -155,6 +155,7 @@ _INCLUDE_OPS = [
     "einsum",
     "erf",
     "exp",
+    "eyelike",
     "flatten",
     "floor",
     "gathernd",

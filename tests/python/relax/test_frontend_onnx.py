@@ -2780,7 +2780,51 @@ def test_eye_like(k: int):
         outputs=[helper.make_tensor_value_info("y", TensorProto.FLOAT, [32, 32])],
     )
     model = helper.make_model(graph, producer_name="eye_like_test")
-    check_correctness(model)
+    check_correctness(model, check_dtypes=True)
+
+
+@pytest.mark.parametrize("in_dtype", [TensorProto.INT32, TensorProto.FLOAT])
+@pytest.mark.parametrize(
+    "out_dtype",
+    [
+        TensorProto.FLOAT16,
+        TensorProto.FLOAT,
+        TensorProto.DOUBLE,
+        TensorProto.INT8,
+        TensorProto.UINT8,
+        TensorProto.INT32,
+        TensorProto.INT64,
+        TensorProto.BOOL,
+    ],
+)
+def test_eye_like_dtype(in_dtype: int, out_dtype: int):
+    np_in_dtype = helper.tensor_dtype_to_np_dtype(in_dtype)
+    np_out_dtype = helper.tensor_dtype_to_np_dtype(out_dtype)
+    node = helper.make_node("EyeLike", ["x"], ["y"], k=1, dtype=out_dtype)
+    graph = helper.make_graph(
+        [node],
+        "eye_like_dtype_test",
+        inputs=[helper.make_tensor_value_info("x", in_dtype, [4, 5])],
+        outputs=[helper.make_tensor_value_info("y", out_dtype, [4, 5])],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="eye_like_dtype_test",
+        opset_imports=[helper.make_opsetid("", 14)],
+    )
+    inputs = {"x": np.ones((4, 5), dtype=np_in_dtype)}
+    if out_dtype in (
+        TensorProto.FLOAT,
+        TensorProto.DOUBLE,
+        TensorProto.INT32,
+        TensorProto.INT64,
+    ):
+        check_correctness(model, inputs=inputs, check_dtypes=True)
+    else:
+        tvm_out = run_in_tvm(model, inputs=inputs).numpy()
+        expected = np.eye(4, 5, k=1, dtype=np_out_dtype)
+        assert tvm_out.dtype == expected.dtype
+        np.testing.assert_array_equal(tvm_out, expected)
 
 
 def test_gemm():
@@ -11123,7 +11167,7 @@ def test_onehot():
     values = {
         "indices": np.array([[1, 9], [2, 4]], dtype="int64"),
     }
-    check_correctness(model, inputs=values)
+    check_correctness(model, inputs=values, check_dtypes=True)
 
 
 def test_onehot_negative_indices():
@@ -11145,7 +11189,58 @@ def test_onehot_negative_indices():
     values = {
         "indices": np.array([[-1, -10], [-2, 4]], dtype="int64"),
     }
-    check_correctness(model, inputs=values)
+    check_correctness(model, inputs=values, check_dtypes=True)
+
+
+@pytest.mark.parametrize("indices_dtype", [TensorProto.INT32, TensorProto.INT64])
+@pytest.mark.parametrize(
+    "values_dtype, values_data",
+    [
+        (TensorProto.FLOAT16, [0.5, 1.5]),
+        (TensorProto.FLOAT, [3.0, 1.0]),
+        (TensorProto.DOUBLE, [0.25, 2.5]),
+        (TensorProto.INT8, [-2, 5]),
+        (TensorProto.UINT8, [2, 7]),
+        (TensorProto.INT32, [-10, 20]),
+        (TensorProto.INT64, [100, 200]),
+        (TensorProto.BOOL, [False, True]),
+    ],
+)
+def test_onehot_dtype(indices_dtype: int, values_dtype: int, values_data: list):
+    np_indices_dtype = helper.tensor_dtype_to_np_dtype(indices_dtype)
+    np_values_dtype = helper.tensor_dtype_to_np_dtype(values_dtype)
+    one_hot_node = helper.make_node("OneHot", ["indices", "depth", "values"], ["y"], axis=1)
+    graph = helper.make_graph(
+        [one_hot_node],
+        "one_hot_dtype_test",
+        inputs=[helper.make_tensor_value_info("indices", indices_dtype, [2, 2])],
+        initializer=[
+            numpy_helper.from_array(np.array(4, dtype="int64"), name="depth"),
+            numpy_helper.from_array(np.array(values_data, dtype=np_values_dtype), name="values"),
+        ],
+        outputs=[helper.make_tensor_value_info("y", values_dtype, [2, 4, 2])],
+    )
+    model = helper.make_model(
+        graph,
+        producer_name="one_hot_dtype_test",
+        opset_imports=[helper.make_opsetid("", 14)],
+    )
+    indices = np.array([[0, -1], [2, 5]], dtype=np_indices_dtype)
+    inputs = {"indices": indices}
+    if indices_dtype == TensorProto.INT64 and values_dtype in (
+        TensorProto.FLOAT16,
+        TensorProto.FLOAT,
+        TensorProto.INT64,
+    ):
+        check_correctness(model, inputs=inputs, check_dtypes=True)
+    else:
+        tvm_out = run_in_tvm(model, inputs=inputs).numpy()
+        norm_indices = np.where(indices < 0, indices + 4, indices)
+        mask = norm_indices[:, None, :] == np.arange(4)[None, :, None]
+        val_arr = np.array(values_data, dtype=np_values_dtype)
+        expected = np.where(mask, val_arr[1], val_arr[0])
+        assert tvm_out.dtype == expected.dtype
+        np.testing.assert_array_equal(tvm_out, expected)
 
 
 @pytest.mark.parametrize("axis", [None, 0, 1, -1])

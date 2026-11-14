@@ -90,7 +90,7 @@ def _eye(is_like: bool, function_name: str) -> LegalizeFunc:
             x = call.args[0]
             k = _convert_to_scalar_const(call.args[1]) if len(call.args) > 1 else 0
             n, m = x.ty.shape
-            dtype = x.ty.dtype
+            dtype = call.ty.dtype
         else:
             n = _convert_to_scalar_const(call.args[0])
             m = _convert_to_scalar_const(call.args[1]) if len(call.args) > 1 else n

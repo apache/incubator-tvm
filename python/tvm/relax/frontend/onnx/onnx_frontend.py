@@ -1685,12 +1685,8 @@ class EyeLike(OnnxOpConverter):
     @classmethod
     def _impl_v9(cls, bb, inputs, attr, params):
         k = attr.get("k", 0)
-        input_dtype = inputs[0].ty.dtype.dtype
-        if "dtype" in attr and get_type(attr["dtype"]) != input_dtype:
-            raise ValueError(
-                f"dtype mismatch between input ({input_dtype}) and attribute ({attr['dtype']})"
-            )
-        return relax.op.eye_like(inputs[0], k, input_dtype)
+        dtype = get_type(attr["dtype"]) if "dtype" in attr else inputs[0].ty.dtype.dtype
+        return relax.op.eye_like(inputs[0], k, dtype)
 
 
 class Gemm(OnnxOpConverter):
@@ -5459,11 +5455,11 @@ class OneHot(OnnxOpConverter):
         assert isinstance(values, tvm_tirx.ir.GenericConst), (
             "Only constant values currently supported."
         )
-        values = values.value.numpy().tolist()
-        off_value, on_value = values
+        values_dtype = values.ty.dtype
+        off_value, on_value = values.value.numpy().tolist()
         off_value, on_value = (
-            relax.prim_value(off_value),
-            relax.prim_value(on_value),
+            relax.prim_value(tirx.const(off_value, values_dtype)),
+            relax.prim_value(tirx.const(on_value, values_dtype)),
         )
 
         indices_dtype = indices.ty.dtype.dtype
