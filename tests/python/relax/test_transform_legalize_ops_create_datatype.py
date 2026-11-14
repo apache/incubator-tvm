@@ -576,6 +576,37 @@ def test_zeros_like_symbolic():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
+def test_eye_like_different_dtype():
+    # fmt: off
+    @tvm_tirx.script.ir_module
+    class EyeLike:
+        @R.function
+        def main(x: R.Tensor((2, 3), "int32")) -> R.Tensor((2, 3), "float32"):
+            gv: R.Tensor((2, 3), "float32") = R.eye_like(x, 1, "float32")
+            return gv
+
+    @tvm_tirx.script.ir_module
+    class Expected:
+        @R.function
+        def main(x: R.Tensor((2, 3), "int32")) -> R.Tensor((2, 3), "float32"):
+            gv = R.call_tir(Expected.eye_like, R.tuple(), ty_args=[R.Tensor((2, 3), dtype="float32")])
+            return gv
+
+        @Ts.function(private=True)
+        def eye_like(eye: T.Tensor((T.int64(2), T.int64(3)), "float32")):
+            T.func_attr({"tirx.noalias": True})
+            for i, j in T.grid(T.int64(2), T.int64(3)):
+                with Ts.sblock("eye"):
+                    v_i, v_j = Ts.axis.remap("SS", [i, j])
+                    Ts.reads()
+                    Ts.writes(eye[v_i, v_j])
+                    eye[v_i, v_j] = T.if_then_else(v_i == v_j - T.int64(1), T.float32(1), T.float32(0))
+    # fmt: on
+
+    mod = LegalizeOps()(EyeLike)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
+
+
 def test_arange_const():
     # fmt: off
     @tvm_tirx.script.ir_module
