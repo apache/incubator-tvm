@@ -257,6 +257,83 @@ class HasAnnotationOrThreadBindingError : public ScheduleErrorContextObj {
   For loop_;
 };
 
+class PartitionReductionWithInitError : public ScheduleErrorContextObj {
+ public:
+  /*!
+   * \brief Check that no block under the loop has its reduction iter bound to the loop var while
+   *     owning an init statement. Each partition would clone the init and reset the accumulator.
+   * \param self The state of the schedule
+   * \param loop The loop to be partitioned
+   */
+  static void Check(const ScheduleState& self, const ForObj* loop) {
+    class VarUseFinder : public ExprVisitor {
+     public:
+      using ExprVisitor::Visit_;
+      explicit VarUseFinder(const VarObj* target) : target_(target) {}
+      ffi::Optional<VisitInterrupt> Visit_(const VarObj* op) final {
+        if (op == target_) found = true;
+        return std::nullopt;
+      }
+      const VarObj* target_;
+      bool found = false;
+    };
+
+    class Checker : public StmtExprVisitor {
+     public:
+      using StmtExprVisitor::Visit_;
+      Checker(const ScheduleState& state, const ForObj* loop) : state_(state), loop_(loop) {}
+
+      ffi::Optional<VisitInterrupt> Visit(ffi::AnyView value) final {
+        if (value.as<ExprObj>()) return std::nullopt;
+        return StmtExprVisitor::Visit(value);
+      }
+
+      ffi::Optional<VisitInterrupt> Visit_(const SBlockRealizeObj* realize) final {
+        const SBlockObj* block = realize->block.get();
+        if (block->init.has_value()) {
+          for (size_t i = 0; i < block->iter_vars.size(); i++) {
+            if (block->iter_vars[i]->iter_type != kCommReduce) continue;
+            auto finder = ffi::make_object<VarUseFinder>(loop_->var.get());
+            finder->Visit(ffi::AnyView(realize->iter_values[i]));
+            if (finder->found) {
+              throw MakeScheduleError<PartitionReductionWithInitError>(
+                  state_->mod, ffi::GetRef<For>(loop_), ffi::GetRef<SBlock>(block));
+            }
+          }
+        }
+        return StmtExprVisitor::Visit_(realize);
+      }
+
+      const ScheduleState& state_;
+      const ForObj* loop_;
+    };
+
+    auto checker = ffi::make_object<Checker>(self, loop);
+    checker->Visit(loop->body);
+  }
+
+  explicit PartitionReductionWithInitError(IRModule mod, For loop, SBlock block)
+      : mod_(mod), loop_(std::move(loop)), block_(std::move(block)) {}
+
+  ffi::String FastErrorString() const final {
+    return "ScheduleError: The loop can't be partitioned because it is a reduction loop of a block "
+           "with an init statement";
+  }
+
+  ffi::String DetailRenderTemplate() const final {
+    return "The loop {0} can't be partitioned because it binds a reduction iter of block {1}, "
+           "which has an init statement. Every partition would re-run the init and discard the "
+           "partial result of the previous partitions";
+  }
+
+  IRModule mod() const final { return mod_; }
+  ffi::Array<ffi::ObjectRef> LocationsOfInterest() const final { return {loop_, block_}; }
+
+  IRModule mod_;
+  For loop_;
+  SBlock block_;
+};
+
 class OuterNotInnerParent : public ScheduleErrorContextObj {
  public:
   explicit OuterNotInnerParent(IRModule mod, For outer, For inner)
@@ -724,6 +801,7 @@ ffi::Array<StmtSRef> LoopPartition(ScheduleState self, const StmtSRef& loop_sref
   if (!loop->annotations.empty()) {
     throw MakeScheduleError<HasAnnotationOrThreadBindingError>(self->mod, ffi::GetRef<For>(loop));
   }
+  PartitionReductionWithInitError::Check(self, loop);
 
   sym::Analyzer analyzer;
   // Find the most common dtype

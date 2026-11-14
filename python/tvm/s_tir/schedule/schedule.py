@@ -847,6 +847,10 @@ class Schedule(tvm_ffi.Object):
         """Partition a loop into a list of consecutive loops. It requires:
 
         1) The loop can't have annotation or thread binding.
+        2) The loop can't be a reduction loop of a block that still has an init statement,
+           because every partition would re-run the init and discard the earlier partial results.
+           Use `decompose_reduction` first to separate the init from the update block.
+
         Predicates may be added to ensure the total loop numbers keeps unchanged.
         In `factors`, at most one of the factors can be None,
         which will be automatically inferred.

@@ -400,6 +400,56 @@ def test_partition_with_opaque_access():
     verify_trace_roundtrip(sch=sch, mod=opaque_access)
 
 
+def _create_sum_function():
+    A = te.placeholder((4, 10), "int32", name="A")
+    k = te.reduce_axis((0, 10), name="k")
+    S = te.compute((4,), lambda i: te.sum(A[i, k], axis=k), name="S")
+    return te.create_function([A, S])
+
+
+def test_partition_reduction_loop_with_init_is_rejected():
+    # Every partition would keep the block init and reset the accumulator.
+    sch = tvm.s_tir.Schedule(_create_sum_function(), debug_mask="all")
+    _, k = sch.get_loops(sch.get_sblock("S"))
+    with pytest.raises(tvm.s_tir.ScheduleError, match="binds a reduction iter of block"):
+        sch.loop_partition(k, factors=[None, 3])
+
+
+def test_partition_reduction_loop_with_composite_binding_is_rejected():
+    # The loop var appears inside the iter binding expression, not as the whole binding.
+    sch = tvm.s_tir.Schedule(_create_sum_function(), debug_mask="all")
+    _, k = sch.get_loops(sch.get_sblock("S"))
+    ko, ki = sch.split(k, factors=[2, 5])
+    with pytest.raises(tvm.s_tir.ScheduleError, match="binds a reduction iter of block"):
+        sch.loop_partition(ko, factors=[None, 1])
+    with pytest.raises(tvm.s_tir.ScheduleError, match="binds a reduction iter of block"):
+        sch.loop_partition(ki, factors=[None, 2])
+
+    sch = tvm.s_tir.Schedule(_create_sum_function(), debug_mask="all")
+    i, k = sch.get_loops(sch.get_sblock("S"))
+    fused = sch.fuse(i, k)
+    with pytest.raises(tvm.s_tir.ScheduleError, match="binds a reduction iter of block"):
+        sch.loop_partition(fused, factors=[None, 3])
+
+
+def test_partition_reduction_loop_after_decompose_reduction():
+    # Once the init is decomposed out, partitioning the update loop accumulate correctly.
+    sch = tvm.s_tir.Schedule(_create_sum_function(), debug_mask="all")
+    block = sch.get_sblock("S")
+    _, k = sch.get_loops(block)
+    sch.decompose_reduction(block, k)
+    _, k = sch.get_loops(sch.get_sblock("S_update"))
+    sch.loop_partition(k, factors=[None, 3])
+    verify_trace_roundtrip(sch=sch, mod=_create_sum_function())
+
+
+def test_partition_spatial_loop_of_reduction_block():
+    # Partitioning the spatial loop keeps the init of each row, so it stays valid.
+    sch = tvm.s_tir.Schedule(_create_sum_function(), debug_mask="all")
+    i, _ = sch.get_loops(sch.get_sblock("S"))
+    sch.loop_partition(i, factors=[None, 2])
+
+
 def test_partition_int64_extent_with_mixed_factors():
     def _create_function():
         m = te.const(384, "int64")
