@@ -1689,6 +1689,99 @@ def test_symbolic_prim_arg_not_bound_by_derived_tensor_shape():
     assert sum(isinstance(param.ty, tvm_tirx.ir.PrimType) for param in fused.params) == 1
 
 
+def test_fuseops_respects_match_cast_shape_dependency():
+    """A call_tir's out_ty may use a symbolic var only an earlier match_cast defines."""
+
+    @I.ir_module
+    class Before:
+        make_shape_n = T.int64()
+
+        @Ts.prim_func(private=True)
+        def make_shape(
+            x: T.Buffer((make_shape_n, T.int64(8)), "float32"),
+            out: T.Buffer((T.int64(2),), "int64"),
+        ):
+            T.func_attr({"op_pattern": 0, "tirx.noalias": True})
+            with Ts.sblock("write0"):
+                out[0] = x.shape[0]
+            with Ts.sblock("write1"):
+                out[1] = T.int64(8)
+
+        copy_2d_m = T.int64()
+        copy_2d_n = T.int64()
+
+        @Ts.prim_func(private=True)
+        def copy_2d(
+            x: T.Buffer((copy_2d_m, T.int64(8)), "float32"),
+            out: T.Buffer((copy_2d_n, T.int64(8)), "float32"),
+        ):
+            T.func_attr({"op_pattern": 8, "tirx.noalias": True})
+            for i, j in T.grid(out.shape[0], T.int64(8)):
+                with Ts.sblock("copy"):
+                    vi, vj = Ts.axis.remap("SS", [i, j])
+                    out[vi, vj] = T.float32(1.0)
+
+    def emit_shape_bound_copy(bb, x, shape_gv, copy_gv, shape_var, name_prefix):
+        shape_tensor = bb.emit(
+            relax.call_tir(shape_gv, (x,), out_ty=relax.TensorType((2,), "int64")),
+            name_hint=f"{name_prefix}_shape_tensor",
+        )
+        shape = bb.emit(relax.op.tensor_to_shape(shape_tensor), name_hint=f"{name_prefix}_shape")
+        bb.match_cast(
+            shape,
+            relax.ShapeType([shape_var, 8]),
+            name_hint=f"{name_prefix}_shape_bound",
+        )
+        return bb.emit(
+            relax.call_tir(copy_gv, (x,), out_ty=relax.TensorType((shape_var, 8), "float32")),
+            name_hint=f"{name_prefix}_copy",
+        )
+
+    shape_gv = Before.get_global_var("make_shape")
+    copy_gv = Before.get_global_var("copy_2d")
+    bb = relax.BlockBuilder(Before)
+
+    m = tvm.tirx.Var("m", "int64")
+    d0 = tvm.tirx.Var("d0", "int64")
+    s0 = tvm.tirx.Var("s0", "int64")
+    s1 = tvm.tirx.Var("s1", "int64")
+    x = relax.Var("x", relax.TensorType((m, 8), "float32"))
+
+    with bb.function("main", params=[x]):
+        with bb.dataflow():
+            # Shape bridge 1: derive s0 from x, then use s0 in a second call_tir's out_ty.
+            src = emit_shape_bound_copy(bb, x, shape_gv, copy_gv, s0, "first")
+            source = bb.match_cast(src, relax.TensorType((d0, 8), "float32"))
+            left0 = bb.match_cast(source, relax.TensorType((d0, 8), "float32"))
+            keep = bb.emit(relax.Tuple([source, left0]))
+            left = bb.emit(relax.TupleGetItem(keep, 1))
+
+            # Shape bridge 2 (s1), independent of the first. subtract+add below are
+            # legalized to elemwise call_tir and fused into one group; that group's
+            # dependency on the bridge's call_tir (which uses s1 in its out_ty) must not
+            # let FuseOps schedule it ahead of the match_cast that defines s1.
+            rhs = emit_shape_bound_copy(bb, x, shape_gv, copy_gv, s1, "second")
+            same = bb.match_cast(rhs, relax.TensorType((d0, 8), "float32"))
+            right = bb.emit(relax.op.subtract(same, relax.const(0.375, "float32")))
+            added = bb.emit(relax.op.add(left, right))
+            gv = bb.emit_output(added)
+
+        bb.emit_func_output(gv)
+
+    mod = bb.get()
+    assert relax.analysis.check_well_formed(mod)
+
+    mod = relax.transform.LegalizeOps()(mod)
+    mod = relax.transform.AnnotateTIROpPattern()(mod)
+    mod = relax.transform.FoldConstant()(mod)
+    mod = relax.transform.FuseOps()(mod)
+
+    # Guard against the test becoming vacuous: it only exercises the bug if subtract+add
+    # actually get fused into a group whose dependency call pull the call_tir forward.
+    assert any(gv.name_hint.startswith("fused_") for gv in mod.get_global_vars())
+    assert relax.analysis.check_well_formed(mod)
+
+
 def test_primitive_call_arg_not_inlined():
     @I.ir_module
     class Before:

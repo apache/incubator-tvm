@@ -1029,12 +1029,7 @@ class OperatorFusor : public ExprMutator {
           // Only check those group defined before.
           // Skip the vars from input or groups with single binding.
           if (producer_group != cur_group) {
-            for (Group* depgroup : group_deps_[producer_group]) {
-              TVM_FFI_ICHECK(depgroup != cur_group)
-                  << "A cyclic dependency detected between the groups " << binding->var->name
-                  << " and " << used_var->name << " are in.";
-            }
-            group_deps_[cur_group].push_back(producer_group);
+            AddGroupDep(cur_group, producer_group, binding->var->name, used_var->name);
           }
 
           if (auto producer = group2func_.find(producer_group);
@@ -1051,7 +1046,43 @@ class OperatorFusor : public ExprMutator {
         TVM_FFI_ICHECK_NOTNULL(match_cast);
         PostOrderVisit(match_cast->value, update_boundary);
       }
+
+      // Step 3. A symbolic shape var may only appear in the binding's resulting type(e.g. a
+      // call_tir's out_ty), invisible to the relax::Var traversal above. Depend on the group
+      // whose MatchCast defined that var.
+      for (const tirx::Var& used_tir_var : TIRVarsInType(GetType(binding->var))) {
+        if (auto it = symbolic_var_def_group_.find(used_tir_var);
+            it != symbolic_var_def_group_.end() && it->second != cur_group) {
+          AddGroupDep(cur_group, it->second, binding->var->name, used_tir_var->name);
+        }
+      }
+
+      // Step 4. Record which group first defines each symbolic var a MatchCast introduces, so
+      // later bindings (Step 3) can depend on it. First write wins: re-matching the same var
+      // later must not move its defining group.
+      if (const auto* match_cast = binding.as<MatchCastNode>()) {
+        for (const tirx::Var& defined_var : DefinableTIRVarsInType(match_cast->ty)) {
+          symbolic_var_def_group_.emplace(defined_var, cur_group);
+        }
+      }
     }
+  }
+
+  /*!
+   * \brief Record that `cur_group` depends on `producer_group`, checking for cycles.
+   * \param cur_group The group of the binding with the dependency.
+   * \param producer_group The group being depended on.
+   * \param consumer_name The name of the dependent binding's var, used for the error message.
+   * \param producer_name The name of the dependent-on var, used for the error message.
+   */
+  void AddGroupDep(Group* cur_group, Group* producer_group, const ffi::String& consumer_name,
+                   const ffi::String& producer_name) {
+    for (Group* depgroup : group_deps_[producer_group]) {
+      TVM_FFI_ICHECK(depgroup != cur_group)
+          << "A cyclic dependency detected between the groups " << consumer_name << " and "
+          << producer_name << " are in.";
+    }
+    group_deps_[cur_group].push_back(producer_group);
   }
 
   /*!
@@ -1146,6 +1177,8 @@ class OperatorFusor : public ExprMutator {
    *       linear search is OK.
    */
   std::unordered_map<Group*, std::vector<Group*>> group_deps_;
+  /*! \brief A map from a symbolic var to the group of the MatchCast that first defines it. */
+  std::unordered_map<tirx::Var, Group*> symbolic_var_def_group_;
   /*! \brief Whether or not to lift bound constants to parameters of the grouped function. */
   bool lift_constants_{true};
 };
