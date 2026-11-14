@@ -20,7 +20,6 @@
 import tvm_tirx
 from tvm import te
 from tvm_tirx.ir import Call
-from tvm_tirx.runtime import DataTypeCode
 
 from ...block_builder import BlockBuilder
 from ...expr import Expr
@@ -142,11 +141,7 @@ def _dequantize(bb: BlockBuilder, call: Call) -> Expr:
                 zp_value = zp[(0,) * len(zp.shape)]
             else:
                 zp_value = zp[indices[axis]]
-            dtype = (
-                "float32"
-                if data.dtype.matches_code(DataTypeCode.FLOAT, DataTypeCode.BFLOAT)
-                else "int32"
-            )
+            dtype = "float32" if data.dtype.dtype.is_float else "int32"
             sub = data[indices].astype(dtype) - zp_value
             out = sub * scale_value.astype("float32")
             if out_dtype == "float32":

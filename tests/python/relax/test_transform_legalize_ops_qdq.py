@@ -580,5 +580,52 @@ def test_dequantize_int8_to_fp16_scalar_param():
     tvm_tirx.ir.assert_structural_equal(mod, Expected)
 
 
+def test_dequantize_float8_e4m3fn_to_fp32():
+    @tvm_tirx.script.ir_module
+    class Dequantize:
+        @R.function
+        def main(
+            data: R.Tensor((2, 4), "float8_e4m3fn"),
+            scale: R.Tensor((2,), "float32"),
+            zp: R.Tensor((2,), "float16"),
+        ) -> R.Tensor((2, 4), "float32"):
+            out = R.dequantize(data, scale, zp, axis=0, out_dtype="float32")
+            return out
+
+    @tvm_tirx.script.ir_module
+    class Expected:
+        @Ts.function(private=True)
+        def dequantize(
+            A: T.Tensor((T.int64(2), T.int64(4)), "float8_e4m3fn"),
+            B: T.Tensor((T.int64(2),), "float32"),
+            C: T.Tensor((T.int64(2),), "float16"),
+            dequantized: T.Tensor((T.int64(2), T.int64(4)), "float32"),
+        ):
+            T.func_attr({"tirx.noalias": True})
+            # with Ts.sblock("root"):
+            for i0, i1 in T.grid(T.int64(2), T.int64(4)):
+                with Ts.sblock("dequantized"):
+                    v_i0, v_i1 = Ts.axis.remap("SS", [i0, i1])
+                    Ts.reads(A[v_i0, v_i1], C[v_i0], B[v_i0])
+                    Ts.writes(dequantized[v_i0, v_i1])
+                    dequantized[v_i0, v_i1] = (
+                        T.Cast("float32", A[v_i0, v_i1]) - T.Cast("float32", C[v_i0])
+                    ) * B[v_i0]
+
+        @R.function
+        def main(
+            data: R.Tensor((2, 4), dtype="float8_e4m3fn"),
+            scale: R.Tensor((2,), dtype="float32"),
+            zp: R.Tensor((2,), dtype="float16"),
+        ) -> R.Tensor((2, 4), dtype="float32"):
+            out = R.call_tir(
+                Expected.dequantize, (data, scale, zp), ty_args=[R.Tensor((2, 4), dtype="float32")]
+            )
+            return out
+
+    mod = LegalizeOps()(Dequantize)
+    tvm_tirx.ir.assert_structural_equal(mod, Expected)
+
+
 if __name__ == "__main__":
     tvm_tirx.testing.main()
