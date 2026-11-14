@@ -31,6 +31,8 @@
 #include <tvm/runtime/logging.h>
 #include <tvm/tirx/function.h>
 
+#include "utils.h"
+
 namespace tvm {
 namespace relax {
 using namespace tvm::prim;
@@ -347,6 +349,7 @@ class ConstantFolder : public ExprMutator {
       }
       new_args.push_back(arg);
     }
+    Type original_ty = post_call->ty;
     Type ret_ty = Type::Missing();
     if (post_call->ty.as<PrimTypeObj>() && !infer_type_map.count(op) &&
         !infer_type_with_builder_map.count(op)) {
@@ -361,11 +364,19 @@ class ConstantFolder : public ExprMutator {
       if (legalize_map.count(op)) {
         // Get the legalized expression
         Call post_call_normalized = builder_->Normalize(post_call).as_or_throw<Call>();
-        Expr legalized_expr = builder_->Normalize(legalize_map[op](builder_, post_call_normalized));
-        // If the legalized expression is call_tir, try to fold it.
-        const CallObj* call = legalized_expr.as<CallObj>();
-        if (call && call->op.same_as(call_tir_op)) {
-          return VisitCallTIR(ffi::GetRef<Call>(call)).value_or(post_call);
+        // Only probe foldability once shapes are known, matching LegalizeOps's own gate.
+        if (CanLegalizeCall(op, post_call_normalized)) {
+          Expr legalized_expr =
+              builder_->Normalize(legalize_map[op](builder_, post_call_normalized));
+          // If the legalized expression is call_tir, try to fold it.
+          const CallObj* call = legalized_expr.as<CallObj>();
+          if (call && call->op.same_as(call_tir_op)) {
+            return VisitCallTIR(ffi::GetRef<Call>(call)).value_or(post_call);
+          } else {
+            // Restore the original (well-formed) type instead of the `Missing` type set above.
+            return Call(original_ty, post_call->op, post_call->args, post_call->attrs,
+                        post_call->ty_args, post_call->span);
+          }
         }
       } else if (op->name == "relax.tensor_to_shape") {
         // Special handling for composite op "relax.tensor_to_shape"

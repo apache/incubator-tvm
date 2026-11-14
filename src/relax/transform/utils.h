@@ -202,6 +202,88 @@ bool IsNestedTensor(const Type& ty);
  */
 bool IsNestedTensor(const Expr& expr);
 
+/*!
+ * \brief Check if a given Tensor/Shape/TupleType contains shapes whose
+ * values are all known.
+ * \param ty The Type to be checked.
+ * \return A boolean indicating the given type contains shape values that are all known.
+ */
+inline bool KnowAllShapeValues(const Type& ty) {
+  if (const auto* tensor_ty = ty.as<TensorTypeNode>()) {
+    return tensor_ty->shape.has_value() && tensor_ty->shape.value()->IsInstance<ShapeExprNode>();
+  } else if (const auto* shape_ty = ty.as<ShapeTypeNode>()) {
+    return shape_ty->values.has_value();
+  } else if (const auto* tuple_ty = ty.as<TupleTypeNode>()) {
+    return std::all_of(tuple_ty->fields.begin(), tuple_ty->fields.end(),
+                       [](Type field_ty) { return KnowAllShapeValues(field_ty); });
+  } else if (ty.as<PrimTypeNode>()) {
+    return true;
+  } else {
+    return false;
+  }
+}
+
+/*!
+ * \brief Check whether \p op can be legalized (via its registered `FLegalize`) for the
+ * given \p call right now, i.e. whether the argument/return shapes it needs are already
+ * statically known.
+ *
+ * This mirrors the gate `LegalizeOps` applies before invoking any `FLegalize` function, so
+ * that other callers of `FLegalize` (e.g. `FoldConstant`'s speculative "would this fold to a
+ * constant `call_tir`?" probe) do not violate the same invariant `FLegalize` implementations
+ * are allowed to assume.
+ * \param op The op to check.
+ * \param call The (post-order-visited) call to \p op.
+ * \return Whether \p op's registered `FLegalize` function can be safely invoked on \p call.
+ */
+inline bool CanLegalizeCall(const Op& op, const Call& call) {
+  static const auto& requires_arg_shapes_map = Op::GetAttrMap<bool>("RequiresArgumentShapes");
+
+  bool requires_arg_shapes = requires_arg_shapes_map.get(op, true);
+  if (!requires_arg_shapes) {
+    // This operator does not require its arguments to have a
+    // known shape/dtype.  For example, the "relax.tensor_ndim"
+    // operator can output the dimensionality of a tensor at
+    // runtime, and does not require the dimensionality to be
+    // known at compile-time.
+    return true;
+  }
+
+  bool arg_shapes_defined = std::all_of(call->args.begin(), call->args.end(),
+                                        [](Expr arg) { return KnowAllShapeValues(GetType(arg)); });
+  if (!arg_shapes_defined) {
+    return false;
+  }
+
+  bool is_data_dependent_op = [&]() -> bool {
+    if (Op::HasAttrMap("FDataDependent")) {
+      auto op_map = Op::GetAttrMap<bool>("FDataDependent");
+      if (op_map.count(op)) {
+        return op_map[op];
+      }
+    }
+    return false;
+  }();
+  bool ret_shape_defined = KnowAllShapeValues(GetType(call));
+  if (!is_data_dependent_op && !ret_shape_defined) {
+    // This operator cannot be legalized, because legalization by
+    // default requires the output shape.  The exception is
+    // data-dependent operators (e.g. `R.dynamic_strided_slice`),
+    // where the shape of the output depends on the runtime values
+    // stored in a tensor.
+    //
+    // For data-dependent ops, the output shape will be identified
+    // at runtime.  The Legalizer will insert their shape
+    // functions, which are manually registered for each
+    // data-dependent op, and match cast to define symbolic output
+    // shapes.  These symbolic output shapes at compile time can
+    // be by later operations to refer to the runtime shape.
+    return false;
+  }
+
+  return true;
+}
+
 // TODO(@bohan): implements some postorder function accepts a visitor closure
 class VarReplacer : public ExprMutator {
  public:

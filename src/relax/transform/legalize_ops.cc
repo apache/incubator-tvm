@@ -37,6 +37,8 @@
 
 #include <set>
 
+#include "utils.h"
+
 namespace tvm {
 namespace relax {
 
@@ -46,27 +48,6 @@ struct OpIdentityLess {
 
 TVM_FFI_STATIC_INIT_BLOCK() {
   ::tvm::transform::PassContext::RegisterConfigOption<bool>("relax.transform.apply_legalize_ops");
-}
-
-/*!
- * \brief Check if a given Tensor/Shape/TupleType contains shapes whose
- * values are all known.
- * \param ty The Type to be checked.
- * \return A boolean indicating the given type contains shape values that are all known.
- */
-bool KnowAllShapeValues(const Type& ty) {
-  if (const auto* tensor_ty = ty.as<TensorTypeObj>()) {
-    return tensor_ty->shape.has_value() && tensor_ty->shape.value()->IsInstance<ShapeExprObj>();
-  } else if (const auto* shape_ty = ty.as<ShapeTypeObj>()) {
-    return shape_ty->values.has_value();
-  } else if (const auto* tuple_ty = ty.as<TupleTypeObj>()) {
-    return std::all_of(tuple_ty->fields.begin(), tuple_ty->fields.end(),
-                       [](Type field_ty) { return KnowAllShapeValues(field_ty); });
-  } else if (ty.as<PrimTypeObj>()) {
-    return true;
-  } else {
-    return false;
-  }
 }
 
 class LegalizeMutator : public ExprMutator {
@@ -261,71 +242,31 @@ class LegalizeMutator : public ExprMutator {
       return visited_call;
     }
 
-    bool shapes_are_known_if_required = [&]() -> bool {
-      bool requires_arg_shapes = requires_arg_shapes_map.get(op, true);
-      if (!requires_arg_shapes) {
-        // This operator does not require its arguments to have a
-        // known shape/dtype.  For example, the "relax.tensor_ndim"
-        // operator can output the dimensionality of a tensor at
-        // runtime, and does not require the dimensionality to be
-        // known at compile-time.
-        return true;
-      }
-
-      bool arg_shapes_defined =
-          std::all_of(visited_call->args.begin(), visited_call->args.end(),
-                      [](Expr arg) { return KnowAllShapeValues(GetType(arg)); });
-      if (!arg_shapes_defined) {
-        // This operator cannot be legalized, because legalization
-        // requires the argument shapes to be known.
-        //
-        // TODO(Lunderberg):
-        //
-        //     Improve this fallback case, as failure to legalize can
-        //     produce unexpected errors during CodeGenVM.  This could
-        //     be done by having `R.Tensor(ndim=2)` be syntactic sugar
-        //     for `R.Tensor(shape=[m, n])`, where `m` and `n` are new
-        //     shape variables.  This would allow legalization into
-        //     dynamic TIR Functions.
-        //
-        //     This fallback would only be applicable for cases where
-        //     both the dtype and the dimensionality are known.  While
-        //     Relax can express a tensor with unknown dtype and
-        //     dimensionality as `TensorType(DLDataType{kDLOpaqueHandle, 0, 0},
-        //     kUnknownNDim)`, TIR cannot express unknown dtype or
-        //     unknown dimensionality.
-        return false;
-      }
-
-      bool is_data_dependent_op = [&]() -> bool {
-        if (Op::HasAttrMap(tvm::relax::op_attr::kDataDependent)) {
-          auto op_map = Op::GetAttrMap(tvm::relax::op_attr::kDataDependent);
-          if (op_map.count(op)) {
-            return op_map[op];
-          }
-        }
-        return false;
-      }();
-      bool ret_shape_defined = KnowAllShapeValues(GetType(visited_call));
-      if (!is_data_dependent_op && !ret_shape_defined) {
-        // This operator cannot be legalized, because legalization by
-        // default requires the output shape.  The exception is
-        // data-dependent operators (e.g. `R.dynamic_strided_slice`),
-        // where the shape of the output depends on the runtime values
-        // stored in a tensor.
-        //
-        // For data-dependent ops, the output shape will be identified
-        // at runtime.  The Legalizer will insert their shape
-        // functions, which are manually registered for each
-        // data-dependent op, and match cast to define symbolic output
-        // shapes.  These symbolic output shapes at compile time can
-        // be by later operations to refer to the runtime shape.
-        return false;
-      }
-
-      // All checks pass, this operator can be legalized.
-      return true;
-    }();
+    // TODO(Lunderberg):
+    //
+    //     Improve the "argument shape not known" fallback case in
+    //     `CanLegalizeCall`, as failure to legalize can produce
+    //     unexpected errors during CodeGenVM.  This could be done by
+    //     having `R.Tensor(ndim=2)` be syntactic sugar for
+    //     `R.Tensor(shape=[m, n])`, where `m` and `n` are new shape
+    //     variables.  This would allow legalization into dynamic TIR
+    //     PrimFuncs.
+    //
+    //     This fallback would only be applicable for cases where both
+    //     the dtype and the dimensionality are known.  While Relax can
+    //     express a tensor with unknown dtype and dimensionality as
+    //     `TensorType(DLDataType{kDLOpaqueHandle, 0, 0}, kUnknownNDim)`,
+    //     TIR cannot express unknown dtype or unknown dimensionality.
+    //
+    // For data-dependent ops (e.g. `R.dynamic_strided_slice`), the
+    // shape of the output depends on the runtime values stored in a
+    // tensor, and `CanLegalizeCall` allows the return shape to remain
+    // unknown. The Legalizer will insert their shape functions, which
+    // are manually registered for each data-dependent op, and match
+    // cast to define symbolic output shapes. These symbolic output
+    // shapes at compile time can be used by later operations to refer
+    // to the runtime shape.
+    bool shapes_are_known_if_required = CanLegalizeCall(op, visited_call);
 
     FLegalize legalization_func;
 

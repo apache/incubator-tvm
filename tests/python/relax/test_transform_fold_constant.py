@@ -391,6 +391,25 @@ def test_fold_multiple_relax_ops_with_data_dependent_reshape():
     tvm_tirx.ir.assert_structural_equal(after, expected)
 
 
+def test_fold_constant_skips_data_dependent_reshape_with_unknown_shape():
+    @tvm_tirx.script.ir_module
+    class Module:
+        @R.function
+        def before(data: R.Tensor((256,), "float32"), c0: R.Tensor((2,), "int64")):
+            with R.dataflow():
+                lv2: R.Shape(ndim=2) = R.tensor_to_shape(c0)
+                gv: R.Tensor(ndim=2, dtype="float32") = R.reshape(data, lv2)
+                R.output(gv)
+            return gv
+
+    # Deliberately leave `c0` unbound, so its value (and therefore the reshape's
+    # target shape) is never statically known.
+    before = gen_mod(Module, "before", {})
+
+    after = relax.transform.FoldConstant()(before)
+    tvm_tirx.ir.assert_structural_equal(after, before)
+
+
 def test_unsupported_fold_ops_legalized_to_multiple_calls():
     @tvm_tirx.script.ir_module
     class Module:

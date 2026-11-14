@@ -40,7 +40,12 @@ def _reshape(
         # If target shape is Var, pass its bound expr only when it is ShapeExpr
         if isinstance(tgt_shape, Var):
             tgt_shape = bb.lookup_binding(tgt_shape)
-            assert isinstance(tgt_shape, ShapeExpr)
+            if not isinstance(tgt_shape, ShapeExpr):
+                raise ValueError(
+                    f"Cannot legalize {call.op}: expected the bound target shape to be a "
+                    f"ShapeExpr with statically known values, but got "
+                    f"{type(tgt_shape).__name__} bound to {call.args[1]}."
+                )
         return bb.call_te(te_func, call.args[0], tgt_shape, function_name_hint=function_name)
 
     return reshape_call_te
